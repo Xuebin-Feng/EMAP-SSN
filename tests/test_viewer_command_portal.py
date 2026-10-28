@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6 import QtWidgets
 import Command_Engine as ce
 from Viewer_Command_Portal import ViewerCommandPortal, CURRENT, bind, user_interaction
-from tests.command_fixtures import scratch_commands
+from tests.command_fixtures import end_scheduler, scratch_commands
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, Viewer, apply_window_state
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Visual_State import edge_stages, capture_view
@@ -99,7 +99,7 @@ class PortalTests(PortalFixture, unittest.TestCase):
 
     def test_wait_for_jobs_manual_input_and_stop_on_failure(self):
         scheduler = BackgroundJobScheduler(self.viewer)
-        self.addCleanup(scheduler.shutdown)
+        self.addCleanup(end_scheduler, scheduler)
         release = threading.Event()
         self.addCleanup(release.set)
         def worker(payload):
@@ -872,7 +872,19 @@ class HiddenWorkerFixture(PortalFixture):
         import psutil
         _, alive = psutil.wait_procs(processes, timeout=10)
         self.assertEqual(alive, [], 'A process the hidden worker started is still running')
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
+
+    def assert_ended(self, process):
+        """Fail unless the worker's process has ended, waiting for its exit status to be collected.
+
+        launch_without_window has a thread wait on the process, and that thread holds the Popen's lock
+        until it has the status. When psutil collects it first, poll() answers None for a moment after
+        the process is gone, so poll() is no test of whether a worker has ended.
+        """
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fail('The worker is still running')
 
 class HiddenWorkerTests(HiddenWorkerFixture, unittest.TestCase):
     """A worker with no window (a headless Viewer's) is ended by the Viewer, and its failures name its log.
@@ -1084,7 +1096,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
 
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
 
-        self.assertIsNotNone(worker.poll())
+        self.assert_ended(worker)
         self.assertEqual(self.finish(request_id)['status'], 'cancelled')
 
     def test_stop_ends_only_what_the_registry_started(self):
@@ -1097,7 +1109,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
 
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
 
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
         self.assertIsNone(bystander.poll())
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 0)
 
@@ -1208,7 +1220,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
         # What the application's aboutToQuit signal runs for a hidden worker.
         self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 1)
 
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
         self.assertFalse(os.path.exists(input_path))
 
     def test_the_quit_hook_for_every_worker_is_connected_once(self):
@@ -1473,7 +1485,7 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.scheduler = BackgroundJobScheduler(self.viewer)
-        self.addCleanup(self.scheduler.shutdown)
+        self.addCleanup(end_scheduler, self.scheduler)
         self.release = {}
         self.begun = {}
         self.completed = []

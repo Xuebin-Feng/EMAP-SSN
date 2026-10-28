@@ -75,6 +75,13 @@ CAPTURE_HIDDEN_OVERLAYS = (
 SVG_CHUNK_SIZE = 100_000
 # Longest stretch of a full capture without letting Qt paint and run timers.
 CAPTURE_EVENT_INTERVAL_S = 0.1
+# A frame the window takes this long to show, its buffer swap waiting that long, is a window the desktop is not
+# presenting: X11 under Wayland (GNOME, with the NVIDIA driver) stops pacing a window another one covers, so
+# each swap waits for a timer of about a second, though Qt goes on reporting the window exposed. A capture then
+# stops painting the live view (see _CaptureEvents) rather than wait a second for every pass of the event loop.
+CAPTURE_PRESENT_STALL_S = 0.5
+# While the live view is held, the window is let paint once in this long, to see whether it shows frames again.
+CAPTURE_PRESENT_PROBE_S = 5.0
 
 def print_help():
     print(f"""
@@ -1067,6 +1074,16 @@ class _CaptureEvents:
     own camera and puts the live one back, and so is an edge layer that
     draws again after a pan with fewer edges: it says what it draws changed
     by its generation (desktop.Viewer_Edges), which a repaint leaves as it is.
+
+    A tile never reaches the window (canvas.render() draws into a framebuffer
+    object), but the paints the event loop runs between tiles do, and each
+    ends in the window's buffer swap. When the desktop does not present the
+    window (CAPTURE_PRESENT_STALL_S), that swap, on the GUI thread, takes about
+    a second, and a full capture would wait it out once a pass of the event
+    loop: 70 s for 144 tiles. So a swap that takes that long holds the window's
+    paints until the capture ends, but for one in CAPTURE_PRESENT_PROBE_S to see
+    whether it is shown again. A window that shows its frames promptly is never
+    held, and the tiles are drawn the same either way.
     """
 
     def __init__(self, viewer, overlays):
@@ -1079,6 +1096,20 @@ class _CaptureEvents:
         self._versioned = []
         self._versions = []
         self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
+        # How long the window takes to show a frame: Qt tells the canvas widget when its window begins composing
+        # and when its buffer swap, which is inside that, returns.
+        self._native = None
+        self._window = None
+        self._composing_since = None
+        self._swap_stalled = False
+        self._held_since = None
+        native = getattr(viewer.canvas, 'native', None)
+        if all(hasattr(native, name) for name in ('aboutToCompose', 'frameSwapped', 'window')):
+            self._native = native
+            self._window = native.window()
+            direct = QtCore.Qt.ConnectionType.DirectConnection
+            native.aboutToCompose.connect(self._compose_began, direct)
+            native.frameSwapped.connect(self._compose_ended, direct)
         root = getattr(viewer.canvas, 'scene', None)
         if root is None:
             return
@@ -1113,8 +1144,38 @@ class _CaptureEvents:
         self._changed = False
         self._versions = [node.generation for node in self._versioned]
 
+    def _compose_began(self):
+        self._composing_since = time.perf_counter()
+
+    def _compose_ended(self):
+        began, self._composing_since = self._composing_since, None
+        if began is not None and time.perf_counter() - began >= CAPTURE_PRESENT_STALL_S:
+            self._swap_stalled = True
+
+    def _set_window_updates(self, enabled):
+        try:
+            self._window.setUpdatesEnabled(enabled)
+        except RuntimeError:
+            pass  # the window is gone: the Viewer is closing
+
+    def _hold_window_if_stalled(self):
+        """Stop the window's paints once its swap has stalled; let it paint again now and then."""
+        if self._window is None:
+            return
+        now = time.perf_counter()
+        if self._swap_stalled:
+            self._swap_stalled = False
+            if self._held_since is None:
+                self._set_window_updates(False)
+            self._held_since = now
+        elif self._held_since is not None and now - self._held_since >= CAPTURE_PRESENT_PROBE_S:
+            # The paint this asks for stalls again, and holds the window again, if it still is not shown.
+            self._held_since = None
+            self._set_window_updates(True)
+
     def reclaim(self):
         """Raise _CaptureInterrupted if what ran since release() spoiled the capture."""
+        self._hold_window_if_stalled()
         if _capture_geometry(self._viewer) != self._geometry:
             raise _CaptureInterrupted(Message(
                 "the Viewer window was resized during the capture, so nothing "
@@ -1141,6 +1202,16 @@ class _CaptureEvents:
         for emitter in self._emitters:
             emitter.disconnect(self._mark_changed)
         self._emitters = []
+        if self._native is not None:
+            if self._held_since is not None:
+                self._held_since = None
+                self._set_window_updates(True)
+            try:
+                self._native.aboutToCompose.disconnect(self._compose_began)
+                self._native.frameSwapped.disconnect(self._compose_ended)
+            except (RuntimeError, TypeError):
+                pass  # the widget is gone
+            self._native = None
 
 
 def _background_rgb(background_color):

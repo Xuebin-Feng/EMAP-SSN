@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 from desktop.Viewer_Jobs import JobLane, JobRow, ViewerJobs, job_lanes, job_lines  # noqa: E402
 from desktop.Viewer_Jobs_Card import ElidedLabel, JobsSection, clock  # noqa: E402
 from desktop.Viewer_Widgets import ControlsButton  # noqa: E402
+from tests.command_fixtures import end_scheduler  # noqa: E402
 from tests.test_viewer_widgets import RecordingCanvas, flush, shipped_actions  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from utilities.Localization import Message  # noqa: E402
@@ -385,7 +386,7 @@ class ScheduledJobsCase(SectionCase):
         self.viewer = Viewer()
         self.scheduler = BackgroundJobScheduler(self.viewer)
         self.viewer.background_job_scheduler = self.scheduler
-        self.addCleanup(self.scheduler.shutdown, 0.2)
+        self.addCleanup(end_scheduler, self.scheduler, 0.2)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.gate = threading.Event()
@@ -616,6 +617,24 @@ class CardTests(ScheduledJobsCase):
         flush(self.app)
         self.assertEqual(card.scroll.verticalScrollBar().maximum(), 0, "nothing is left to scroll to")
         self.assertEqual(card.scroll.horizontalScrollBar().maximum(), 0)
+
+    def test_a_card_measures_itself_after_the_rows_a_queued_change_made_as_it_opened(self):
+        # A job queued from another thread reaches the card as an event of the loop, in the same turns that
+        # measure the card after it opened. The rows that change makes are not shown yet then, and a measure
+        # that ran before they were shown would leave them out and the card too short for them.
+        self.host.setGeometry(10, 0, 1000, 1600)
+        self.button.move(20, 1560)
+        first, entered = self.hold("a")
+        self.assertTrue(entered.wait(10))
+        card = self.button.toggle_card()
+        later = threading.Thread(target=lambda: (self.hold("b"), self.hold("c", lane="folding", lane_title=Message("Folding"))))
+        later.start()
+        later.join()
+        flush(self.app)
+        QTest.qWait(150)
+        flush(self.app)
+        self.assertEqual(len(card.jobs_section.rows), 3)
+        self.assertEqual(card.scroll.verticalScrollBar().maximum(), 0, "nothing is left to scroll to")
 
     def test_the_open_log_link_keeps_the_height_its_text_needs_inside_the_card(self):
         # The card's stylesheet shapes the link: a rule that lets the layout squeeze it cuts the text off below.

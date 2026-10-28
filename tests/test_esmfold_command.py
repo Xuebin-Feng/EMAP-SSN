@@ -36,6 +36,7 @@ import Viewer_Worker_Tracking
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Command_Portal import CURRENT, ExecutionContext, bind
 from commands import esmfold as esmfold_command
+from tests.command_fixtures import end_scheduler
 from tests.sparse_alignment import sparse_alignment
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, apply_window_state
 from utilities import Hardware_Acceleration as Hardware_Utils
@@ -1502,7 +1503,7 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         enter(mock.patch.object(esmfold_command, "launch_without_window", side_effect=launch))
 
     def end_workers(self):
-        self.scheduler.shutdown(5.0)
+        end_scheduler(self.scheduler, 5.0)
         Viewer_Worker_Tracking.stop_hidden_workers()
         Viewer_Worker_Tracking.stop_workers("test over")
         for path in self.inputs:

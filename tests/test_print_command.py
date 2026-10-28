@@ -38,6 +38,8 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from tests.command_fixtures import end_scheduler  # noqa: E402
+
 
 def load_print_command():
     # Import print.py's real dependencies before the sys.modules window below.
@@ -2703,11 +2705,12 @@ class PrintBackgroundJobTests(unittest.TestCase):
         self.addCleanup(self.stop_scheduler)
 
     def stop_scheduler(self, release=None):
-        """Discard the queued jobs, let a blocked one end, and wait for the queue to empty."""
+        """Discard the queued jobs, let a blocked one end, wait for the queue to empty, and delete the scheduler."""
         self.scheduler.shutdown()
         if release is not None:
             release.set()
         self.assertTrue(wait_for(lambda: self.scheduler.queue_depth == 0))
+        end_scheduler(self.scheduler)
 
     def viewer(self, svg=False):
         if svg:
@@ -3518,6 +3521,75 @@ class PrintCooperativeTests(unittest.TestCase):
         events._mark_changed()
         with self.assertRaises(print_command._CaptureInterrupted):
             events.reclaim()
+
+    def composing_viewer(self):
+        """A zoom_viewer() whose canvas widget has the signals the QOpenGLWidget sends as its window composes and swaps."""
+        viewer = zoom_viewer()
+        viewer.canvas.native = SimpleNamespace(
+            aboutToCompose=mock.Mock(), frameSwapped=mock.Mock(), window=mock.Mock(return_value=mock.Mock()),
+        )
+        return viewer
+
+    def compose_for(self, events, clock, seconds):
+        """The window composes, its swap taking `seconds`, and the event loop's pass ends."""
+        events.release()
+        events._compose_began()
+        clock[0] += seconds
+        events._compose_ended()
+        events.reclaim()
+
+    def test_a_window_whose_swap_waits_for_the_desktop_is_not_painted_again_until_the_capture_ends(self):
+        # Covered, under XWayland, the swap of every paint the event loop runs takes a second: 144 tiles took 71 s.
+        viewer = self.composing_viewer()
+        window = viewer.canvas.native.window.return_value
+        clock = [100.0]
+        with mock.patch.object(print_command, "time", SimpleNamespace(perf_counter=lambda: clock[0])):
+            events = print_command._CaptureEvents(viewer, [])
+            viewer.canvas.native.aboutToCompose.connect.assert_called_once()
+            viewer.canvas.native.frameSwapped.connect.assert_called_once()
+
+            self.compose_for(events, clock, 0.02)  # a window that shows its frames is left alone
+            window.setUpdatesEnabled.assert_not_called()
+
+            self.compose_for(events, clock, 1.04)
+            window.setUpdatesEnabled.assert_called_once_with(False)
+
+            clock[0] += print_command.CAPTURE_PRESENT_PROBE_S / 2
+            events.release()
+            events.reclaim()
+            window.setUpdatesEnabled.assert_called_once_with(False)  # still held
+
+            clock[0] += print_command.CAPTURE_PRESENT_PROBE_S
+            events.release()
+            events.reclaim()
+            self.assertEqual(window.setUpdatesEnabled.call_args_list[-1], mock.call(True))  # let paint, to see
+
+            self.compose_for(events, clock, 1.04)  # and it still does not show a frame
+            self.assertEqual(window.setUpdatesEnabled.call_args_list[-1], mock.call(False))
+
+            events.close()
+            self.assertEqual(window.setUpdatesEnabled.call_args_list[-1], mock.call(True))
+            events.close()  # closing twice does no more
+            self.assertEqual(window.setUpdatesEnabled.call_count, 4)
+            viewer.canvas.native.aboutToCompose.disconnect.assert_called_once()
+            viewer.canvas.native.frameSwapped.disconnect.assert_called_once()
+
+    def test_a_window_that_was_never_held_is_not_touched_when_the_capture_ends(self):
+        viewer = self.composing_viewer()
+        window = viewer.canvas.native.window.return_value
+        clock = [100.0]
+        with mock.patch.object(print_command, "time", SimpleNamespace(perf_counter=lambda: clock[0])):
+            events = print_command._CaptureEvents(viewer, [])
+            for _ in range(20):
+                self.compose_for(events, clock, 0.03)
+            events.close()
+        window.setUpdatesEnabled.assert_not_called()
+
+    def test_a_canvas_without_composing_signals_is_left_to_the_event_loop_alone(self):
+        events = print_command._CaptureEvents(zoom_viewer(), [])
+        events.release()
+        events.reclaim()
+        events.close()
 
     def scene_viewer(self):
         """A zoom_viewer() whose canvas holds a scene: the edge layer and the node markers the capture watches."""

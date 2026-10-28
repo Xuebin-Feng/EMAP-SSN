@@ -7,10 +7,12 @@ reported_outcomes() records which outcome a command reported. network_viewer()
 and BARBELL_EDGES give the clustering commands a small network, and
 run_command() runs a command quietly and returns its outcomes and output.
 scratch_commands() drops throwaway command modules into the commands package,
-as a plugin is dropped in.
+as a plugin is dropped in. end_scheduler() is the cleanup for a test's own
+background job scheduler.
 """
 import io
 import sys
+import time
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -115,6 +117,34 @@ def run_command(command, viewer, args):
     with reported_outcomes() as (succeeded, failed), redirect_stdout(output):
         command.run(viewer, args)
     return succeeded, failed, output.getvalue()
+
+
+def end_scheduler(scheduler, *wait):
+    """Shut a test's background job scheduler down, and delete it here, on the GUI thread.
+
+    A scheduler left to the garbage collector can be collected on another thread, a
+    later test's job thread, which allocates too, while this thread delivers a signal
+    still posted to it (the changed a lane sends as its job ends). PySide then finds
+    no Python object for the receiver and crashes: the segfault seen in
+    test_label_command's stop tests. Its posted signals are dropped and it is deleted
+    here instead, so that a collection elsewhere has nothing to race with. ``wait``
+    is shutdown()'s. A lane whose job was let go just before gets a second to end; a
+    scheduler whose lane still runs a job that ignored the stop is not deleted, as
+    that thread still uses it. Ending one twice does nothing the second time.
+    """
+    import shiboken6
+    from PySide6.QtCore import QCoreApplication
+
+    if not shiboken6.isValid(scheduler):
+        return
+    scheduler.shutdown(*wait)
+    threads = [lane.thread for lane in scheduler._lanes.values() if lane.thread is not None]
+    deadline = time.monotonic() + 1.0
+    for thread in threads:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    QCoreApplication.removePostedEvents(scheduler)
+    if not any(thread.is_alive() for thread in threads):
+        shiboken6.delete(scheduler)
 
 
 # Two triangles, 0-1-2 and 3-4-5, joined by the bridge 2-3. The Jaccard index

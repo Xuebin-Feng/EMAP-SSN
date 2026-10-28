@@ -153,6 +153,7 @@ import ctypes
 import gc
 import itertools
 import queue
+import time
 from vispy import scene, app
 from vispy.color import Color
 from PySide6 import QtWidgets, QtCore, QtGui
@@ -173,6 +174,7 @@ from desktop.Desktop_App import (
     APP_USER_MODEL_IDS,
     APPLICATION_VERSION,
     CONFIG_THEME_SETTING,
+    LANGUAGE_FONTS,
     UI_QSS_FONT_STACK,
     VIEWER_DESKTOP_FILE_NAME,
     VIEWER_DISPLAY_NAME,
@@ -283,6 +285,19 @@ SIDEBAR_ENABLED = False
 SIDEBAR_SLIDE_MS = 220
 # The command line's box: a light tint of the theme colour, a touch see-through over the network.
 COMMAND_BOX_OPACITY = 0.95
+# VisPy draws each text from a texture of glyphs that the text keeps for itself, and builds a glyph the first
+# time the text shows its character: 3-6 ms on the GUI thread each. The first command's status line and its
+# result brought some fifty at once, a 0.25-0.35 s freeze before the Viewer answered. While the Viewer is idle
+# after it starts, the printable ASCII glyphs of the console line and of the background-job status line are
+# built a few at a time instead, each slice this long (plus the glyph under way) so that input is served
+# between them.
+GLYPH_WARMUP_CHARS = "".join(map(chr, range(0x20, 0x7F)))
+# The glyphs a text's height is measured from (_vispy_text_glyph_height_pixels): accented capitals for the top,
+# descenders for the bottom. The accented ones are not ASCII and take the longest to build, some 30 ms each, so
+# they are built ahead too, in every language.
+GLYPH_EXTENT_CHARS = 'ÅÉÑŐjgpqy'
+GLYPH_WARMUP_DELAY_MS = 500
+GLYPH_WARMUP_SLICE_S = 0.008
 # Between a command being typed and what a click did, on the command line.
 CLICK_STATUS_SEPARATOR = "  ·  "
 # A press and its release this close together (px on the canvas) are a click: a right-click on
@@ -366,7 +381,7 @@ def _vispy_text_glyph_height_pixels(text_visual):
         slop = font.slop
         ascender = 0.0
         descender = 0.0
-        for char in 'ÅÉÑŐjgpqy':
+        for char in GLYPH_EXTENT_CHARS:
             glyph = font[char]
             y0 = glyph['offset'][1] * ratio + slop
             y1 = y0 - glyph['size'][1]
@@ -399,7 +414,7 @@ def _vispy_text_cursor_span_pixels(text_visual):
     try:
         ratio = 1.0 / font.ratio
         lowres_size = float(font._lowres_size)
-        accent = max(font[char]['offset'][1] * ratio for char in 'ÅÉÑŐjgpqy')
+        accent = max(font[char]['offset'][1] * ratio for char in GLYPH_EXTENT_CHARS)
         ascender = font['d']['offset'][1] * ratio
         n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
         return max((accent - ascender) / lowres_size * n_pix, 0.0) / 2.0, height
@@ -1165,9 +1180,53 @@ class MainViewer:
             QtCore.QTimer.singleShot(150, lambda: signal_launcher_ready(self.main_window))
         if self.window_mode != HEADLESS:
             QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
-        
+            QtCore.QTimer.singleShot(GLYPH_WARMUP_DELAY_MS, self._warm_text_glyphs)
+
         self._hud_timer.start()
         print("\n" + self._ready_line(self.window_mode))
+
+    def _warm_text_glyphs(self):
+        """Build the status line's and the Console line's glyphs while idle, a slice at a time (see GLYPH_WARMUP_CHARS).
+
+        Also imports the two modules the first command given from the command line would load on the GUI thread.
+        A language whose script has a font of its own (Chinese) gets only the glyphs its text is measured from
+        (GLYPH_EXTENT_CHARS): its text is not ASCII, and the ASCII glyphs would take a third of an atlas that holds
+        about three hundred.
+        """
+        for name in ("Viewer_Command_Portal", "Command_Declarations"):
+            try:
+                importlib.import_module(name)
+            except Exception as error:  # Only a head start: the command loads them itself.
+                print(f"Warning: {name} could not be loaded ahead ({error}).")
+        chars = GLYPH_EXTENT_CHARS
+        if LANGUAGE_FONTS.get(installed_language()) is None:
+            chars += GLYPH_WARMUP_CHARS
+        fonts = []
+        for visual in (self.console_text, self.background_job_status_text):
+            font = getattr(visual, '_font', None)
+            if font is not None and not any(font is known for known in fonts):
+                fonts.append(font)
+        pending = [(font, char) for char in dict.fromkeys(chars) for font in fonts]
+        timer = QtCore.QTimer(self.main_window)  # goes with the window
+        timer.setSingleShot(True)
+
+        def build_slice():
+            deadline = time.perf_counter() + GLYPH_WARMUP_SLICE_S
+            while pending and time.perf_counter() < deadline:
+                font, char = pending.pop(0)
+                try:
+                    font[char]
+                except Exception as error:  # A full atlas or an unreadable glyph: the text asks again when it draws.
+                    print(f"Warning: the glyph of {char!r} could not be built ahead ({error}).")
+                    pending.clear()
+            if pending:
+                timer.start(0)
+            else:
+                self._glyph_warmup_done = True
+
+        timer.timeout.connect(build_slice)
+        self._glyph_warmup_timer = timer
+        timer.start(0)
 
     @staticmethod
     def _ready_line(window_mode):

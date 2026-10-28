@@ -27,6 +27,7 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 import Command_Engine
+from tests.command_fixtures import end_scheduler
 from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
 from utilities.Job_Cancellation import cancel_requested
@@ -1905,7 +1906,7 @@ class LogoJobCancellationTests(unittest.TestCase):
 
         self.status = StatusLine()
         self.scheduler = BackgroundJobScheduler(self.status)
-        self.addCleanup(self.scheduler.shutdown)
+        self.addCleanup(end_scheduler, self.scheduler)
         self.reports = []
         self.scheduler.job_succeeded.connect(lambda job, result, elapsed: self.reports.append("succeeded"))
         self.scheduler.job_failed.connect(lambda job, error, detail, elapsed: self.reports.append("failed"))
@@ -2037,7 +2038,7 @@ class LogoJobCancellationTests(unittest.TestCase):
             for job_obeys in (True, False):
                 with self.subTest(filename=filename, job_obeys=job_obeys), tempfile.TemporaryDirectory() as directory:
                     self.scheduler = BackgroundJobScheduler(self.status)
-                    self.addCleanup(self.scheduler.shutdown)
+                    self.addCleanup(end_scheduler, self.scheduler)
                     took, left_when_closed = self.close_the_viewer_during_the_save(
                         directory, filename, job_obeys=job_obeys, wait=0.4)
                     self.assertLess(took, 3.0, "closing returns within the bound")

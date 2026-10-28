@@ -554,12 +554,21 @@ class ControlsCardTests(unittest.TestCase):
     def test_the_keys_and_the_descriptions_are_two_equal_halves_of_the_card(self):
         card = self.open_card()
         grid, middle = self.assert_halves(card)
-        # The description column starts at the card's middle: 1/2 of the content width, not after the widest key.
-        widest = max(holder.sizeHint().width() for holder in card.key_holders)
-        self.assertGreater(middle - grid.x(), widest + ControlsCard.COLUMN_GAP + 8)
         self.assertEqual(card.key_holders[0].geometry().x(), grid.x())
         # Every row's description starts at the same x.
         self.assertEqual({label.geometry().x() for label in card.descriptions}, {card.descriptions[0].geometry().x()})
+        # The description column starts at the card's middle: 1/2 of the content width, not after the widest key.
+        # With the shipped rows the two can be one place (Linux's fonts make RightClick + Drag + Scroll wider than
+        # any description), so a description longer than any row of keys tells them apart.
+        text = shipped_actions() + " | [Esc] Cancel the drag and put back everything it moved or selected"
+        long = ControlsCard("x", text, parent=self.host, controls_title="Mouse and keyboard controls",
+                            area=lambda: self.host.rect())
+        self.addCleanup(long.close)
+        long.open()
+        flush(self.app)
+        grid, middle = self.assert_halves(long)
+        widest = max(holder.sizeHint().width() for holder in long.key_holders)
+        self.assertGreater(middle - grid.x(), widest + ControlsCard.COLUMN_GAP + 8)
 
     def test_a_longer_text_widens_the_card_and_the_halves_stay_equal(self):
         # A description much longer than the others does not wrap or shrink the keys: both halves grow to it.

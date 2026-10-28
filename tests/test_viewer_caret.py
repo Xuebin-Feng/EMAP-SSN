@@ -283,10 +283,29 @@ _GL_SCRIPT = textwrap.dedent(
 
     canvas._draw_scene = counted
 
+    def exposed():
+        handle = window.windowHandle()
+        return handle is not None and handle.isExposed()
+
+    # Whether the desktop covered, hid or exposed the window since this was last cleared. It draws a window
+    # it covers or hides not at all (a Wayland compositor stops sending it frame callbacks), and Qt draws the
+    # whole scene again each time the desktop exposes it: a count taken then says nothing about the caret.
+    disturbed = [False]
+
+    class ExposeWatcher(QtCore.QObject):
+        def eventFilter(self, watched, event):
+            if event.type() == QtCore.QEvent.Type.Expose:
+                disturbed[0] = True
+            return False
+
+    watcher = ExposeWatcher()
+    qapp.installEventFilter(watcher)
+
     def wait(seconds):
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             qapp.processEvents()
+            disturbed[0] = disturbed[0] or not exposed()
             time.sleep(0.005)
 
     wait(1.0)
@@ -308,8 +327,6 @@ _GL_SCRIPT = textwrap.dedent(
     with mock.patch.object(Viewer_Caret, "blink_interval_ms", return_value=40):
         caret = Viewer_Caret.CommandCaret(canvas.native)
         caret._timer.timeout.connect(lambda: flips.__setitem__(0, flips[0] + 1))
-        phase("opens", 0.3, lambda: caret.show_at(30.0, 12.0, 20.0))
-        phase("blinks", 1.2, lambda: None)
 
         def keys():
             for i in range(12):
@@ -317,9 +334,31 @@ _GL_SCRIPT = textwrap.dedent(
                 caret.steady()
                 wait(0.04)
 
-        phase("moves", 0.3, keys)
-        phase("closes", 0.3, caret.away)
-    phase("control", 0.5, canvas.update)
+        def measure():
+            # Run every phase; return whether the desktop left the window alone all the while, as the counts need.
+            caret.away()
+            flips[0] = 0
+            disturbed[0] = False
+            for name, seconds, action in (
+                ("opens", 0.3, lambda: caret.show_at(30.0, 12.0, 20.0)),
+                ("blinks", 1.2, lambda: None),
+                ("moves", 0.3, keys),
+                ("closes", 0.3, caret.away),
+                ("control", 0.5, canvas.update),
+            ):
+                phase(name, seconds, action)
+                if disturbed[0]:
+                    return False
+            return True
+
+        # The desktop covers, uncovers and exposes the window as it likes: measure while it leaves it alone,
+        # and again when it did not, for as long as that takes.
+        give_up = time.monotonic() + 30
+        while not (exposed() and measure()):
+            if time.monotonic() > give_up:
+                print("DISTURBED", flush=True)
+                sys.exit(0)
+            wait(0.1)
     out["flips"] = flips[0]
     out["covers_canvas"] = int(caret.geometry() == canvas.native.rect())
     print("DRAWS", " ".join(f"{key}={value}" for key, value in out.items()), flush=True)
@@ -344,6 +383,8 @@ class SceneDrawTests(unittest.TestCase):
         output = result.stdout + result.stderr[-2000:]
         if "CONTEXT OK" not in result.stdout:
             self.skipTest(f"no OpenGL context to draw with (exit {result.returncode})")
+        if "DISTURBED" in result.stdout:
+            self.skipTest("the desktop kept covering or exposing the test window, so its draws cannot be counted")
         self.assertEqual(result.returncode, 0, output)
         line = next(line for line in result.stdout.splitlines() if line.startswith("DRAWS "))
         values = {key: int(value) for key, value in (item.split("=") for item in line.split()[1:])}

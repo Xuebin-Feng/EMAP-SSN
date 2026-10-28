@@ -55,6 +55,7 @@ from PySide6.QtGui import QTextDocumentFragment
 
 from desktop.Desktop_App import ToggleSwitch, fit_buttons_to_text, mark_name_item
 from utilities.Localization import display_text, is_pseudo_translated, pseudo_translate
+from tests.command_fixtures import end_scheduler
 from tests.translation_fixtures import (
     cut_off_texts,
     outside_the_catalog,
@@ -1323,7 +1324,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         def scheduler(accepting=True):
             """A real scheduler that holds ``reserved`` with a job that waits, or one that is closed."""
             jobs = BackgroundJobScheduler(stub)
-            self.addCleanup(jobs.shutdown, 0.1)
+            self.addCleanup(end_scheduler, jobs, 0.1)
             with contextlib.redirect_stdout(io.StringIO()):
                 jobs.enqueue("label", "1", None, lambda payload: release.wait(10) and {}, reserved)
             if not accepting:
@@ -1358,7 +1359,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         viewer = Viewer()
         statuses = viewer.statuses
         jobs = BackgroundJobScheduler(viewer)
-        self.addCleanup(jobs.shutdown)
+        self.addCleanup(end_scheduler, jobs)
 
         def worker(payload):
             raise RuntimeError(Message("Error: No groups defined."))
@@ -1421,7 +1422,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         stub = Stub()
         shown = []
         scheduler = BackgroundJobScheduler(stub)
-        self.addCleanup(scheduler.shutdown, 0.1)
+        self.addCleanup(end_scheduler, scheduler, 0.1)
         scheduler._set_viewer_status = lambda message: shown.append(display_text(message))
         job = BackgroundJob(7, "label", "label -> 1.svg", None, None, "1.svg")
         with contextlib.redirect_stdout(io.StringIO()):
