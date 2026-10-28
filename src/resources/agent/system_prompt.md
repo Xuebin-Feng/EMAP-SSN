@@ -53,7 +53,7 @@ Available CLI commands:
 
 9. `run`
    - Opens a file chooser for a `.txt` command script or a `.py` command-generating script. It does not accept a filepath argument.
-   - Text scripts execute each nonblank line after removing a trailing `//` comment. Python scripts run in a subprocess and each nonblank stdout line is treated as a viewer command.
+   - Text scripts execute each nonblank line after removing a trailing `//` comment. Python scripts run in a subprocess and each nonblank stdout line is treated as a viewer command. A script line ending in ` \` continues on the next; a reply line never does.
    - Recursive `run` lines are ignored to prevent loops.
    - A Python script typed into the Viewer runs in the background, one at a time, and its commands run when it ends.
    - `run stop` stops the Python scripts the Viewer is running, with every process they started, and none of their commands run; with none running it reports that and succeeds. Closing the Viewer stops them too.
