@@ -817,6 +817,13 @@ still change before version 1.0.0.
 - **`esmfold` with nothing selected folds nothing.** It opens Fold View, even if a node was
   clicked: a clicked node is no longer folded in place of a selection. `esmfold multi` and
   `esmfold large` with nothing selected fail with "No nodes selected".
+- **Fold View's side panel is part of the page.** In a wide window the panel has no
+  background or edge line of its own: its cards sit on the page beside the Structure View
+  card, with their tops in line and the same gaps as between the cards. The grip that
+  resizes the panel shows only when the pointer is over the gap between them, while it
+  is dragged, or when it has keyboard focus; dragging, double-click and the arrow keys
+  work as before. The narrower layouts, where the panel covers the picture or sits below
+  it, are unchanged.
 
 ### Fixed
 
@@ -1001,6 +1008,10 @@ still change before version 1.0.0.
   - **Other extra datasets** of a cache still load as custom attributes, as `save` writes
     them, but one can no longer replace a method or the Viewer's own state, or carry a
     name starting with `_`. Those are skipped with one warning line.
+- **Fold View: a coloring's note no longer has a button that does nothing.** A note with
+  no source line above it, such as pLDDT's, had a chevron that turned over and opened
+  nothing. Such a note now shows two lines, with a chevron only when there is more of it
+  to read; it is checked again when the panel or the window changes size.
 
 ## [0.4.0] - 2026-10-16
 
