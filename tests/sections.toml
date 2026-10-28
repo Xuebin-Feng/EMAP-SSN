@@ -276,6 +276,7 @@ modules = [
     "test_dropdown_values",
     "test_emapssn_config_cache_dropdown",
     "test_emapssn_config_consistency_check",
+    "test_emapssn_config_edge_opacity",
     "test_emapssn_config_embedding_input",
     "test_emapssn_config_launch",
     "test_emapssn_config_layout_method",

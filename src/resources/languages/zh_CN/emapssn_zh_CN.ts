@@ -624,7 +624,7 @@
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+192"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+194"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3995"/>
+        <location line="+4007"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3994"/>
+        <location line="-4006"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4593"/>
+        <location line="+4641"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4585"/>
+        <location line="-4633"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -812,12 +812,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3600"/>
+        <location line="+3648"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3597"/>
+        <location line="-3645"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -858,12 +858,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2354"/>
+        <location line="+2402"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2273"/>
+        <location line="-2321"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1255,7 +1255,7 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
 作为布局缓存，重新打开网络时无需重新计算布局。</translation>
     </message>
     <message>
-        <location line="+401"/>
+        <location line="+408"/>
         <source>Directory where command-line layout generation JSON settings are exported.</source>
         <translation type="unfinished">导出命令行布局生成所用 JSON 设置的目录。</translation>
     </message>
@@ -1302,8 +1302,8 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="-216"/>
-        <location line="+402"/>
+        <location line="-223"/>
+        <location line="+409"/>
         <location line="+259"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
@@ -1460,12 +1460,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1356"/>
+        <location line="+1397"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1324"/>
+        <location line="-1365"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1611,7 +1611,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2406"/>
+        <location line="-2413"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1622,12 +1622,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2629"/>
+        <location line="+2639"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3169"/>
+        <location line="-3179"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1773,7 +1773,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2536"/>
+        <location line="+2543"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1795,7 +1795,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">布局方法为 SSN 时，清空“保留高分边 %”即可使用“相似性阈值”。</translation>
     </message>
     <message>
-        <location line="+416"/>
+        <location line="+419"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -1821,7 +1821,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">生成直方图时出错：{error}</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+70"/>
         <source>Node Size:</source>
         <translation type="unfinished">节点大小：</translation>
     </message>
@@ -1841,12 +1841,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">边不透明度：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-4"/>
         <source>Text Size:</source>
         <translation type="unfinished">文字大小：</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+73"/>
         <source>Text Color:</source>
         <translation type="unfinished">文字颜色：</translation>
     </message>
@@ -1885,7 +1885,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3997"/>
+        <location line="-4009"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
@@ -2219,6 +2219,21 @@ Significantly improves responsiveness and reduces rendering latency for large ne
     </message>
     <message>
         <location line="+3"/>
+        <source>When ON, each edge is drawn more opaque the higher its score: 15% at the threshold, up to 85% at the top score. The Edge Opacity slider is then not used.</source>
+        <translation type="unfinished">开启时，边的得分越高，画得越不透明：阈值处为 15%，最高得分处为 85%。此时不再使用“边不透明度”滑块。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Only for the SSN layout method. With UMAP or PaCMAP this switch is greyed out and every edge is drawn at the Edge Opacity.</source>
+        <translation type="unfinished">仅适用于 SSN 布局方法。选择 UMAP 或 PaCMAP 时，此开关变灰，所有边都按“边不透明度”绘制。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Moving the threshold changes every edge&apos;s opacity, because the faintest edge drawn is always the one at the threshold.</source>
+        <translation type="unfinished">移动阈值会改变每条边的不透明度，因为所画的最淡的边始终是阈值处的那一条。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.</source>
         <translation type="unfinished">查看器中绘制簇（cluster）注释、节点标签和序列 ID 时使用的字号。</translation>
     </message>
@@ -2718,7 +2733,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">布局方法：</translation>
     </message>
     <message>
-        <location line="+409"/>
+        <location line="+412"/>
         <source>Computing network statistics... {percent} %</source>
         <translation type="unfinished">正在计算网络统计… {percent} %</translation>
     </message>
@@ -2732,7 +2747,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">低资源模式：</translation>
     </message>
     <message>
-        <location line="+368"/>
+        <location line="+406"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -2767,12 +2782,14 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">步长：</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-252"/>
+        <location line="+259"/>
         <source>Auto ON</source>
         <translation type="unfinished">自动</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-259"/>
+        <location line="+259"/>
         <source>Auto OFF</source>
         <translation type="unfinished">自动</translation>
     </message>
@@ -4449,7 +4466,7 @@ Command-line usage:
         <location line="+452"/>
         <location filename="../../../commands/logo.py" line="+233"/>
         <location line="+79"/>
-        <location filename="../../../commands/print.py" line="+1450"/>
+        <location filename="../../../commands/print.py" line="+1523"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -6819,7 +6836,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4923"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4971"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6921,7 +6938,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1637"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1643"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6948,7 +6965,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+919"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+921"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7009,7 +7026,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message>
-        <location line="+154"/>
+        <location line="+163"/>
         <source>Rotate {angle}°</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
@@ -7353,7 +7370,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Visual_State.py" line="+80"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+92"/>
         <source>This Viewer has no OpenGL context to render with, because {reason}.</source>
         <translation type="unfinished">此查看器没有可用于渲染的 OpenGL 上下文，原因：{reason}。</translation>
     </message>
@@ -8777,7 +8794,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-849"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-858"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -13152,7 +13169,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2197"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2199"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13212,7 +13229,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2020"/>
+        <location line="+2022"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

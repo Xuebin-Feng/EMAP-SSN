@@ -37,11 +37,14 @@ if str(SRC) not in sys.path:
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from desktop.Viewer_Motion import MIN_SUBSET_SEGMENTS  # noqa: E402
 from desktop.Viewer_State import (  # noqa: E402
-    LEGACY_LOW_RESOURCE_KEY, LOW_RESOURCE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, migrate_low_resource_mode,
+    DESKTOP_VISUAL_PROFILE_DEFAULTS, LEGACY_LOW_RESOURCE_KEY, LOW_RESOURCE_DEFAULTS, VISUAL_PROFILE_DEFAULTS,
+    migrate_low_resource_mode,
 )
 from tests.config_gui_loader import choose_layout  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
+# Every key of the Visual Effects tab's profile, as the desktop Config has them.
+WINDOW_VISUAL_DEFAULTS = {**VISUAL_PROFILE_DEFAULTS, **DESKTOP_VISUAL_PROFILE_DEFAULTS}
 SWITCHES = ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING",
             "LOW_RESOURCE_WEBSERVER", "SHOW_FPS")
 OLD_CATEGORIES = tuple(LOW_RESOURCE_DEFAULTS)   # what LOW_RESOURCE_MODE stood for
@@ -503,12 +506,12 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
             for key, value in chosen.items():
                 self.assertIs(custom_settings[key], value, key)
             # And back: a saved visual profile loads into the switches.
-            window._apply_profile_data("visual_effects", dict(VISUAL_PROFILE_DEFAULTS))
+            window._apply_profile_data("visual_effects", dict(WINDOW_VISUAL_DEFAULTS))
             self.assertFalse(any(window.inputs[key].isChecked() for key in SWITCHES))
-            window._apply_profile_data("visual_effects", {**VISUAL_PROFILE_DEFAULTS, **chosen})
+            window._apply_profile_data("visual_effects", {**WINDOW_VISUAL_DEFAULTS, **chosen})
             self.assertEqual({key: window.inputs[key].isChecked() for key in SWITCHES}, chosen)
         finally:
-            window._apply_profile_data("visual_effects", dict(VISUAL_PROFILE_DEFAULTS))
+            window._apply_profile_data("visual_effects", dict(WINDOW_VISUAL_DEFAULTS))
 
     def test_settings_files_and_profiles_with_the_old_switch_load_as_the_categories(self):
         gui = self.namespace["ConfigGUI"]
@@ -624,7 +627,7 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
         finally:
             choose_layout(window, "ssn")
             window.tabs.setCurrentIndex(1)
-            window._apply_profile_data("visual_effects", dict(VISUAL_PROFILE_DEFAULTS))
+            window._apply_profile_data("visual_effects", dict(WINDOW_VISUAL_DEFAULTS))
 
     def test_a_window_opened_with_umap_on_shows_every_switch_enabled_on_either_tab(self):
         from tests.config_gui_loader import directory_globals, directory_settings

@@ -997,6 +997,18 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>When ON, each edge is drawn more opaque the higher its score: 15% at the threshold, up to 85% at the top score. The Edge Opacity slider is then not used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only for the SSN layout method. With UMAP or PaCMAP this switch is greyed out and every edge is drawn at the Edge Opacity.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Moving the threshold changes every edge&apos;s opacity, because the faintest edge drawn is always the one at the threshold.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1581,6 +1593,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Text Size:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Node Size:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1594,10 +1610,6 @@
     </message>
     <message>
         <source>Edge Opacity:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Text Size:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1629,6 +1641,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Auto ON</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Auto OFF</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Auto Benchmark</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1654,14 +1674,6 @@
     </message>
     <message>
         <source>Step Size:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Auto ON</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Auto OFF</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

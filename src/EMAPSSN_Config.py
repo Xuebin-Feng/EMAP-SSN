@@ -54,7 +54,7 @@ from desktop.Desktop_App import (
 from desktop.Desktop_Launcher_Monitor import launch_viewer_session, viewer_session_failed
 from Layout_Cache_Generator import LayoutGenerationSettings
 from desktop.Viewer_State import (
-    INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
+    INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, DESKTOP_VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
     migrate_low_resource_mode,
 )
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
@@ -228,7 +228,7 @@ TAB_PROFILE_SPECS = {
         "allow_default": False,
     },
     "visual_effects": {
-        "defaults": VISUAL_PROFILE_DEFAULTS,
+        "defaults": {**VISUAL_PROFILE_DEFAULTS, **DESKTOP_VISUAL_PROFILE_DEFAULTS},
         "allow_default": True,
     },
     "simulation_physics": {
@@ -2530,6 +2530,13 @@ if __name__ == "__main__":
                     translate("Config", "Opacity of network edge lines, ranging from `0.0` (fully transparent) to `1.0` (opaque)."),
                     details=(translate("Config", "Lower opacity reveals underlying node clustering and density in highly connected graphs."),),
                 ),
+                "AUTO_EDGE_ALPHA": Tip(
+                    translate("Config", "When ON, each edge is drawn more opaque the higher its score: 15% at the threshold, up to 85% at the top score. The Edge Opacity slider is then not used."),
+                    details=(
+                        translate("Config", "Only for the SSN layout method. With UMAP or PaCMAP this switch is greyed out and every edge is drawn at the Edge Opacity."),
+                        translate("Config", "Moving the threshold changes every edge's opacity, because the faintest edge drawn is always the one at the threshold."),
+                    ),
+                ),
                 "TEXT_SIZE": Tip(
                     translate("Config", "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer."),
                     details=(translate("Config", "Adjust to ensure labels remain legible without obstructing structural network features."),),
@@ -3937,6 +3944,9 @@ if __name__ == "__main__":
                 self.tabs.setTabVisible(2, not is_umap)
                 self.tabs.setTabEnabled(2, True)
             
+            # Edge Opacity's Auto switch is for the SSN layout method only.
+            self._update_edge_opacity_controls()
+
             if hasattr(self, 'btn_check'):
                 self.btn_check.setEnabled(has_fasta and has_hdf5)
             
@@ -4100,11 +4110,11 @@ if __name__ == "__main__":
             
             # 1. Sliders Setup
             slider_settings = [
+                {"key": "TEXT_SIZE", "label": translate("Config", "Text Size:"), "type": "int", "min": 1, "max": 24, "default": 8},
                 {"key": "NODE_SIZE", "label": translate("Config", "Node Size:"), "type": "int", "min": 1, "max": 20, "default": 10},
                 {"key": "EDGE_WIDTH", "label": translate("Config", "Edge Width:"), "type": "float", "min": 0.1, "max": 3.0, "scale": 10.0, "decimals": 1, "default": 1.0},
                 {"key": "NODE_BOUNDARY_WIDTH", "label": translate("Config", "Node Boundary Width:"), "type": "float", "min": 0.0, "max": 2.0, "scale": 10.0, "decimals": 1, "default": 0.5},
                 {"key": "EDGE_ALPHA", "label": translate("Config", "Edge Opacity:"), "type": "float", "min": 0.0, "max": 1.0, "scale": 100.0, "decimals": 2, "default": 0.1},
-                {"key": "TEXT_SIZE", "label": translate("Config", "Text Size:"), "type": "int", "min": 1, "max": 24, "default": 8}
             ]
             
             for s in slider_settings:
@@ -4159,6 +4169,8 @@ if __name__ == "__main__":
                 sl.setTickPosition(QSlider.TickPosition.TicksBelow)
                 sl.setTickInterval(1 if s["type"] == "int" else 10)
 
+                if key == "EDGE_ALPHA":
+                    self._add_edge_opacity_auto(h_lay, sl, box)
                 h_lay.addWidget(sl)
                 h_lay.addWidget(box)
 
@@ -4239,6 +4251,42 @@ if __name__ == "__main__":
             main_layout.addStretch()
 
             self._add_scroll_tab(tab, translate("Config", "Visual Effects"))
+
+        def _add_edge_opacity_auto(self, layout, slider, box):
+            """Start Edge Opacity's cell with its Auto switch, as Step Size's cell starts with its.
+
+            While Auto is on, each edge's opacity follows its score and the
+            slider and its box are greyed out, keeping their values for when
+            Auto is turned off. Auto applies to the SSN layout method only
+            (_update_edge_opacity_controls). A slider row has no second column
+            to wrap, so the slider keeps its usual minimum width and the cell
+            is the switch's width wider than the others (the page's narrowest
+            width is the same).
+            """
+            switch = ToggleSwitch(translate("Config", "Auto ON"), translate("Config", "Auto OFF"))
+            self.inputs["AUTO_EDGE_ALPHA"] = switch
+            self._edge_opacity_controls = (slider, box)
+            switch.toggled.connect(self._update_edge_opacity_controls)
+            switch.setChecked(bool(globals().get("AUTO_EDGE_ALPHA", False)))
+            layout.addWidget(switch)
+            # A field spacing after the switch, as Step Size's cell has; the
+            # slider and its box keep the gap the other sliders' have.
+            layout.addSpacing(max(0, CONFIG_FIELD_HORIZONTAL_SPACING - layout.spacing()))
+
+        def _update_edge_opacity_controls(self, *_args):
+            """Grey out Edge Opacity's Auto switch unless the Layout Method is SSN, and the slider while Auto applies.
+
+            A UMAP or PaCMAP layout draws every edge at the slider's opacity,
+            so the switch is greyed out for them, keeping its state for when
+            SSN is chosen again, and the slider stays in use.
+            """
+            switch = self.inputs.get("AUTO_EDGE_ALPHA")
+            if switch is None or not hasattr(self, 'cb_layout_method'):
+                return
+            applies = not self.uses_manifold_layout()
+            switch.setEnabled(applies)
+            for widget in self._edge_opacity_controls:
+                widget.setEnabled(not (applies and switch.isChecked()))
 
         def _low_resource_section(self):
             """The Low Resource Mode switches, two to a row in the order of

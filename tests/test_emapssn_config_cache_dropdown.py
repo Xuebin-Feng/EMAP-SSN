@@ -1033,7 +1033,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         original_index = self.window.tabs.currentIndex()
         checks = (
             ("inputs_outputs", None, "NODE_FASTA_FILE"),
-            ("visual_effects", None, "NODE_SIZE"),
+            ("visual_effects", None, "TEXT_SIZE"),
             ("simulation_physics", None, "LAYOUT_DEVICE_SELECTION"),
             ("directories", "SAVED_CONFIG_DIR", "INPUT_FILE_DIR"),
         )

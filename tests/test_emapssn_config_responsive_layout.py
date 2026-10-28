@@ -738,8 +738,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         window = self.open_window_with(QLabel=LongLabel, ToggleSwitch=LongToggle)
         self.assertGreater(window.label_column_width, self.window.label_column_width + 40)
         switches = window.findChildren(LongToggle)
-        # Progressive simulation, Auto step size, and the five Low Resource Mode switches.
-        self.assertEqual(len(switches), 7)
+        # Progressive simulation, Auto step size, Auto edge opacity, and the five Low Resource Mode switches.
+        self.assertEqual(len(switches), 8)
         for switch in switches:
             text_width = switch.fontMetrics().horizontalAdvance(switch.text())
             self.assertGreaterEqual(switch.width() - text_width, 2 * BUTTON_TEXT_PADDING)
