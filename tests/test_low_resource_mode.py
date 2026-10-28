@@ -433,7 +433,7 @@ class UmapModeTests(unittest.TestCase):
         # (and the Config's greying) thought through again.
         self.assertEqual(reads, {"EMAPSSN_Viewer.py": {"load_and_simulate"}})
         self.assertEqual(asks, {
-            "EMAPSSN_Viewer.py": {"on_mouse_press", "on_mouse_wheel"},
+            "EMAPSSN_Viewer.py": {"on_mouse_press", "_wheel_turns_nodes"},
             "Viewer_Visual_State.py": {"edge_stages", "edges_follow_selection"},
         })
         for path in sorted((SRC / "desktop").glob("Viewer_*.py")):

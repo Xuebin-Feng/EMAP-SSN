@@ -21,7 +21,8 @@ on_mouse_release).
 * Ctrl + right-drag from a selected node turns the selection about its centre, following the
   pointer, full turns included; Shift rounds the angle to 15 degrees.
 * Ctrl + wheel turns the selection 5 degrees a notch about the cursor, a run of notches being
-  one turn and one undo step.
+  one turn and one undo step, and the camera does not zoom meanwhile: its wrapper gets the
+  scene's own copy of the event, so CameraWheelTests send notches through a real canvas.
 * A Shift left-click copies the header once the double-click interval has passed, a Shift
   left double click the sequence alone, on release within 5 px of the press. Ctrl copies nothing.
 
@@ -45,11 +46,13 @@ if str(SRC) not in sys.path:
 
 from PySide6 import QtWidgets  # noqa: E402
 from vispy import app as vispy_app, scene  # noqa: E402
+from vispy.util import keys  # noqa: E402
 
 import Command_Engine  # noqa: E402
 import EMAPSSN_Config as cfg  # noqa: E402
 import EMAPSSN_Viewer  # noqa: E402
 from Command_Queue import CommandQueue  # noqa: E402
+from desktop.Viewer_Zoom import SmoothWheelZoom  # noqa: E402
 from EMAPSSN_Viewer import (  # noqa: E402
     CLICK_DISTANCE_PIXELS, MOVE_SNAP_DEGREES, ROTATE_DEAD_ZONE_PIXELS, ROTATE_DEGREES_PER_NOTCH,
     ROTATE_SNAP_DEGREES, WHEEL_TURN_IDLE_SECONDS, MainViewer,
@@ -1242,7 +1245,8 @@ class TurnByWheelTests(GestureTestCase):
                 self.notch((0.0, notches), viewer=viewer)
                 self.assert_places(viewer, [1, 2], self.turned(5.0 * notches))
 
-    def test_the_event_is_consumed_so_the_camera_does_not_zoom(self):
+    def test_the_event_is_marked_handled(self):
+        # Only the canvas's own event: the camera's copy is CameraWheelTests's.
         self.assertTrue(self.notch().handled)
         self.assertTrue(self.notch((0.0, 0.0)).handled)             # even one of no notches
 
@@ -1431,6 +1435,198 @@ class TurnByWheelTests(GestureTestCase):
         with mock.patch.object(Command_Engine, "show_status"):
             self.esc(viewer)
         viewer.command_queue.resume.assert_called_once_with()
+
+
+# =====================================================================
+# The camera gets the wheel too: Ctrl + wheel with a selection turns it and does not zoom
+# =====================================================================
+
+class ZoomTimer:
+    """A QTimer's start, stop and timeout, for the smooth wheel zoom, fired by the test."""
+
+    def __init__(self):
+        self.active = False
+        self.timeout = SimpleNamespace(connect=self._connect)
+        self._slot = None
+
+    def _connect(self, slot):
+        self._slot = slot
+
+    def isActive(self):
+        return self.active
+
+    def start(self):
+        self.active = True
+
+    def stop(self):
+        self.active = False
+
+    def fire(self):
+        self._slot()
+
+
+class CameraWheelTests(GestureTestCase):
+    """What the camera does with a wheel notch, on a real canvas, wired as MainViewer.__init__ wires it.
+
+    VisPy sends a wheel notch twice: the canvas's own event goes to the Viewer's on_mouse_wheel, and
+    the scene sends the camera a SceneMouseEvent of its own, whose `handled` is not the canvas
+    event's. So marking the canvas's event handled never kept the camera from zooming; the camera's
+    wrapper (_camera_mouse_event) asks the same question as on_mouse_wheel (_wheel_turns_nodes).
+    These tests send notches through the canvas, as the platform does, and look at the camera's view.
+    """
+
+    RECT = (-50.0, -40.0, 300.0, 240.0)       # what the 300 x 240 canvas shows: a pixel is a unit, y up
+    FIRST = (60.0, 30.0)                      # a canvas place, and so the place in the network
+    FIRST_PLACE = (10.0, 170.0)               # it is, with the view above
+    KEYS = {"Control": keys.CONTROL, "Shift": keys.SHIFT, "Meta": keys.META}
+
+    def make_canvas_viewer(self, selected=(1, 2)):
+        viewer = self.make_viewer(selected=list(selected))
+        canvas = scene.SceneCanvas(size=(300, 240), bgcolor="white", show=False)
+        self.addCleanup(canvas.close)
+        view = canvas.central_widget.add_view()
+        view.camera = scene.PanZoomCamera(aspect=1)
+        view.camera.rect = self.RECT
+        canvas.visual_at = lambda pos: view       # VisPy picks by rendering, which this canvas has no GL for
+        viewer.canvas, viewer.view = canvas, view
+        # The wiring of MainViewer.__init__: the Viewer's wheel handler, the camera's wrapper, the smooth zoom.
+        canvas.events.mouse_wheel.connect(viewer.on_mouse_wheel)
+        viewer._original_camera_mouse_event = mock.Mock(side_effect=view.camera.viewbox_mouse_event)
+        view.camera.viewbox_mouse_event = viewer._camera_mouse_event
+        viewer._limit_camera_zoom()
+        viewer.zoom_clock, viewer.zoom_timer = [0.0], ZoomTimer()
+        viewer._wheel_zoom = SmoothWheelZoom(view.camera, view.camera.zoom, viewer._after_wheel_zoom_step,
+                                             clock=lambda: viewer.zoom_clock[0], timer=viewer.zoom_timer)
+        return viewer
+
+    @staticmethod
+    def animations(off):
+        """Low Resource Mode's No Zoom Animation: the camera zooms at once rather than over some frames."""
+        return mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", off)
+
+    def scroll(self, viewer, delta=(0.0, 1.0), at=FIRST, modifiers=CTRL, buttons=()):
+        """A wheel notch at a canvas place, sent as the platform sends it; the canvas's event comes back."""
+        return viewer.canvas.events.mouse_wheel(
+            native=None, pos=at, delta=delta, modifiers=tuple(self.KEYS[name] for name in modifiers),
+            buttons=list(buttons))
+
+    @staticmethod
+    def play_out(viewer):
+        """Run the smooth zoom's frames until it ends."""
+        for _ in range(200):
+            if not viewer.zoom_timer.active:
+                return
+            viewer.zoom_clock[0] += 0.015
+            viewer.zoom_timer.fire()
+        raise AssertionError("the smooth zoom does not end")
+
+    @staticmethod
+    def view_of(viewer):
+        rect = viewer.view.camera.rect
+        return (rect.left, rect.bottom, rect.width, rect.height)
+
+    def test_the_view_below_is_the_one_the_tests_assume(self):
+        viewer = self.make_canvas_viewer()
+        to_network = viewer.canvas.scene.node_transform(viewer.view.scene)
+        np.testing.assert_allclose(to_network.map(self.FIRST)[:2], self.FIRST_PLACE, atol=1e-6)
+        self.assertEqual(self.view_of(viewer), self.RECT)
+
+    def test_ctrl_wheel_with_a_selection_turns_the_nodes_and_the_view_does_not_zoom(self):
+        for off in (False, True):
+            for modifiers in (CTRL, ["Meta"], CTRL + SHIFT):
+                with self.subTest(no_zoom_animation=off, modifiers=modifiers), self.animations(off):
+                    viewer = self.make_canvas_viewer()
+                    start = self.places(viewer, [1, 2])
+                    canvas_event = self.scroll(viewer, modifiers=modifiers)
+                    self.assertEqual(self.view_of(viewer), self.RECT)
+                    self.play_out(viewer)
+                    self.assertEqual(self.view_of(viewer), self.RECT)
+                    self.assertFalse(viewer.zoom_timer.active)             # no glide was ever started
+                    viewer._original_camera_mouse_event.assert_not_called()
+                    self.assertTrue(canvas_event.handled)
+                    self.assert_places(viewer, [1, 2], self.rotated(start, self.FIRST_PLACE, 5.0))
+
+    def test_every_notch_of_a_turn_leaves_the_view_alone(self):
+        for off in (False, True):
+            with self.subTest(no_zoom_animation=off), self.animations(off):
+                viewer = self.make_canvas_viewer()
+                for delta in ((0.0, 1.0), (0.0, 2.0), (0.0, -3.0), (4.0, 0.0), (0.0, 0.5)):
+                    self.scroll(viewer, delta)
+                    self.play_out(viewer)
+                    self.assertEqual(self.view_of(viewer), self.RECT, delta)
+                viewer._original_camera_mouse_event.assert_not_called()
+
+    def test_the_pivot_is_the_cursor_of_the_first_notch_and_stays_while_the_cursor_moves(self):
+        cursors = [self.FIRST, (200.0, 100.0), (5.0, 220.0), (140.0, 140.0)]
+        for off in (False, True):
+            with self.subTest(no_zoom_animation=off), self.animations(off):
+                viewer = self.make_canvas_viewer()
+                start = self.places(viewer, [1, 2])
+                for notches, cursor in enumerate(cursors, start=1):
+                    self.scroll(viewer, at=cursor)
+                    self.play_out(viewer)
+                    self.assertEqual(self.view_of(viewer), self.RECT)
+                    self.assert_places(viewer, [1, 2], self.rotated(start, self.FIRST_PLACE, 5.0 * notches))
+                np.testing.assert_allclose(viewer._wheel_turn.centre, self.FIRST_PLACE, atol=1e-6)
+                # A second without a notch ends the turn; the next one takes the cursor's place as its pivot.
+                viewer._wheel_turn_timer.fire()
+                turned = self.places(viewer, [1, 2])
+                self.scroll(viewer, at=(200.0, 100.0))
+                self.assert_places(viewer, [1, 2], self.rotated(turned, (150.0, 100.0), 5.0))
+                self.assertEqual(self.view_of(viewer), self.RECT)
+
+    def test_a_wheel_that_turns_nothing_zooms_the_view(self):
+        cases = {
+            "Ctrl, nothing selected": dict(selected=[], modifiers=CTRL),
+            "Ctrl in a UMAP or PaCMAP layout": dict(modifiers=CTRL, knn=True),
+            "a plain wheel": dict(modifiers=()),
+            "Shift": dict(modifiers=SHIFT),
+            "Ctrl with the left button held": dict(modifiers=CTRL, buttons=(1,)),
+        }
+        for off in (False, True):
+            for name, case in cases.items():
+                with self.subTest(no_zoom_animation=off, case=name), self.animations(off):
+                    viewer = self.make_canvas_viewer(selected=case.get("selected", (1, 2)))
+                    nodes = viewer.pos.copy()
+                    with mock.patch.object(cfg, "UMAP_MODE", case.get("knn", False)):
+                        self.scroll(viewer, modifiers=case["modifiers"], buttons=case.get("buttons", ()))
+                    if off:
+                        self.assertNotEqual(self.view_of(viewer), self.RECT)      # at once
+                        self.assertFalse(viewer.zoom_timer.active)
+                    else:
+                        self.assertEqual(self.view_of(viewer), self.RECT)         # over the next frames
+                        self.assertTrue(viewer.zoom_timer.active)
+                        self.play_out(viewer)
+                    _left, _bottom, width, _height = self.view_of(viewer)
+                    self.assertLess(width, self.RECT[2])                          # a notch up zooms in
+                    np.testing.assert_array_equal(viewer.pos, nodes)
+                    self.assertIsNone(viewer._wheel_turn)
+
+    def test_a_turn_that_ended_leaves_the_next_wheel_to_the_camera(self):
+        for off in (False, True):
+            with self.subTest(no_zoom_animation=off), self.animations(off):
+                viewer = self.make_canvas_viewer()
+                self.scroll(viewer)
+                self.scroll(viewer, modifiers=())             # no Ctrl: the turn ends and the view zooms
+                self.play_out(viewer)
+                self.assertIsNone(viewer._wheel_turn)
+                self.assertLess(self.view_of(viewer)[2], self.RECT[2])
+
+    def test_the_wrapper_still_passes_a_pinch_on_and_ignores_the_right_buttons_wheel(self):
+        viewer = self.make_canvas_viewer()
+        viewer._original_camera_mouse_event = mock.Mock()
+        for event_type in ("gesture_zoom", "gesture_rotate"):
+            pinch = SimpleNamespace(type=event_type, handled=False, modifiers=["Control"], buttons=[],
+                                    button=None)
+            viewer._camera_mouse_event(pinch)                 # Ctrl and a selection make no difference
+            viewer._original_camera_mouse_event.assert_called_with(pinch)
+        viewer._original_camera_mouse_event.reset_mock()
+        right = SimpleNamespace(type="mouse_wheel", handled=False, modifiers=["Control"], buttons=[2],
+                                button=None, delta=(0.0, 1.0), pos=self.FIRST)
+        viewer._camera_mouse_event(right)
+        viewer._original_camera_mouse_event.assert_not_called()
+        self.assertFalse(viewer.zoom_timer.active)
+        self.assertEqual(self.view_of(viewer), self.RECT)
 
 
 # =====================================================================

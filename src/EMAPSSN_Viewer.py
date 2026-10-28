@@ -1388,6 +1388,11 @@ class MainViewer:
         and drags nodes, and with the wheel zooming smoothly."""
         if getattr(event, 'button', None) == 2 or 2 in getattr(event, 'buttons', []):
             return
+        # The camera gets the scene's own copy of a wheel event, whose `handled` is not the canvas
+        # event's, so a notch that turns nodes (on_mouse_wheel) must be refused here too.
+        if getattr(event, 'type', None) == 'mouse_wheel' and self._wheel_turns_nodes(event):
+            event.handled = True
+            return
         # A left-button drag pans, the wheel and a pinch zoom.
         event_type = getattr(event, 'type', None)
         if (event_type == 'mouse_move' and 1 in getattr(event, 'buttons', [])) \
@@ -4184,10 +4189,19 @@ class MainViewer:
             return
 
         # ---> Ctrl + wheel with nodes selected turns them about the cursor <---
-        if (ctrl and not event.buttons and self.selected_indices and not knn_topology_layout(cfg)):
+        # The camera is kept from zooming by _camera_mouse_event, which asks the same question.
+        if self._wheel_turns_nodes(event):
             if notches:
                 self._turn_by_wheel(event, notches)
-            event.handled = True  # the camera does not zoom
+            event.handled = True
+
+    def _wheel_turns_nodes(self, event):
+        """Whether a wheel notch turns the selected nodes (Ctrl or Cmd + wheel, no button held, a
+        selection, a layout whose nodes move) and so does not zoom; on_mouse_wheel turns them and
+        _camera_mouse_event keeps the camera still."""
+        modifiers = getattr(event, 'modifiers', ())
+        return (('Control' in modifiers or 'Meta' in modifiers) and not getattr(event, 'buttons', ())
+                and bool(self.selected_indices) and not knn_topology_layout(cfg))
 
     def _turn_by_wheel(self, event, notches):
         """Ctrl + wheel with a selection: turn it ROTATE_DEGREES_PER_NOTCH a notch about the cursor.

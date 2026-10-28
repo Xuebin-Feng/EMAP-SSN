@@ -10,6 +10,7 @@ that lowest zoom follows the nodes as they move. The wheel zooms smoothly
 import io
 import os
 import sys
+import types
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -629,6 +630,8 @@ class ViewerWheelZoomTests(HundredPercentIs1000, unittest.TestCase):
         viewer._wheel_zoom = SmoothWheelZoom(camera, camera.zoom, clock=clock, timer=timer)
         viewer._original_camera_mouse_event = mock.Mock()
         viewer._note_view_motion = mock.Mock()
+        viewer.selected_indices = []
+        viewer._wheel_turns_nodes = types.MethodType(EMAPSSN_Viewer.MainViewer._wheel_turns_nodes, viewer)
         wheel = SimpleNamespace(type="mouse_wheel", handled=False, pos=(100.0, 300.0), delta=(0.0, -1.0),
                                 button=None, buttons=[])
 
