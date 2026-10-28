@@ -24,6 +24,7 @@ modules = [
     "test_command_embedding",
     "test_command_feedback",
     "test_command_queue",
+    "test_command_removal",
     "test_command_selection",
     "test_console_command",
     "test_export_command",
