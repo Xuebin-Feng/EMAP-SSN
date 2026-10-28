@@ -996,14 +996,21 @@ General `get_command_catalog` entries include `summary`, `arguments` (each with
 `alignment` and `embedding` blocks before submitting.
 Each entry also says what the command may do: `writes_files`, `opens_interface` (a dialog, page or
 window of its own, which needs a visible Viewer) and `background_work`. The first two are declared in the
-command's metadata entry; `background_work` is read from the command's source for every command: true when
+command's `CATALOG_ENTRY`; `background_work` is read from the command's source for every command: true when
 it computes on the command queue's worker thread, queues a file job, or starts a tracked worker or script
 (print, cluster, subcluster, label, logo, esmfold and run today). A command module dropped into
-`src/commands` without a metadata entry is still listed: its `summary` is the first line of its module
+`src/commands` without a `CATALOG_ENTRY` is still listed: its `summary` is the first line of its module
 docstring, else the Description or Usage line of its help; `arguments` and `requires` are empty; `writes_files`
 and `opens_interface` are true because nothing says otherwise; `agent_policy` waits for approval, like any
-command the policy table lacks; and `metadata_declared` is false. Its `syntax` and `help` come from its source
+command whose module declares no `AGENT_POLICY`; and `metadata_declared` is false. Its `syntax` and `help` come from its source
 as for any command.
+What the catalog and the Agent say about a command is declared by its module as well, as literals in one block after
+its imports: `CATALOG_ENTRY` (its summary and arguments), `AGENT_POLICY` (how a command of an Agent reply is handled:
+`"run"` at once, `"approve"` after the user presses Run, or `"refuse"`, by default and by the first word after the
+command) and `AGENT_PROMPT` with `AGENT_PROMPT_ORDER` (its item of the Agent's instructions, and its place in them). They are
+read from the module's source, never by importing it, and what cannot be read is not obeyed: a policy that is missing or
+invalid makes the command wait for approval, never run. A command that offers no `AGENT_PROMPT` gets a short item made from
+its catalog summary and syntax. The forms and what reads them are written out in `src/desktop/Command_Metadata.py`.
 How the Viewer dispatches a command is declared by its module too, so a plugin needs no change to the
 program. At its top level a module may define `QUEUE = "instant"` (or `queue_kind(args, source)`, returning
 `"instant"` or `"ordered"`) to run at once even while other commands wait; `STARTS_MODEL_REQUEST = True` (or
