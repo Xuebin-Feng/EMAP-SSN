@@ -423,20 +423,76 @@ function cardLegend(model) {
         box.append(warning);
     }
     const text = legend.source || legend.description;
-    if (text) {
+    if (text && legend.source && legend.description) {
+        // Where the numbers came from, which opens to what they mean.
         const details = make('details', 'src');
         const summary = make('summary');
         const info = icon("info");
-        const line = make('span', undefined, legend.source || legend.description);
+        const line = make('span', undefined, legend.source);
         const chevron = icon("chevron-down", 'chev');
         summary.append(info, line, chevron);
-        details.append(summary);
-        if (legend.source && legend.description) {
-            const more = make('p', undefined, legend.description);
-            details.append(more);
-        }
+        const more = make('p', undefined, legend.description);
+        details.append(summary, more);
         box.append(details);
+    } else if (text) {
+        box.append(legendNote(text));
     }
+    return box;
+}
+
+// The one text a legend has to say besides its colors (pLDDT's description, or a layer's that has no source, or no description): two lines of
+// it, and a chevron to the whole of it when it is longer. A text that fits has no chevron and nothing to press, since a control that opens
+// nothing is a control that does not work. The room a text has changes with the panel's width (it is dragged, the window is resized, a
+// hidden panel or tab is shown), so whether it fits is worked out again whenever the note's width changes; a watcher of no height
+// does that, since the note's own height changes when it is worked out.
+let openedNote = null;
+
+function legendNote(text) {
+    const box = make('div', 'src');
+    const row = make('div', 'note-row clamp');
+    const line = make('span', 'note-text', text);
+    const info = icon("info");
+    const chevron = icon("chevron-down", 'chev');
+    row.append(info, line, chevron);
+    const watch = make('span', 'note-watch');
+    watch.setAttribute('aria-hidden', 'true');
+    box.append(row, watch);
+    const fit = () => {
+        if (!row.isConnected) return;
+        // Worked out in two lines with all the room, as a note with no chevron (a chevron takes room from the text).
+        row.classList.add('clamp', 'measuring');
+        const longer = line.scrollHeight > line.clientHeight + 1;
+        const opened = longer && openedNote === text;
+        row.classList.remove('measuring');
+        row.classList.toggle('clamp', !opened);
+        if (!longer) {
+            row.removeAttribute('role');
+            row.removeAttribute('tabindex');
+            row.removeAttribute('aria-expanded');
+            return;
+        }
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.setAttribute('aria-expanded', opened ? 'true' : 'false');
+    };
+    const toggle = () => {
+        if (row.getAttribute('role') !== 'button') return;
+        openedNote = openedNote === text ? null : text;
+        fit();
+    };
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', event => {
+        if (row.getAttribute('role') !== 'button' || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        toggle();
+    });
+    const watcher = new ResizeObserver(() => {
+        if (row.isConnected) fit();
+        else watcher.disconnect();
+    });
+    watcher.observe(watch);
+    // The text is drawn in a font that may arrive after the first drawing, and wraps differently in it.
+    document.fonts?.ready.then(fit);
     return box;
 }
 

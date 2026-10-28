@@ -26,6 +26,7 @@ for folder in (SRC, ROOT):
 
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_long_names import NAME_120, OPENED_NAME, SECOND_NAME, UNDERSCORE_NAME, USER_MSA, USER_NAME, write_long
+from tests.test_esmfold_colors import A, B
 from tests.test_esmfold_residue import ResidueTestCase
 
 from PySide6.QtCore import QUrl  # noqa: E402  (after the harness has set the engine's environment)
@@ -355,6 +356,246 @@ class LegendNoteTests(LongNameTestCase):
         self.choose("plddt")
         self.assertIn(OPENED_NAME, self.script("return card().caution"))
         self.assertEqual(self.console_errors(), [])
+
+
+# The note a legend ends with, as a person sees it: its text and how much of it is in view, whether it can be opened and whether it is,
+# and (an oracle that does not use the page's own decision) how many lines its text takes in the room a note with no chevron has.
+NOTES = """
+window.noteNow = function () {
+    const legend = document.getElementById('color-legend');
+    const row = legend.querySelector('.note-row'), details = legend.querySelector('details.src');
+    const found = {legend: legend.getBoundingClientRect().height, kind: row ? 'note' : details ? 'details' : 'none'};
+    if (row) {
+        const text = row.querySelector('.note-text'), chevron = row.querySelector('.chev');
+        const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+        const clone = row.cloneNode(true);
+        clone.classList.remove('clamp');
+        clone.classList.add('measuring');
+        clone.removeAttribute('role');
+        row.parentElement.append(clone);
+        const whole = clone.querySelector('.note-text').getBoundingClientRect().height;
+        clone.remove();
+        Object.assign(found, {
+            text: text.textContent, role: row.getAttribute('role'), tabindex: row.getAttribute('tabindex'), expanded: row.getAttribute('aria-expanded'),
+            clamped: row.classList.contains('clamp'), chevron: getComputedStyle(chevron).display !== 'none', turned: getComputedStyle(chevron).transform,
+            inView: text.clientHeight, inFull: text.scrollHeight, lineHeight, lines: Math.round(whole / lineHeight)});
+    }
+    if (details) {
+        const more = details.querySelector('p');
+        found.source = details.querySelector('summary span').textContent;
+        found.description = more ? more.textContent : null;
+        found.open = details.open;
+        found.descriptionHeight = more ? more.getBoundingClientRect().height : 0;
+    }
+    return found;
+};
+window.pressNote = function (how) {
+    const row = document.querySelector('#color-legend .note-row') || document.querySelector('#color-legend details.src summary');
+    if (how === 'click') row.click();
+    else row.dispatchEvent(new KeyboardEvent('keydown', {key: how, bubbles: true, cancelable: true}));
+};
+// Everything in the legend that offers to open something: its state, and what pressing it does to the legend's height.
+window.disclosures = function () {
+    const legend = document.getElementById('color-legend');
+    return [...legend.querySelectorAll('.note-row[role="button"], details.src summary')].map(control => {
+        const before = legend.getBoundingClientRect().height;
+        control.click();
+        const during = legend.getBoundingClientRect().height;
+        control.click();
+        return {before, during, after: legend.getBoundingClientRect().height};
+    });
+};
+"""
+
+# Longer than two lines of the panel at its least width, and no longer than two at its widest.
+LONG_NOTE = "What this layer measures and how its numbers were worked out, as long as a person's own file may make it: more than two lines at the least width."
+
+
+class LegendNoteDisclosureTests(LongNameTestCase):
+    """The legend's note (esmfold_color.js legendNote): two lines, and a chevron to the whole of it only when there is more.
+
+    Where a layer gives where its numbers came from and what they mean, the source line opens to the description. Where it gives
+    one text, the text is the note: it is shown whole when two lines hold it and has no chevron then (a chevron that opens
+    nothing is a control that does not work, which is what a short description had), and clamped to two lines with one when
+    it is longer. The room changes with the panel, so the choice follows it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        source = {"kind": "msa", "file": fixtures.MSA_FILE, "sequences": 12}
+        for index, (name, sequence) in enumerate(((A, fixtures.FIRST_SEQUENCE), (B, fixtures.SECOND_SEQUENCE))):
+            fixtures.write_structure(self.directory, name, sequence, sidecar=False, shift=(3.0 * index, 1.0 * index, 0.0), wobble=0.4 * index)
+            # The writer's two layers (a source and a description) and three of a person's own: a long description and a short one, with no
+            # source, and a source with no description.
+            data = fixtures.residue_data(name, sequence)
+            values = fixtures.information_content(len(sequence))
+            data["properties"]["long_note"] = fixtures.residue_property("Long note", "%", [0, 100], values, None, LONG_NOTE)
+            data["properties"]["short_note"] = fixtures.residue_property("Short note", "%", [0, 100], values, None, "How conserved.")
+            data["properties"]["only_source"] = fixtures.residue_property("Only source", "%", [0, 100], values, source, "")
+            fixtures.write_sidecar(self.directory, name, data)
+        self.open_scene(A, B)
+        self.js(OVERFLOW)
+        self.js(NOTES)
+
+    def note(self):
+        return self.script("return noteNow()")
+
+    def press(self, how="click"):
+        self.script("pressNote(%s); return 1" % json.dumps(how))
+        self.settle(120)
+        return self.note()
+
+    def panel(self, width):
+        self.script("document.getElementById('app').style.setProperty('--side-width', '%dpx'); return 1" % width)
+        self.settle(250)
+
+    def assert_plain(self, note, context=""):
+        """A note with nothing to open: whole, no chevron, nothing to press."""
+        self.assertEqual(note["kind"], "note", context)
+        self.assertEqual((note["role"], note["tabindex"], note["expanded"], note["chevron"]), (None, None, None, False), context)
+        self.assertLessEqual(note["lines"], 2, context)
+        self.assertLessEqual(note["inFull"], note["inView"] + 1, context)
+
+    def assert_opens(self, note, context=""):
+        """A note with more than it shows: a button with a chevron, closed, two lines in view."""
+        self.assertEqual(note["kind"], "note", context)
+        self.assertEqual((note["role"], note["tabindex"], note["expanded"], note["chevron"], note["clamped"]), ("button", "0", "false", True, True), context)
+        self.assertGreater(note["lines"], 2, context)
+        self.assertAlmostEqual(note["inView"], 2 * note["lineHeight"], delta=2, msg=context)
+        self.assertGreater(note["inFull"], note["inView"] + 1, context)
+
+    def test_plddts_description_fits_and_has_no_chevron_to_press(self):
+        # The report: pLDDT's description had a chevron that turned over and changed nothing, as there was nothing under it.
+        self.choose("plddt")
+        note = self.note()
+        self.assertEqual(note["text"], "The model's confidence in each residue, stored in the B-factor column of the PDB file.")
+        self.assert_plain(note)
+        before = note["legend"]
+        # Pressing it (the row, with the pointer or with a key) changes nothing, and nothing was offered.
+        for how in ("click", "Enter", " "):
+            self.assertEqual(self.press(how)["legend"], before)
+            self.assert_plain(self.note(), how)
+        self.assertEqual(self.overflowing("#color-legend"), [])
+
+    def test_a_short_description_or_a_source_alone_is_the_note_whole_and_has_no_chevron(self):
+        for coloring, text in (("short_note", "How conserved."), ("only_source", "From %s, computed when folded, using 12 sequences" % fixtures.MSA_FILE)):
+            with self.subTest(coloring=coloring):
+                self.choose(coloring)
+                note = self.note()
+                self.assertEqual(note["text"], text)
+                self.assert_plain(note)
+                self.assertEqual(self.press()["legend"], note["legend"])
+
+    def test_a_longer_description_shows_two_lines_and_a_chevron_that_opens_and_closes_the_whole_of_it(self):
+        self.choose("long_note")
+        closed = self.note()
+        self.assertEqual(closed["text"], LONG_NOTE)
+        self.assert_opens(closed)
+        self.assertEqual(self.overflowing("#color-legend"), [])
+        opened = self.press()
+        # Open: all of the text in view, the legend as much taller, the chevron turned over (a rotation of 180 degrees), and the button says so.
+        self.assertEqual((opened["expanded"], opened["clamped"], opened["role"], opened["chevron"]), ("true", False, "button", True))
+        self.assertAlmostEqual(opened["inView"], closed["inFull"], delta=1)
+        self.assertGreater(opened["legend"], closed["legend"] + 10)
+        self.assertNotEqual(opened["turned"], closed["turned"])
+        self.assertEqual(self.overflowing("#color-legend"), [])
+        again = self.press()
+        self.assertEqual((again["expanded"], again["clamped"]), ("false", True))
+        self.assertAlmostEqual(again["legend"], closed["legend"], delta=1)
+        # The keyboard: Enter and Space press it; another key does not.
+        self.assertEqual(self.press("Enter")["expanded"], "true")
+        self.assertEqual(self.press(" ")["expanded"], "false")
+        self.assertEqual(self.press("a")["expanded"], "false")
+        self.assertEqual(self.press("ArrowDown")["expanded"], "false")
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_chevron_is_there_exactly_when_the_text_has_more_than_two_lines_in_the_panels_room(self):
+        self.choose("long_note")
+        seen = set()
+        for width in (340, 380, 420, 480, 540, 600, 640):
+            with self.subTest(panel=width):
+                self.panel(width)
+                note = self.note()
+                self.assertEqual(note["chevron"], note["lines"] > 2, note)
+                (self.assert_opens if note["lines"] > 2 else self.assert_plain)(note, str(width))
+                seen.add(note["chevron"])
+        # The text of the test is long for the panel's least room and short for its widest: both are tried.
+        self.assertEqual(seen, {True, False})
+        # Back to the least width, it offers to open again; and a note that was open when the room grew shows whole, and open again when it shrinks.
+        self.panel(340)
+        self.assert_opens(self.note())
+        self.press()
+        self.panel(640)
+        self.assert_plain(self.note())
+        self.panel(340)
+        self.assertEqual(self.note()["expanded"], "true")
+
+    def test_a_note_in_a_part_of_the_page_that_was_hidden_is_worked_out_when_it_is_shown(self):
+        # The strip of a phone's width shows one card at a time: the Color card's note is drawn while the card is not there, and has no room
+        # to measure.
+        self.view.resize(380, 800)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.script("setPanel(true); setTab('structures'); await new Promise(resolve => setTimeout(resolve, 300)); return 1")
+        self.choose("long_note")
+        self.script("setTab('color'); return 1")
+        self.settle(300)
+        self.assert_opens(self.note())
+        # And closing the strip and opening it again.
+        self.script("setPanel(false); return 1")
+        self.settle(300)
+        self.script("setPanel(true); return 1")
+        self.settle(300)
+        self.assert_opens(self.note())
+
+    def test_a_note_comes_back_as_it_was_when_the_card_is_drawn_again(self):
+        self.choose("long_note")
+        self.press()
+        self.choose("short_note")
+        self.choose("long_note")
+        self.assertEqual(self.note()["expanded"], "true")
+        self.press()
+        self.assertEqual(self.note()["expanded"], "false")
+
+    def test_a_source_that_has_a_description_opens_to_it_and_closes_again(self):
+        for coloring in ("information_content", "same_residue_pct"):
+            with self.subTest(coloring=coloring):
+                self.choose(coloring)
+                closed = self.note()
+                self.assertEqual(closed["kind"], "details")
+                self.assertEqual(closed["source"], "From %s, computed when folded, using 12 sequences" % fixtures.MSA_FILE)
+                self.assertTrue(closed["description"])
+                self.assertFalse(closed["open"])
+                opened = self.press()
+                self.assertTrue(opened["open"])
+                self.assertGreater(opened["descriptionHeight"], 10)
+                self.assertGreater(opened["legend"], closed["legend"] + 10)
+                self.assertEqual(self.overflowing("#color-legend"), [])
+                self.assertEqual(self.press()["legend"], closed["legend"])
+
+    def test_nothing_in_any_legend_offers_to_open_what_is_not_there(self):
+        # In every coloring, in the panel's least and widest room, and in the drawer and the strip: every control of a legend that offers
+        # to open something makes the legend taller when it is pressed and gives the height back when it is pressed again.
+        self.script("document.querySelector('.more-toggle').click(); return 1")
+        self.settle(150)
+        offered = 0
+        for layout in ((1300, 340), (1300, 640), (900, None), (600, None)):
+            if layout[0] != 1300 or layout[1] != 340:
+                self.view.resize(layout[0], 800)
+                self.addCleanup(self.view.resize, 1300, 800)
+                self.script("setPanel(true); setTab('color'); return 1")
+                self.settle(250)
+                if layout[1]:
+                    self.panel(layout[1])
+            for coloring in ("plddt", "builtin:structure", "information_content", "same_residue_pct", "short_note", "long_note", "only_source",
+                             "builtin:secondary-structure", "builtin:residue-position"):
+                with self.subTest(layout=layout, coloring=coloring):
+                    self.choose(coloring)
+                    self.settle(150)
+                    for press in self.script("return disclosures()"):
+                        offered += 1
+                        self.assertGreater(press["during"], press["before"] + 8, press)
+                        self.assertAlmostEqual(press["after"], press["before"], delta=1)
+        self.assertGreater(offered, 8)
 
 
 # What the panel's scroller and the Color by card's buttons are doing: where each button is, and whether the panel scrolls.

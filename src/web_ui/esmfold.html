@@ -478,6 +478,17 @@
         .legend .src .chev { transition: transform 0.2s ease; }
         .legend .src[open] .chev { transform: rotate(180deg); }
         .legend .src p { margin: 6px 0 0 19px; }
+        /* A legend's one note (esmfold_color.js legendNote): two lines, and a chevron to the whole of it only when there is more; the watcher is as wide
+           as the note and has no height, so it can tell the note's width changed without the note's own height changing the answer. */
+        .legend .src { position: relative; }
+        .legend .src .note-row { display: flex; gap: 6px; align-items: center; border-radius: 6px; outline: none; }
+        .legend .src .note-text { flex: 1; min-width: 0; }
+        .legend .src .note-row.clamp .note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+        .legend .src .note-row:not([role="button"]) .chev, .legend .src .note-row.measuring .chev { display: none; }
+        .legend .src .note-row[role="button"] { cursor: pointer; }
+        .legend .src .note-row[role="button"]:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+        .legend .src .note-row[aria-expanded="true"] .chev { transform: rotate(180deg); }
+        .legend .src .note-watch { position: absolute; left: 0; right: 0; top: 0; height: 0; pointer-events: none; }
         .legend .nodata { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
         .legend .nodata i { width: 14px; height: 10px; border-radius: 3px; background: #dcdcdc; border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); flex: none; }
         .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
