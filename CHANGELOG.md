@@ -444,7 +444,8 @@ still change before version 1.0.0.
     when it starts with a `#label#`. A script whose last line ends in ` \` is refused,
     and none of it runs.
   - A backslash with no space before it is part of the text, as in `C:\data\aln.fasta`.
-    MCP and Agent replies still take one command per string or line.
+    MCP and Agent replies still take one command per string or line, and the Agent's
+    instructions say that a script line may continue but a reply line never does.
 
 ### Changed
 
