@@ -571,32 +571,52 @@
                             <tr>
                                 <td><strong>Select Nodes</strong></td>
                                 <td><span class="kbd">Right-Click</span> on a node</td>
-                                <td>Selects that node. Hold <span class="kbd">Shift</span> to add it to the selection or <span class="kbd">Ctrl</span> (<span class="kbd">Cmd</span> on macOS) to remove it. Right-clicking empty space clears the selection.</td>
+                                <td>Selects only that node. Right-clicking empty space clears the selection.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Add or Remove Nodes</strong></td>
+                                <td><span class="kbd">Shift</span> + <span class="kbd">Right-Click</span> on a node</td>
+                                <td>Adds a node that is not selected to the selection. On a selected node, it removes the node when you release the button, if the pointer moved less than 5 pixels since the press; if the pointer moves further, the press moves the selected nodes instead (as below) and removes nothing. <span class="kbd">Shift</span> + right-click on empty space changes nothing.</td>
                             </tr>
                             <tr>
                                 <td><strong>Box / Area Selection</strong></td>
                                 <td><span class="kbd">Right-Click</span> + Drag on empty canvas</td>
-                                <td>Draws the rectangular <strong>Selection Box</strong> (as seen in Figure 4) and selects the enclosed nodes. Hold <span class="kbd">Shift</span> to add them to the selection or <span class="kbd">Ctrl</span> (<span class="kbd">Cmd</span>) to remove them.</td>
+                                <td>Draws the rectangular <strong>Selection Box</strong> (as seen in Figure 4) and selects the enclosed nodes. Hold <span class="kbd">Shift</span> to toggle them instead: enclosed nodes that were selected are deselected and the others are added. The selection follows the box as you drag it.</td>
                             </tr>
                             <tr>
                                 <td><strong>Move Selected Nodes</strong></td>
                                 <td><span class="kbd">Right-Click</span> + Drag on a selected node</td>
-                                <td>Moves the selected nodes to separate overlapping clusters for publication figures (not available in UMAP or PaCMAP mode). Hold <span class="kbd">Shift</span> while moving to keep the move horizontal or vertical, whichever offset from the starting point is larger. Undo with <span class="kbd">Ctrl+Z</span> and redo with <span class="kbd">Ctrl+Y</span>.</td>
+                                <td>Moves the selected nodes to separate overlapping clusters for publication figures (not available in UMAP or PaCMAP mode). Hold <span class="kbd">Shift</span> while moving to keep the move to one of eight directions, every 45&deg;: the nodes slide along the line nearest to the pointer's direction from the starting point. Undo with <span class="kbd">Ctrl+Z</span> and redo with <span class="kbd">Ctrl+Y</span>.</td>
                             </tr>
                             <tr>
                                 <td><strong>Rotate Moving Nodes</strong></td>
                                 <td><span class="kbd">Mouse Scroll Wheel</span> while moving nodes</td>
-                                <td>Rotates the nodes being moved about the point where the drag began: 5&deg; per wheel notch, or 0.5&deg; per notch with <span class="kbd">Shift</span> held, for a finer turn. A touchpad or a high-resolution wheel turns by the fraction of a notch it sends. Turning with <span class="kbd">Shift</span> does not move the nodes; the straight-line hold applies when the pointer next moves.</td>
+                                <td>Rotates the nodes being moved about the point where the drag began: 5&deg; per wheel notch. A touchpad or a high-resolution wheel turns by the fraction of a notch it sends, and a sideways scroll turns the same way. Turning with <span class="kbd">Shift</span> held does not move the nodes; the line hold applies when the pointer next moves.</td>
                             </tr>
                             <tr>
-                                <td><strong>Cancel a Drag</strong></td>
-                                <td><span class="kbd">Esc</span> while dragging</td>
-                                <td>Cancels the node move or the selection box in progress. Moved nodes return to where they were before the drag, rotation included, and the move leaves nothing to undo; the selection stays as the press left it. A selection box is dropped and the selection from before it returns. The rest of that drag does nothing until you release the button. With no drag in progress, <span class="kbd">Esc</span> closes the command line.</td>
+                                <td><strong>Rotate Nodes About Their Centre</strong></td>
+                                <td><span class="kbd">Ctrl</span> (<span class="kbd">Cmd</span> on macOS) + <span class="kbd">Right-Click</span> + Drag on a selected node</td>
+                                <td>Rotates the selected nodes about the centre of the box that encloses them (not available in UMAP or PaCMAP mode). The nodes follow the pointer: they turn by the angle it sweeps about the centre from where you pressed, so going round twice turns them twice. Within 15 pixels of the centre the angle holds still. Hold <span class="kbd">Shift</span> to turn in steps of 15&deg;. The status line shows the angle, the mouse wheel is ignored meanwhile, and the whole turn is one undo step. A <span class="kbd">Ctrl</span> + right-click without a drag does what a right-click does.</td>
                             </tr>
                             <tr>
-                                <td><strong>Copy Header / Sequence</strong></td>
-                                <td><span class="kbd">Shift</span> or <span class="kbd">Ctrl</span> + <span class="kbd">Left-Click</span> on a node</td>
-                                <td><span class="kbd">Shift</span> copies the node's full header and <span class="kbd">Ctrl</span> copies its sequence to the clipboard. The copy is made when you release the button, if the pointer moved less than 5 pixels since the press; a drag copies nothing.</td>
+                                <td><strong>Rotate Nodes About the Cursor</strong></td>
+                                <td><span class="kbd">Ctrl</span> (<span class="kbd">Cmd</span> on macOS) + <span class="kbd">Mouse Scroll Wheel</span> with nodes selected</td>
+                                <td>Rotates the selected nodes 5&deg; per notch about the place under the cursor at the first notch; the pivot stays there until the turn ends. A run of notches is one turn and one undo step. It ends when you release <span class="kbd">Ctrl</span>, press a mouse button, or pause for about a second. With nothing selected, or in UMAP or PaCMAP mode, <span class="kbd">Ctrl</span> + wheel zooms as the wheel does.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Cancel a Drag or Turn</strong></td>
+                                <td><span class="kbd">Esc</span> while dragging or turning</td>
+                                <td>Cancels the node move, node turn or selection box in progress. Moved or turned nodes return to where they were before it, and it leaves nothing to undo; the selection stays as the press left it. A selection box is dropped and the selection from before it returns. The rest of that drag does nothing until you release the button. With nothing in progress, <span class="kbd">Esc</span> closes the command line.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Copy Header</strong></td>
+                                <td><span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> on a node</td>
+                                <td>Copies the node's full header to the clipboard. The copy is made when you release the button, if the pointer moved less than 5 pixels since the press, and once your system's double-click time has passed without a second click; a drag copies nothing.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Copy Sequence</strong></td>
+                                <td><span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> twice (a double click) on a node</td>
+                                <td>Copies the node's sequence to the clipboard instead of its header, so the clipboard takes one entry. The copy is made when you release the button on the second click, if the pointer moved less than 5 pixels since it was pressed.</td>
                             </tr>
                         </tbody>
                     </table>

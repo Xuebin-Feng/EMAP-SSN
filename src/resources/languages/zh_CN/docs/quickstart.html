@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="48334f442353224e598e7b7298b7bda8479d0400ce759c9d926b39abf4678d25">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="75465888bb3c82ded9fed6b4aa695ee8d9f24a7b922060006d8223ecf2db0122">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -563,32 +563,52 @@
                             <tr>
                                 <td><strong>选择节点</strong></td>
                                 <td>在节点上<span class="kbd">右键单击</span></td>
-                                <td>选中该节点。按住 <span class="kbd">Shift</span> 可将该节点加入选中节点，或按住 <span class="kbd">Ctrl</span>（macOS 上为 <span class="kbd">Cmd</span>）将其从选中节点移除。右键单击空白区域可清除选中节点。</td>
+                                <td>只选中该节点。右键单击空白区域可清除选中节点。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>添加或移除节点</strong></td>
+                                <td>在节点上 <span class="kbd">Shift</span> + <span class="kbd">右键单击</span></td>
+                                <td>将未选中的节点加入选中节点。若该节点已选中，则在松开按键时将其移除，条件是指针自按下起移动不足 5 像素；若指针移动得更远，这次按下会改为移动选中节点（见下文），且不移除任何节点。<span class="kbd">Shift</span> + 右键单击空白区域不起任何作用。</td>
                             </tr>
                             <tr>
                                 <td><strong>框选/区域选择</strong></td>
                                 <td><span class="kbd">右键单击</span> + 在空白画布上拖动</td>
-                                <td>绘制矩形<strong>选择框</strong>（如图 4 所示）并选中框内的节点。按住 <span class="kbd">Shift</span> 可将这些节点加入选中节点，或按住 <span class="kbd">Ctrl</span>（<span class="kbd">Cmd</span>）将其从选中节点移除。</td>
+                                <td>绘制矩形<strong>选择框</strong>（如图 4 所示）并选中框内的节点。按住 <span class="kbd">Shift</span> 则改为切换：框内已选中的节点被取消选中，其余节点被加入。拖动选择框时，选中节点随之实时变化。</td>
                             </tr>
                             <tr>
                                 <td><strong>移动选中节点</strong></td>
                                 <td><span class="kbd">右键单击</span> + 在选中节点上拖动</td>
-                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 或 PaCMAP 模式下不可用）。移动时按住 <span class="kbd">Shift</span>，可使移动保持水平或垂直，取距起点偏移较大的方向。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
+                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 或 PaCMAP 模式下不可用）。移动时按住 <span class="kbd">Shift</span>，可使移动保持在八个方向之一（每隔 45&deg;）：节点沿最接近指针相对起点方向的直线滑动。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
                             </tr>
                             <tr>
                                 <td><strong>旋转移动中的节点</strong></td>
                                 <td>移动节点时使用<span class="kbd">鼠标滚轮</span></td>
-                                <td>绕拖动的起点旋转正在移动的节点：滚轮每转一格旋转 5&deg;，按住 <span class="kbd">Shift</span> 时每格 0.5&deg;，旋转更精细。触控板或高分辨率滚轮按其发送的格数的小数部分旋转。按住 <span class="kbd">Shift</span> 旋转不会移动节点；直线约束在指针下次移动时生效。</td>
+                                <td>绕拖动的起点旋转正在移动的节点：滚轮每转一格旋转 5&deg;。触控板或高分辨率滚轮按其发送的格数的小数部分旋转，横向滚动的转向相同。按住 <span class="kbd">Shift</span> 旋转不会移动节点；直线约束在指针下次移动时生效。</td>
                             </tr>
                             <tr>
-                                <td><strong>取消拖动</strong></td>
-                                <td>拖动时按 <span class="kbd">Esc</span></td>
-                                <td>取消正在进行的节点移动或选择框。被移动的节点回到拖动前的位置（包括旋转），该次移动不留下可撤销的步骤；选中节点保持按下时的状态。选择框会被收起，并恢复框选之前的选中节点。该次拖动的其余部分在松开按键前不起任何作用。没有拖动时，<span class="kbd">Esc</span> 关闭命令行。</td>
+                                <td><strong>绕节点中心旋转</strong></td>
+                                <td>在选中节点上 <span class="kbd">Ctrl</span>（macOS 上为 <span class="kbd">Cmd</span>） + <span class="kbd">右键单击</span> + 拖动</td>
+                                <td>绕选中节点外接矩形的中心旋转选中节点（UMAP 或 PaCMAP 模式下不可用）。节点跟随指针：它们旋转的角度等于指针从按下处起绕中心扫过的角度，因此绕两圈就旋转两圈。在中心 15 像素以内，角度保持不变。按住 <span class="kbd">Shift</span> 可按 15&deg; 的步进旋转。状态行显示角度，此时鼠标滚轮不起作用，整个旋转是一个可撤销的步骤。不拖动的 <span class="kbd">Ctrl</span> + 右键单击与普通右键单击相同。</td>
                             </tr>
                             <tr>
-                                <td><strong>复制序列标题/序列</strong></td>
-                                <td>在节点上 <span class="kbd">Shift</span> 或 <span class="kbd">Ctrl</span> + <span class="kbd">左键单击</span></td>
-                                <td><span class="kbd">Shift</span> 复制节点的完整序列标题，<span class="kbd">Ctrl</span> 将其序列复制到剪贴板。松开按键时才复制，且指针自按下起移动不足 5 像素；拖动不会复制任何内容。</td>
+                                <td><strong>绕光标旋转节点</strong></td>
+                                <td>选中节点后 <span class="kbd">Ctrl</span>（macOS 上为 <span class="kbd">Cmd</span>） + <span class="kbd">鼠标滚轮</span></td>
+                                <td>绕第一格滚动时光标下的位置旋转选中节点，每格 5&deg;；此轴心在该次旋转结束前保持不变。连续的几格滚动是一次旋转，也是一个可撤销的步骤。松开 <span class="kbd">Ctrl</span>、按下鼠标按键或停顿约一秒后，该次旋转结束。未选中任何节点时，或在 UMAP 或 PaCMAP 模式下，<span class="kbd">Ctrl</span> + 滚轮与滚轮一样缩放。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>取消拖动或旋转</strong></td>
+                                <td>拖动或旋转时按 <span class="kbd">Esc</span></td>
+                                <td>取消正在进行的节点移动、节点旋转或选择框。被移动或旋转的节点回到操作前的位置，该次操作不留下可撤销的步骤；选中节点保持按下时的状态。选择框会被收起，并恢复框选之前的选中节点。该次拖动的其余部分在松开按键前不起任何作用。没有进行中的操作时，<span class="kbd">Esc</span> 关闭命令行。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>复制序列标题</strong></td>
+                                <td>在节点上 <span class="kbd">Shift</span> + <span class="kbd">左键单击</span></td>
+                                <td>将节点的完整序列标题复制到剪贴板。松开按键时才复制，且指针自按下起移动不足 5 像素，并且要等系统的双击时间过去而没有第二次单击；拖动不会复制任何内容。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>复制序列</strong></td>
+                                <td>在节点上 <span class="kbd">Shift</span> + <span class="kbd">左键单击</span> 两次（双击）</td>
+                                <td>改为将节点的序列复制到剪贴板，不复制序列标题，因此剪贴板只增加一条记录。在第二次单击松开按键时复制，且指针自按下起移动不足 5 像素。</td>
                             </tr>
                         </tbody>
                     </table>
