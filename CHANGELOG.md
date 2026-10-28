@@ -969,6 +969,14 @@ still change before version 1.0.0.
     as a virus scan or a sync client, and the hidden partial file is deleted later.
   - **A read-only file or a folder** of the same name fails at once, with the system's own
     message.
+- **The Viewer's web server sends only web files.** It answered any file in its pages'
+  folder and in the Fold View, Agent and font folders, including the web layer's own
+  Python sources. Only the Viewer's own pages could ask for them.
+  - **Now:** it sends only the kinds of file its pages load (pages, scripts, styles,
+    images, fonts, `.json`, `.md` and the folded `.pdb` structures); any other file is
+    answered as missing.
+  - **Mol*'s script exception now belongs to the Fold View page itself.** It used to
+    follow any page named `esmfold.html`, wherever it was served from.
 
 ## [0.4.0] - 2026-10-16
 
