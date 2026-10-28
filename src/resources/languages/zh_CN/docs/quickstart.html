@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="3de8f059459f09cbdbe40a7ce65dd5fc7715f2829dc3d084fc9aaff2e4dca9d8">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="5b70d0ef5d3a3f357e6dc5ee10e746a15d9fc9324264834ff825e9b1f43123e2">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -637,6 +637,7 @@
                 <ul>
                     <li><strong>即时分析控制：</strong>输入命令即可为节点着色、计算 Leiden、MCL 或 Jaccard 簇、生成残基保守性序列标识图、检查属性，或导出节点集。</li>
                     <li><strong>与布局绑定的持久历史记录：</strong>按 <span class="kbd">Up</span> 和 <span class="kbd">Down</span> 方向键可循环浏览过去的命令。命令历史会按布局自动保存在 <code>Cache_Files/Saved_Layouts/&lt;layout&gt;/cli_history.txt</code> 中！</li>
+                    <li><strong>长命令：</strong>在一行末尾输入一个空格和一个反斜杠（<code>\</code>），然后按 <span class="kbd">Enter</span>：命令行保持打开以便输入其余部分，当某一行不再以此结尾时，命令才会运行。写成多行的命令可以原样粘贴，<code>run</code> 脚本中也同样适用；详情见<a href="list_of_commands.html">命令参考</a>。</li>
                     <li><strong>错误反馈：</strong>无效命令会在控制台中报告问题，并给出用法帮助。</li>
                 </ul>
 

@@ -153,6 +153,15 @@
                 <p>
                     <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference. <code>help COMMAND</code> prints the same help, and <code>help</code> alone lists every command with a one-line summary.
                 </p>
+                <p>
+                    A command can go on over several lines. End a line with a space and a backslash (<code>\</code>) and the next line carries on: the backslash and the line break become one space, and the next line may start with a <code>#label#</code>. This is the command of a figure, written over two lines and typed or pasted as it stands:
+                </p>
+                <ul class="example-list">
+                    <li class="example-item"><span>color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green \<br>#R-ATA# red #ADCL# magenta</span><button class="copy-btn" onclick="copyText('color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green \\\n#R-ATA# red #ADCL# magenta', this)">Copy</button></li>
+                </ul>
+                <p>
+                    At the command line, <span class="kbd">Enter</span> on a line that ends this way does not run it: the backslash goes, the line stays open for the rest, and the command enters the history only when it runs, so <span class="kbd">Up</span> brings it back as one line. A pasted command has its backslashes and line breaks taken out. In a <code>run</code> script the lines join in the same way, and a <code>//</code> comment may follow the backslash. A backslash anywhere else is part of the text: <code>C:\data\aln.fasta</code> needs no care, and <code>C:\folder\</code> at the end of a line does not continue it, because no space comes before its backslash. A command sent through MCP (<code>execute_commands</code>) or written by the Agent is one string or one line each: nothing there is joined.
+                </p>
             </header>
 
 
@@ -405,6 +414,7 @@
                 <ul>
                     <li><strong>Python Scripts (<code>.py</code>):</strong> Executed in a subprocess using the active python environment, in the script's own folder, so relative paths in the script resolve beside it. The subprocess runs in the background, so the viewer stays responsive; when it finishes, its standard output (stdout) is read and executed line-by-line in the viewer. One script runs at a time: running another while one is still running is refused.</li>
                     <li><strong>Text Files (<code>.txt</code>):</strong> Read line-by-line. Text after <code>//</code> is removed, so both full-line and trailing comments are ignored.</li>
+                    <li><strong>Continued Lines:</strong> A command may go on over several lines in a script, as it may at the command line (see the top of this page). A line whose last non-whitespace character is a backslash that follows whitespace, or is the whole line, joins the next line, the backslash and the line break becoming one space. The next line is joined whatever it holds: it may start with a <code>#label#</code>, although a line that starts with <code>#</code> anywhere else is a comment, and a blank line ends the command. <code>//</code> comments are removed from each line first, so <code>color #A# red \ // first part</code> continues. The same holds for the lines a Python script prints. Lines are joined before comments and nested <code>run</code> lines are left out, and a joined command counts once toward the command limit. A script whose last line continues has nothing for that command to go on with: the script is refused before any command runs, and the console names the line.</li>
                     <li><strong>Stopping Scripts:</strong> <code>run stop</code> ends the Python scripts the viewer is running, with every process they started, and runs none of their commands. No file explorer opens. With no script running, it succeeds and says so. Closing the viewer stops them too.</li>
                     <li><strong>Infinite Loop Protection:</strong> Recursive <code>run</code> calls inside a script are automatically ignored to prevent viewer freezes.</li>
                     <li><strong>Stops at the First Failure:</strong> The commands run in order, and the first command that fails ends the run. The commands after it are not run; the console names the command that failed and says how many were left out. A command cancelled from its own dialog ends the run in the same way.</li>
