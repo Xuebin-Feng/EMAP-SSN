@@ -417,6 +417,21 @@ still change before version 1.0.0.
   - They take no keyboard focus, so typing goes on in the command line, and they are never
     in a picture that `print` or MCP takes. With Show Frame Rate (FPS) on, the frame rate
     sits to their left.
+- **Edge opacity by score.** An **Auto** switch at the start of the Config's Edge Opacity
+  slider (Visual Effects) draws each edge more opaque the higher its score: 15% at the
+  threshold, up to 85% at the top score, in the one Edge Color. It is off by default.
+  - While it is on, the slider is greyed out and keeps its value.
+  - Moving the threshold rescales every edge, since the faintest edge drawn is always the
+    one at the threshold. Hiding nodes changes no other edge's opacity.
+  - **For the SSN layout method only.** With UMAP or PaCMAP the switch is greyed out and
+    keeps its setting, and the edges are drawn at the slider's value.
+  - **`print` follows it:** the PNG as the screen shows it, and the SVG in 128 groups of
+    one opacity each, the most opaque first.
+  - **Cost:** nothing per frame or per threshold move. The first time it is turned on in
+    a Viewer it takes about 0.7 s and 0.5 GB of graphics memory for 48.7 million edges.
+  - Viewer settings documents carry it as `AUTO_EDGE_ALPHA` under `visualization`; older
+    documents load with it off. The VR Config and VR viewer are unchanged.
+  - Text Size is now the first row of Visual Effects.
 
 ### Changed
 
