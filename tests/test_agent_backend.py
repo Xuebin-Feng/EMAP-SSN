@@ -1046,6 +1046,14 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         [event] = [e for e in self.viewer.events if e['type'] == 'agent_command_request']
         self.assertEqual([(c['command'], c['approval']) for c in event['commands']], [('select "one"', None), ('save x.h5', 'pending')])
 
+    def test_each_command_line_of_a_reply_is_one_command_and_a_backslash_joins_nothing(self):
+        # Every line the agent writes is reviewed as a command of its own; the continuation of a command
+        # script (Command_Engine.script_command_lines) is not applied to a reply.
+        request_id = self.reply('command: color #A# red \\\ncommand: #B# blue')
+        self.assertEqual([record['command'] for record in self.portal.get(request_id)['commands']],
+                         ['color #A# red \\', '#B# blue'])
+        self.settle(seconds=0.2)
+
     def test_an_open_page_needs_no_notice(self):
         self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client == 'agent')
         self.reply('command: save x.h5')

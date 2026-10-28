@@ -71,18 +71,26 @@ def read_command_lines(file_path):
 
 
 def script_commands(command_lines):
-    """The commands a script's lines hold: blank and comment lines, and nested run lines, are left out."""
+    """The commands a script's lines hold: continued lines are joined, and blank and comment lines, and nested run lines, are left out.
+
+    Raises Command_Engine.ScriptContinuationError, before any command is
+    returned, for a script whose last line continues.
+    """
     commands = []
-    for line in command_lines:
-        # Drop blank lines, # lines and any trailing // comment
-        cmd_line = Command_Engine.script_command(line)
-        if not cmd_line:
-            continue
+    # Joins the lines a backslash continues, and drops blank lines, # lines and any trailing // comment.
+    for cmd_line in Command_Engine.script_command_lines(command_lines):
         if is_run_command(cmd_line):
             print("Warning: Recursive 'run' command in script ignored to prevent infinite loop.")
             continue
         commands.append(cmd_line)
     return commands
+
+
+def refuse_script(viewer, error):
+    """Report a script whose last line continues past its end: it is refused as a whole, and no command runs."""
+    msg = error.args[0]
+    Command_Engine.command_failed(viewer, msg)
+    Command_Engine.print_help(viewer, msg, report_message=False)
 
 
 def run_script_lines(viewer, command_lines):
@@ -97,7 +105,11 @@ def run_script_lines(viewer, command_lines):
     given while another computes, and every one after it) is queued; the queue
     then cancels the script's later commands if it fails (Command_Queue).
     """
-    commands = script_commands(command_lines)
+    try:
+        commands = script_commands(command_lines)
+    except Command_Engine.ScriptContinuationError as error:
+        refuse_script(viewer, error)
+        return
     total = len(commands)
     if total > MAX_SCRIPT_COMMANDS:
         msg = Message("Error: The script holds {count} commands, more than the {limit} a script may run. None were run.",
@@ -198,13 +210,16 @@ def run(viewer, args):
         msg = JoinedMessage([
             Message("Usage: {syntax}", syntax="run [stop]"),
             "Description: Opens a file explorer to select a command script file (.txt or .py) and executes the commands in sequence.\n"
-            "  - For .txt files: Executes each line as a command.\n"
+            "  - For .txt files: Executes each line as a command; text after // is a comment.\n"
             "  - For .py files: Executes the Python script in a subprocess, in the script's own folder and in the background, "
             "and then runs the commands outputted to stdout. One script runs at a time.\n"
+            "  - A command may go on over several lines: a line that ends in a space and a backslash continues on the next "
+            "line, which may start with a #label#. The same goes for the lines a Python script prints.\n"
             "  - run stop: Stops the Python scripts the Viewer is running, and every process they started; "
             "their commands are not run. Closing the Viewer stops them too.\n"
             "  - The first command that fails stops the run; the commands after it are not run.\n"
-            f"  - A script may hold at most {MAX_SCRIPT_COMMANDS} commands; a longer one is refused before any command runs.\n"
+            f"  - A script may hold at most {MAX_SCRIPT_COMMANDS} commands; a longer one is refused before any command runs. "
+            "So is one whose last line ends in a continuing backslash.\n"
             "Examples:\n"
             "  run\n"
             "  run stop",
@@ -284,8 +299,12 @@ def run(viewer, args):
         commands_lines = read_command_lines(file_path)
 
         if context is not None:
-            commands = [Command_Engine.script_command(line) for line in commands_lines]
-            commands = [line for line in commands if line and not is_run_command(line)]
+            try:
+                commands = [line for line in Command_Engine.script_command_lines(commands_lines)
+                            if not is_run_command(line)]
+            except Command_Engine.ScriptContinuationError as error:
+                refuse_script(viewer, error)
+                return
             context.children(commands)
             Command_Engine.command_succeeded(viewer, f'Prepared {len(commands)} child commands.')
             return

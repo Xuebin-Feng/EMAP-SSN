@@ -1596,10 +1596,113 @@ def script_command(line):
     """
     if line.lstrip().startswith('#'):
         return None
+    return _without_comment(line).strip() or None
+
+def _without_comment(line):
+    """line without the comment that a '//' starts, at the line's start or after whitespace."""
     comment = re.search(r'(?:^|\s)//', line)
-    if comment:
-        line = line[:comment.start()]
-    return line.strip() or None
+    return line[:comment.start()] if comment else line
+
+# --- A command over several lines ----------------------------------------------
+# A line whose last non-whitespace character is a backslash that follows
+# whitespace, or is the whole line, goes on at the next line: the backslash and
+# the line break become one space. A backslash anywhere else is part of the text,
+# as in the path C:\data\x.fasta (and C:\folder\ at a line's end), "a\b",
+# {key=a\b}, #label# and @file@. This is the same wherever commands are typed
+# or read from a script, and it names no command.
+
+def continued_text(line):
+    """What a line holds before its continuing backslash, or None when the line doesn't continue.
+
+    The backslash must be the last non-whitespace character, and follow
+    whitespace or be the whole line; spaces and tabs may follow it. The text is
+    returned without the whitespace before the backslash, so a lone backslash
+    gives ''.
+    """
+    text = line.rstrip()
+    if not text.endswith('\\'):
+        return None
+    before = text[:-1]
+    if before and not before[-1].isspace():
+        return None
+    return before.rstrip()
+
+class ScriptContinuationError(ValueError):
+    """A command script's last line continues, so its command has no rest; args[0] is the Message."""
+
+def script_command_lines(lines):
+    """The commands a command script's lines hold, each continued command's lines joined.
+
+    lines are the physical lines of a script, with or without their line
+    breaks. A line that continues (continued_text) is joined with the next line
+    by one space, whatever the next line holds: the line after a continuation is
+    command text even when it starts with '#', as a #label# does, and when it
+    is blank the command ends there. '//' comments are removed from each
+    physical line first, as script_command does, and a line whose first
+    non-space character is '#' is a comment as a whole, so a comment line that
+    ends in a backslash does not continue. Blank and comment lines hold no
+    command, and a nested run line is left to the caller.
+
+    A script whose last line continues has no rest for that command: the whole
+    script is refused with ScriptContinuationError, which names the line, before
+    any command runs.
+    """
+    commands = []
+    pieces = []         # what the command in progress holds, before each of its continuations
+    continued_on = None  # the line number of the latest continuation, or None
+    for number, line in enumerate(lines, 1):
+        if continued_on is None and line.lstrip().startswith('#'):
+            continue
+        text = _without_comment(line)
+        before = continued_text(text)
+        if before is not None:
+            pieces.append(before)
+            continued_on = number
+            continue
+        pieces.append(text)
+        command = ' '.join(piece for piece in map(str.strip, pieces) if piece)
+        pieces, continued_on = [], None
+        if command:
+            commands.append(command)
+    if continued_on is not None:
+        raise ScriptContinuationError(Message(
+            "Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.",
+            line=continued_on,
+        ))
+    return commands
+
+def continued_command_line(text):
+    """The command line as it stays open when Enter is pressed on text that continues, or None when it doesn't.
+
+    The backslash goes and the text keeps one space after it, so the rest is
+    typed straight on.
+    """
+    before = continued_text(text)
+    if before is None:
+        return None
+    return before + ' ' if before else ''
+
+def pasted_command_text(text):
+    """Pasted text as the command line takes it, on one line.
+
+    Each line break becomes a space and carriage returns go. A continuation
+    that ends a pasted line goes with its break, and the next line's leading
+    whitespace with it, so a continued command pastes as one clean command. A
+    continuation at the very end of the text stays: Enter handles it.
+    """
+    lines = text.replace('\r\n', '\n').split('\n')
+    pasted = []
+    after_continuation = False
+    for number, line in enumerate(lines):
+        if after_continuation:
+            line = line.lstrip()
+        before = None if number == len(lines) - 1 else continued_text(line)
+        if before is not None:
+            pasted.append(before + ' ' if before else '')
+        else:
+            pasted.append(line if number == len(lines) - 1 else line + ' ')
+        after_continuation = before is not None
+    return ''.join(pasted).replace('\r', '')
 
 def command_artifact(viewer, path):
     from Viewer_Command_Portal import report

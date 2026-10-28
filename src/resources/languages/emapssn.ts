@@ -3256,6 +3256,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: No &apos;run&apos; in {command}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5017,6 +5021,10 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Redo successful.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Continued: type the rest and press Enter.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

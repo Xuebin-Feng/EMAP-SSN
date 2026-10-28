@@ -451,6 +451,19 @@ class PortalLimitTests(PortalFixture, unittest.TestCase):
         self.portal.submit('longest command', 'x' * 8192)
         self.assertEqual(len(self.portal.queue), 2)
 
+    def test_one_string_is_one_command_so_a_backslash_continues_nothing(self):
+        # MCP's execute_commands, and the Agent page's reply, hand over single-line commands: a string that
+        # holds a line break is refused, and a trailing backslash is kept as given, not joined to another command.
+        figure = ['color #A# red \\', '#B# blue']
+        for label, commands in (('one string of two lines', ['\n'.join(figure)]),
+                                ('two lines of CRLF', ['\r\n'.join(figure)]),
+                                ('a string of two lines', '\n'.join(figure))):
+            with self.subTest(label), self.assertRaises(ValueError):
+                self.portal.submit('continued ' + label, commands)
+        self.assertEqual((self.portal.requests, self.portal.queue), ({}, []))
+        request = self.portal.submit('separate', figure)
+        self.assertEqual([record['command'] for record in request['commands']], figure)
+
     def test_full_queue_rejects_new_submissions_but_answers_retries(self):
         for index in range(100):
             self.portal.submit(f'queued-{index}', 'select help')

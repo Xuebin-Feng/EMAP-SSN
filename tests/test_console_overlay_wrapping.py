@@ -14,6 +14,7 @@ import io
 import math
 import os
 import sys
+import tempfile
 import time
 import unittest
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ if SRC_DIR not in sys.path:
 
 import EMAPSSN_Viewer
 from EMAPSSN_Viewer import (
+    CLICK_STATUS_SEPARATOR,
     MainViewer,
     _apply_safe_rectangle_geometry,
     _vispy_text_cursor_span_pixels,
@@ -39,6 +41,7 @@ from EMAPSSN_Viewer import (
 from PySide6 import QtCore, QtWidgets
 from utilities import Localization
 from utilities.Localization import Message
+from vispy.util.keys import Key
 from vispy.visuals import RectangleVisual
 
 
@@ -877,6 +880,195 @@ class ShippedCommandLineTests(unittest.TestCase):
             viewer.create_hud()
         self.assertFalse(hasattr(viewer, "instr_text"))
         self.assertFalse(hasattr(MainViewer, "update_instruction_layout"))
+
+
+class ContinuedCommandLineTests(unittest.TestCase):
+    """A command can go on over several lines, with a backslash that follows whitespace.
+
+    Pasted, a ' \\' that ends a line goes with its break, so the command arrives as one clean line. Typed, Enter
+    on a line that ends in ' \\' does not run it: the backslash goes, the line stays open for the rest with a
+    hint beside it, and nothing enters the history until the command runs."""
+
+    HINT = "Continued: type the rest and press Enter."
+    FIGURE = "color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green \\\n#R-ATA# red #ADCL# magenta"
+    FIGURE_COMMAND = "color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green #R-ATA# red #ADCL# magenta"
+
+    def make_viewer(self, buffer="", cursor=None):
+        # Wide, so that the line holds a command and its hint without wrapping.
+        viewer = CommandCaretTests.make_typing_viewer(buffer, cursor, size=(4000, 100))
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        viewer.command_history = []
+        viewer.history_index = 0
+        viewer.history_file = os.path.join(directory.name, "cli_history.txt")
+        viewer.clear_background_job_status = mock.Mock()
+        viewer._update_console_text()
+        return viewer
+
+    @staticmethod
+    def key(viewer, name, text=""):
+        CommandCaretTests.key(viewer, name, text)
+
+    def type_text(self, viewer, text):
+        for character in text:
+            self.key(viewer, character, character)
+
+    def paste(self, viewer, text):
+        clipboard = SimpleNamespace(text=lambda: text)
+        application = SimpleNamespace(native=SimpleNamespace(clipboard=lambda: clipboard))
+        with mock.patch("vispy.app.use_app", return_value=application):
+            viewer.on_key_press(SimpleNamespace(key=Key("V"), text="", modifiers=("Control",), handled=False))
+
+    def run_enter(self, viewer):
+        """Press Enter with the real process_command: the command is recorded, and then fails, as no command is named bogus."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.key(viewer, "Enter")
+
+    # --- Pasting ---
+
+    def test_a_pasted_continued_command_becomes_one_clean_line(self):
+        for label, text in (
+                ("LF", self.FIGURE),
+                ("CRLF", self.FIGURE.replace("\n", "\r\n")),
+                ("tabs and spaces after the backslash", self.FIGURE.replace("\\\n", "\\ \t \n")),
+                ("an indented continuation", self.FIGURE.replace("\n", "\n      ")),
+                ("a trailing break", self.FIGURE + "\n")):
+            with self.subTest(text=label):
+                viewer = self.make_viewer()
+                self.paste(viewer, text)
+                # A trailing break becomes a space, as a pasted break always did.
+                expected = self.FIGURE_COMMAND + (" " if text.endswith("\n") else "")
+                self.assertEqual(viewer.input_buffer, expected)
+                self.assertEqual(viewer.cursor_pos, len(expected))
+                self.assertEqual(viewer.console_text.text, f"Cmd: {expected}")
+
+    def test_a_pasted_continuation_goes_in_at_the_cursor(self):
+        viewer = self.make_viewer("select  end", 7)
+        self.paste(viewer, "color #A# red \\\n#B# blue")
+        self.assertEqual(viewer.input_buffer, "select color #A# red #B# blue end")
+        self.assertEqual(viewer.cursor_pos, len("select color #A# red #B# blue"))
+
+    def test_other_pasted_line_breaks_are_spaces_as_before(self):
+        for text, expected in (("select a\nselect b", "select a select b"),
+                               ("select a \r\nselect b", "select a  select b"),
+                               ("select a\r\n", "select a "),
+                               # A backslash that follows no whitespace is part of the text: a path.
+                               ("alignment C:\\folder\\\nnext", "alignment C:\\folder\\ next"),
+                               ("alignment C:\\data\\aln.fasta", "alignment C:\\data\\aln.fasta"),
+                               ('select "a\\b"\nx', 'select "a\\b" x')):
+            with self.subTest(text=text):
+                viewer = self.make_viewer()
+                self.paste(viewer, text)
+                self.assertEqual(viewer.input_buffer, expected)
+
+    def test_a_continuation_at_the_very_end_of_the_paste_stays_for_enter(self):
+        viewer = self.make_viewer()
+        self.paste(viewer, "color #A# red \\")
+        self.assertEqual(viewer.input_buffer, "color #A# red \\")
+        viewer.process_command = mock.Mock()
+        self.key(viewer, "Enter")
+        viewer.process_command.assert_not_called()
+        self.assertEqual(viewer.input_buffer, "color #A# red ")
+
+    # --- Enter ---
+
+    def test_enter_on_a_continued_line_keeps_the_line_open_and_runs_nothing(self):
+        viewer = self.make_viewer("color #A# red \\")
+        viewer.process_command = mock.Mock()
+        before = viewer.history_index
+
+        self.key(viewer, "Enter")
+
+        viewer.process_command.assert_not_called()
+        self.assertTrue(viewer.console_mode)
+        self.assertTrue(viewer.console_bg.visible)
+        # The backslash is gone, and the line keeps its text and one space, the cursor after it.
+        self.assertEqual(viewer.input_buffer, "color #A# red ")
+        self.assertEqual(viewer.cursor_pos, len("color #A# red "))
+        self.assertEqual(viewer.console_text.text, f"Cmd: color #A# red {CLICK_STATUS_SEPARATOR}{self.HINT}")
+        self.assertIsNotNone(viewer.command_caret.shown)
+        # Nothing is remembered yet.
+        self.assertEqual(viewer.command_history, [])
+        self.assertEqual(viewer.history_index, before)
+        self.assertFalse(os.path.exists(viewer.history_file))
+
+    def test_the_next_key_shows_the_command_alone_again(self):
+        viewer = self.make_viewer("color #A# red \\")
+        self.key(viewer, "Enter")
+        self.key(viewer, "#", "#")
+        self.assertEqual(viewer.console_text.text, "Cmd: color #A# red #")
+
+    def test_enter_takes_the_trailing_spaces_and_tabs_after_the_backslash_too(self):
+        for buffer in ("color #A# red\t\\", "color #A# red   \\ \t ", "color #A# red \\\t"):
+            with self.subTest(buffer=buffer):
+                viewer = self.make_viewer(buffer)
+                viewer.process_command = mock.Mock()
+                self.key(viewer, "Enter")
+                viewer.process_command.assert_not_called()
+                self.assertEqual(viewer.input_buffer, "color #A# red ")
+
+    def test_enter_on_a_lone_backslash_keeps_an_empty_line_open(self):
+        viewer = self.make_viewer("\\")
+        viewer.process_command = mock.Mock()
+        self.key(viewer, "Enter")
+        viewer.process_command.assert_not_called()
+        self.assertTrue(viewer.console_mode)
+        self.assertEqual((viewer.input_buffer, viewer.cursor_pos), ("", 0))
+
+    def test_the_hint_is_translated(self):
+        translated = "继续：请输入其余部分，然后按 Enter。"
+        previous = Localization.set_translator(lambda text, n: translated if text == self.HINT else text)
+        self.addCleanup(Localization.set_translator, previous)
+        viewer = self.make_viewer("color #A# red \\")
+        self.key(viewer, "Enter")
+        self.assertEqual(viewer.console_text.text, f"Cmd: color #A# red {CLICK_STATUS_SEPARATOR}{translated}")
+
+    def test_the_next_enter_runs_the_joined_command_and_the_history_holds_it_whole(self):
+        # bogus is no command: it is recorded as typed and then refused, which is all this needs.
+        viewer = self.make_viewer("bogus alpha \\")
+        self.key(viewer, "Enter")
+        self.type_text(viewer, "#beta# \\")
+        self.key(viewer, "Enter")
+        self.assertEqual(viewer.command_history, [])
+        self.type_text(viewer, "#gamma#")
+
+        self.run_enter(viewer)
+
+        self.assertFalse(viewer.console_mode)
+        self.assertEqual(viewer.command_history, ["bogus alpha #beta# #gamma#"])
+        with open(viewer.history_file, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "bogus alpha #beta# #gamma#\n")
+        self.assertIn("Unknown command: bogus", viewer.console_text.text)
+        # Up recalls the whole joined command as one line.
+        self.key(viewer, "Enter")
+        self.assertTrue(viewer.console_mode)
+        self.key(viewer, "Up")
+        self.assertEqual(viewer.input_buffer, "bogus alpha #beta# #gamma#")
+        self.assertEqual(viewer.cursor_pos, len(viewer.input_buffer))
+
+    def test_escape_ends_a_continued_command_and_nothing_is_remembered(self):
+        viewer = self.make_viewer("bogus alpha \\")
+        self.key(viewer, "Enter")
+        self.key(viewer, "Escape")
+        self.assertFalse(viewer.console_mode)
+        self.assertEqual(viewer.command_history, [])
+        self.assertFalse(os.path.exists(viewer.history_file))
+
+    def test_enter_on_a_path_that_ends_in_a_backslash_runs_it_as_before(self):
+        # No whitespace before the backslash: it is the path's, so the command runs.
+        for buffer in ("alignment C:\\folder\\", "select \"a\\\"", "color #A# red \\\\", "color red\\"):
+            with self.subTest(buffer=buffer):
+                viewer = self.make_viewer(buffer)
+                viewer.process_command = mock.Mock()
+                self.key(viewer, "Enter")
+                viewer.process_command.assert_called_once_with(buffer)
+                self.assertFalse(viewer.console_mode)
+                self.assertEqual(viewer.command_history, [])
+
+    def test_the_run_of_a_path_is_recorded_whole(self):
+        viewer = self.make_viewer("bogus C:\\folder\\")
+        self.run_enter(viewer)
+        self.assertEqual(viewer.command_history, ["bogus C:\\folder\\"])
 
 
 class HudOrderTests(unittest.TestCase):

@@ -4743,7 +4743,12 @@ Command-line usage:
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location line="+226"/>
+        <location line="+129"/>
+        <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
+        <translation type="unfinished">错误：脚本第 {line} 行以反斜杠结尾，但其后没有可供该命令续写的行。未运行任何命令。</translation>
+    </message>
+    <message>
+        <location line="+200"/>
         <source>Running {command}...</source>
         <translation type="unfinished">正在运行 {command}…</translation>
     </message>
@@ -4760,10 +4765,10 @@ Command-line usage:
     </message>
     <message>
         <location line="+11"/>
-        <location filename="../../../commands/agent.py" line="+101"/>
+        <location filename="../../../commands/agent.py" line="+103"/>
         <location line="+16"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+120"/>
+        <location filename="../../../commands/esmfold.py" line="+124"/>
         <location line="+582"/>
         <location line="+84"/>
         <location line="+112"/>
@@ -4774,7 +4779,7 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+190"/>
+        <location filename="../../../commands/meta.py" line="+195"/>
         <location line="+119"/>
         <location filename="../../../commands/print.py" line="-77"/>
         <location line="+52"/>
@@ -4835,7 +4840,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
         <location filename="../../../commands/embedding.py" line="+20"/>
-        <location filename="../../../commands/run.py" line="+234"/>
+        <location filename="../../../commands/run.py" line="+249"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -4922,7 +4927,7 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../Command_Engine.py" line="-269"/>
+        <location filename="../../../Command_Engine.py" line="-372"/>
         <location filename="../../../commands/cluster.py" line="+154"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
@@ -5579,7 +5584,7 @@ Command-line usage:
         <location filename="../../../commands/redo.py" line="+57"/>
         <location line="+26"/>
         <location filename="../../../commands/reference.py" line="+84"/>
-        <location filename="../../../commands/run.py" line="-47"/>
+        <location filename="../../../commands/run.py" line="-50"/>
         <location filename="../../../commands/save.py" line="+32"/>
         <location filename="../../../commands/subcluster.py" line="-235"/>
         <location filename="../../../commands/undo.py" line="+57"/>
@@ -6379,7 +6384,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+55"/>
         <source>File selection cancelled.</source>
         <translation type="unfinished">已取消选择文件。</translation>
     </message>
@@ -6394,7 +6399,7 @@ Command-line usage:
         <translation type="unfinished">正在执行 Python 脚本…</translation>
     </message>
     <message>
-        <location line="-109"/>
+        <location line="-112"/>
         <source>Error: Python script failed (exit code {code}):</source>
         <translation type="unfinished">错误：Python 脚本运行失败（退出代码 {code}）：</translation>
     </message>
@@ -6413,7 +6418,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+25"/>
-        <location line="+131"/>
+        <location line="+138"/>
         <source>Error reading/executing command file: {error}</source>
         <translation type="unfinished">读取或执行命令文件出错：{error}</translation>
     </message>
@@ -6938,12 +6943,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1643"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1652"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+794"/>
+        <location line="+819"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -6965,7 +6970,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+921"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+613"/>
+        <source>Continued: type the rest and press Enter.</source>
+        <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
+    </message>
+    <message>
+        <location line="+316"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7021,7 +7031,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+146"/>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
@@ -7031,7 +7041,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="+383"/>
+        <location line="+389"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -7578,7 +7588,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+22"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+756"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+772"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -8794,7 +8804,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-858"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-892"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -13123,7 +13133,7 @@ Fedora / RHEL：
     <message>
         <location line="+1"/>
         <location filename="../../../commands/embedding.py" line="-126"/>
-        <location filename="../../../commands/run.py" line="-66"/>
+        <location filename="../../../commands/run.py" line="-70"/>
         <source>All Files (*)</source>
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
@@ -13169,7 +13179,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2199"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2232"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13229,7 +13239,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2022"/>
+        <location line="+2055"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

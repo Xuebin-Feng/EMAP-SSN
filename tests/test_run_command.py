@@ -5,7 +5,10 @@ client or the agent page) it hands a script to
 Viewer_Worker_Tracking.ScriptTracker, and a .txt file's lines to
 context.children. Both obey one rule: a script holds at most 1000 commands, and
 the first command that fails ends the run. A Python script runs in its own
-folder; typed, it runs in the background and its commands run when it ends."""
+folder; typed, it runs in the background and its commands run when it ends.
+A command may go on over several lines (a line ending in a backslash after
+whitespace): Command_Engine.script_command_lines joins them for both kinds of
+script, and a script whose last line continues is refused whole."""
 
 import codecs
 import gc
@@ -26,6 +29,8 @@ import psutil
 from tests.viewer_fixtures import PortalFixture, Viewer
 from PySide6 import QtWidgets
 import Command_Engine as ce
+from utilities import Localization
+from utilities.Localization import display_text
 
 
 # 'é' is in the Windows ANSI code page (cp1252) and used to arrive dropped or as
@@ -278,6 +283,279 @@ class ScriptCommentTests(RunPaths, unittest.TestCase):
                 ('', None), ('   \n', None)):
             with self.subTest(line=line):
                 self.assertEqual(ce.script_command(line), expected)
+
+    def test_script_command_reads_one_line_and_knows_nothing_of_continuation(self):
+        # The VR terminal's run (opt_vr) aliases this function and calls it on each line, so a line that ends in
+        # a backslash must come out as it always did: script_command_lines is the one that joins lines.
+        for line, expected in (
+                ('color #A# red \\', 'color #A# red \\'),
+                ('color #A# red \\  \t\r\n', 'color #A# red \\'),
+                ('\\', '\\'),
+                ('#B# blue', None), ('  #B# blue \\', None),
+                ('alignment C:\\folder\\', 'alignment C:\\folder\\'),
+                ('color #A# red \\ // first part', 'color #A# red \\'),
+                ('color #A# red // not \\', 'color #A# red')):
+            with self.subTest(line=line):
+                self.assertEqual(ce.script_command(line), expected)
+
+
+# The command of a manuscript figure, over two lines; the second starts with a #label#.
+FIGURE_LINES = ['color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green \\', '#R-ATA# red #ADCL# magenta']
+FIGURE_COMMAND = 'color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green #R-ATA# red #ADCL# magenta'
+DANGLING_MESSAGE = ('Error: Line {line} of the script ends with a backslash, but no line follows it for the '
+                    'command to continue on. None were run.')
+
+
+class ScriptContinuationTests(unittest.TestCase):
+    """script_command_lines joins a command that goes on over several lines, and leaves every other backslash alone.
+
+    A line goes on at the next when its last non-whitespace character is a backslash that follows whitespace
+    (or is the whole line); the backslash and the line break become one space."""
+
+    def commands(self, *lines):
+        return ce.script_command_lines(list(lines))
+
+    def test_the_figure_command_is_one_command(self):
+        self.assertEqual(self.commands(*FIGURE_LINES), [FIGURE_COMMAND])
+        # Whatever the line ends in, and whether or not it kept its line break.
+        self.assertEqual(self.commands(*[line + '\n' for line in FIGURE_LINES]), [FIGURE_COMMAND])
+        self.assertEqual(self.commands(*[line + '\r\n' for line in FIGURE_LINES]), [FIGURE_COMMAND])
+
+    def test_a_backslash_after_no_whitespace_is_not_a_continuation(self):
+        # A Windows path can never be misread as one, and nor can the text a command holds.
+        for line in ('alignment C:\\data\\aln.fasta', 'alignment C:\\folder\\', 'alignment C:\\folder\\  \t',
+                     'select "a\\b"', 'select "a\\"', 'label {k=a\\b}', 'label {k=a\\}', 'select #a\\b#',
+                     'select @C:\\lists\\x.txt@', 'select @x\\', 'color #A# red \\\\', 'color red\\'):
+            with self.subTest(line=line):
+                self.assertEqual(self.commands(line, 'select "next"'), [line.strip(), 'select "next"'])
+                self.assertEqual(self.commands(line), [line.strip()])
+
+    def test_several_continuations_in_a_row(self):
+        self.assertEqual(self.commands('color #A# red \\', '#B# blue \\', '#C# green \\', '#D# pink'),
+                         ['color #A# red #B# blue #C# green #D# pink'])
+        # Then the next command starts afresh.
+        self.assertEqual(self.commands('color #A# red \\', '#B# blue', 'select "x" \\', '#C#'),
+                         ['color #A# red #B# blue', 'select "x" #C#'])
+
+    def test_the_line_after_a_continuation_is_command_text_even_when_it_starts_with_a_hash(self):
+        # A line that starts with # is a comment, unless a continuation leads to it.
+        self.assertEqual(self.commands('# comment', 'color #A# red \\', '   #B# blue', '# comment', 'select "x"'),
+                         ['color #A# red #B# blue', 'select "x"'])
+        self.assertEqual(self.commands('color red \\', '# not a comment'), ['color red # not a comment'])
+
+    def test_a_comment_line_that_ends_in_a_backslash_does_not_swallow_the_next_command(self):
+        self.assertEqual(self.commands('# a comment \\', 'select "x"'), ['select "x"'])
+        self.assertEqual(self.commands('// a comment \\', 'select "x"'), ['select "x"'])
+        self.assertEqual(self.commands('select "x" // a comment \\', 'select "y"'), ['select "x"', 'select "y"'])
+
+    def test_comments_are_removed_from_each_physical_line_first(self):
+        self.assertEqual(self.commands('color #A# red \\ // first part', '#B# blue // the rest'),
+                         ['color #A# red #B# blue'])
+        self.assertEqual(self.commands('color #A# red \\\t// first part', '#B# blue'), ['color #A# red #B# blue'])
+        # A // that follows no whitespace is no comment, so the backslash before it is not the last character.
+        self.assertEqual(self.commands('meta C://data/x.csv \\', 'more'), ['meta C://data/x.csv more'])
+        # A line holding only a comment after a continuation ends the command, as a blank one does.
+        self.assertEqual(self.commands('color #A# red \\', '// nothing more', 'select "x"'),
+                         ['color #A# red', 'select "x"'])
+
+    def test_the_next_line_is_joined_whatever_it_holds_so_a_blank_one_ends_the_command(self):
+        self.assertEqual(self.commands('color #A# red \\', '', 'select "x"'), ['color #A# red', 'select "x"'])
+        self.assertEqual(self.commands('color #A# red \\', '   \n', 'select "x"'), ['color #A# red', 'select "x"'])
+        self.assertEqual(self.commands('\\', '', 'select "x"'), ['select "x"'])
+
+    def test_tabs_and_spaces_around_the_backslash(self):
+        self.assertEqual(self.commands('color #A# red\t\\', '#B# blue'), ['color #A# red #B# blue'])
+        self.assertEqual(self.commands('color #A# red \\\t \t', '#B# blue'), ['color #A# red #B# blue'])
+        self.assertEqual(self.commands('color #A# red   \t \\ \t \r\n', '\t #B# blue\t\r\n'),
+                         ['color #A# red #B# blue'])
+        # The backslash is not the last character when text follows it.
+        self.assertEqual(self.commands('color #A# red \\ more', 'select "x"'),
+                         ['color #A# red \\ more', 'select "x"'])
+
+    def test_a_lone_backslash_line_continues(self):
+        self.assertEqual(self.commands('\\', 'select "x"'), ['select "x"'])
+        self.assertEqual(self.commands('  \\  ', 'select "x"'), ['select "x"'])
+        self.assertEqual(self.commands('color #A# red \\', '\\', '#B# blue'), ['color #A# red #B# blue'])
+
+    def test_windows_line_endings(self):
+        self.assertEqual(
+            self.commands('select "one"\r\n', 'color #A# red \\\r\n', '#B# blue \\\r\n', '#C# green\r\n', '\r\n',
+                          'select "two"\r\n'),
+            ['select "one"', 'color #A# red #B# blue #C# green', 'select "two"'])
+
+    def test_blank_and_comment_lines_hold_no_command(self):
+        self.assertEqual(self.commands('', '  ', '# a', '// b', 'select "x"', '', '# c'), ['select "x"'])
+        self.assertEqual(self.commands(), [])
+
+    def test_a_script_that_ends_in_a_continuation_is_refused_with_the_line_named(self):
+        for lines, line in ((['color #A# red \\'], 1),
+                            (['select "one"', 'color #A# red \\'], 2),
+                            (['color #A# red \\', '#B# blue \\'], 2),
+                            (['select "one"', '\\'], 2),
+                            (['select "one" \\\r\n'], 1),
+                            (['select "one"', '', 'color #A# red \\ // note\n'], 3)):
+            with self.subTest(lines=lines):
+                with self.assertRaises(ce.ScriptContinuationError) as caught:
+                    ce.script_command_lines(lines)
+                # The error holds the Message, which a window shows translated; str() is the English.
+                self.assertEqual(str(caught.exception), DANGLING_MESSAGE.format(line=line))
+                self.assertEqual(caught.exception.args[0].values, {'line': line})
+                self.assertIsInstance(caught.exception, ValueError)
+
+    def test_a_blank_line_after_the_last_continuation_is_not_a_missing_line(self):
+        self.assertEqual(self.commands('color #A# red \\', ''), ['color #A# red'])
+        self.assertEqual(self.commands('color #A# red \\\n', '\n'), ['color #A# red'])
+
+
+# What the continued-command scripts hold, as they are written to a file or printed by a Python script.
+CONTINUED = ('select "one"\n'
+             'color #BCAT# cyan #C-DAAT# pink #NC-DAAT# green \\\n'
+             '    #R-ATA# red \\ // first part\n'
+             '#ADCL# magenta // the rest\n'
+             '# a comment\n'
+             'select "two"\n')
+CONTINUED_EXPECTED = ['select "one"', FIGURE_COMMAND, 'select "two"']
+# The last line continues, so the script is refused as a whole.
+DANGLING = 'select "one"\ncolor #A# red \\\n'
+
+
+class ContinuedScriptTests(RunPaths, unittest.TestCase):
+    """A script's continued commands reach the Viewer as one command each, whichever way the script is run."""
+
+    def write(self, name, text, encoding='utf-8'):
+        """Write the lines text holds as a script: a .txt file holds them, a .py script prints them, byte for byte."""
+        self.script = Path(self.directory.name) / name
+        if name.endswith('.py'):
+            self.script.write_text(f'import sys\nsys.stdout.buffer.write({text.encode()!r})\n', encoding='utf-8')
+        else:
+            self.script.write_bytes(text.encode(encoding))
+
+    def test_a_continued_command_runs_as_one_command_typed_and_requested(self):
+        for name in ('commands.txt', 'commands.py'):
+            self.write(name, CONTINUED)
+            for path, run in (('typed', lambda: self.typed(quick=True)), ('requested', self.requested)):
+                with self.subTest(script=name, path=path):
+                    commands, diagnostics = run()
+                    self.assertEqual(commands, CONTINUED_EXPECTED, diagnostics)
+
+    def test_a_windows_script_continues_too(self):
+        crlf = CONTINUED.replace('\n', '\r\n')
+        for encoding in ('utf-8', 'utf-16'):
+            self.write('commands.txt', crlf, encoding)
+            for path, run in (('typed', lambda: self.typed(quick=True)), ('requested', self.requested)):
+                with self.subTest(encoding=encoding, path=path):
+                    commands, diagnostics = run()
+                    self.assertEqual(commands, CONTINUED_EXPECTED, diagnostics)
+        # A Python script prints its own line endings; the Viewer reads them as text.
+        self.write('commands.py', crlf)
+        for path, run in (('typed', lambda: self.typed(quick=True)), ('requested', self.requested)):
+            with self.subTest(script='commands.py', path=path):
+                commands, diagnostics = run()
+                self.assertEqual(commands, CONTINUED_EXPECTED, diagnostics)
+
+    def test_the_lines_are_joined_before_a_nested_run_line_is_dropped(self):
+        # `run` and `stop` are one command, a run command, when joined; `select "two" run` is no run command.
+        text = 'select "one"\nrun \\\nstop\nselect "two" \\\nrun\n'
+        expected = ['select "one"', 'select "two" run']
+        for name in ('commands.txt', 'commands.py'):
+            self.write(name, text)
+            for path, run in (('typed', lambda: self.typed(quick=True)), ('requested', self.requested)):
+                with self.subTest(script=name, path=path):
+                    commands, diagnostics = run()
+                    self.assertEqual(commands, expected, diagnostics)
+
+    def test_a_typed_script_whose_last_line_continues_is_refused_before_any_command_runs(self):
+        message = DANGLING_MESSAGE.format(line=2)
+        for name in ('commands.txt', 'commands.py'):
+            self.write(name, DANGLING)
+            with self.subTest(script=name), \
+                    mock.patch.object(ce, 'command_failed', wraps=ce.command_failed) as failed, \
+                    mock.patch.object(ce, 'command_succeeded', wraps=ce.command_succeeded) as succeeded:
+                commands, printed = self.typed(quick=True)
+
+                # Not even the command before the last line ran.
+                self.assertEqual(commands, [])
+                self.assertEqual(str(failed.call_args.args[1]), message)
+                self.assertIn(message, printed)
+                self.assertEqual(self.viewer.console_text.text, message)
+                self.assertFalse(any('Batch' in str(call.args[1]) for call in succeeded.call_args_list))
+                self.assertNotIn('Batch', printed)
+
+    def test_a_requested_script_whose_last_line_continues_fails_before_any_command_runs(self):
+        message = DANGLING_MESSAGE.format(line=2)
+        for name in ('commands.txt', 'commands.py'):
+            self.write(name, DANGLING)
+            with self.subTest(script=name):
+                children, (result, diagnostics) = self.requested()
+
+                self.assertEqual(children, [])
+                self.assertEqual(result['status'], 'failed', result)
+                # A .txt file's error is the command's own message; a script's is its job's, in the result.
+                reported = diagnostics + ' '.join(m['text'] for c in result['commands'] for m in c['messages']) \
+                    + str(result.get('jobs', ''))
+                self.assertIn(message, reported)
+
+    def test_the_tracker_joins_a_python_scripts_printed_lines_before_it_filters_them(self):
+        # Viewer_Worker_Tracking's own step, whatever command starts the script: it joins, and then asks
+        # keep_command about each joined command.
+        from Viewer_Command_Portal import ExecutionContext
+        from Viewer_Worker_Tracking import ScriptTracker
+        self.write('commands.py', 'select "one"\nrun \\\nstop\n' + '\n'.join(FIGURE_LINES) + '\n')
+        no_dialog = mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName', side_effect=AssertionError('no dialog'))
+        for keep, expected in ((lambda line: line != 'run stop', ['select "one"', FIGURE_COMMAND]),
+                               (None, ['select "one"', 'run stop', FIGURE_COMMAND])):
+            with self.subTest(keep=keep is not None), no_dialog, redirect_stdout(io.StringIO()):
+                request_id = self.portal.submit(str(len(self.portal.requests)), 'run')['request_id']
+                record = self.portal.requests[request_id]['commands'][0]
+                record.update(dispatched=True, outcome='succeeded', status='running')
+                ScriptTracker(ExecutionContext(self.portal, request_id, record), str(self.script), keep_command=keep)
+                deadline = time.monotonic() + 30
+                while not record['children'] and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(.005)
+                self.assertEqual([child['command'] for child in record['children']], expected)
+                self.finish(request_id)
+
+    def test_the_tracker_refuses_a_script_that_ends_in_a_continuation(self):
+        from Viewer_Command_Portal import ExecutionContext
+        from Viewer_Worker_Tracking import ScriptTracker
+        self.write('commands.py', DANGLING)
+        with redirect_stdout(io.StringIO()):
+            request_id = self.portal.submit(str(len(self.portal.requests)), 'run')['request_id']
+            record = self.portal.requests[request_id]['commands'][0]
+            record.update(dispatched=True, outcome='succeeded', status='running')
+            ScriptTracker(ExecutionContext(self.portal, request_id, record), str(self.script))
+            deadline = time.monotonic() + 30
+            while not record['jobs'] or record['jobs'][0]['status'] in ('queued', 'running'):
+                if time.monotonic() > deadline:
+                    self.fail('The script was still running')
+                self.app.processEvents()
+                time.sleep(.005)
+        job = record['jobs'][0]
+        self.assertEqual((job['status'], record['children']), ('failed', []))
+        self.assertEqual(job['message'], DANGLING_MESSAGE.format(line=2))
+        self.finish(request_id)
+
+    def test_the_translated_refusal_names_the_line(self):
+        # The error holds a Message, so the console line shows it in the language shown.
+        with self.assertRaises(ce.ScriptContinuationError) as caught:
+            ce.script_command_lines(['select "one"'] * 6 + ['color #A# red \\'])
+        previous = Localization.set_translator(
+            lambda template, n: '第{line}行以反斜杠结尾' if template == DANGLING_MESSAGE else template)
+        self.addCleanup(Localization.set_translator, previous)
+        self.assertEqual(display_text(caught.exception), '第7行以反斜杠结尾')
+        self.assertEqual(str(caught.exception), DANGLING_MESSAGE.format(line=7))
+
+    def test_a_joined_command_counts_once_toward_the_limit(self):
+        pair = 'select "one" \\\n#A#\n'
+        for pairs, expected in (
+                (1000, 'Batch execution completed: 1000 commands run.'),
+                (1001, 'Error: The script holds 1001 commands, more than the 1000 a script may run. None were run.')):
+            with self.subTest(commands=pairs):
+                self.write('commands.txt', pair * pairs)
+                commands, printed = self.typed(quick=True)
+                self.assertEqual(len(commands), pairs if pairs <= 1000 else 0)
+                self.assertIn(expected, printed)
 
 
 class TypedRunOutcomeTests(RunPaths, unittest.TestCase):

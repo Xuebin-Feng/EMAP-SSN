@@ -510,10 +510,12 @@ class ScriptTracker(QtCore.QObject):
         if result.returncode:
             self.context.job_event(self.job_id, 'failed', f'Python command script exited with code {result.returncode}')
             return
-        from Command_Engine import script_command
-        commands = [script_command(line) for line in result.stdout.splitlines()]
-        commands = [line for line in commands if line and (self._keep_command is None or self._keep_command(line))]
+        from Command_Engine import script_command_lines
         try:
+            # The lines a backslash continues are joined before the commands are filtered. A script whose last
+            # line continues is refused whole (ScriptContinuationError is a ValueError, as children's refusal is).
+            commands = [line for line in script_command_lines(result.stdout.splitlines())
+                        if self._keep_command is None or self._keep_command(line)]
             self.context.children(commands)
         except ValueError as error:
             self.context.job_event(self.job_id, 'failed', str(error))

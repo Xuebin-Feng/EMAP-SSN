@@ -3116,6 +3116,15 @@ class MainViewer:
             is_copy = (key_name.lower() == 'c') and is_modifier_active
 
             if event.key in ['Enter', 'Return']:
+                continued = Command_Engine.continued_command_line(self.input_buffer)
+                if continued is not None:
+                    # A command that goes on at the next line: it does not run, and nothing goes into the
+                    # history until it does. The backslash goes, and the line stays open for the rest.
+                    self.input_buffer = continued
+                    self.cursor_pos = len(continued)
+                    self._update_console_text()
+                    self._show_click_status(Message("Continued: type the rest and press Enter."))
+                    return
                 self._hide_command_caret()
                 self.process_command(self.input_buffer)
                 self.console_mode = False; self.console_bg.visible = False; self.canvas.update()
@@ -3171,7 +3180,8 @@ class MainViewer:
                     
                     cb_text = native_app.clipboard().text()
                     if cb_text:
-                        cb_text = cb_text.replace('\n', ' ').replace('\r', '') 
+                        # One line: a ' \' that ends a pasted line (a continued command) goes with its break.
+                        cb_text = Command_Engine.pasted_command_text(cb_text)
                         self.input_buffer = self.input_buffer[:self.cursor_pos] + cb_text + self.input_buffer[self.cursor_pos:]
                         self.cursor_pos += len(cb_text)
                         self._update_console_text()
