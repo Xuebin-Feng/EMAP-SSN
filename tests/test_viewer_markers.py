@@ -27,10 +27,11 @@ if SRC_DIR not in sys.path:
 
 import EMAPSSN_Config as cfg  # noqa: E402
 import vispy  # noqa: E402
-from vispy import scene  # noqa: E402
+from vispy import app as vispy_app, scene  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from desktop import Viewer_Markers  # noqa: E402
 from desktop.Viewer_Markers import HoverMarkers, marker_layout_problem, uniform_symbol  # noqa: E402
+from tests.timer_fixtures import FakeTimer  # noqa: E402
 
 SHAPES = ["disc", "square", "diamond", "triangle_up", "star", "ring", "cross", "x", "clobber", "arrow"]
 
@@ -326,18 +327,31 @@ class ClickPickTests(unittest.TestCase):
             setattr(viewer, name, mock.Mock())
         return viewer
 
-    def press(self, viewer, x, button, modifiers=(), release=False):
+    def press(self, viewer, x, button, modifiers=(), release=False, double_click=False):
+        """Press (and release); a Shift click's header is copied once the double-click interval has passed.
+
+        With double_click, a second press follows the click as Qt sends it, as a double click.
+        """
         clipboard = mock.Mock()
         native = SimpleNamespace(clipboard=lambda: clipboard)
         event = SimpleNamespace(pos=np.array([float(x), 0.0]), button=button, buttons=[button],
                                 modifiers=list(modifiers), handled=False)
+        FakeTimer.created = []
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
+                mock.patch.object(vispy_app, "Timer", FakeTimer), \
                 mock.patch.object(cfg, "UMAP_MODE", False), \
                 mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False):
             viewer.on_mouse_press(event)
-            if release:     # a Shift or Ctrl click copies on release
-                viewer.on_mouse_release(SimpleNamespace(pos=event.pos, button=button, buttons=[],
-                                                        modifiers=list(modifiers), handled=False))
+            released = SimpleNamespace(pos=event.pos, button=button, buttons=[], modifiers=list(modifiers),
+                                       handled=False)
+            if release:     # a Shift click copies on release
+                viewer.on_mouse_release(released)
+            if double_click:
+                viewer.on_mouse_double_click(SimpleNamespace(**vars(event)))
+                viewer.on_mouse_release(SimpleNamespace(**vars(released)))
+            for timer in FakeTimer.created:
+                if timer.running:
+                    timer.fire()
         return clipboard, event
 
     def test_the_old_rule_and_the_drawing_disagree_here(self):
@@ -359,20 +373,30 @@ class ClickPickTests(unittest.TestCase):
         self.assertTrue(viewer.is_multi_dragging)
         np.testing.assert_array_equal(viewer.drag_start_nodes_pos, viewer.pos[[self.B]])
         self.assertFalse(viewer.is_box_selecting)
-        viewer = self.make_viewer()
-        viewer.selected_indices = [self.A, self.B]
-        self.press(viewer, 50, 2, ["Control"])
-        self.assertEqual(viewer.selected_indices, [self.A])
+        # Neither key removes a node from the selection at the press: Shift does it when the button is
+        # let go as a click, and Ctrl not at all.
+        for modifier in ("Control", "Shift"):
+            viewer = self.make_viewer()
+            viewer.selected_indices = [self.A, self.B]
+            self.press(viewer, 50, 2, [modifier])
+            self.assertEqual(viewer.selected_indices, [self.A, self.B])
+            self.assertTrue(viewer.is_multi_dragging)
         viewer = self.make_viewer()
         self.press(viewer, 50, 2, ["Shift"])
         self.assertEqual(viewer.selected_indices, [self.B])
 
-    def test_shift_and_control_clicks_copy_the_node_on_top(self):
+    def test_a_shift_click_copies_the_header_of_the_node_on_top_and_a_double_click_its_sequence(self):
         viewer = self.make_viewer()
         clipboard, _ = self.press(viewer, 50, 1, ["Shift"], release=True)
         clipboard.setText.assert_called_once_with("B second")
-        clipboard, _ = self.press(viewer, 50, 1, ["Control"], release=True)
+        clipboard, _ = self.press(viewer, 50, 1, ["Shift"], release=True, double_click=True)
         clipboard.setText.assert_called_once_with("MKB")
+
+    def test_a_ctrl_click_copies_nothing_and_highlights_the_node_on_top(self):
+        viewer = self.make_viewer()
+        clipboard, _ = self.press(viewer, 50, 1, ["Control"], release=True)
+        clipboard.setText.assert_not_called()
+        viewer.apply_left_click_focus.assert_called_once_with(self.B)
 
     def test_clicks_over_no_node_do_what_they_did(self):
         viewer = self.make_viewer()
@@ -383,6 +407,8 @@ class ClickPickTests(unittest.TestCase):
         # Shift and Control clicks copy nothing.
         for modifier in ("Shift", "Control"):
             clipboard, _ = self.press(viewer, 120, 1, [modifier], release=True)
+            clipboard.setText.assert_not_called()
+            clipboard, _ = self.press(viewer, 120, 1, [modifier], release=True, double_click=True)
             clipboard.setText.assert_not_called()
         # A right press starts a box; let go where it started, it clears the selection.
         viewer.selected_indices = [self.C]

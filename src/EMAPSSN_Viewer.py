@@ -301,11 +301,19 @@ GLYPH_WARMUP_SLICE_S = 0.008
 # Between a command being typed and what a click did, on the command line.
 CLICK_STATUS_SEPARATOR = "  ·  "
 # A press and its release this close together (px on the canvas) are a click: a right-click on
-# empty space clears the selection, and a Shift or Ctrl left-click copies the node it was on.
+# empty space clears the selection, a Shift right-click on a selected node removes it, and a Shift
+# left-click copies the node's header.
 CLICK_DISTANCE_PIXELS = 5.0
-# The turn of a wheel notch while dragging nodes, in degrees; Shift turns the finer step.
+# The turn of a wheel notch, in degrees: with the right button down on nodes, or with Ctrl held.
 ROTATE_DEGREES_PER_NOTCH = 5.0
-ROTATE_FINE_DEGREES_PER_NOTCH = 0.5
+# Shift holds a Ctrl + right-drag turn to a multiple of this, in degrees.
+ROTATE_SNAP_DEGREES = 15.0
+# A Ctrl + right-drag turn holds still this close (px on the canvas) to the selection's centre.
+ROTATE_DEAD_ZONE_PIXELS = 15.0
+# A run of Ctrl + wheel notches is one turn, and one undo step, until this long (s) passes with no notch.
+WHEEL_TURN_IDLE_SECONDS = 1.0
+# Shift holds a move of nodes to the nearest multiple of this, in degrees: eight directions.
+MOVE_SNAP_DEGREES = 45.0
 # Between the last button of the slider row (the Console button, after the
 # controls' info button) and the threshold's value, in px: wide enough that
 # the button doesn't read as part of the number.
@@ -447,6 +455,50 @@ def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
     rectangle.radius = radius
 
     return width, height, radius
+
+
+def _rotated_about(points, centre, degrees):
+    """points (n x 2) turned by degrees about centre, counter-clockwise in the network's own axes."""
+    angle = np.radians(degrees)
+    cos_a, sin_a = np.cos(angle), np.sin(angle)
+    relative = np.asarray(points, dtype=float) - centre
+    return np.column_stack((relative[:, 0] * cos_a - relative[:, 1] * sin_a,
+                            relative[:, 0] * sin_a + relative[:, 1] * cos_a)) + centre
+
+
+def _snapped_offset(offset):
+    """offset held to the nearest of the directions MOVE_SNAP_DEGREES apart, kept as far along it as it reaches.
+
+    The part of the offset along that line, so that nodes slide on the line as the pointer goes
+    along it; a pointer behind the start, which the line does not reach, gives no move.
+    """
+    if not offset[0] and not offset[1]:
+        return np.zeros(2)
+    step = np.radians(MOVE_SNAP_DEGREES)
+    snapped = np.round(np.arctan2(offset[1], offset[0]) / step) * step
+    direction = np.array([np.cos(snapped), np.sin(snapped)])
+    return max(0.0, float(np.dot(offset, direction))) * direction
+
+
+class _Turn:
+    """Selected nodes being turned, by a Ctrl + right-drag or by Ctrl + wheel notches.
+
+    The nodes turn about centre from `start`, their places when the turn began, so the turn
+    adds up without drift and Esc has the places to put back. A drag also keeps the angle the
+    pointer last had about the centre (`last`), the angle it has swept in all (`swept`, radians,
+    over full turns too), and `shown`, the angle the status line gives.
+    """
+
+    __slots__ = ("indices", "start", "centre", "degrees", "last", "swept", "shown")
+
+    def __init__(self, indices, start, centre):
+        self.indices = indices
+        self.start = start
+        self.centre = np.asarray(centre, dtype=float)
+        self.degrees = 0.0
+        self.last = None
+        self.swept = 0.0
+        self.shown = None
 
 
 def _build_adjacency_index(edges, node_count):
@@ -970,8 +1022,19 @@ class MainViewer:
         self._press_history = None
         self._drag_translation = np.zeros(2)
         self._drag_cancelled = False
-        # A Shift or Ctrl left press on a node, copied when the button is let go (_copy_on_release).
+        # A right press that is a click until the pointer leaves CLICK_DISTANCE_PIXELS (Shift on a
+        # selected node, or Ctrl): the nodes stay where they are meanwhile, and the node a Shift
+        # click removes from the selection, if the button is let go as a click.
+        self._drag_in_click = False
+        self._remove_on_click = None
+        # The turn a Ctrl + right-drag makes, and the one a run of Ctrl + wheel notches makes.
+        self._drag_turn = None
+        self._wheel_turn = None
+        # A Shift left press on a node, copied when the button is let go (_copy_on_release): its
+        # header once the double-click interval has passed (_header_copy_node waits for that), or
+        # its sequence when the press was the second click of a double click.
         self._pending_copy = None
+        self._header_copy_node = None
         self.position_history = []  # Tracks states for Undo
         self.hud_displays = {}
 
@@ -1023,13 +1086,16 @@ class MainViewer:
             if language_face is not None:
                 self.vispy_ui_face = self.vispy_monospace_face = language_face
         self.canvas.events.key_press.connect(self.on_key_press)
+        self.canvas.events.key_release.connect(self.on_key_release)
         # Last: VisPy runs the most recently connected callback first, and the canvas's own
         # resize handling, which sizes the view and so the camera's real rectangle, must
         # come before on_resize reads the zoom from it.
         self.canvas.events.resize.connect(self.on_resize, position='last')
         self.canvas.events.mouse_press.connect(self.on_mouse_press)
         self.canvas.events.mouse_release.connect(self.on_mouse_release)
-        
+        # Qt sends the second press of a double click as this event, in place of a press.
+        self.canvas.events.mouse_double_click.connect(self.on_mouse_double_click)
+
         # --- NEW: Hook mouse wheel and move for dynamic tooltips and HUD ---
         self.canvas.events.mouse_wheel.connect(self.on_mouse_wheel)
         self.canvas.events.mouse_move.connect(self.on_mouse_move)
@@ -1358,7 +1424,7 @@ class MainViewer:
         # command too: Command_Engine calls it).
         self.controls_button = ControlsButton(
             translate("Viewer", "Session and controls"),
-            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight | [RightClick + Drag + Scroll] Rotate Nodes (Shift: Fine) | [Esc] Cancel Drag"),
+            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag"),
             host=self.canvas.native,
             session=self._session_overview,
             controls_title=translate("Viewer", "Mouse and keyboard controls"),
@@ -3110,12 +3176,21 @@ class MainViewer:
                 self._update_console_text()
                 event.handled = True
 
+    def on_key_release(self, event):
+        # Ctrl let go ends the turn Ctrl + wheel notches were making.
+        if getattr(event, 'key', None) in ('Control', 'Meta'):
+            self._end_wheel_turn()
+
     def on_mouse_press(self, event):
         # Clicks work while a command is typed: the command waits in
         # input_buffer, and a click's message follows it (_show_click_status).
+        self._end_wheel_turn()  # a button ends the turn Ctrl + wheel notches were making
         # ---> 1. RIGHT-CLICK LOGIC (Drag & Select) <---
         if event.button == 2:
             self._drag_cancelled = False  # a new press: the drag Esc cancelled is over
+            self._drag_in_click = False
+            self._remove_on_click = None
+            self._drag_turn = None
             self.tooltip.text = ""
             self.selected_node_idx = None
             
@@ -3142,16 +3217,18 @@ class MainViewer:
                 self._save_state()
                 press_history = (kept, history[-1] if history else None)
 
-                # Modifier logic for individual node clicking
+                # Modifier logic for individual node clicking. A node not selected yet is added with
+                # Shift and is the whole selection without it; a selected one is left as it is: a
+                # Shift click removes it only once the button is let go (_remove_if_clicked), and
+                # a drag from it, with Ctrl held or not, moves or turns the selection.
                 before = list(self.selected_indices)
-                if 'Shift' in event.modifiers:
-                    if nearest_idx not in self.selected_indices:
+                shift = 'Shift' in event.modifiers
+                ctrl = 'Control' in event.modifiers or 'Meta' in event.modifiers
+                was_selected = nearest_idx in before
+                if not was_selected:
+                    if shift:
                         self.selected_indices.append(nearest_idx)
-                elif 'Control' in event.modifiers or 'Meta' in event.modifiers:
-                    if nearest_idx in self.selected_indices:
-                        self.selected_indices.remove(nearest_idx)
-                else:
-                    if nearest_idx not in self.selected_indices:
+                    else:
                         self.selected_indices = [nearest_idx]
                 if self.selected_indices != before:
                     self._note_hand_selection()
@@ -3172,6 +3249,20 @@ class MainViewer:
                         np.array(self.selected_indices, dtype=np.intp), self.drag_start_nodes_pos.copy())
                     self._press_history = press_history
                     self._drag_translation = np.zeros(2)
+                    if was_selected and ctrl:
+                        # A turn about the centre of the selection's bounding box.
+                        low, high = self.drag_start_nodes_pos.min(axis=0), self.drag_start_nodes_pos.max(axis=0)
+                        turn = _Turn(*self._node_drag_press, (low + high) / 2.0)
+                        # The angle the press is at, if it is clear of the centre.
+                        if self._clear_of_centre(turn, tr, event.pos):
+                            turn.last = self._angle_about(turn, mouse_world)
+                        self._drag_turn = turn
+                        self._drag_in_click = True
+                    elif was_selected and shift:
+                        self._remove_on_click = nearest_idx
+                        self._drag_in_click = True
+                elif was_selected and shift:
+                    self._remove_on_click = nearest_idx  # nothing can be dragged, but a click still removes
             else:
                 # Clicked empty space: Store the current state, DO NOT clear yet
                 self._pre_drag_selection = set(self.selected_indices)
@@ -3188,26 +3279,21 @@ class MainViewer:
             event.handled = True 
             return
             
-        # ---> 2. SHIFT / CONTROL + LEFT-CLICK LOGIC (Copy to Clipboard, on release) <---
-        # Vispy Button 1 = Left Click. The node under the press and the key held at the press
-        # are kept; the copy is made when the button is let go within CLICK_DISTANCE_PIXELS of
-        # the press (_copy_on_release), so that a drag copies nothing.
+        # ---> 2. SHIFT + LEFT-CLICK LOGIC (Copy the Header to Clipboard, on release) <---
+        # Vispy Button 1 = Left Click. The node under the press is kept; the copy is made when
+        # the button is let go within CLICK_DISTANCE_PIXELS of the press (_copy_on_release), so
+        # that a drag copies nothing. Ctrl does nothing of its own: it is a plain click.
         if event.button == 1:
             self._pending_copy = None
-            copies = None
             if 'Shift' in event.modifiers:
-                copies = 'header'
-            elif 'Control' in event.modifiers or 'Meta' in event.modifiers:
-                copies = 'sequence'
-            if copies is not None:
                 nearest_idx = self.pick_hovered_node(event.pos)
                 if nearest_idx is not None:
-                    self._pending_copy = (nearest_idx, copies, np.array(event.pos[:2], dtype=float))
+                    self._pending_copy = (nearest_idx, 'header', np.array(event.pos[:2], dtype=float))
                 event.handled = True
                 return
 
         # ---> 3. PLAIN LEFT-CLICK LOGIC (Show Highlight) <---
-        if event.button == 1 and 'Shift' not in event.modifiers:
+        if event.button == 1:
             # On the node the hover highlights, apply the shared left-click focus.
             nearest_idx = self.pick_hovered_node(event.pos)
             if nearest_idx is not None:
@@ -3219,13 +3305,35 @@ class MainViewer:
             event.handled = True
             return
 
-    def _copy_on_release(self, event):
-        """The left button was let go: copy what a Shift or Ctrl press chose, if this is a click.
+    def on_mouse_double_click(self, event):
+        """The second press of a double click, which Qt sends in place of a press.
 
-        A press with Shift copies the node's full header, one with Ctrl (Cmd on macOS) its
-        sequence; the node and the key are those at the press (on_mouse_press). A release
-        CLICK_DISTANCE_PIXELS or more from the press ends a drag, which copies nothing.
-        Returns whether a press was waiting, so that the release is not taken for anything else.
+        A Shift + left double click on the node a Shift click was just made on copies the node's
+        sequence instead of its header: the header copy that waited for it is dropped, so that
+        the status line and the clipboard take one copy, the sequence, which is made when the
+        button is let go (_copy_on_release). Any other double click is the press it replaces, and
+        does what that press does: so two Shift + right-clicks on a node in quick succession both
+        count.
+        """
+        if event.button == 1 and 'Shift' in event.modifiers:
+            node_idx = self.pick_hovered_node(event.pos)
+            if node_idx is not None and node_idx == getattr(self, '_header_copy_node', None):
+                self._end_wheel_turn()
+                self._header_copy_node = None
+                self._header_copy_timer.stop()
+                self._pending_copy = (node_idx, 'sequence', np.array(event.pos[:2], dtype=float))
+                event.handled = True
+                return
+        self.on_mouse_press(event)
+
+    def _copy_on_release(self, event):
+        """The left button was let go: copy what a Shift press chose, if this is a click.
+
+        The node and what to copy are those of the press (on_mouse_press, on_mouse_double_click).
+        A release CLICK_DISTANCE_PIXELS or more from the press ends a drag, which copies nothing.
+        The sequence of a double click is copied at once; a header waits out the double-click
+        interval (_schedule_header_copy). Returns whether a press was waiting, so that the
+        release is not taken for anything else.
         """
         pending = getattr(self, '_pending_copy', None)
         if pending is None:
@@ -3235,10 +3343,38 @@ class MainViewer:
         moved = np.hypot(*(np.array(event.pos[:2], dtype=float) - pressed_at))
         if moved < CLICK_DISTANCE_PIXELS:
             if kind == 'header':
-                self._copy_node_header(node_idx)
+                self._schedule_header_copy(node_idx)
             else:
                 self._copy_node_sequence(node_idx)
         return True
+
+    def _schedule_header_copy(self, node_idx):
+        """Copy node_idx's header once the double-click interval has passed with no second click on it.
+
+        A second click would make this a double click, which copies the sequence alone
+        (on_mouse_double_click): the one copy the user means, and one entry in the clipboard's
+        history. A header still waiting for an earlier click on another node is copied now.
+        """
+        if getattr(self, '_header_copy_node', None) is not None:
+            self._copy_waiting_header()
+        self._header_copy_node = node_idx
+        self._restart_timer('_header_copy_timer', QtWidgets.QApplication.doubleClickInterval() / 1000.0,
+                            self._copy_waiting_header)
+
+    def _copy_waiting_header(self, event=None):
+        node_idx, self._header_copy_node = getattr(self, '_header_copy_node', None), None
+        self._header_copy_timer.stop()
+        if node_idx is not None:
+            self._copy_node_header(node_idx)
+
+    def _restart_timer(self, name, seconds, callback):
+        """Start the one-shot timer kept as self.<name> (made on first use) afresh, to call callback in `seconds`."""
+        timer = getattr(self, name, None)
+        if timer is None:
+            timer = app.Timer(seconds, connect=callback, iterations=1)
+            setattr(self, name, timer)
+        timer.stop()  # a VisPy timer that is running ignores start()
+        timer.start(interval=seconds, iterations=1)
 
     def _copy_node_header(self, node_idx):
         full_header = self.full_headers[node_idx]
@@ -4015,46 +4151,129 @@ class MainViewer:
 
     def on_mouse_wheel(self, event):
         self._hud_timer.start()
+        ctrl = 'Control' in event.modifiers or 'Meta' in event.modifiers
+        # event.delta[1] is > 0 for scroll up, < 0 for scroll down. macOS and some mouse drivers send
+        # Shift + wheel as a sideways scroll, whose notches are in delta[0] (the same way round).
+        notches = event.delta[1] or event.delta[0]
+
+        # ---> Ctrl + wheel notches make a turn, which goes on only while Ctrl is held <---
+        if getattr(self, '_wheel_turn', None) is not None and not (ctrl and not event.buttons):
+            self._end_wheel_turn()
 
         # ---> Rotate selected nodes if right-click dragging <---
         if getattr(self, 'is_multi_dragging', False) and 2 in event.buttons:
+            event.handled = True
+            if getattr(self, '_drag_turn', None) is not None:
+                return  # a Ctrl + right-drag is turning them already: one turn at a time
             self._note_view_motion()
-            # event.delta[1] is > 0 for scroll up, < 0 for scroll down. Shift turns the wheel
-            # in finer steps; macOS and some mouse drivers send Shift + wheel as a sideways
-            # scroll, whose notches are in delta[0] (the same way round).
-            fine = 'Shift' in getattr(event, 'modifiers', ())
-            notches = event.delta[1]
-            if fine and notches == 0:
-                notches = event.delta[0]
+            # The wheel is no click either, nor is the Shift click it follows any more.
+            self._drag_in_click = False
+            self._remove_on_click = None
             # A high-resolution wheel or a touchpad reports a fraction of a notch.
-            step = ROTATE_FINE_DEGREES_PER_NOTCH if fine else ROTATE_DEGREES_PER_NOTCH
-            angle = notches * np.radians(step)
-
-            cos_a = np.cos(angle)
-            sin_a = np.sin(angle)
-            
             center = self.drag_start_mouse
-            
-            pts = self.drag_start_nodes_pos - center
-            rotated_x = pts[:, 0] * cos_a - pts[:, 1] * sin_a
-            rotated_y = pts[:, 0] * sin_a + pts[:, 1] * cos_a
-            self.drag_start_nodes_pos[:, 0] = rotated_x + center[0]
-            self.drag_start_nodes_pos[:, 1] = rotated_y + center[1]
-            
+            self.drag_start_nodes_pos[:] = _rotated_about(
+                self.drag_start_nodes_pos, center, notches * ROTATE_DEGREES_PER_NOTCH)
+
             # The move the last mouse move gave (on_mouse_move), not one worked out again: Shift
-            # holds a move to a line, and pressing it to turn finely must not snap a diagonal
-            # move onto an axis. The line applies at the next move.
+            # holds a move to a line, and pressing it to turn must not snap a diagonal move onto
+            # a line. The line applies at the next move.
             self.pos[self.selected_indices, :2] = (
                 self.drag_start_nodes_pos + getattr(self, '_drag_translation', 0.0))
-            
-            if low_resource_drawing(cfg):
-                self._move_dragged_nodes()
-            else:
-                # A drag moves the selection without changing it: the web pages heard of it on press.
-                self.update_selection_visual(broadcast=False)
-            
-            event.handled = True
+
+            self._redraw_moved_nodes()
             return
+
+        # ---> Ctrl + wheel with nodes selected turns them about the cursor <---
+        if (ctrl and not event.buttons and self.selected_indices and not knn_topology_layout(cfg)):
+            if notches:
+                self._turn_by_wheel(event, notches)
+            event.handled = True  # the camera does not zoom
+
+    def _turn_by_wheel(self, event, notches):
+        """Ctrl + wheel with a selection: turn it ROTATE_DEGREES_PER_NOTCH a notch about the cursor.
+
+        The first notch of a turn takes the cursor's place in the network as the pivot, which
+        stays until the turn ends (_end_wheel_turn); the notches are one undo step, and Esc
+        puts the nodes back as they were (_cancel_drag).
+        """
+        self._note_view_motion()
+        turn = getattr(self, '_wheel_turn', None)
+        if turn is None:
+            pivot = self.canvas.scene.node_transform(self.view.scene).map(event.pos)[:2]
+            indices = np.array(self.selected_indices, dtype=np.intp)
+            # The snapshot is taken as a node press takes it, and Esc takes it back as it does.
+            history = getattr(self, 'position_history', [])
+            kept = (list(history), list(getattr(self, 'redo_stack', [])))
+            self._save_state()
+            self._press_history = (kept, history[-1] if history else None)
+            self._wheel_turn = turn = _Turn(indices, self.pos[indices, :2].copy(), pivot)
+        self._show_turn(turn, turn.degrees + notches * ROTATE_DEGREES_PER_NOTCH)
+        self._restart_timer('_wheel_turn_timer', WHEEL_TURN_IDLE_SECONDS, self._end_wheel_turn)
+
+    def _show_turn(self, turn, degrees):
+        """Put the nodes of turn where degrees about its centre takes them, and show them and the angle."""
+        turn.degrees = degrees
+        self.pos[turn.indices, :2] = _rotated_about(turn.start, turn.centre, degrees)
+        self._redraw_moved_nodes()
+        shown = f"{round(degrees, 1) + 0.0:g}"
+        if shown != turn.shown:
+            turn.shown = shown
+            self._show_click_status(Message("Rotate {angle}°", angle=shown))
+
+    def _redraw_moved_nodes(self):
+        """The nodes of a drag or a turn have moved: show them, as a drag does, without telling the web pages."""
+        if low_resource_drawing(cfg):
+            self._move_dragged_nodes()
+        else:
+            # A drag moves the selection without changing it: the web pages heard of it on press.
+            self.update_selection_visual(broadcast=False)
+
+    def _end_wheel_turn(self, event=None, redraw=None):
+        """The turn Ctrl + wheel notches made is over: Ctrl was let go, a button pressed, or a second passed.
+
+        Under Low Resource Mode's Update Colors After Mouse Release the colours and the pick are
+        made again now, as a release does (redraw says so for a turn that has put the nodes back).
+        """
+        turn, self._wheel_turn = getattr(self, '_wheel_turn', None), None
+        if turn is None:
+            return
+        self._press_history = None  # no cancelling now
+        timer = getattr(self, '_wheel_turn_timer', None)
+        if timer is not None:
+            timer.stop()
+        if low_resource_drawing(cfg) if redraw is None else redraw:
+            self.update_selection_visual(broadcast=False)
+        self._resume_command_queue()
+
+    @staticmethod
+    def _angle_about(turn, mouse_world):
+        """The angle (radians) of a place in the network about the centre of turn."""
+        return float(np.arctan2(mouse_world[1] - turn.centre[1], mouse_world[0] - turn.centre[0]))
+
+    @staticmethod
+    def _clear_of_centre(turn, transform, cursor):
+        """Whether the cursor, at canvas place cursor, is outside the dead zone around the centre of turn."""
+        centre = transform.imap(turn.centre)[:2]
+        return np.hypot(*(np.asarray(cursor[:2], dtype=float) - centre)) >= ROTATE_DEAD_ZONE_PIXELS
+
+    def _turn_by_drag(self, turn, event, mouse_world, transform):
+        """The pointer moved during a Ctrl + right-drag: turn the nodes by the angle it has swept about the centre.
+
+        The angle is added up from the changes between one move and the next, each taken the
+        short way round, so that the pointer can go round more than once. It holds still within
+        ROTATE_DEAD_ZONE_PIXELS of the centre; Shift rounds it to ROTATE_SNAP_DEGREES.
+        """
+        if not self._clear_of_centre(turn, transform, event.pos):
+            return
+        angle = self._angle_about(turn, mouse_world)
+        if turn.last is not None:
+            change = angle - turn.last
+            turn.swept += np.arctan2(np.sin(change), np.cos(change))
+        turn.last = angle
+        degrees = float(np.degrees(turn.swept))
+        if 'Shift' in event.modifiers:
+            degrees = round(degrees / ROTATE_SNAP_DEGREES) * ROTATE_SNAP_DEGREES
+        self._show_turn(turn, degrees)
 
     def on_mouse_move(self, event):
         # ---> -1. THE REST OF A DRAG THAT ESC CANCELLED <---
@@ -4079,24 +4298,26 @@ class MainViewer:
         # ---> 1. MULTI-NODE DRAGGING <---
         if getattr(self, 'is_multi_dragging', False):
             self._note_view_motion()
+            event.handled = True
+            # A press that may still be a click (Shift on a selected node, or Ctrl) leaves the nodes
+            # where they are until the pointer has gone CLICK_DISTANCE_PIXELS from it: then it is
+            # a drag, and no click.
+            if getattr(self, '_drag_in_click', False):
+                moved = np.asarray(event.pos[:2], dtype=float) - np.asarray(self.drag_start_screen[:2], dtype=float)
+                if np.hypot(*moved) < CLICK_DISTANCE_PIXELS:
+                    return
+                self._drag_in_click = False
+                self._remove_on_click = None
+            turn = getattr(self, '_drag_turn', None)
+            if turn is not None:
+                self._turn_by_drag(turn, event, mouse_world, tr)
+                return
             delta = mouse_world - self.drag_start_mouse
             if 'Shift' in event.modifiers:
-                # Held to a line: the larger of the two offsets from the press is kept, and
-                # the line turns from one axis to the other as the larger one changes.
-                if abs(delta[0]) >= abs(delta[1]):
-                    delta[1] = 0.0
-                else:
-                    delta[0] = 0.0
+                delta = _snapped_offset(delta)  # held to a line, one of eight directions
             self._drag_translation = delta  # the wheel turns the nodes without moving them
             self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
-            
-            if low_resource_drawing(cfg):
-                self._move_dragged_nodes()
-            else:
-                # A drag moves the selection without changing it: the web pages heard of it on press.
-                self.update_selection_visual(broadcast=False)
-            
-            event.handled = True
+            self._redraw_moved_nodes()
             return
         # ---> 2. BOX SELECTION DRAWING <---
         if getattr(self, 'is_box_selecting', False):
@@ -4122,9 +4343,7 @@ class MainViewer:
                 pre_drag = getattr(self, '_pre_drag_selection', set())
                 
                 if 'Shift' in event.modifiers:
-                    current_selection = pre_drag.union(box_indices)     # Add
-                elif 'Control' in event.modifiers or 'Meta' in event.modifiers:
-                    current_selection = pre_drag.difference(box_indices)# Remove
+                    current_selection = pre_drag ^ box_indices          # Toggle
                 else:
                     current_selection = box_indices                     # Replace
                     
@@ -4158,18 +4377,28 @@ class MainViewer:
             queue.resume()
 
     def _cancel_drag(self):
-        """Esc during a right-button drag: put everything back as it was at the press.
+        """Esc during a right-button drag, or a turn by Ctrl + wheel: put everything back as it was at the start.
 
-        A drag of selected nodes puts each node back where it was, a turn of the wheel
-        undone too, and leaves the selection as the press made it. The snapshot the press
-        took for undo is taken off the history (_take_back_press_history): it holds the
+        A drag of selected nodes puts each node back where it was, a turn of the wheel or of
+        Ctrl + right-drag undone too, and leaves the selection as the press made it. The snapshot
+        the press took for undo is taken off the history (_take_back_press_history): it holds the
         positions as they were, which are now the positions again, and undo does not restore
         a selection, so it would be a step that undoes nothing. A selection box is hidden and
         the selection from before the press comes back. The rest of the drag does nothing
-        (_drag_cancelled), and a command that waited for the drag goes on, as on release.
+        (_drag_cancelled), and a command that waited for the drag goes on, as on release. A turn
+        by Ctrl + wheel notches puts the nodes back the same way and ends.
 
-        Returns whether there was a drag to cancel.
+        Returns whether there was a drag or a turn to cancel.
         """
+        turn = getattr(self, '_wheel_turn', None)
+        if turn is not None:
+            self.pos[turn.indices, :2] = turn.start
+            self._take_back_press_history()
+            self._end_wheel_turn(redraw=False)
+            self.update_selection_visual(broadcast=False)
+            self._clear_turn_status(turn)
+            self.canvas.update()
+            return True
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
             press = getattr(self, '_node_drag_press', None)
@@ -4177,6 +4406,9 @@ class MainViewer:
                 indices, positions = press
                 self.pos[indices, :2] = positions
             self._take_back_press_history()
+            turn = self._clear_drag_gesture()
+            if turn is not None:
+                self._clear_turn_status(turn)
             # As a release does: the colours, the edges and the picks for the nodes' places, and
             # the web pages told of the selection if the press held it back.
             self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
@@ -4201,6 +4433,39 @@ class MainViewer:
         self.canvas.update()
         self._resume_command_queue()
         return True
+
+    def _remove_if_clicked(self, event):
+        """The right button was let go: remove the node a Shift press found selected, if this is a click.
+
+        A release within CLICK_DISTANCE_PIXELS of the press, and no move beyond it before (a drag
+        forgets the node: _remove_on_click), removes the node from the selection. Returns whether it did.
+        """
+        node_idx = getattr(self, '_remove_on_click', None)
+        if node_idx is None or getattr(event, 'button', None) == 1:
+            return False
+        self._remove_on_click = None
+        moved = np.asarray(event.pos[:2], dtype=float) - np.asarray(self.drag_start_screen[:2], dtype=float)
+        if np.hypot(*moved) >= CLICK_DISTANCE_PIXELS or node_idx not in self.selected_indices:
+            return False
+        self.selected_indices = [index for index in self.selected_indices if index != node_idx]
+        self._note_hand_selection()
+        return True
+
+    def _clear_drag_gesture(self):
+        """A drag of nodes is over, by a release or by Esc: what only it held is forgotten."""
+        turn, self._drag_turn = getattr(self, '_drag_turn', None), None
+        self._drag_in_click = False
+        self._remove_on_click = None
+        return turn
+
+    def _clear_turn_status(self, turn):
+        """Take the angle of a turn that was cancelled off the status line, leaving a command being typed there."""
+        if turn.shown is None:
+            return
+        if getattr(self, 'console_mode', False):
+            self._update_console_text()
+        else:
+            Command_Engine.show_status(self, "")
 
     def _take_back_press_history(self):
         """Undo's history as it was before the press of a cancelled drag: the press's snapshot
@@ -4260,18 +4525,25 @@ class MainViewer:
             event.handled = True
             return
 
-        # ---> 0.5 LEFT RELEASE: COPY WHAT A SHIFT OR CTRL PRESS CHOSE <---
+        # ---> 0.5 LEFT RELEASE: COPY WHAT A SHIFT PRESS CHOSE <---
         if getattr(event, 'button', None) == 1 and self._copy_on_release(event):
             event.handled = True
             return
 
         # ---> 1. MULTI-DRAG RELEASE <---
+        removed = self._remove_if_clicked(event)
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
             self._node_drag_press = self._press_history = None  # no cancelling now
-            self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
+            self._clear_drag_gesture()
+            # A node removed from the selection is news for the web pages, held back or not.
+            self.update_selection_visual(broadcast=removed or getattr(self, '_drag_selection_unsent', True))
             self._drag_selection_unsent = False
             self._resume_command_queue()
+            event.handled = True
+            return
+        if removed:  # nothing could be dragged (the kNN layout), but the click removed the node
+            self.update_selection_visual()
             event.handled = True
             return
             
@@ -4305,9 +4577,7 @@ class MainViewer:
                 pre_drag = getattr(self, '_pre_drag_selection', set())
                 
                 if 'Shift' in event.modifiers:
-                    current_selection = pre_drag.union(box_indices)     # Add
-                elif 'Control' in event.modifiers or 'Meta' in event.modifiers:
-                    current_selection = pre_drag.difference(box_indices)# Remove
+                    current_selection = pre_drag ^ box_indices          # Toggle
                 else:
                     current_selection = box_indices                     # Replace
                     
@@ -4318,7 +4588,7 @@ class MainViewer:
 
             # Single click detection (no drag distance in screen pixels)
             if drag_dist_screen < CLICK_DISTANCE_PIXELS:
-                if 'Shift' not in event.modifiers and 'Control' not in event.modifiers and 'Meta' not in event.modifiers:
+                if 'Shift' not in event.modifiers:
                     self.selected_indices = []
                     self._note_hand_selection()
                     self.update_selection_visual()

@@ -220,8 +220,8 @@ class CategoryHelperTests(unittest.TestCase):
         expected = {
             "fewer_edges_while_moving": {"draw_network"},
             "low_resource_animations": {"_camera_mouse_event", "_sidebar_can_slide"},
-            "low_resource_drawing": {"on_slider_value_changed", "_on_slider_released",
-                                     "on_mouse_wheel", "on_mouse_move", "on_mouse_release"},
+            "low_resource_drawing": {"on_slider_value_changed", "_on_slider_released", "_redraw_moved_nodes",
+                                     "_end_wheel_turn", "on_mouse_move", "on_mouse_release"},
             "low_resource_webserver": {"on_mouse_press", "on_mouse_move"},
         }
         found = {name: set() for name in expected}
@@ -399,7 +399,7 @@ class UmapModeTests(unittest.TestCase):
     There the Viewer draws only the selected nodes' edges (edges_follow_selection);
     the threshold slider is built as always and filters them by score; a right-button
     selection box works as always; and a selected node cannot be dragged
-    (on_mouse_press). So:
+    (on_mouse_press) or turned with Ctrl + wheel (on_mouse_wheel). So:
 
     * Fewer Edges Drawn While Moving still thins a selection of MIN_SUBSET_SEGMENTS
       edges (250,000) or more, and is never in effect for fewer;
@@ -433,7 +433,7 @@ class UmapModeTests(unittest.TestCase):
         # (and the Config's greying) thought through again.
         self.assertEqual(reads, {"EMAPSSN_Viewer.py": {"load_and_simulate"}})
         self.assertEqual(asks, {
-            "EMAPSSN_Viewer.py": {"on_mouse_press"},
+            "EMAPSSN_Viewer.py": {"on_mouse_press", "on_mouse_wheel"},
             "Viewer_Visual_State.py": {"edge_stages", "edges_follow_selection"},
         })
         for path in sorted((SRC / "desktop").glob("Viewer_*.py")):

@@ -113,21 +113,25 @@ class ControlsRowsTests(unittest.TestCase):
         self.assertEqual(rows, [
             (["ENTER"], "Command"),
             (["LeftClick"], "Highlight"),
-            (["RightClick"], "Select/Clear"),
-            (["Scroll"], "Zoom"),
-            (["LeftClick", "Shift/Ctrl"], "Copy Node Header/Sequence"),
             (["LeftClick", "Drag"], "Pan"),
+            (["LeftClick", "Shift"], "Copy Node Header"),
+            (["LeftDoubleClick", "Shift"], "Copy Node Sequence"),
+            (["RightClick"], "Select/Clear"),
+            (["RightClick", "Shift"], "Add/Remove Nodes"),
             (["RightClick", "Drag"], "GroupSelect/MoveNodes"),
-            (["RightClick", "Drag", "Shift"], "Move Straight"),
-            (["RightClick", "Drag", "Scroll"], "Rotate Nodes (Shift: Fine)"),
+            (["RightClick", "Drag", "Shift"], "Move Straight (45° Steps)"),
+            (["RightClick", "Drag", "Scroll"], "Rotate Around Grab Point"),
+            (["RightClick", "Drag", "Ctrl"], "Rotate Nodes (Shift: 15° Steps)"),
+            (["Scroll"], "Zoom"),
+            (["Scroll", "Ctrl"], "Rotate Around Cursor"),
             (["Esc"], "Cancel Drag"),
         ])
 
     def test_the_chinese_actions_read_the_same_way(self):
         rows = controls_rows(chinese_actions(shipped_actions()))
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 14)
         self.assertEqual(rows[0], (["回车"], "命令"))
-        self.assertEqual(rows[4][0], ["左键", "Shift/Ctrl"])
+        self.assertEqual(rows[3][0], ["左键", "Shift"])
         self.assertTrue(all(keys and description for keys, description in rows), rows)
 
     def test_an_action_without_keys_is_all_description(self):
@@ -369,9 +373,11 @@ class ControlsCardTests(unittest.TestCase):
         self.assertEqual([label.text() for label in card.descriptions],
                          [description for _keys, description in controls_rows(shipped_actions())])
         self.assertEqual([cap.text() for cap in card.key_caps],
-                         ["ENTER", "LeftClick", "RightClick", "Scroll", "LeftClick", "Shift/Ctrl",
-                          "LeftClick", "Drag", "RightClick", "Drag", "RightClick", "Drag", "Shift",
-                          "RightClick", "Drag", "Scroll", "Esc"])
+                         ["ENTER", "LeftClick", "LeftClick", "Drag", "LeftClick", "Shift",
+                          "LeftDoubleClick", "Shift", "RightClick", "RightClick", "Shift",
+                          "RightClick", "Drag", "RightClick", "Drag", "Shift",
+                          "RightClick", "Drag", "Scroll", "RightClick", "Drag", "Ctrl",
+                          "Scroll", "Scroll", "Ctrl", "Esc"])
         # Each description shows whole: no row is cut short.
         for label in card.descriptions:
             self.assertGreaterEqual(label.width(), label.sizeHint().width(), label.text())
@@ -446,7 +452,7 @@ class ControlsCardTests(unittest.TestCase):
         card = button.toggle_card()
         flush(self.app)
         self.assertEqual(card.path_fields, {})
-        self.assertEqual(len(card.descriptions), 10)
+        self.assertEqual(len(card.descriptions), 14)
         # Its one heading, in the header row with the link and the cross, is the controls'.
         self.assertEqual(card.session_heading.text(), "Mouse and keyboard controls")
         self.assertIsNone(card.controls_heading)

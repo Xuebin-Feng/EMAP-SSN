@@ -5055,6 +5055,10 @@ The whole output is in {log}.</source>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Rotate {angle}°</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
@@ -8926,7 +8930,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight | [RightClick + Drag + Scroll] Rotate Nodes (Shift: Fine) | [Esc] Cancel Drag</source>
+        <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

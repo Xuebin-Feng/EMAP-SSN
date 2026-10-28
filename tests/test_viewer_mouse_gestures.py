@@ -2,24 +2,33 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Viewer's mouse and keyboard gestures on a node drag, and the copy click
-(EMAPSSN_Viewer.py: on_key_press, on_mouse_press, on_mouse_move,
-on_mouse_wheel, on_mouse_release).
+"""The Viewer's mouse and keyboard gestures on nodes (EMAPSSN_Viewer.py: on_key_press,
+on_key_release, on_mouse_press, on_mouse_double_click, on_mouse_move, on_mouse_wheel,
+on_mouse_release).
 
-* Esc cancels a drag in progress. A drag of selected nodes puts every node back
-  where it was at the press, a rotation too, keeps the selection the press made
-  and leaves no step on the undo history; a selection box is hidden and the
-  selection from before the press comes back. The rest of that right-button drag
-  does nothing, nothing the release does, and the camera does not take it for a
-  zoom. The command line stays open for the Esc that cancels a drag.
-* Shift while dragging nodes holds the move to the larger of the offsets from
-  the press, horizontal or vertical, and the wheel's rotation never moves it.
-* The wheel turns the dragged nodes 5 degrees a notch, and with Shift 0.5.
-* A Shift or Ctrl left-click copies on release, within 5 px of the press.
+* Esc cancels a drag in progress, a box, a Ctrl + right-drag turn and a Ctrl + wheel turn. A drag
+  of selected nodes puts every node back where it was at the press, a rotation too, keeps the
+  selection the press made and leaves no step on the undo history; a selection box is hidden and
+  the selection from before the press comes back. The rest of that right-button drag does
+  nothing, nothing the release does, and the camera does not take it for a zoom. The command
+  line stays open for the Esc that cancels a drag.
+* Shift on the right button toggles: it adds an unselected node at the press, removes a selected
+  one when the button is let go as a click, and a box toggles the nodes in it. Ctrl no longer
+  removes anything.
+* Shift while dragging nodes holds the move to one of eight directions, and the wheel's
+  rotation never moves it.
+* The wheel during a drag turns the nodes 5 degrees a notch about the press, Shift or not.
+* Ctrl + right-drag from a selected node turns the selection about its centre, following the
+  pointer, full turns included; Shift rounds the angle to 15 degrees.
+* Ctrl + wheel turns the selection 5 degrees a notch about the cursor, a run of notches being
+  one turn and one undo step.
+* A Shift left-click copies the header once the double-click interval has passed, a Shift
+  left double click the sequence alone, on release within 5 px of the press. Ctrl copies nothing.
 
-The tests send synthetic VisPy-style events to a Viewer built as
-test_viewer_markers builds one: real markers and pick, a recording edge layer.
+The tests send synthetic VisPy-style events to a Viewer built as test_viewer_markers builds one:
+real markers and pick, a recording edge layer. The Viewer's timers are tests.timer_fixtures's.
 """
+import importlib
 import os
 from pathlib import Path
 import sys
@@ -34,14 +43,25 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from PySide6 import QtWidgets  # noqa: E402
+from vispy import app as vispy_app, scene  # noqa: E402
+
 import Command_Engine  # noqa: E402
 import EMAPSSN_Config as cfg  # noqa: E402
-from EMAPSSN_Viewer import CLICK_DISTANCE_PIXELS, MainViewer  # noqa: E402
+import EMAPSSN_Viewer  # noqa: E402
+from Command_Queue import CommandQueue  # noqa: E402
+from EMAPSSN_Viewer import (  # noqa: E402
+    CLICK_DISTANCE_PIXELS, MOVE_SNAP_DEGREES, ROTATE_DEAD_ZONE_PIXELS, ROTATE_DEGREES_PER_NOTCH,
+    ROTATE_SNAP_DEGREES, WHEEL_TURN_IDLE_SECONDS, MainViewer,
+)
 from tests import test_viewer_markers as marker_tests  # noqa: E402
+from tests.timer_fixtures import FakeTimer  # noqa: E402
 
 # The nodes lie 40 px apart on y = 0, as test_viewer_markers places them, and
 # a click on a node's own place picks it.
 NODE = [(40.0 * index, 0.0) for index in range(6)]
+SHIFT = ["Shift"]
+CTRL = ["Control"]
 
 
 def event(x=0.0, y=0.0, button=None, buttons=(), modifiers=(), delta=(0.0, 0.0)):
@@ -76,11 +96,17 @@ class RecordingEdges:
 class GestureTestCase(unittest.TestCase):
     """A Viewer to drag nodes in, and the events that do it."""
 
+    DOUBLE_CLICK_MS = 40
+
     def setUp(self):
+        FakeTimer.created = []
         for patcher in (mock.patch.object(cfg, "UMAP_MODE", False, create=True),
                         mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False),
                         mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False),
                         marker_tests.distinct_outlines(),     # a selected node's outline differs
+                        mock.patch.object(vispy_app, "Timer", FakeTimer),
+                        mock.patch.object(QtWidgets.QApplication, "doubleClickInterval",
+                                          return_value=self.DOUBLE_CLICK_MS),
                         mock.patch("builtins.print")):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -95,6 +121,8 @@ class GestureTestCase(unittest.TestCase):
         viewer.update_console_background = mock.Mock()
         viewer.selected_indices = list(selected)
         viewer.selection_epoch = 0
+        viewer._drag_in_click, viewer._drag_turn, viewer._wheel_turn = False, None, None   # as __init__ has them
+        viewer._remove_on_click = viewer._header_copy_node = None
         viewer.update_selection_visual()
         viewer.broadcast_event.reset_mock()
         viewer.edge_layer.calls = 0
@@ -125,9 +153,21 @@ class GestureTestCase(unittest.TestCase):
         return ev
 
     @staticmethod
+    def double_click(viewer, x, y, button=1, modifiers=()):
+        ev = event(x, y, button=button, buttons=[button], modifiers=modifiers)
+        viewer.on_mouse_double_click(ev)
+        return ev
+
+    @staticmethod
     def esc(viewer):
         ev = escape()
         viewer.on_key_press(ev)
+        return ev
+
+    @staticmethod
+    def key_release(viewer, key):
+        ev = SimpleNamespace(key=key, text="", modifiers=[], handled=False)
+        viewer.on_key_release(ev)
         return ev
 
     @staticmethod
@@ -138,6 +178,14 @@ class GestureTestCase(unittest.TestCase):
         return np.column_stack([rel[:, 0] * cos_a - rel[:, 1] * sin_a,
                                 rel[:, 0] * sin_a + rel[:, 1] * cos_a]) + about
 
+    @staticmethod
+    def places(viewer, nodes):
+        return viewer.pos[list(nodes), :2].astype(float)
+
+    @staticmethod
+    def status(viewer):
+        return [str(call.args[0]) for call in viewer._show_click_status.call_args_list]
+
     def assert_picture_matches(self, viewer):
         """The markers, the edge layer and the pick show the nodes where they are."""
         order = viewer._submitted_marker_node_order
@@ -146,6 +194,9 @@ class GestureTestCase(unittest.TestCase):
         self.assertIsNotNone(viewer._marker_picker)
         for node in range(len(viewer.pos)):
             self.assertEqual(viewer.pick_hovered_node(viewer.pos[node, :2]), node)
+
+    def assert_places(self, viewer, nodes, expected, atol=1e-3):
+        np.testing.assert_allclose(self.places(viewer, nodes), np.asarray(expected, dtype=float), atol=atol)
 
 
 # =====================================================================
@@ -161,7 +212,7 @@ class CancelNodeDragTests(GestureTestCase):
                 self.press(viewer, *NODE[1])
                 self.move(viewer, 70, 20)
                 self.wheel(viewer, (0.0, 6.0), 70, 20)                             # 30 degrees
-                self.wheel(viewer, (0.0, 3.0), 70, 20, modifiers=["Shift"])        # 1.5 more
+                self.wheel(viewer, (0.0, 3.0), 70, 20, modifiers=["Shift"])        # 15 more, Shift or not
                 self.move(viewer, 90, 30)
                 self.assertFalse(np.array_equal(viewer.pos, start))
                 handled = self.esc(viewer)
@@ -489,10 +540,241 @@ class CancelBoxTests(GestureTestCase):
 
 
 # =====================================================================
-# Shift holds a drag of nodes to a line
+# Shift on the right button toggles; Ctrl removes nothing
 # =====================================================================
 
-class AxisLockTests(GestureTestCase):
+class ShiftSelectionTests(GestureTestCase):
+    def test_a_shift_press_on_an_unselected_node_adds_it_at_the_press(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(viewer.selected_indices, [1, 2, 3])
+        self.assertEqual(viewer.selection_epoch, 1)
+        self.assertTrue(viewer.is_multi_dragging)
+        self.move(viewer, NODE[3][0] + 10, 30)                  # a drag moves the whole selection
+        self.assert_places(viewer, [1, 2, 3], [(x + 10, 30) for x, _ in NODE[1:4]])
+        self.release(viewer, NODE[3][0] + 10, 30)
+        self.assertEqual(viewer.selected_indices, [1, 2, 3])
+
+    def test_a_shift_click_on_a_selected_node_removes_it_on_release_not_at_the_press(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        start = viewer.pos.copy()
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(viewer.selected_indices, [1, 2])       # the press removes nothing
+        self.assertEqual(viewer.selection_epoch, 0)
+        viewer.broadcast_event.reset_mock()
+        self.move(viewer, NODE[2][0] + 3, 2, modifiers=SHIFT)   # a slip, inside the click's radius
+        np.testing.assert_array_equal(viewer.pos, start)        # moves nothing
+        ev = self.release(viewer, NODE[2][0] + 3, 2, modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.assertEqual(viewer.selected_indices, [1])
+        self.assertEqual(viewer.selection_epoch, 1)             # a selection by hand
+        np.testing.assert_array_equal(viewer.pos, start)
+        self.assertFalse(viewer.is_multi_dragging)
+        self.assertEqual(viewer.broadcast_event.call_args.args[0],
+                         {"type": "selection_changed", "indices": [1]})
+        self.assert_picture_matches(viewer)
+        # And the drag it was is over: the next move is the hover's.
+        self.move(viewer, *NODE[4], buttons=())
+        self.assertEqual(viewer.hovered_node_idx, 4)
+
+    def test_five_pixels_make_it_a_move_and_the_nodes_wait_for_them(self):
+        self.assertEqual(CLICK_DISTANCE_PIXELS, 5.0)
+        viewer = self.make_viewer(selected=[1, 2])
+        start = viewer.pos.copy()
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.move(viewer, NODE[2][0] + 4.9, 0, modifiers=SHIFT)
+        np.testing.assert_array_equal(viewer.pos, start)        # still a click: nothing moves
+        self.move(viewer, NODE[2][0] + 5.0, 0, modifiers=SHIFT)
+        self.assert_places(viewer, [1, 2], [(45, 0), (85, 0)])  # a move, from the press
+        self.move(viewer, NODE[2][0] + 30, 5, modifiers=SHIFT)  # along a line, as a Shift move is
+        self.assert_places(viewer, [1, 2], [(70, 0), (110, 0)])
+        self.release(viewer, NODE[2][0] + 30, 5)
+        self.assertEqual(viewer.selected_indices, [1, 2])       # nothing is removed
+        self.assertEqual(viewer.selection_epoch, 0)
+
+    def test_a_move_that_comes_back_to_the_press_is_still_a_move(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.move(viewer, NODE[2][0] + 30, 0, modifiers=SHIFT)
+        self.move(viewer, NODE[2][0] + 1, 0, modifiers=SHIFT)
+        self.release(viewer, NODE[2][0] + 1, 0)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assert_places(viewer, [1, 2], [(41, 0), (81, 0)])
+
+    def test_a_turn_of_the_wheel_is_no_click_either(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.wheel(viewer, (0.0, 2.0), *NODE[2])
+        self.release(viewer, *NODE[2])
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assert_places(viewer, [1, 2], self.rotated([NODE[1], NODE[2]], NODE[2], 10.0))
+
+    def test_a_shift_click_removes_where_nothing_can_be_dragged(self):
+        # The kNN layout has no moving of nodes, but selecting works.
+        viewer = self.make_viewer(selected=[1, 2])
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            self.press(viewer, *NODE[2], modifiers=SHIFT)
+            self.assertFalse(viewer.is_multi_dragging)
+            self.assertEqual(viewer.selected_indices, [1, 2])
+            ev = self.release(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.assertEqual(viewer.selected_indices, [1])
+        self.assertEqual(viewer.broadcast_event.call_args.args[0], {"type": "selection_changed", "indices": [1]})
+        # A release a long way off is no click there either.
+        viewer = self.make_viewer(selected=[1, 2])
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            self.press(viewer, *NODE[2], modifiers=SHIFT)
+            self.release(viewer, 150, 50)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+
+    def test_the_web_pages_hear_of_the_removal_whether_the_press_held_its_news_back_or_not(self):
+        for webserver in (False, True):
+            with self.subTest(webserver=webserver), mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver):
+                viewer = self.make_viewer(selected=[1, 2])
+                sent = []
+                viewer.broadcast_event = lambda event, sent=sent: sent.append(list(event["indices"]))
+                self.press(viewer, *NODE[2], modifiers=SHIFT)
+                self.release(viewer, *NODE[2])
+                self.assertEqual(sent, [[1]] if webserver else [[1, 2], [1]])
+
+    def test_esc_in_a_shift_click_removes_nothing(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertTrue(self.esc(viewer).handled)
+        self.release(viewer, *NODE[2])
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertEqual(viewer.selection_epoch, 0)
+
+    def test_a_missed_release_ends_it_at_the_next_move_and_that_is_no_click_when_the_pointer_is_away(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)            # no release comes
+        self.move(viewer, 150, 50, buttons=())                   # the next move, the button up
+        self.assertFalse(viewer.is_multi_dragging)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.press(viewer, *NODE[1])
+        self.release(viewer, *NODE[1])                           # a plain click on a selected node
+        self.assertEqual(viewer.selected_indices, [1, 2])        # the old press forgot, nothing removed
+
+    def test_two_quick_shift_right_clicks_on_a_node_both_count(self):
+        # Qt sends the second press of two quick clicks as a double click: it is the press it replaces.
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3], modifiers=SHIFT)
+        self.release(viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(viewer.selected_indices, [1, 2, 3])                    # added
+        self.double_click(viewer, *NODE[3], button=2, modifiers=SHIFT)
+        self.release(viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(viewer.selected_indices, [1, 2])                       # and taken out again
+
+    def test_a_removal_is_no_undo_step_of_its_own(self):
+        # Undo holds the nodes' places, colours and so on, never the selection, so it does not bring
+        # the node back; the press's snapshot is the one every node click takes.
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.release(viewer, *NODE[2])
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertNotIn("selected_indices", viewer.position_history[0])
+        viewer._do_undo(announce=False)
+        self.assertEqual(viewer.selected_indices, [1])
+
+    def test_ctrl_no_longer_removes_by_click(self):
+        for modifier in ("Control", "Meta"):
+            with self.subTest(modifier=modifier):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.press(viewer, *NODE[2], modifiers=[modifier])
+                self.assertEqual(viewer.selected_indices, [1, 2])
+                self.release(viewer, *NODE[2], modifiers=[modifier])
+                self.assertEqual(viewer.selected_indices, [1, 2])
+                self.assertEqual(viewer.selection_epoch, 0)
+
+    def test_a_ctrl_click_does_nothing_beyond_a_plain_right_click(self):
+        results = {}
+        for name, modifiers in (("plain", []), ("ctrl", CTRL), ("meta", ["Meta"])):
+            viewer = self.make_viewer(selected=[1, 2])
+            start = viewer.pos.copy()
+            self.press(viewer, *NODE[2], modifiers=modifiers)
+            self.release(viewer, *NODE[2], modifiers=modifiers)
+            np.testing.assert_array_equal(viewer.pos, start)
+            results[name] = (viewer.selected_indices, viewer.selection_epoch, len(viewer.position_history),
+                             [call.args[0] for call in viewer.broadcast_event.call_args_list],
+                             self.status(viewer))
+        self.assertEqual(results["ctrl"], results["plain"])
+        self.assertEqual(results["meta"], results["plain"])
+        # On a node that is not selected, a Ctrl press selects it alone, as any press does.
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3], modifiers=CTRL)
+        self.assertEqual(viewer.selected_indices, [3])
+        self.assertIsNone(viewer._drag_turn)
+
+
+class BoxToggleTests(GestureTestCase):
+    def box(self, viewer, modifiers=(), end=(90, 10), release=True):
+        """Press on empty space and draw a box over nodes 1 and 2."""
+        self.press(viewer, 30, -10, modifiers=modifiers)
+        self.move(viewer, *end, modifiers=modifiers)
+        if release:
+            self.release(viewer, *end, modifiers=modifiers)
+
+    def test_the_shift_box_toggles_the_nodes_in_it_live_and_on_release(self):
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer = self.make_viewer(selected=[2, 4])
+                self.box(viewer, SHIFT, release=False)
+                if not drawing:       # the live box, which Update Colors After Mouse Release leaves to the release
+                    self.assertEqual(sorted(viewer.selected_indices), [1, 4])
+                self.release(viewer, 90, 10, modifiers=SHIFT)
+                self.assertEqual(sorted(viewer.selected_indices), [1, 4])   # 1 added, 2 taken out, 4 left
+
+    def test_the_preview_is_the_result_at_every_step(self):
+        viewer = self.make_viewer(selected=[0, 2, 5])
+        self.press(viewer, -10, -10, modifiers=SHIFT)
+        previews = []
+        for x in (10, 50, 90, 130, 170, 210):                   # the box takes in one more node each time
+            self.move(viewer, x, 10, modifiers=SHIFT)
+            previews.append(sorted(viewer.selected_indices))
+        self.release(viewer, 210, 10, modifiers=SHIFT)
+        self.assertEqual(previews, [[2, 5], [1, 2, 5], [1, 5], [1, 3, 5], [1, 3, 4, 5], [1, 3, 4]])
+        self.assertEqual(sorted(viewer.selected_indices), previews[-1])
+
+    def test_a_shift_click_on_empty_space_changes_nothing(self):
+        viewer = self.make_viewer(selected=[4, 0])
+        self.press(viewer, 30, -10, modifiers=SHIFT)
+        self.release(viewer, 30, -10, modifiers=SHIFT)
+        self.assertEqual(sorted(viewer.selected_indices), [0, 4])
+
+    def test_ctrl_no_longer_removes_by_box_and_the_box_is_a_plain_one(self):
+        for modifier in ("Control", "Meta"):
+            with self.subTest(modifier=modifier):
+                viewer = self.make_viewer(selected=[1, 4])
+                self.box(viewer, [modifier])
+                self.assertEqual(sorted(viewer.selected_indices), [1, 2])    # replaced, as without a key
+
+    def test_a_ctrl_click_on_empty_space_clears_as_a_plain_click_does(self):
+        for modifier in ("Control", "Meta"):
+            with self.subTest(modifier=modifier):
+                viewer = self.make_viewer(selected=[1, 4])
+                self.press(viewer, 30, -10, modifiers=[modifier])
+                self.release(viewer, 30, -10, modifiers=[modifier])
+                self.assertEqual(viewer.selected_indices, [])
+
+    def test_a_toggling_box_is_no_undo_step_and_counts_as_a_selection_by_hand(self):
+        viewer = self.make_viewer(selected=[2, 4])
+        self.box(viewer, SHIFT)
+        self.assertEqual(viewer.position_history, [])
+        self.assertGreater(viewer.selection_epoch, 0)
+
+    def test_esc_puts_back_the_selection_a_shift_box_toggled(self):
+        viewer = self.make_viewer(selected=[2, 4, 0])
+        self.box(viewer, SHIFT, release=False)
+        self.assertNotEqual(viewer.selected_indices, [2, 4, 0])
+        self.esc(viewer)
+        self.assertEqual(viewer.selected_indices, [2, 4, 0])
+
+
+# =====================================================================
+# Shift holds a move of nodes to one of eight directions
+# =====================================================================
+
+class StraightMoveTests(GestureTestCase):
     def drag_to(self, viewer, x, y, modifiers=()):
         """Move the pointer to (x, y); return where the nodes moved from their places at the press."""
         self.move(viewer, x, y, modifiers=modifiers)
@@ -503,62 +785,76 @@ class AxisLockTests(GestureTestCase):
         self.press(viewer, *NODE[1])
         np.testing.assert_allclose(self.drag_to(viewer, 70, 55), [[30, 55]] * 2)
 
-    def test_shift_keeps_the_larger_offset_and_switches_with_it(self):
-        for drawing in (False, True):
-            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+    def test_shift_gives_eight_directions_every_45_degrees(self):
+        self.assertEqual(MOVE_SNAP_DEGREES, 45.0)
+        for step in range(8):
+            degrees = 45.0 * step
+            with self.subTest(degrees=degrees):
                 viewer = self.make_viewer(selected=[1, 2])
                 self.press(viewer, *NODE[1])
-                shift = ["Shift"]
-                # The offsets are from the press, (40, 0): horizontal while |dx| >= |dy| ...
-                np.testing.assert_allclose(self.drag_to(viewer, 70, 10, shift), [[30, 0]] * 2)
-                np.testing.assert_allclose(self.drag_to(viewer, 65, 25, shift), [[25, 0]] * 2)
-                np.testing.assert_allclose(self.drag_to(viewer, 65, 25.5, shift), [[0, 25.5]] * 2)
-                # ... vertical once |dy| is larger, whichever way it goes ...
-                np.testing.assert_allclose(self.drag_to(viewer, 50, -60, shift), [[0, -60]] * 2)
-                # ... and back again.
-                np.testing.assert_allclose(self.drag_to(viewer, 130, -60, shift), [[90, 0]] * 2)
-                np.testing.assert_allclose(self.drag_to(viewer, 0, 20, shift), [[-40, 0]] * 2)   # leftward
-                self.assert_picture_matches_after_move(viewer)
+                offset = 30.0 * np.array([np.cos(np.radians(degrees)), np.sin(np.radians(degrees))])
+                np.testing.assert_allclose(
+                    self.drag_to(viewer, NODE[1][0] + offset[0], NODE[1][1] + offset[1], SHIFT),
+                    [offset] * 2, atol=1e-3)
 
-    def assert_picture_matches_after_move(self, viewer):
-        np.testing.assert_allclose(viewer.edge_layer.positions[:, :2], viewer.pos[:, :2])
+    def test_the_pointer_takes_the_nearest_direction_and_the_nodes_follow_its_distance_along_it(self):
+        # (the pointer's angle, the line it is held to), and the pointer 40 px from the press.
+        for angle, line in ((10, 0), (22, 0), (23, 45), (40, 45), (67, 45), (68, 90), (100, 90), (120, 135),
+                            (170, 180), (-10, 0), (-30, -45), (-100, -90), (-150, -135), (-170, -180)):
+            with self.subTest(angle=angle):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.press(viewer, *NODE[1])
+                x, y = 40.0 * np.cos(np.radians(angle)), 40.0 * np.sin(np.radians(angle))
+                along = 40.0 * np.cos(np.radians(angle - line))
+                expected = along * np.array([np.cos(np.radians(line)), np.sin(np.radians(line))])
+                np.testing.assert_allclose(self.drag_to(viewer, NODE[1][0] + x, NODE[1][1] + y, SHIFT),
+                                           [expected] * 2, atol=1e-3)
+
+    def test_the_nodes_slide_along_the_line_as_the_pointer_goes_along_it(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[1])
+        np.testing.assert_allclose(self.drag_to(viewer, 70, 10, SHIFT), [[30, 0]] * 2)
+        np.testing.assert_allclose(self.drag_to(viewer, 140, 5, SHIFT), [[100, 0]] * 2)
+        np.testing.assert_allclose(self.drag_to(viewer, 100, 50, SHIFT), [[55, 55]] * 2, atol=1e-3)   # 45 degrees
+        np.testing.assert_allclose(self.drag_to(viewer, 0, 10, SHIFT), [[-40, 0]] * 2, atol=1e-3)     # leftward
+
+    def test_the_press_itself_gives_no_move(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[1])
+        np.testing.assert_allclose(self.drag_to(viewer, *NODE[1], modifiers=SHIFT), [[0, 0]] * 2)
 
     def test_the_line_goes_as_shift_is_let_go_and_pressed_again(self):
         viewer = self.make_viewer(selected=[1, 2])
         self.press(viewer, *NODE[1])
-        np.testing.assert_allclose(self.drag_to(viewer, 70, 20, ["Shift"]), [[30, 0]] * 2)
+        # (30, 20) is nearest to 45 degrees, which it goes 35.4 px along: 25 across and 25 up.
+        np.testing.assert_allclose(self.drag_to(viewer, 70, 20, SHIFT), [[25, 25]] * 2, atol=1e-3)
         np.testing.assert_allclose(self.drag_to(viewer, 71, 21), [[31, 21]] * 2)        # free again
-        np.testing.assert_allclose(self.drag_to(viewer, 71, 21, ["Shift"]), [[31, 0]] * 2)
-
-    def test_a_tie_and_the_press_itself_move_along_x(self):
-        viewer = self.make_viewer(selected=[1, 2])
-        self.press(viewer, *NODE[1])
-        np.testing.assert_allclose(self.drag_to(viewer, 60, 20, ["Shift"]), [[20, 0]] * 2)
-        np.testing.assert_allclose(self.drag_to(viewer, *NODE[1], modifiers=["Shift"]), [[0, 0]] * 2)
+        np.testing.assert_allclose(self.drag_to(viewer, 71, 21, SHIFT), [[26, 26]] * 2, atol=1e-3)
 
     def test_shift_at_the_press_adds_the_node_and_the_drag_is_held_to_a_line(self):
         viewer = self.make_viewer(selected=[1, 2])
-        self.press(viewer, *NODE[3], modifiers=["Shift"])
+        self.press(viewer, *NODE[3], modifiers=SHIFT)
         self.assertEqual(viewer.selected_indices, [1, 2, 3])
         self.assertTrue(viewer.is_multi_dragging)
-        self.move(viewer, NODE[3][0] + 5, 50, modifiers=["Shift"])
+        self.move(viewer, NODE[3][0] + 5, 50, modifiers=SHIFT)
         np.testing.assert_allclose(viewer.pos[[1, 2, 3], :2] - np.array(NODE[1:4], dtype=np.float32),
-                                   [[0, 50]] * 3)
+                                   [[0, 50]] * 3, atol=1e-3)
         self.release(viewer, NODE[3][0] + 5, 50)
         self.assertEqual(len(viewer.position_history), 1)
 
-    def test_shift_still_adds_a_box_to_the_selection(self):
+    def test_the_picture_follows_the_line_in_both_modes(self):
         for drawing in (False, True):
             with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
-                viewer = self.make_viewer(selected=[4])
-                self.press(viewer, 30, -10, modifiers=["Shift"])
-                self.move(viewer, 90, 10, modifiers=["Shift"])
-                self.release(viewer, 90, 10, modifiers=["Shift"])
-                self.assertEqual(sorted(viewer.selected_indices), [1, 2, 4])
+                viewer = self.make_viewer(selected=[1, 2])
+                self.press(viewer, *NODE[1])
+                self.drag_to(viewer, 100, 50, SHIFT)
+                np.testing.assert_allclose(viewer.edge_layer.positions[:, :2], viewer.pos[:, :2])
+                order = viewer._submitted_marker_node_order
+                np.testing.assert_allclose(viewer.markers._data["a_position"][:, :2], viewer.pos[order, :2])
 
 
 # =====================================================================
-# The wheel turns the nodes
+# The wheel turns the nodes of a drag
 # =====================================================================
 
 class RotationTests(GestureTestCase):
@@ -568,84 +864,76 @@ class RotationTests(GestureTestCase):
         self.press(self.viewer, *NODE[1])
         self.pivot = np.array(NODE[1])
 
+    def turned(self, degrees):
+        return self.rotated([NODE[1], NODE[2]], self.pivot, degrees)
+
     def test_the_wheel_turns_five_degrees_a_notch(self):
+        self.assertEqual(ROTATE_DEGREES_PER_NOTCH, 5.0)
         for notches in (1.0, -1.0, 3.0):
             with self.subTest(notches=notches):
                 viewer = self.make_viewer(selected=[1, 2])
                 self.press(viewer, *NODE[1])
                 self.wheel(viewer, (0.0, notches), *NODE[1])
-                np.testing.assert_allclose(viewer.pos[[1, 2], :2],
-                                           self.rotated([NODE[1], NODE[2]], self.pivot, 5.0 * notches),
-                                           atol=1e-3)
+                self.assert_places(viewer, [1, 2], self.turned(5.0 * notches))
 
-    def test_shift_turns_half_a_degree_a_notch(self):
-        for notches in (1.0, -1.0, 4.0):
-            with self.subTest(notches=notches):
+    def test_there_is_no_fine_turn_and_shift_makes_no_difference(self):
+        self.assertFalse(hasattr(EMAPSSN_Viewer, "ROTATE_FINE_DEGREES_PER_NOTCH"))
+        for modifiers in ([], SHIFT):
+            with self.subTest(modifiers=modifiers):
                 viewer = self.make_viewer(selected=[1, 2])
                 self.press(viewer, *NODE[1])
-                self.wheel(viewer, (0.0, notches), *NODE[1], modifiers=["Shift"])
-                np.testing.assert_allclose(viewer.pos[[1, 2], :2],
-                                           self.rotated([NODE[1], NODE[2]], self.pivot, 0.5 * notches),
-                                           atol=1e-3)
+                self.wheel(viewer, (0.0, 2.0), *NODE[1], modifiers=modifiers)
+                self.assert_places(viewer, [1, 2], self.turned(10.0))
 
     def test_a_fraction_of_a_notch_turns_that_fraction(self):
         # A high-resolution wheel or a touchpad reports parts of a notch, and the turn follows.
-        for modifiers, degrees in (([], 5.0), (["Shift"], 0.5)):
+        for modifiers in ([], SHIFT):
             with self.subTest(modifiers=modifiers):
                 viewer = self.make_viewer(selected=[1, 2])
                 self.press(viewer, *NODE[1])
                 self.wheel(viewer, (0.0, 0.1), *NODE[1], modifiers=modifiers)
                 self.wheel(viewer, (0.0, 0.15), *NODE[1], modifiers=modifiers)   # turns add up
-                np.testing.assert_allclose(viewer.pos[[1, 2], :2],
-                                           self.rotated([NODE[1], NODE[2]], self.pivot, 0.25 * degrees),
-                                           atol=1e-3)
+                self.assert_places(viewer, [1, 2], self.turned(0.25 * 5.0))
 
-    def test_shift_and_a_sideways_scroll_turns_the_same_way_as_a_scroll_up(self):
+    def test_a_sideways_scroll_turns_the_same_way_whatever_keys_are_held(self):
         # macOS, and some mouse drivers on Windows, send Shift + wheel as a horizontal scroll.
-        results = {}
-        for name, delta in (("up", (0.0, 2.0)), ("sideways up", (2.0, 0.0)),
-                            ("down", (0.0, -2.0)), ("sideways down", (-2.0, 0.0))):
-            viewer = self.make_viewer(selected=[1, 2])
-            self.press(viewer, *NODE[1])
-            self.wheel(viewer, delta, *NODE[1], modifiers=["Shift"])
-            results[name] = viewer.pos[[1, 2], :2].copy()
-        np.testing.assert_allclose(results["sideways up"], results["up"])
-        np.testing.assert_allclose(results["sideways down"], results["down"])
-        np.testing.assert_allclose(results["up"],
-                                   self.rotated([NODE[1], NODE[2]], self.pivot, 1.0), atol=1e-3)
-        self.assertFalse(np.allclose(results["up"], results["down"]))
+        for modifiers in ([], SHIFT):
+            with self.subTest(modifiers=modifiers):
+                results = {}
+                for name, delta in (("up", (0.0, 2.0)), ("sideways up", (2.0, 0.0)),
+                                    ("down", (0.0, -2.0)), ("sideways down", (-2.0, 0.0))):
+                    viewer = self.make_viewer(selected=[1, 2])
+                    self.press(viewer, *NODE[1])
+                    self.wheel(viewer, delta, *NODE[1], modifiers=modifiers)
+                    results[name] = viewer.pos[[1, 2], :2].copy()
+                np.testing.assert_allclose(results["sideways up"], results["up"])
+                np.testing.assert_allclose(results["sideways down"], results["down"])
+                np.testing.assert_allclose(results["up"], self.turned(10.0), atol=1e-3)
+                self.assertFalse(np.allclose(results["up"], results["down"]))
 
     def test_the_vertical_notches_win_when_both_are_given(self):
         viewer = self.make_viewer(selected=[1, 2])
         self.press(viewer, *NODE[1])
-        self.wheel(viewer, (5.0, 1.0), *NODE[1], modifiers=["Shift"])
-        np.testing.assert_allclose(viewer.pos[[1, 2], :2],
-                                   self.rotated([NODE[1], NODE[2]], self.pivot, 0.5), atol=1e-3)
+        self.wheel(viewer, (5.0, 1.0), *NODE[1], modifiers=SHIFT)
+        self.assert_places(viewer, [1, 2], self.turned(5.0))
 
-    def test_without_shift_a_sideways_scroll_turns_nothing(self):
-        before = self.viewer.pos.copy()
-        self.wheel(self.viewer, (3.0, 0.0), *NODE[1])
-        np.testing.assert_array_equal(self.viewer.pos, before)
-
-    def test_shift_and_the_wheel_never_move_a_diagonal_move_onto_an_axis(self):
+    def test_shift_and_the_wheel_never_move_a_diagonal_move_onto_a_line(self):
         viewer = self.viewer
         self.move(viewer, 70, 20)                        # a diagonal move of (30, 20), no Shift
-        for fine in (["Shift"], []):
-            self.wheel(viewer, (0.0, 1.0), 70, 20, modifiers=fine)
-        turned = self.rotated([NODE[1], NODE[2]], self.pivot, 5.5)
-        np.testing.assert_allclose(viewer.pos[[1, 2], :2], turned + [30.0, 20.0], atol=1e-3)
-        # The line applies when the pointer next moves.
-        self.move(viewer, 75, 22, modifiers=["Shift"])
-        np.testing.assert_allclose(viewer.pos[[1, 2], :2], turned + [35.0, 0.0], atol=1e-3)
+        for modifiers in (SHIFT, []):
+            self.wheel(viewer, (0.0, 1.0), 70, 20, modifiers=modifiers)
+        turned = self.turned(10.0)
+        self.assert_places(viewer, [1, 2], turned + [30.0, 20.0])
+        # The line applies when the pointer next moves: (35, 22) held to 45 degrees, 28.5 along each axis.
+        self.move(viewer, 75, 22, modifiers=SHIFT)
+        self.assert_places(viewer, [1, 2], turned + [28.5, 28.5])
 
     def test_the_wheel_takes_the_move_the_last_move_gave_not_the_pointer(self):
         viewer = self.viewer
-        self.move(viewer, 70, 10, modifiers=["Shift"])          # held to the line: (30, 0)
+        self.move(viewer, 70, 10, modifiers=SHIFT)              # held to the line: (30, 0)
         # The wheel event is at another place, and without Shift: neither counts.
         self.wheel(viewer, (0.0, 1.0), 300, 200)
-        np.testing.assert_allclose(viewer.pos[[1, 2], :2],
-                                   self.rotated([NODE[1], NODE[2]], self.pivot, 5.0) + [30.0, 0.0],
-                                   atol=1e-3)
+        self.assert_places(viewer, [1, 2], self.turned(5.0) + [30.0, 0.0])
 
     def test_a_turn_before_any_move_is_about_the_press_and_moves_nothing(self):
         self.wheel(self.viewer, (0.0, 18.0), 500, 500)           # a quarter turn, the pointer elsewhere
@@ -666,10 +954,537 @@ class RotationTests(GestureTestCase):
             with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
                 viewer = self.make_viewer(selected=[1, 2])
                 self.press(viewer, *NODE[1])
-                self.wheel(viewer, (0.0, 18.0), *NODE[1], modifiers=["Shift"])
+                self.wheel(viewer, (0.0, 18.0), *NODE[1], modifiers=SHIFT)
                 order = viewer._submitted_marker_node_order
                 np.testing.assert_allclose(viewer.markers._data["a_position"][:, :2], viewer.pos[order, :2])
                 np.testing.assert_allclose(viewer.edge_layer.positions[:, :2], viewer.pos[:, :2])
+
+
+# =====================================================================
+# Ctrl + right-drag turns the selection about its centre
+# =====================================================================
+
+class TurnByDragTests(GestureTestCase):
+    """The selection is nodes 1 and 3, at (40, 0) and (120, 0): its centre is (80, 0).
+
+    Pressing on node 1 puts the pointer at angle 180 degrees about the centre, 40 px out.
+    """
+
+    CENTRE = np.array([80.0, 0.0])
+
+    def setUp(self):
+        super().setUp()
+        self.viewer = self.make_viewer(selected=[1, 3])
+        self.start = self.places(self.viewer, [1, 3])
+
+    def start_turn(self, viewer=None, modifiers=CTRL):
+        viewer = viewer or self.viewer
+        self.press(viewer, *NODE[1], modifiers=modifiers)
+        self.assertTrue(viewer.is_multi_dragging)
+
+    def at(self, angle, radius=40.0, centre=None, viewer=None, modifiers=()):
+        """Move the pointer to the place at angle degrees about the centre, radius px out."""
+        centre = self.CENTRE if centre is None else centre
+        radians = np.radians(angle)
+        return self.move(viewer or self.viewer, centre[0] + radius * np.cos(radians),
+                         centre[1] + radius * np.sin(radians), modifiers=modifiers)
+
+    def round_about(self, degrees, first=180.0, step=10.0, radius=40.0, viewer=None, modifiers=()):
+        """Move the pointer round the centre from angle `first` by `degrees` more, in steps."""
+        for index in range(1, int(round(abs(degrees) / step)) + 1):
+            self.at(first + np.sign(degrees) * step * index, radius, viewer=viewer, modifiers=modifiers)
+
+    def turned(self, degrees, centre=None):
+        return self.rotated(self.start, self.CENTRE if centre is None else centre, degrees)
+
+    def test_the_centre_is_the_middle_of_the_selections_bounding_box_not_the_mean(self):
+        viewer = self.make_viewer(selected=[0, 1, 5])      # at x = 0, 40 and 200: the middle is 100, the mean 80
+        start = self.places(viewer, [0, 1, 5])
+        self.press(viewer, *NODE[5], modifiers=CTRL)
+        for angle in range(10, 100, 10):
+            self.move(viewer, 100 + 100 * np.cos(np.radians(angle)), 100 * np.sin(np.radians(angle)))
+        self.assert_places(viewer, [0, 1, 5], self.rotated(start, [100.0, 0.0], 90.0))
+        np.testing.assert_allclose(viewer.pos[5, :2], [100.0, 100.0], atol=1e-3)         # on the pointer
+
+    def test_the_nodes_follow_the_pointer_and_only_its_direction_counts(self):
+        for degrees in (30, 100, 170, -50, -120, -170):
+            with self.subTest(degrees=degrees):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.start_turn(viewer)
+                self.at(180 + degrees, radius=25 + abs(degrees), viewer=viewer)          # one move, any distance
+                self.assert_places(viewer, [1, 3], self.turned(degrees))
+                # The node pressed lies in the pointer's direction from the centre.
+                node = viewer.pos[1, :2] - self.CENTRE
+                pointer = np.array([np.cos(np.radians(180 + degrees)), np.sin(np.radians(180 + degrees))])
+                self.assertAlmostEqual(float(node[0] * pointer[1] - node[1] * pointer[0]), 0.0, delta=1e-3)
+                self.assertGreater(float(np.dot(node, pointer)), 0.0)
+
+    def test_two_circles_make_720_degrees(self):
+        for direction in (1, -1):
+            with self.subTest(direction=direction):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.start_turn(viewer)
+                self.round_about(direction * 540, viewer=viewer)                         # one and a half circles
+                self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 540.0, places=6)
+                self.assert_places(viewer, [1, 3], self.turned(180.0))
+                self.round_about(direction * 180, first=180 + direction * 540, viewer=viewer)    # to two
+                self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 720.0, places=6)
+                self.assert_places(viewer, [1, 3], self.start)
+                self.assertEqual(self.status(viewer)[-1], f"Rotate {direction * 720}°")
+
+    def test_a_step_across_the_half_turn_is_taken_the_short_way(self):
+        self.start_turn()
+        self.at(190)                                       # 10 degrees on, past 180
+        self.assertAlmostEqual(self.viewer._drag_turn.degrees, 10.0, places=6)
+        self.at(170)                                       # and 20 back, across it again
+        self.assertAlmostEqual(self.viewer._drag_turn.degrees, -10.0, places=6)
+        self.assert_places(self.viewer, [1, 3], self.turned(-10.0))
+
+    def test_the_angle_holds_within_the_dead_zone_and_goes_on_from_where_it_left(self):
+        self.assertEqual(ROTATE_DEAD_ZONE_PIXELS, 15.0)
+        self.start_turn()
+        self.round_about(40)                               # 40 degrees
+        before = self.viewer.pos.copy()
+        calls = len(self.status(self.viewer))
+        for angle in (10, 100, 200):                       # inside, whatever the direction
+            self.at(angle, radius=14.9)
+            np.testing.assert_array_equal(self.viewer.pos, before)
+        self.assertEqual(len(self.status(self.viewer)), calls)
+        self.at(270, radius=30)                            # out again: 50 degrees on from where it left (220)
+        self.assert_places(self.viewer, [1, 3], self.turned(90.0))
+
+    def test_the_dead_zone_ends_fifteen_pixels_out(self):
+        self.start_turn()
+        self.at(210, radius=14.99)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.at(210, radius=15.01)
+        self.assert_places(self.viewer, [1, 3], self.turned(30.0))
+
+    def test_a_press_inside_the_dead_zone_takes_its_angle_at_the_first_point_outside(self):
+        viewer = self.make_viewer(selected=[1, 2, 3])        # the centre is (80, 0): node 2 is on it
+        start = self.places(viewer, [1, 2, 3])
+        self.press(viewer, *NODE[2], modifiers=CTRL)
+        self.move(viewer, 86, 0)                             # past the click's radius, still inside the dead zone
+        np.testing.assert_array_equal(self.places(viewer, [1, 2, 3]), start)
+        self.move(viewer, 80, 30)                            # the first point outside, at angle 90: no jump
+        self.assert_places(viewer, [1, 2, 3], start)
+        self.move(viewer, 50, 0)                             # a quarter turn on, to angle 180
+        self.assert_places(viewer, [1, 2, 3], self.rotated(start, [80.0, 0.0], 90.0))
+
+    def test_shift_rounds_the_angle_to_steps_of_15_degrees(self):
+        self.assertEqual(ROTATE_SNAP_DEGREES, 15.0)
+        for degrees, held in ((37, 30), (38, 45), (-37, -30), (-38, -45), (7, 0), (8, 15), (100, 105)):
+            with self.subTest(degrees=degrees):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.start_turn(viewer)
+                self.at(180 + degrees, radius=100, viewer=viewer, modifiers=SHIFT)
+                self.assert_places(viewer, [1, 3], self.turned(held))
+                self.assertEqual(self.status(viewer)[-1], f"Rotate {held}°")
+                self.at(180 + degrees, radius=101, viewer=viewer)              # Shift let go: free again
+                self.assert_places(viewer, [1, 3], self.turned(degrees))
+
+    def test_shift_held_at_the_press_as_well_still_turns_and_removes_nothing(self):
+        self.start_turn(modifiers=["Control", "Shift"])
+        self.at(215, modifiers=SHIFT)                      # 35 degrees, held to 30
+        self.assert_places(self.viewer, [1, 3], self.turned(30.0))
+        self.release(self.viewer, 0, 0)
+        self.assertEqual(self.viewer.selected_indices, [1, 3])
+
+    def test_the_nodes_wait_for_the_click_radius(self):
+        self.start_turn()
+        self.move(self.viewer, NODE[1][0], 4.9)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.assertEqual(self.status(self.viewer), [])
+        self.move(self.viewer, NODE[1][0], 5.0)               # 5 px: a drag, turned from the press
+        swept = np.degrees(np.arctan2(5.0, -40.0)) - 180.0
+        self.assert_places(self.viewer, [1, 3], self.turned(swept))
+
+    def test_a_ctrl_click_without_a_drag_turns_nothing(self):
+        self.start_turn()
+        self.release(self.viewer, *NODE[1])
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.assertEqual(self.viewer.selected_indices, [1, 3])
+        self.assertEqual(self.status(self.viewer), [])
+        self.assertFalse(self.viewer.is_multi_dragging)
+
+    def test_the_release_is_one_undo_step(self):
+        self.start_turn()
+        self.round_about(90)
+        self.release(self.viewer, 0, 0)
+        self.assertEqual(len(self.viewer.position_history), 1)
+        self.assert_places(self.viewer, [1, 3], self.turned(90.0))
+        self.viewer._do_undo(announce=False)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+
+    def test_esc_puts_the_nodes_back_and_leaves_no_undo_step(self):
+        viewer = self.viewer
+        undone = {"pos": "a step that was undone"}
+        viewer.redo_stack = [undone]
+        self.start_turn()
+        self.round_about(90)
+        self.assertEqual(len(viewer.position_history), 1)
+        with mock.patch.object(Command_Engine, "show_status") as show_status:
+            self.assertTrue(self.esc(viewer).handled)
+        np.testing.assert_array_equal(viewer.pos[[1, 3], :2], self.start.astype(np.float32))   # exactly
+        self.assertEqual(viewer.position_history, [])
+        self.assertEqual(viewer.redo_stack, [undone])
+        self.assertEqual(viewer.selected_indices, [1, 3])
+        self.assertFalse(viewer.is_multi_dragging)
+        self.assertIsNone(viewer._drag_turn)
+        show_status.assert_called_once_with(viewer, "")              # no angle left on the status line
+        self.assert_picture_matches(viewer)
+        # The rest of the drag, and its release, do nothing.
+        self.assertTrue(self.at(300).handled)
+        np.testing.assert_array_equal(viewer.pos[[1, 3], :2], self.start.astype(np.float32))
+        self.release(viewer, 0, 0)
+        self.assertEqual(viewer.selected_indices, [1, 3])
+
+    def test_a_cancel_before_the_click_radius_is_left_changes_nothing(self):
+        self.start_turn()
+        self.assertTrue(self.esc(self.viewer).handled)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.assertEqual(self.viewer.position_history, [])
+
+    def test_the_wheel_is_ignored_during_the_turn(self):
+        self.start_turn()
+        self.round_about(40)
+        before = self.viewer.pos.copy()
+        wheel = self.wheel(self.viewer, (0.0, 3.0), 60, 20)
+        self.assertTrue(wheel.handled)
+        np.testing.assert_array_equal(self.viewer.pos, before)
+        self.assertAlmostEqual(self.viewer._drag_turn.degrees, 40.0, places=6)
+        self.round_about(10, first=220)                      # and the drag goes on
+        self.assertAlmostEqual(self.viewer._drag_turn.degrees, 50.0, places=6)
+
+    def test_it_is_refused_where_moving_is_refused(self):
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            self.press(self.viewer, *NODE[1], modifiers=CTRL)
+            self.assertFalse(self.viewer.is_multi_dragging)
+            self.assertIsNone(self.viewer._drag_turn)
+            self.at(250)
+            self.release(self.viewer, 0, 0)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.assertEqual(self.viewer.selected_indices, [1, 3])
+
+    def test_ctrl_on_an_unselected_node_is_a_plain_press_and_moves_it(self):
+        self.press(self.viewer, *NODE[2], modifiers=CTRL)
+        self.assertEqual(self.viewer.selected_indices, [2])
+        self.assertTrue(self.viewer.is_multi_dragging)
+        self.assertIsNone(self.viewer._drag_turn)
+        self.move(self.viewer, NODE[2][0] + 20, 30)
+        np.testing.assert_allclose(self.viewer.pos[2, :2], [100, 30])
+
+    def test_cmd_on_macos_does_what_ctrl_does(self):
+        self.start_turn(modifiers=["Meta"])
+        self.at(210)
+        self.assert_places(self.viewer, [1, 3], self.turned(30.0))
+
+    def test_the_status_line_shows_the_angle_when_it_changes(self):
+        self.start_turn()
+        self.at(217)
+        self.at(217.04)                                      # the same to a tenth of a degree
+        self.at(217.5)
+        self.at(142.0)                                       # -38
+        self.assertEqual(self.status(self.viewer), ["Rotate 37°", "Rotate 37.5°", "Rotate -38°"])
+
+    def test_the_turn_goes_on_the_selection_without_changing_it(self):
+        self.start_turn()
+        self.round_about(90)
+        self.release(self.viewer, 0, 0)
+        self.assertEqual(self.viewer.selected_indices, [1, 3])
+        self.assertEqual(self.viewer.selection_epoch, 0)
+        # A plain drag after it is a plain move, from where the node is now.
+        node = self.turned(90.0)[0]
+        self.press(self.viewer, *node)
+        self.assertTrue(self.viewer.is_multi_dragging)
+        self.assertIsNone(self.viewer._drag_turn)
+        self.move(self.viewer, node[0] + 10, node[1] + 20)
+        np.testing.assert_allclose(self.viewer.pos[1, :2] - node, [10, 20], atol=1e-3)
+
+    def test_the_picture_follows_in_both_modes_and_the_web_pages_hear_nothing_meanwhile(self):
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.start_turn(viewer)
+                self.round_about(60, viewer=viewer)
+                order = viewer._submitted_marker_node_order
+                np.testing.assert_allclose(viewer.markers._data["a_position"][:, :2], viewer.pos[order, :2])
+                np.testing.assert_allclose(viewer.edge_layer.positions[:, :2], viewer.pos[:, :2])
+                self.assertEqual(viewer.broadcast_event.call_count, 1)   # the press's, for the selection
+                self.release(viewer, 0, 0)
+                self.assert_picture_matches(viewer)
+
+
+# =====================================================================
+# Ctrl + wheel turns the selection about the cursor
+# =====================================================================
+
+class TurnByWheelTests(GestureTestCase):
+    def setUp(self):
+        super().setUp()
+        self.viewer = self.make_viewer(selected=[1, 2])
+        self.start = self.places(self.viewer, [1, 2])
+
+    def notch(self, delta=(0.0, 1.0), x=60.0, y=30.0, modifiers=CTRL, viewer=None, buttons=()):
+        return self.wheel(viewer or self.viewer, delta, x, y, buttons=buttons, modifiers=modifiers)
+
+    def turned(self, degrees, about=(60.0, 30.0), start=None):
+        return self.rotated(self.start if start is None else start, about, degrees)
+
+    def timer(self, viewer=None):
+        return (viewer or self.viewer)._wheel_turn_timer
+
+    def test_notches_turn_five_degrees_a_notch_about_the_cursor(self):
+        self.assertEqual(ROTATE_DEGREES_PER_NOTCH, 5.0)
+        for notches in (1.0, -1.0, 3.0, 0.2):
+            with self.subTest(notches=notches):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.notch((0.0, notches), viewer=viewer)
+                self.assert_places(viewer, [1, 2], self.turned(5.0 * notches))
+
+    def test_the_event_is_consumed_so_the_camera_does_not_zoom(self):
+        self.assertTrue(self.notch().handled)
+        self.assertTrue(self.notch((0.0, 0.0)).handled)             # even one of no notches
+
+    def test_the_pivot_is_the_cursor_at_the_first_notch_and_stays_while_it_wobbles(self):
+        self.notch(x=60, y=30)
+        self.notch(x=200, y=100)
+        self.notch(x=-30, y=-90)
+        self.assert_places(self.viewer, [1, 2], self.turned(15.0))
+        np.testing.assert_allclose(self.viewer._wheel_turn.centre, [60, 30])
+
+    def test_notches_back_and_forth_add_up(self):
+        for _ in range(4):
+            self.notch((0.0, 1.0))
+        for _ in range(4):
+            self.notch((0.0, -1.0), x=10, y=10)
+        self.assert_places(self.viewer, [1, 2], self.start)
+
+    def test_the_turn_goes_on_while_ctrl_is_held_and_the_timer_restarts_each_notch(self):
+        self.notch()
+        timer = self.timer()
+        self.assertTrue(timer.running)
+        self.assertEqual(timer.interval, WHEEL_TURN_IDLE_SECONDS)
+        self.assertEqual(WHEEL_TURN_IDLE_SECONDS, 1.0)
+        self.notch()
+        self.notch()
+        self.assertEqual(len(timer.starts), 3)                      # started afresh by every notch
+        self.assertEqual(len(FakeTimer.created), 1)                 # the one timer
+
+    def test_a_second_with_no_notch_ends_the_turn_and_the_next_notch_takes_a_new_pivot(self):
+        self.notch(x=60, y=30)
+        self.timer().fire()
+        self.assertIsNone(self.viewer._wheel_turn)
+        self.notch(x=10, y=-20)
+        first = self.turned(5.0)
+        self.assert_places(self.viewer, [1, 2], self.rotated(first, (10.0, -20.0), 5.0))
+        self.assertEqual(len(self.viewer.position_history), 2)      # a second undo step
+
+    def test_letting_go_of_ctrl_ends_the_turn(self):
+        for key in ("Control", "Meta"):
+            with self.subTest(key=key):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.notch(viewer=viewer)
+                self.key_release(viewer, key)
+                self.assertIsNone(viewer._wheel_turn)
+                self.assertFalse(self.timer(viewer).running)
+                self.notch(x=10, y=10, viewer=viewer)
+                self.assertEqual(len(viewer.position_history), 2)
+                self.assertTrue(np.allclose(viewer._wheel_turn.centre, [10, 10]))
+
+    def test_another_key_let_go_does_not(self):
+        self.notch()
+        for key in ("Shift", "a", None):
+            self.key_release(self.viewer, key)
+        self.assertIsNotNone(self.viewer._wheel_turn)
+
+    def test_a_button_pressed_ends_the_turn(self):
+        for button in (1, 2):
+            with self.subTest(button=button):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.notch(viewer=viewer)
+                self.press(viewer, 150, 50, button=button)
+                self.assertIsNone(viewer._wheel_turn)
+                self.assertFalse(self.timer(viewer).running)
+
+    def test_a_wheel_notch_without_ctrl_ends_the_turn_and_zooms(self):
+        self.notch()
+        plain = self.notch(modifiers=())
+        self.assertFalse(plain.handled)                              # the camera has it
+        self.assertIsNone(self.viewer._wheel_turn)
+
+    def test_a_turn_is_one_undo_step(self):
+        for _ in range(3):
+            self.notch()
+        self.assertEqual(len(self.viewer.position_history), 1)
+        self.timer().fire()
+        self.viewer._do_undo(announce=False)
+        np.testing.assert_array_equal(self.viewer.pos[[1, 2], :2], self.start.astype(np.float32))
+        self.assertEqual(self.viewer.selected_indices, [1, 2])
+
+    def test_esc_puts_the_nodes_back_and_ends_the_turn_with_no_undo_step(self):
+        viewer = self.viewer
+        undone = {"pos": "a step that was undone"}
+        viewer.redo_stack = [undone]
+        self.notch()
+        self.notch()
+        self.assertEqual(len(viewer.position_history), 1)
+        with mock.patch.object(Command_Engine, "show_status") as show_status:
+            self.assertTrue(self.esc(viewer).handled)
+        np.testing.assert_array_equal(viewer.pos[[1, 2], :2], self.start.astype(np.float32))   # exactly
+        self.assertEqual(viewer.position_history, [])
+        self.assertEqual(viewer.redo_stack, [undone])
+        self.assertIsNone(viewer._wheel_turn)
+        self.assertFalse(self.timer().running)
+        show_status.assert_called_once_with(viewer, "")
+        self.assert_picture_matches(viewer)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        # The next notch starts a turn of its own, from the places Esc put back.
+        self.notch(x=0, y=0)
+        self.assert_places(viewer, [1, 2], self.turned(5.0, about=(0.0, 0.0)))
+        self.assertEqual(len(viewer.position_history), 1)
+
+    def test_nothing_selected_zooms(self):
+        viewer = self.make_viewer()
+        before = viewer.pos.copy()
+        ev = self.notch(viewer=viewer)
+        self.assertFalse(ev.handled)
+        self.assertIsNone(viewer._wheel_turn)
+        self.assertFalse(hasattr(viewer, "_wheel_turn_timer"))
+        self.assertEqual(viewer.position_history, [])
+        np.testing.assert_array_equal(viewer.pos, before)
+
+    def test_a_plain_wheel_is_the_cameras(self):
+        ev = self.notch(modifiers=())
+        self.assertFalse(ev.handled)
+        self.assertIsNone(self.viewer._wheel_turn)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 2]), self.start)
+
+    def test_a_button_held_is_no_ctrl_wheel_turn(self):
+        ev = self.notch(buttons=(1,))
+        self.assertFalse(ev.handled)
+        self.assertIsNone(self.viewer._wheel_turn)
+
+    def test_shift_makes_no_difference_and_a_sideways_scroll_turns_the_same(self):
+        results = {}
+        for name, delta, modifiers in (("ctrl", (0.0, 1.0), CTRL), ("ctrl shift", (0.0, 1.0), CTRL + SHIFT),
+                                       ("sideways", (2.0, 0.0), CTRL + SHIFT), ("sideways ctrl", (2.0, 0.0), CTRL),
+                                       ("down", (-2.0, 0.0), CTRL + SHIFT)):
+            viewer = self.make_viewer(selected=[1, 2])
+            self.notch(delta, modifiers=modifiers, viewer=viewer)
+            results[name] = viewer.pos[[1, 2], :2].copy()
+        np.testing.assert_allclose(results["ctrl shift"], results["ctrl"])
+        np.testing.assert_allclose(results["ctrl"], self.turned(5.0), atol=1e-3)
+        np.testing.assert_allclose(results["sideways"], self.turned(10.0), atol=1e-3)     # two notches' worth
+        np.testing.assert_allclose(results["sideways ctrl"], results["sideways"])
+        np.testing.assert_allclose(results["down"], self.turned(-10.0), atol=1e-3)
+
+    def test_cmd_on_macos_does_what_ctrl_does(self):
+        self.notch(modifiers=["Meta"])
+        self.assert_places(self.viewer, [1, 2], self.turned(5.0))
+
+    def test_it_is_refused_where_moving_is_refused(self):
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            ev = self.notch()
+        self.assertFalse(ev.handled)                                 # the camera zooms
+        self.assertIsNone(self.viewer._wheel_turn)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 2]), self.start)
+        self.assertEqual(self.viewer.position_history, [])
+
+    def test_the_status_line_shows_the_angle(self):
+        for _ in range(3):
+            self.notch()
+        self.notch((0.0, -8.0))
+        self.assertEqual(self.status(self.viewer), ["Rotate 5°", "Rotate 10°", "Rotate 15°", "Rotate -25°"])
+
+    def test_the_picture_follows_in_both_modes_and_the_pick_is_made_again_when_the_turn_ends(self):
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.notch(viewer=viewer)
+                order = viewer._submitted_marker_node_order
+                np.testing.assert_allclose(viewer.markers._data["a_position"][:, :2], viewer.pos[order, :2])
+                np.testing.assert_allclose(viewer.edge_layer.positions[:, :2], viewer.pos[:, :2])
+                if drawing:
+                    self.assertIsNone(viewer._marker_picker)         # under Update Colors After Mouse Release
+                self.timer(viewer).fire()
+                self.assert_picture_matches(viewer)
+                self.assertEqual(viewer.broadcast_event.call_count, 0)    # the selection did not change
+
+    def test_commands_wait_while_a_turn_lasts_and_go_on_when_it_ends(self):
+        viewer = self.viewer
+        viewer.command_queue = mock.Mock()
+        viewer.command_queue.pending.return_value = [object()]
+        self.assertFalse(CommandQueue._busy(None, viewer))
+        self.notch()
+        self.assertTrue(CommandQueue._busy(None, viewer))
+        viewer.command_queue.resume.assert_not_called()
+        self.timer().fire()
+        self.assertFalse(CommandQueue._busy(None, viewer))
+        viewer.command_queue.resume.assert_called_once_with()
+
+    def test_a_cancel_resumes_the_command_queue_too(self):
+        viewer = self.viewer
+        viewer.command_queue = mock.Mock()
+        viewer.command_queue.pending.return_value = [object()]
+        self.notch()
+        with mock.patch.object(Command_Engine, "show_status"):
+            self.esc(viewer)
+        viewer.command_queue.resume.assert_called_once_with()
+
+
+# =====================================================================
+# A running print capture takes a turn as it takes a move
+# =====================================================================
+
+class CaptureTests(GestureTestCase):
+    """What a print ... full capture watches (commands/print.py: _CaptureEvents) is the network's drawing:
+    the node markers and the edge layer. Selecting nodes, moving them and turning them all redraw it,
+    and each cancels the capture; the same updates serve all three."""
+
+    def make_capture(self, viewer):
+        print_command = importlib.import_module("commands.print")
+        root = scene.Node()
+        viewer.markers._markers.parent = root            # the real markers, as the capture finds them in the scene
+        viewer.canvas.scene = SimpleNamespace(node_transform=viewer.canvas.scene.node_transform,
+                                              events=root.events, children=root.children)
+        viewer.view = SimpleNamespace(scene=object(), camera=SimpleNamespace(rect=(0, 0, 100, 100), aspect=1.0))
+        events = print_command._CaptureEvents(viewer, [])
+        self.addCleanup(events.close)
+        return print_command, events
+
+    def gestures(self):
+        """Each gesture as (what comes before the capture's pause, what happens in it)."""
+        def press(modifiers=()):
+            return lambda v: self.press(v, *NODE[1], modifiers=modifiers)
+        return {
+            "a move": (press(), lambda v: self.move(v, 70, 20)),
+            "a move held to a line": (press(), lambda v: self.move(v, 70, 20, modifiers=SHIFT)),
+            "the wheel during a move": (press(), lambda v: self.wheel(v, (0.0, 2.0), *NODE[1])),
+            "a Ctrl + right-drag turn": (press(CTRL), lambda v: self.move(v, 70, 40, modifiers=CTRL)),
+            "Ctrl + wheel": (lambda v: None,
+                             lambda v: self.wheel(v, (0.0, 1.0), 60, 30, buttons=(), modifiers=CTRL)),
+        }
+
+    def test_each_of_them_spoils_the_capture_in_both_drawing_modes(self):
+        for drawing in (False, True):
+            for name, (before, during) in self.gestures().items():
+                with self.subTest(drawing=drawing, gesture=name), \
+                        mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                    viewer = self.make_viewer(selected=[1, 2])
+                    print_command, events = self.make_capture(viewer)
+                    before(viewer)                       # the press, which redraws for the selection, is no part of it
+                    events.release()
+                    during(viewer)
+                    with self.assertRaises(print_command._CaptureInterrupted):
+                        events.reclaim()
+
+    def test_a_turn_that_changes_nothing_spoils_nothing(self):
+        viewer = self.make_viewer()                       # nothing is selected: Ctrl + wheel is the camera's
+        _print_command, events = self.make_capture(viewer)
+        events.release()
+        self.wheel(viewer, (0.0, 1.0), 60, 30, buttons=(), modifiers=CTRL)
+        events.reclaim()
 
 
 # =====================================================================
@@ -691,81 +1506,126 @@ class CopyOnClickTests(GestureTestCase):
     def copied(self):
         return [call.args[0] for call in self.clipboard.setText.call_args_list]
 
-    def status(self):
-        return [str(call.args[0]) for call in self.viewer._show_click_status.call_args_list]
+    def timer(self):
+        return getattr(self.viewer, "_header_copy_timer", None)
 
-    def test_the_copy_is_made_on_release_not_on_press(self):
-        for modifier, text, line in (("Shift", "N1", "Copied: N1"),
-                                     ("Control", "SEQ1", "Copied sequence of: N1"),
-                                     ("Meta", "SEQ1", "Copied sequence of: N1")):
-            with self.subTest(modifier=modifier):
-                self.clipboard.reset_mock()
-                self.viewer._show_click_status.reset_mock()
-                ev = self.press(self.viewer, *NODE[1], button=1, modifiers=[modifier])
-                self.assertTrue(ev.handled)
-                self.assertEqual(self.copied(), [])
-                self.assertEqual(self.status(), [])
-                ev = self.release(self.viewer, *NODE[1], button=1)
-                self.assertTrue(ev.handled)
-                self.assertEqual(self.copied(), [text])
-                self.assertEqual(self.status(), [line])
+    def shift_click(self, node=1, **offset):
+        x, y = NODE[node]
+        self.press(self.viewer, x, y, button=1, modifiers=SHIFT)
+        self.release(self.viewer, x + offset.get("dx", 0.0), y + offset.get("dy", 0.0), button=1)
 
-    def test_a_release_within_five_pixels_copies_and_five_or_more_does_not(self):
+    def test_a_shift_click_copies_the_header_once_the_double_click_interval_has_passed(self):
+        ev = self.press(self.viewer, *NODE[1], button=1, modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.assertIsNone(self.timer())
+        ev = self.release(self.viewer, *NODE[1], button=1)
+        self.assertTrue(ev.handled)
+        self.assertEqual(self.copied(), [])                       # not on press, nor on release
+        self.assertEqual(self.status(self.viewer), [])
+        self.assertTrue(self.timer().running)
+        self.assertEqual(self.timer().starts, [self.DOUBLE_CLICK_MS / 1000.0])      # Qt's interval
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1"])
+        self.assertEqual(self.status(self.viewer), ["Copied: N1"])
+
+    def test_the_wait_is_the_one_qt_gives(self):
+        with mock.patch.object(QtWidgets.QApplication, "doubleClickInterval", return_value=500):
+            self.shift_click()
+        self.assertEqual(self.timer().starts, [0.5])
+
+    def test_a_double_click_copies_the_sequence_alone_and_drops_the_header(self):
+        self.shift_click()
+        self.assertTrue(self.timer().running)
+        ev = self.double_click(self.viewer, *NODE[1], modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.assertFalse(self.timer().running)                    # the header's wait is over, with no copy
+        self.assertEqual(self.copied(), [])                       # the sequence waits for the release
+        ev = self.release(self.viewer, *NODE[1], button=1)
+        self.assertTrue(ev.handled)
+        self.assertEqual(self.copied(), ["SEQ1"])                 # one entry for the clipboard's history
+        self.assertEqual(self.clipboard.setText.call_count, 1)
+        self.assertEqual(self.status(self.viewer), ["Copied sequence of: N1"])
+        self.assertIsNone(self.viewer._header_copy_node)
+
+    def test_a_slipped_double_click_copies_nothing_at_all(self):
+        self.shift_click()
+        self.double_click(self.viewer, *NODE[1], modifiers=SHIFT)
+        self.release(self.viewer, NODE[1][0] + 6, NODE[1][1], button=1)
+        self.assertEqual(self.copied(), [])
+        self.assertEqual(self.status(self.viewer), [])
+        self.assertFalse(self.timer().running)
+
+    def test_a_slipped_click_starts_no_wait_and_copies_nothing(self):
+        for dx, dy in ((5.0, 0.0), (0.0, -5.0), (3.0, 4.0), (30.0, 0.0), (3.6, 3.6)):
+            with self.subTest(moved=(dx, dy)):
+                self.shift_click(dx=dx, dy=dy)
+                self.assertTrue(self.timer() is None or not self.timer().running)
+        self.assertEqual(self.copied(), [])
+        self.assertEqual(self.status(self.viewer), [])
+
+    def test_a_release_within_five_pixels_is_a_click(self):
         for shift in (4.9, 3.0, 0.0):
             with self.subTest(moved=shift):
-                self.clipboard.reset_mock()
-                self.press(self.viewer, *NODE[1], button=1, modifiers=["Shift"])
-                self.release(self.viewer, NODE[1][0] + shift, NODE[1][1], button=1)
-                self.assertEqual(self.copied(), ["N1"])
-        self.assertEqual(CLICK_DISTANCE_PIXELS, 5.0)
-        for dx, dy in ((5.0, 0.0), (0.0, -5.0), (3.0, 4.0), (30.0, 0.0), (3.6, 3.6)):
-            for modifier in ("Shift", "Control"):
-                with self.subTest(moved=(dx, dy), modifier=modifier):
-                    self.clipboard.reset_mock()
-                    self.viewer._show_click_status.reset_mock()
-                    self.press(self.viewer, *NODE[1], button=1, modifiers=[modifier])
-                    self.release(self.viewer, NODE[1][0] + dx, NODE[1][1] + dy, button=1)
-                    self.assertEqual(self.copied(), [])
-                    self.assertEqual(self.status(), [])
+                self.shift_click(dx=shift)
+                self.assertTrue(self.timer().running)
+                self.timer().fire()
+        self.assertEqual(self.copied(), ["N1"] * 3)
 
-    def test_a_shift_or_ctrl_drag_copies_nothing_and_does_nothing_else(self):
+    def test_a_shift_drag_copies_nothing_and_does_nothing_else(self):
         viewer = self.viewer
         viewer.selected_indices = [2]
         start = viewer.pos.copy()
-        for modifier in ("Shift", "Control"):
-            self.press(viewer, *NODE[1], button=1, modifiers=[modifier])
-            for x in (50, 80, 120):
-                self.move(viewer, x, 30, buttons=(1,), modifiers=[modifier])
-            self.release(viewer, 120, 30, button=1)
+        self.press(viewer, *NODE[1], button=1, modifiers=SHIFT)
+        for x in (50, 80, 120):
+            self.move(viewer, x, 30, buttons=(1,), modifiers=SHIFT)
+        self.release(viewer, 120, 30, button=1)
+        self.assertIsNone(self.timer())
         self.assertEqual(self.copied(), [])
-        self.assertEqual(self.status(), [])
+        self.assertEqual(self.status(viewer), [])
         self.assertEqual(viewer.selected_indices, [2])
         np.testing.assert_array_equal(viewer.pos, start)
         self.assertFalse(viewer.is_multi_dragging or viewer.is_box_selecting)
         viewer.apply_left_click_focus.assert_not_called()
         viewer.clear_left_click_focus.assert_not_called()
 
-    def test_the_node_and_the_key_are_those_at_the_press(self):
+    def test_ctrl_copies_nothing_and_is_a_plain_left_click_or_drag(self):
+        for modifier in ("Control", "Meta"):
+            with self.subTest(modifier=modifier):
+                viewer = self.make_viewer()
+                viewer.sequences_map = {f"N{index}": f"SEQ{index}" for index in range(6)}
+                self.press(viewer, *NODE[1], button=1, modifiers=[modifier])
+                viewer.apply_left_click_focus.assert_called_once_with(1)       # highlighted, as a plain click does
+                self.release(viewer, *NODE[1], button=1, modifiers=[modifier])
+                self.press(viewer, 100, 60, button=1, modifiers=[modifier])
+                viewer.clear_left_click_focus.assert_called_once_with()        # and on empty space
+                self.move(viewer, 140, 90, buttons=(1,), modifiers=[modifier])
+                self.release(viewer, 140, 90, button=1, modifiers=[modifier])
+                self.double_click(viewer, 100, 60, modifiers=[modifier])
+                self.assertIsNone(getattr(viewer, "_header_copy_timer", None))
+                self.assertEqual(self.copied(), [])
+                self.assertEqual(self.status(viewer), [])
+
+    def test_the_node_is_the_one_at_the_press(self):
         viewer = self.viewer
         with mock.patch.object(viewer, "pick_hovered_node", return_value=1) as pick:
-            self.press(viewer, *NODE[1], button=1, modifiers=["Shift"])
+            self.press(viewer, *NODE[1], button=1, modifiers=SHIFT)
             pick.assert_called_once()
             np.testing.assert_array_equal(pick.call_args.args[0], NODE[1])
             pick.return_value = 3                       # the pointer is over another node at the release
-            self.release(viewer, NODE[1][0] + 2, NODE[1][1], button=1, modifiers=["Control"])
+            self.release(viewer, NODE[1][0] + 2, NODE[1][1], button=1, modifiers=CTRL)
             pick.assert_called_once()                   # the release asked nothing
-        self.assertEqual(self.copied(), ["N1"])         # the header: Shift was held at the press
-        self.press(viewer, *NODE[1], button=1, modifiers=["Control"])
-        self.release(viewer, *NODE[1], button=1, modifiers=["Shift"])
-        self.assertEqual(self.copied(), ["N1", "SEQ1"])  # the sequence: Ctrl at the press
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1"])
 
     def test_a_press_on_no_node_copies_nothing(self):
-        for modifier in ("Shift", "Control"):
-            ev = self.press(self.viewer, 100, 60, button=1, modifiers=[modifier])
-            self.assertTrue(ev.handled)
-            self.release(self.viewer, 100, 60, button=1)
+        ev = self.press(self.viewer, 100, 60, button=1, modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.release(self.viewer, 100, 60, button=1)
+        ev = self.double_click(self.viewer, 100, 60, modifiers=SHIFT)
+        self.release(self.viewer, 100, 60, button=1)
         self.assertEqual(self.copied(), [])
-        self.assertEqual(self.status(), [])
+        self.assertEqual(self.status(self.viewer), [])
+        self.assertTrue(self.timer() is None or not self.timer().running)
 
     def test_a_plain_left_click_still_highlights_on_the_press(self):
         viewer = self.viewer
@@ -777,41 +1637,133 @@ class CopyOnClickTests(GestureTestCase):
 
     def test_a_later_press_forgets_a_press_whose_release_was_missed(self):
         viewer = self.viewer
-        self.press(viewer, *NODE[1], button=1, modifiers=["Shift"])      # no release comes
-        self.press(viewer, NODE[1][0] + 2, NODE[1][1], button=1)         # a plain click, nearby
+        self.press(viewer, *NODE[1], button=1, modifiers=SHIFT)      # no release comes
+        self.press(viewer, NODE[1][0] + 2, NODE[1][1], button=1)     # a plain click, nearby
         self.release(viewer, NODE[1][0] + 2, NODE[1][1], button=1)
+        self.assertIsNone(self.timer())
         self.assertEqual(self.copied(), [])
 
     def test_the_release_of_another_button_copies_nothing_and_keeps_the_press(self):
         viewer = self.viewer
-        self.press(viewer, *NODE[1], button=1, modifiers=["Shift"])
+        self.press(viewer, *NODE[1], button=1, modifiers=SHIFT)
         self.release(viewer, *NODE[1], button=2)
-        self.assertEqual(self.copied(), [])
+        self.assertIsNone(self.timer())
         self.release(viewer, *NODE[1], button=1)
+        self.timer().fire()
         self.assertEqual(self.copied(), ["N1"])
 
     def test_one_press_copies_once(self):
-        viewer = self.viewer
-        self.press(viewer, *NODE[1], button=1, modifiers=["Shift"])
-        self.release(viewer, *NODE[1], button=1)
-        self.release(viewer, *NODE[1], button=1)
+        self.shift_click()
+        self.release(self.viewer, *NODE[1], button=1)
+        self.timer().fire()
         self.assertEqual(self.copied(), ["N1"])
+        self.assertFalse(self.timer().running)
+
+    def test_a_second_click_on_another_node_is_a_click_of_its_own_and_both_are_copied(self):
+        self.shift_click(1)
+        # Qt sends a second press as a double click only close to the first: this one is on node 4.
+        self.double_click(self.viewer, *NODE[4], modifiers=SHIFT)
+        self.release(self.viewer, *NODE[4], button=1)
+        self.assertEqual(self.copied(), ["N1"])                    # the first one's wait was over at once
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1", "N4"])
+        self.assertEqual(self.status(self.viewer), ["Copied: N1", "Copied: N4"])
+
+    def test_two_clicks_on_different_nodes_are_both_copied(self):
+        self.shift_click(1)
+        self.shift_click(2)                                        # the press of a node nearer than Qt's distance, say
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1", "N2"])
+
+    def test_a_shift_click_after_a_plain_one_is_a_click_not_a_double_click(self):
+        # Qt calls it a double click, though nothing waited for it; it is the Shift click the user made.
+        ev = self.double_click(self.viewer, *NODE[1], modifiers=SHIFT)
+        self.assertTrue(ev.handled)
+        self.release(self.viewer, *NODE[1], button=1)
+        self.assertEqual(self.copied(), [])
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1"])
+
+    def test_a_click_after_the_wait_has_nothing_to_do_with_the_one_before(self):
+        self.shift_click()
+        self.timer().fire()
+        self.double_click(self.viewer, *NODE[1], modifiers=SHIFT)  # nothing waits now: a new click
+        self.release(self.viewer, *NODE[1], button=1)
+        self.timer().fire()
+        self.assertEqual(self.copied(), ["N1", "N1"])
+
+    def test_any_other_double_click_is_the_press_it_replaces(self):
+        # A plain left click highlights, a Ctrl one does the same, a right one selects: as the press would.
+        for button, modifiers in ((1, []), (1, CTRL)):
+            self.double_click(self.viewer, *NODE[1], button=button, modifiers=modifiers)
+        self.assertEqual(self.viewer.apply_left_click_focus.call_args_list, [mock.call(1), mock.call(1)])
+        self.assertIsNone(self.timer())
+        self.assertEqual(self.viewer.selected_indices, [])
+        ev = self.double_click(self.viewer, *NODE[2], button=2)
+        self.assertTrue(ev.handled)
+        self.assertEqual(self.viewer.selected_indices, [2])
+        self.assertTrue(self.viewer.is_multi_dragging)
+        self.assertEqual(self.copied(), [])
 
     def test_a_sequence_that_is_not_there_says_so_on_release(self):
         viewer = self.viewer
         viewer.sequences_map = {}
-        self.press(viewer, *NODE[1], button=1, modifiers=["Control"])
-        self.assertEqual(self.status(), [])
+        self.shift_click()
+        self.double_click(viewer, *NODE[1], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), [])
         self.release(viewer, *NODE[1], button=1)
-        self.assertEqual(self.status(), ["Sequence not found for: N1"])
+        self.assertEqual(self.status(viewer), ["Sequence not found for: N1"])
         self.assertEqual(self.copied(), [])
 
-    def test_a_failed_copy_says_so_on_release(self):
+    def test_a_failed_copy_says_so(self):
         viewer = self.viewer
         self.clipboard.setText.side_effect = RuntimeError("no clipboard")
-        self.press(viewer, *NODE[1], button=1, modifiers=["Shift"])
-        self.release(viewer, *NODE[1], button=1)
-        self.assertEqual(self.status(), ["Copy Failed: N1"])
+        self.shift_click()
+        self.timer().fire()
+        self.assertEqual(self.status(viewer), ["Copy Failed: N1"])
+
+    def test_the_canvas_sends_double_clicks_and_key_releases_to_the_viewer(self):
+        import inspect
+        source = inspect.getsource(MainViewer.__init__)
+        self.assertIn("self.canvas.events.mouse_double_click.connect(self.on_mouse_double_click)", source)
+        self.assertIn("self.canvas.events.key_release.connect(self.on_key_release)", source)
+
+
+class QtDoubleClickTests(unittest.TestCase):
+    SCRIPT = """
+import json, os, sys
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+from PySide6 import QtCore, QtGui, QtWidgets
+from vispy import app, scene
+app.use_app("pyside6")
+canvas = scene.SceneCanvas(keys=None, show=False, size=(300, 200))
+seen = []
+canvas.events.mouse_press.connect(lambda ev: seen.append(["press", ev.button]))
+canvas.events.mouse_release.connect(lambda ev: seen.append(["release", ev.button]))
+canvas.events.mouse_double_click.connect(lambda ev: seen.append(["double click", ev.button, "Shift" in ev.modifiers]))
+point = QtCore.QPointF(50, 60)
+for kind in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButtonRelease,
+             QtCore.QEvent.Type.MouseButtonDblClick, QtCore.QEvent.Type.MouseButtonRelease):
+    event = QtGui.QMouseEvent(kind, point, canvas.native.mapToGlobal(point.toPoint()),
+                              QtCore.Qt.MouseButton.LeftButton, QtCore.Qt.MouseButton.LeftButton,
+                              QtCore.Qt.KeyboardModifier.ShiftModifier)
+    QtWidgets.QApplication.sendEvent(canvas.native, event)
+print("SEEN", json.dumps(seen))
+"""
+
+    def test_qt_sends_the_second_press_of_a_double_click_as_a_double_click_instead_of_a_press(self):
+        # Why the Viewer reads mouse_double_click: the second click of a Shift double click never
+        # arrives as a press. A VisPy canvas is made in a process of its own, as the GL probes are.
+        import json
+        import subprocess
+        result = subprocess.run([sys.executable, "-c", self.SCRIPT], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", timeout=120,
+                                env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+        line = next((line for line in result.stdout.splitlines() if line.startswith("SEEN ")), None)
+        if line is None:
+            self.skipTest(f"no VisPy canvas to send events to (exit {result.returncode}): {result.stderr[-500:]}")
+        self.assertEqual(json.loads(line[len("SEEN "):]),
+                         [["press", 1], ["release", 1], ["double click", 1, True], ["release", 1]])
 
 
 if __name__ == "__main__":

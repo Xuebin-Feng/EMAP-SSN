@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
+from vispy import app as vispy_app
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -27,6 +28,7 @@ from EMAPSSN_Viewer import MainViewer
 from desktop.Viewer_Markers import MarkerPicker, symbol_codes_of
 from commands import color as color_command
 from commands import spectrum as spectrum_command
+from tests.timer_fixtures import FakeTimer
 
 # Connected-node promotion is off when the two colours are equal (they are user
 # settings), so tests of the promoted tiers pin two distinct colours.
@@ -724,6 +726,10 @@ class ClicksWhileTypingTests(unittest.TestCase):
         ],
         "shift-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Shift"])),
                                ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Shift"]))],
+        "shift-double-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Shift"])),
+                                      ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Shift"])),
+                                      ("on_mouse_double_click", mouse(0, 0, button=1, modifiers=["Shift"])),
+                                      ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Shift"]))],
         "ctrl-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Control"])),
                               ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Control"]))],
         "left-click a node": [("on_mouse_press", mouse(100, 0, button=1))],
@@ -733,13 +739,18 @@ class ClicksWhileTypingTests(unittest.TestCase):
     def run_gesture(self, viewer, steps):
         clipboard = mock.Mock()
         native = SimpleNamespace(clipboard=lambda: clipboard)
+        FakeTimer.created = []
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
+                mock.patch.object(vispy_app, "Timer", FakeTimer), \
                 mock.patch.object(cfg, "NODE_SIZE", 10), \
                 mock.patch.object(cfg, "UMAP_MODE", False), \
                 mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False), \
                 mock.patch("builtins.print"):
             for handler, event in steps:
                 getattr(viewer, handler)(SimpleNamespace(**vars(event)))  # A fresh event each run.
+            for timer in FakeTimer.created:
+                if timer.running:
+                    timer.fire()  # A Shift click's header is copied once the double-click interval has passed.
         return clipboard
 
     @staticmethod
@@ -777,7 +788,8 @@ class ClicksWhileTypingTests(unittest.TestCase):
             "right-drag a box": ({"selected": [0, 1]}, "Selected 2 nodes."),
             "right-click empty space": ({"selected": []}, "Selection cleared."),
             "shift-click a node": ({"copied": [mock.call("A first")]}, "Copied: A first"),
-            "ctrl-click a node": ({"copied": [mock.call("MKV")]}, "Copied sequence of: A"),
+            "shift-double-click a node": ({"copied": [mock.call("MKV")]}, "Copied sequence of: A"),
+            "ctrl-click a node": ({"copied": [], "focused": 0}, "Selected: A first"),
             "left-click a node": ({"focused": 2}, "Selected: C"),
             "hover a node": ({"hovered": 1}, ""),
         }
@@ -799,17 +811,17 @@ class ClicksWhileTypingTests(unittest.TestCase):
         moves = [mouse(60, 0, buttons=[2]), mouse(70, 0, buttons=[2])]
         rotate = SimpleNamespace(pos=np.array([70.0, 0.0]), delta=(0.0, 1.0), buttons=[2],
                                  modifiers=[], handled=False)
-        cases = [(webserver, drawing, ctrl) for webserver in (False, True)
-                 for drawing in (False, True) for ctrl in (False, True)]
-        for webserver, drawing, ctrl in cases:
+        cases = [(webserver, drawing, click) for webserver in (False, True)
+                 for drawing in (False, True) for click in (False, True)]
+        for webserver, drawing, click in cases:
             viewer = self.make_viewer(typing=False)
             del viewer.update_selection_visual  # The real one, which tells the web pages.
             viewer.update_edges = mock.Mock()
             viewer.selected_indices = [1]
             sent = []
             viewer.broadcast_event = lambda event, sent=sent: sent.append(event)
-            modifiers = ["Control"] if ctrl else []
-            with self.subTest(webserver=webserver, drawing=drawing, ctrl=ctrl), \
+            modifiers = ["Shift"] if click else []
+            with self.subTest(webserver=webserver, drawing=drawing, shift_click=click), \
                     mock.patch.object(cfg, "NODE_SIZE", 10), \
                     mock.patch.object(cfg, "UMAP_MODE", False), \
                     mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
@@ -817,15 +829,22 @@ class ClicksWhileTypingTests(unittest.TestCase):
                     mock.patch("builtins.print"):
                 viewer.on_mouse_press(SimpleNamespace(**{**vars(press), "modifiers": modifiers}))
                 at_press = len(sent)
-                for move in moves:
-                    viewer.on_mouse_move(SimpleNamespace(**vars(move)))
-                viewer.on_mouse_wheel(SimpleNamespace(**vars(rotate)))
-                viewer.on_mouse_release(SimpleNamespace(**vars(release)))
+                if click:
+                    # A Shift click on a selected node, let go where it was pressed, takes the node
+                    # out of the selection on release: the sheet hears of that, held back or not.
+                    viewer.on_mouse_release(SimpleNamespace(**{**vars(press), "modifiers": modifiers}))
+                else:
+                    for move in moves:
+                        viewer.on_mouse_move(SimpleNamespace(**vars(move)))
+                    viewer.on_mouse_wheel(SimpleNamespace(**vars(rotate)))
+                    viewer.on_mouse_release(SimpleNamespace(**vars(release)))
                 selections = [event for event in sent if event["type"] == "selection_changed"]
-                if ctrl:
-                    # Ctrl takes the node out and starts no drag: the sheet hears at once.
-                    self.assertEqual(selections, [{"type": "selection_changed", "indices": []}])
-                    self.assertEqual(at_press, 1)
+                if click:
+                    removal = {"type": "selection_changed", "indices": []}
+                    self.assertEqual(selections, [removal] if webserver
+                                     else [{"type": "selection_changed", "indices": [1]}, removal])
+                    self.assertEqual(at_press, 0 if webserver else 1)
+                    self.assertEqual(viewer.pos[1, 0], 50.0)  # The node did not move.
                 else:
                     self.assertEqual(selections, [{"type": "selection_changed", "indices": [1]}])
                     self.assertEqual(at_press, 0 if webserver else 1)
