@@ -83,6 +83,12 @@ so a plugin does not use it.
 - Static route prefixes must begin with `/` and are normalized to end with `/`.
   `/api/` and `/fonts/` are reserved, and route prefixes from different plugins
   cannot overlap.
+- A static route, like the bundled pages' own folder `src/web_ui/`, sends only
+  the kinds of file in `MIME_TYPES` (`Web_Server.py`): pages, scripts,
+  stylesheets, JSON, images, fonts, Markdown and `.pdb` structures. A file of
+  any other extension in its directory, a Python source among them, is
+  answered as a missing file. A plugin whose page loads another kind adds its
+  extension and content type to `MIME_TYPES`.
 - A state provider receives `(viewer, state)` and must return a mapping. State
   providers run in deterministic `(plugin_id, provider_name)` order whenever an
   SSE client requests initial Viewer state.

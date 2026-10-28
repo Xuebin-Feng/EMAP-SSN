@@ -2,10 +2,12 @@
 
 Covers the Content-Security-Policy sent with HTML pages, the bundled pages'
 icons, port selection and the server lifecycle, plugin static routes
-(including that no request path reaches a file outside a route's directory)
-and named server-sent event clients. tests/test_agent_composer.py checks that
-the policy is enforced in Qt WebEngine and that the Agent page draws its
-icons; the same-origin guard is tested in tests/test_viewer_web_origin.py.
+(including that no request path reaches a file outside a route's directory),
+which kinds of file the server sends (web assets and structures, never the
+web layer's Python sources) and named server-sent event clients.
+tests/test_agent_composer.py checks that the policy is enforced in Qt
+WebEngine and that the Agent page draws its icons; the same-origin guard is
+tested in tests/test_viewer_web_origin.py.
 """
 import base64
 import hashlib
@@ -14,6 +16,7 @@ import os
 from pathlib import Path
 from queue import Queue
 import re
+import shutil
 import socket
 import sys
 import tempfile
@@ -228,6 +231,145 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
                 self.assertIsNone(response.getheader('Content-Security-Policy'))
 
 
+class RunningServerTestCase(unittest.TestCase):
+    """A running server, whose routes a test adds to ``self.registry``, and a way to fetch from it."""
+
+    def setUp(self):
+        use_private_session_directory(self)
+        viewer = FakeViewer()
+        self.registry = viewer.web_plugin_registry = WebPluginRegistry(viewer)
+        self.server = Web_Server.start_server(viewer, preferred_port=0)
+        self.addCleanup(Web_Server.stop_server, self.server)
+
+    def get(self, path):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=10)
+        try:
+            connection.request('GET', path)
+            response = connection.getresponse()
+            return response, response.read()
+        finally:
+            connection.close()
+
+    def make_folder(self, files):
+        """A temporary folder holding ``files``, a mapping of names (with folders) to bytes."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        for name, content in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(content)
+        return root
+
+
+class ServedFileTypeTests(RunningServerTestCase):
+    """The server serves web assets and structures, never the program's source.
+
+    The routes the bundled backends register are here, but for the Agent's,
+    whose folder holds model_card.json, the file with the user's API keys: a
+    temporary folder stands in for it, and no test reads the real file.
+    """
+
+    SOURCE = b'# the program\n'
+    LOCAL_NAME = re.compile(r'(?:src|href)="(/[^"#?]+)"')
+
+    def setUp(self):
+        super().setUp()
+        self.files = self.make_folder({
+            'page.html': b'<p>page</p>', 'app.js': b'run();', 'data.json': b'{}', 'model.pdb': b'ATOM',
+            'x.py': self.SOURCE, 'y.PY': self.SOURCE, 'x.pyc': self.SOURCE, 'x.pyw': self.SOURCE,
+            'x.pyd': self.SOURCE, 'sub/z.py': self.SOURCE, 'notes.txt': self.SOURCE, 'noext': self.SOURCE,
+        })
+        self.registry.register_static_route('files', '/files/', str(self.files))
+        self.registry.register_static_route('meta', '/meta_resource/', str(SRC_DIR / 'resources' / 'meta'))
+        self.registry.register_static_route('esmfold', '/esmfold/', str(SRC_DIR / 'resources' / 'esmfold'))
+        self.structures = self.make_folder({'a.pdb': b'ATOM', 'a.residues.json': b'{"residues": []}'})
+        self.registry.register_static_route('esmfold', '/structures/', str(self.structures))
+        self.card = b'{"models": []}'
+        agent = self.make_folder({'model_card.json': self.card})
+        for name in ('marked.umd.js', 'attachments.js'):
+            shutil.copy(SRC_DIR / 'resources' / 'agent' / name, agent)
+        self.registry.register_static_route('agent', '/agent_resource/', str(agent))
+
+    def assert_statuses(self, cases):
+        for path, status in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path)[0].status, status)
+
+    def test_every_file_the_pages_name_is_served(self):
+        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+            names = self.LOCAL_NAME.findall((PAGES / page).read_text(encoding='utf-8'))
+            self.assertTrue(names, page)
+            for name in names:
+                with self.subTest(page=page, name=name):
+                    response, body = self.get(name)
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(body)
+                    self.assertNotIn('octet-stream', response.getheader('Content-Type'))
+
+    def test_every_font_the_stylesheet_names_is_served(self):
+        css = (SRC_DIR / 'resources' / 'fonts' / 'fonts.css').read_text(encoding='utf-8')
+        names = re.findall(r'url\(([^)]+)\)', css)
+        self.assertTrue(names)
+        for name in names:
+            with self.subTest(name=name):
+                response, _body = self.get(f'/fonts/{name}')
+                self.assertEqual((response.status, response.getheader('Content-Type')), (200, 'font/woff2; charset=utf-8'))
+
+    def test_the_agent_page_still_reads_its_model_card(self):
+        response, body = self.get('/agent_resource/model_card.json?v=1')
+        self.assertEqual((response.status, response.getheader('Content-Type')),
+                         (200, 'application/json; charset=utf-8'))
+        self.assertEqual(body, self.card)
+
+    def test_the_web_layers_python_sources_are_not_served(self):
+        sources = sorted(path for path in PAGES.rglob('*') if path.suffix in ('.py', '.pyc'))
+        self.assertGreater(len(sources), 8)
+        names = ['/' + path.relative_to(PAGES).as_posix() for path in sources]
+        names += ['/agent_backend.py', '/Web_Server.py', '/Plugin_Manager.py', '/plugins/agent.py', '/__init__.py']
+        self.assert_statuses({name: 404 for name in names})
+
+    def test_a_compiled_file_in_the_pages_folder_is_not_served(self):
+        base = self.make_folder({
+            'page.html': b'<p>page</p>', 'a.py': self.SOURCE, '__pycache__/a.cpython-313.pyc': self.SOURCE,
+        })
+        with mock.patch.object(Web_Server, 'BASE_DIR', str(base)):
+            self.assert_statuses({'/page.html': 200, '/a.py': 404, '/__pycache__/a.cpython-313.pyc': 404})
+
+    def test_the_bundled_resource_folders_serve_no_python(self):
+        self.assert_statuses({
+            '/esmfold/molstar.js': 200, '/esmfold/molstar.css': 200, '/meta_resource/tabulator.min.js': 200,
+            '/esmfold/esmfold_worker.py': 404,
+        })
+
+    def test_a_route_serves_web_assets_and_structures(self):
+        for name, content_type in (
+            ('page.html', 'text/html'), ('app.js', 'application/javascript'), ('data.json', 'application/json'),
+            ('model.pdb', 'chemical/x-pdb'),
+        ):
+            with self.subTest(name=name):
+                response, body = self.get(f'/files/{name}')
+                self.assertEqual((response.status, response.getheader('Content-Type')),
+                                 (200, f'{content_type}; charset=utf-8'))
+                self.assertTrue(body)
+
+    def test_a_route_refuses_python_and_files_of_no_known_type(self):
+        names = ('x.py', 'y.PY', 'x.pyc', 'x.pyw', 'x.pyd', 'sub/z.py', 'x.py.', 'notes.txt', 'noext')
+        for name in names:
+            with self.subTest(name=name):
+                response, body = self.get(f'/files/{name}')
+                self.assertEqual(response.status, 404)
+                self.assertNotIn(self.SOURCE, body)
+
+    def test_the_structures_route_serves_a_structure_and_its_residue_data(self):
+        self.assert_statuses({'/structures/a.pdb': 200, '/structures/a.residues.json': 200, '/structures/b.pdb': 404})
+
+    def test_a_query_string_changes_no_answer(self):
+        self.assert_statuses({
+            '/agent_backend.py?x=1': 404, '/plugins/agent.py?v=1': 404, '/files/x.py?x=1': 404,
+            '/files/page.html?v=1': 200, '/page_text.js?v=1': 200, '/esmfold/molstar.js?v=1': 200,
+        })
+
+
 class ConcurrentWebServerTests(unittest.TestCase):
     def setUp(self):
         use_private_session_directory(self)
@@ -431,7 +573,7 @@ class StaticRouteContainmentTests(unittest.TestCase):
         root = Path(directory.name)
         files = root / 'files'
         files.mkdir()
-        (files / 'ok.txt').write_bytes(b'served')
+        (files / 'ok.js').write_bytes(b'served')
         # ESMFold keeps leading dots in names: the node "..x" folds into ..x.pdb.
         (files / '..x.pdb').write_bytes(b'structure')
         self.secret = root / 'secret.txt'
@@ -482,7 +624,7 @@ class StaticRouteContainmentTests(unittest.TestCase):
         self.addCleanup(os.rmdir if os.name == 'nt' and target.is_dir() else os.unlink, link)
 
     def test_route_serves_files_inside_its_directory(self):
-        self.assertEqual(self.get('/files/ok.txt'), (200, b'served'))
+        self.assertEqual(self.get('/files/ok.js'), (200, b'served'))
 
     def test_names_that_only_start_with_two_dots_are_served(self):
         # Only a whole ".." component climbs out of the directory.
@@ -550,12 +692,12 @@ class StaticRouteContainmentTests(unittest.TestCase):
         root = self.secret.parent
         self.make_link(root / 'linked', root / 'files', junction=os.name == 'nt')
         self.server.static_routes['/linked/'] = str(root / 'linked')
-        self.assertEqual(self.get('/linked/ok.txt'), (200, b'served'))
+        self.assertEqual(self.get('/linked/ok.js'), (200, b'served'))
 
     def test_links_that_stay_inside_the_directory_are_served(self):
         files = self.secret.parent / 'files'
-        self.make_link(files / 'alias.txt', files / 'ok.txt')
-        self.assertEqual(self.get('/files/alias.txt'), (200, b'served'))
+        self.make_link(files / 'alias.js', files / 'ok.js')
+        self.assertEqual(self.get('/files/alias.js'), (200, b'served'))
 
     def test_names_are_not_percent_decoded(self):
         # %2e%2e is looked up as a literal name inside the route directory.
@@ -575,7 +717,7 @@ class StaticRouteContainmentTests(unittest.TestCase):
         root = self.secret.parent
         drive, rooted = os.path.splitdrive(str(root))
         cases = {
-            '/ok.txt': 200,
+            '/ok.js': 200,
             '/..x.pdb': 200,
             '/../files_secret.txt': 403,
         }

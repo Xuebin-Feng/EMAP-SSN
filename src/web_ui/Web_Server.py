@@ -226,6 +226,10 @@ def _configure_address_reuse(server, *, platform_name):
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # src/web_ui/
 
+# The only kinds of file the server sends, from the bundled pages' folder and
+# from every plugin route: a file of another extension, such as the web layer's
+# own .py sources or the .pyc files beside them, is answered as a missing one
+# (served_type). .pdb is what the Fold View page loads from /structures/.
 MIME_TYPES = {
     ".html": "text/html",
     ".css": "text/css",
@@ -240,8 +244,14 @@ MIME_TYPES = {
     ".md": "text/plain",
     ".woff2": "font/woff2",
     ".woff": "font/woff",
-    ".ttf": "font/ttf"
+    ".ttf": "font/ttf",
+    ".pdb": "chemical/x-pdb",
 }
+
+
+def served_type(filepath):
+    """The content type the server gives the file ``filepath``, or None when it serves no such file."""
+    return MIME_TYPES.get(os.path.splitext(filepath)[1].lower())
 
 # Content-Security-Policy sent with every HTML page. Inline <script> blocks
 # run only by their SHA-256 hashes, computed from the file being served, so
@@ -401,30 +411,27 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         # Check dynamically registered static routes first (e.g. for agent files)
         for route_prefix, local_dir in self.server.static_routes.items():
             if clean_path.startswith(route_prefix):
-                filepath = contained_path(local_dir, clean_path[len(route_prefix):])
-                if filepath is None:
-                    self.send_error(403, "Forbidden")
-                    return
-                if not os.path.isfile(filepath):
-                    self.send_error(404, "File Not Found")
-                    return
-                ext = os.path.splitext(filepath)[1].lower()
-                self.serve_file(filepath, MIME_TYPES.get(ext, "application/octet-stream"))
+                self.serve_inside(local_dir, clean_path[len(route_prefix):])
                 return
 
         # Fallback to serving public files inside BASE_DIR (src/web_ui)
-        filepath = contained_path(BASE_DIR, clean_path.lstrip("/"))
+        self.serve_inside(BASE_DIR, clean_path.lstrip("/"))
+
+    def serve_inside(self, directory, relative):
+        """Answer a request for the file ``relative`` names inside ``directory``.
+
+        A path that leaves ``directory`` is 403. A file that is not there, or
+        whose extension is not one of MIME_TYPES (the extension of the path
+        contained_path returns, which is the file's own spelling), is 404.
+        """
+        filepath = contained_path(directory, relative)
         if filepath is None:
             self.send_error(403, "Forbidden")
             return
-
-        if not os.path.isfile(filepath):
+        content_type = served_type(filepath)
+        if content_type is None or not os.path.isfile(filepath):
             self.send_error(404, "File Not Found")
             return
-
-        # Determine MIME type dynamically
-        ext = os.path.splitext(filepath)[1].lower()
-        content_type = MIME_TYPES.get(ext, "application/octet-stream")
         self.serve_file(filepath, content_type)
 
     def handle_residue_layers(self, clean_path):
