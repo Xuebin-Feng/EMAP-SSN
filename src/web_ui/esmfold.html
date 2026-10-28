@@ -497,10 +497,12 @@
            strip below set their own width. */
         .side { width: 340px; width: clamp(340px, var(--side-width, 340px), min(640px, 50cqw)); flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
         .side-grip { display: none; }
-        /* The handle: a line of no width on the panel's left edge, with a hit area of 10 px across the edge and a grip of 4 px at its middle. */
-        .side-resizer { flex: none; position: relative; z-index: 2; width: 0; cursor: col-resize; touch-action: none; outline: none; }
-        .side-resizer::before { content: ""; position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; }
-        .side-resizer::after { content: ""; position: absolute; top: 50%; left: -2px; width: 4px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--field-border); transition: background-color 0.15s; }
+        /* The handle is the gap between the Structure View card and the panel's cards, as tall as the workspace: 10 px wide, which is the
+           gap between the panel's own cards, taken out of the 14 px of space round the Structure View card (hence the margin). It draws
+           nothing at rest, so the cards read as one row; a grip of 4 px at its middle shows in the accent while the pointer is over it, a drag
+           is under way, or the keyboard is on it. */
+        .side-resizer { flex: none; position: relative; z-index: 2; width: 10px; margin-left: -14px; cursor: col-resize; touch-action: none; outline: none; }
+        .side-resizer::after { content: ""; position: absolute; top: 50%; left: 3px; width: 4px; height: 44px; margin-top: -22px; border-radius: 2px; background: transparent; transition: background-color 0.15s; }
         .side-resizer:hover::after, body[data-resizing="1"] .side-resizer::after { background: var(--accent); }
         .side-resizer:focus-visible::after { background: var(--accent); box-shadow: var(--focus-ring); }
         body[data-resizing="1"] { cursor: col-resize; user-select: none; }
@@ -508,6 +510,14 @@
            the Color by card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
            always there, and the padding beside it is smaller by as much, so the cards are as wide as they always were without one. */
         .side-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 2px 4px 10px; }
+        /* Beside the canvas the panel is no panel to look at: it has no background and no edge line, so its cards stand on the page's own
+           background in a row with the Structure View card (the handle, left of it, is the gap between them). The cards start at the Structure
+           View card's top and have the same 14 px of space under them and to their right (6 px, and the 8 px of the scrollbar's room). The drawer
+           and the strip lie over the canvas, so they keep their background and their edge (and the drawer its shadow, set below). */
+        @container app (width > 1040px) {
+            .side { background: none; border-left: 0; }
+            .side-scroll { padding: 14px 6px 4px 0; }
+        }
         .sec { border: 1px solid var(--border-color); border-radius: var(--radius-card); margin-bottom: 10px; overflow: hidden; background: var(--bg-card); }
         .sec-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; min-height: 40px; }
         .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }

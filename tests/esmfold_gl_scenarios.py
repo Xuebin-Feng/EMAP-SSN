@@ -382,7 +382,8 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.wait(400)
         canvas_now("default")
         edge = self.script("const r = document.getElementById('side-resizer').getBoundingClientRect(); return [document.getElementById('side').getBoundingClientRect().left, r.top + r.height / 2]")
-        start = QPoint(round(edge[0]) + 2, round(edge[1]))
+        # (The handle is the 10 px gap left of the panel's edge: 5 px left of the edge is its middle.)
+        start = QPoint(round(edge[0]) - 5, round(edge[1]))
         QTest.mouseMove(widget, start)
         QTest.mousePress(widget, Qt.LeftButton, Qt.NoModifier, start)
         for step in range(1, 6):

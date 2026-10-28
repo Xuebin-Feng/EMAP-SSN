@@ -4,10 +4,11 @@
 
 """The Fold View page's resizable side panel (esmfold_shell.js, esmfold.html).
 
-Beside the canvas (a window wider than 1040 px) the panel is 340 px wide, and a handle on its left edge makes it wider,
-up to half the window and 640 px: by dragging it, with the arrow keys on it, or reset with a double click or Home. The
-canvas takes the room the panel leaves, and the width is kept in the browser, but not in the saved session. The drawer of a
-narrower window and the strip of a phone are as they were. Like the other page tests these open esmfold.html in Qt WebEngine
+Beside the canvas (a window wider than 1040 px) the panel is 340 px wide, and a handle between the canvas's card and the
+panel's cards makes it wider, up to half the window and 640 px: by dragging it, with the arrow keys on it, or reset with a double
+click or Home. The canvas takes the room the panel leaves, and the width is kept in the browser, but not in the saved session.
+There the panel has no background and no edge of its own, so its cards stand on the page in a row with the Structure View card
+(the LookTests); the drawer of a narrower window and the strip of a phone are as they were, with a panel to look at. Like the other page tests these open esmfold.html in Qt WebEngine
 over the real server and Mol*; tests/test_esmfold_shell_webgl.py checks that a real canvas follows the panel.
 """
 
@@ -30,6 +31,8 @@ from PySide6.QtCore import QPoint, Qt  # noqa: E402  (after the harness has set 
 from PySide6.QtTest import QTest  # noqa: E402
 
 KEY = "ssn_fold_panel_width"
+# The handle is the 10 px gap between the Structure View card and the panel's cards, left of the panel's left edge: its middle.
+IN_THE_GAP = -5
 # What the panel, its handle and the canvas are doing, and the keys of the handle, as a person would press them.
 PANEL = """
 window.panelState = function () {
@@ -38,12 +41,43 @@ window.panelState = function () {
     const grip = handle.getBoundingClientRect(), viewer = document.getElementById('viewer').getBoundingClientRect();
     const stored = (() => { try { return localStorage.getItem('ssn_fold_panel_width'); } catch (error) { return 'unreadable'; } })();
     return {width: sideBox.width, left: sideBox.left, right: sideBox.right, shown: getComputedStyle(handle).display !== 'none',
-            handleLeft: grip.left, handleTop: grip.top, handleHeight: grip.height, cardWidth: card.width, cardRight: card.right,
+            handleLeft: grip.left, handleRight: grip.right, handleTop: grip.top, handleHeight: grip.height, cardWidth: card.width, cardRight: card.right,
             viewerWidth: viewer.width, viewerHeight: viewer.height, app: document.getElementById('app').clientWidth,
             now: Number(handle.getAttribute('aria-valuenow')), min: Number(handle.getAttribute('aria-valuemin')),
             max: Number(handle.getAttribute('aria-valuemax')), focused: document.activeElement === handle,
             resizing: document.body.dataset.resizing || null, stored, variable: document.getElementById('app').style.getPropertyValue('--side-width'),
-            canvasCalls: window.__resizeCalls};
+            canvasCalls: window.__resizeCalls, grip: getComputedStyle(handle, '::after').backgroundColor,
+            cursor: getComputedStyle(handle).cursor, keyboardFocus: handle.matches(':focus-visible')};
+};
+// What a page color (a custom property) is as the engine computes it, as a color value.
+window.tokenColor = function (name) {
+    const probe = document.createElement('div');
+    probe.style.color = 'var(' + name + ')';
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+};
+// How the panel and the cards look: where each card is, what the panel is drawn with, and what is behind the cards.
+window.panelLook = function () {
+    const box = selector => document.querySelector(selector).getBoundingClientRect();
+    const side = getComputedStyle(document.getElementById('side')), scroll = getComputedStyle(document.getElementById('side-scroll'));
+    const stage = box('.stage-card'), structures = box('.sec[data-tab="structures"]'), color = box('.sec[data-tab="color"]');
+    const workspace = box('.workspace'), handle = box('#side-resizer');
+    // The first background up the tree from a card: what the card stands on.
+    const behind = selector => {
+        for (let node = document.querySelector(selector).parentElement; node; node = node.parentElement) {
+            const background = getComputedStyle(node).backgroundColor;
+            if (background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent') return node.tagName + ' ' + background;
+        }
+        return null;
+    };
+    return {stageTop: stage.top, stageBottom: stage.bottom, stageRight: stage.right, structuresTop: structures.top,
+            structuresBottom: structures.bottom, structuresLeft: structures.left, structuresRight: structures.right, colorTop: color.top,
+            workspaceBottom: workspace.bottom, workspaceRight: workspace.right, handleLeft: handle.left, handleRight: handle.right,
+            background: side.backgroundColor, edges: [side.borderTopWidth, side.borderRightWidth, side.borderBottomWidth, side.borderLeftWidth],
+            shadow: side.boxShadow, padding: scroll.padding, standsOnStage: behind('.stage-card'), standsOnCards: behind('.sec[data-tab="structures"]'),
+            page: tokenColor('--bg-main'), card: tokenColor('--bg-card'), accent: tokenColor('--accent')};
 };
 window.press = function (key, options = {}) {
     document.getElementById('side-resizer').dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true, ...options}));
@@ -77,13 +111,14 @@ class PanelTestCase(LongNameTestCase):
         self.settle(80)
         return self.state()
 
-    def handle_point(self, offset=0):
-        """The middle of the handle (the panel's left edge) in the view's own pixels, `offset` further right."""
+    def handle_point(self, offset=IN_THE_GAP):
+        """The handle in the view's own pixels: as high as its middle, and `offset` pixels right of the panel's left edge (by default the
+        middle of the gap the handle fills, which is 10 px wide and left of the edge)."""
         state = self.state()
         return QPoint(round(state["left"]) + offset, round(state["handleTop"] + state["handleHeight"] / 2))
 
-    def drag(self, to, grab=0):
-        """Take hold of the edge `grab` pixels inside the panel, and let go with the pointer at x = `to`, with a real mouse."""
+    def drag(self, to, grab=IN_THE_GAP):
+        """Take hold of the handle `grab` pixels right of the panel's left edge, and let go with the pointer at x = `to`, with a real mouse."""
         target = self.view.focusProxy() or self.view
         QTest.mouseMove(target, self.handle_point(grab))
         QTest.mousePress(target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, self.handle_point(grab))
@@ -114,11 +149,13 @@ class HandleTests(PanelTestCase):
         self.assertTrue(handle["title"])
         # At 1300 px: the panel is at its least and can go to the cap, which half of the window is more than.
         self.assertEqual((state["width"], state["now"], state["min"], state["max"]), (340, 340, 340, 640))
-        # On the panel's edge, as tall as the workspace, between the canvas and the panel.
+        # In the gap between the canvas's card and the panel's cards, as tall as the workspace: it ends at the panel's left edge, is 10 px
+        # wide (the gap between the panel's own cards) and starts where the card ends.
         self.assertTrue(state["shown"])
-        self.assertAlmostEqual(state["handleLeft"], state["left"], delta=1)
+        self.assertAlmostEqual(state["handleRight"], state["left"], delta=0.5)
+        self.assertAlmostEqual(state["handleRight"] - state["handleLeft"], 10, delta=0.5)
+        self.assertAlmostEqual(state["handleLeft"], state["cardRight"], delta=0.5)
         self.assertGreater(state["handleHeight"], 300)
-        self.assertLessEqual(state["cardRight"], state["left"])
         # Tab reaches it, between the canvas and the panel's cards.
         self.script("document.getElementById('seq-toggle').focus(); return 1")
         self.assertEqual(self.script("return [...document.querySelectorAll('[tabindex=\"0\"]')].includes(document.getElementById('side-resizer'))"), True)
@@ -188,10 +225,15 @@ class HandleTests(PanelTestCase):
     def test_a_drag_with_a_real_mouse_moves_the_edge_with_the_pointer_and_the_canvas_gives_way(self):
         self.open_two()
         before = self.state()
-        # Take hold of the edge and pull it 150 px to the left, 3 px inside the panel.
-        midway, during, after = self.drag(to=round(before["left"]) + 3 - 150, grab=3)
+        # Take hold of the handle (in the gap, 5 px left of the panel's edge) and pull it 150 px to the left.
+        midway, during, after = self.drag(to=round(before["left"]) + IN_THE_GAP - 150)
         self.assertEqual(midway["resizing"], "1")
         self.assertTrue(midway["focused"])
+        # The handle shows its grip in the accent while it is held (and the pointer, which it follows, is over it): on its way there at
+        # first (it fades in), and there once the pointer has moved.
+        accent = self.script("return tokenColor('--accent')")
+        self.assertNotEqual(midway["grip"], "rgba(0, 0, 0, 0)")
+        self.assertEqual(during["grip"], accent)
         self.assertEqual(during["width"], 490)
         # The edge is under the pointer all along; the canvas has what the panel left, and nothing else moved.
         self.assertAlmostEqual(during["left"], before["left"] - 150, delta=1)
@@ -203,9 +245,9 @@ class HandleTests(PanelTestCase):
         # Mol* is told, in step with the drag and at its end.
         self.assertGreater(after["canvasCalls"], 0)
         # Further, to the window's own limit (the cap at this width), and back past the least.
-        _, _, wide = self.drag(to=10, grab=3)
+        _, _, wide = self.drag(to=10)
         self.assertEqual((wide["width"], wide["stored"]), (640, "640"))
-        _, _, narrow = self.drag(to=1290, grab=3)
+        _, _, narrow = self.drag(to=1290)
         self.assertEqual((narrow["width"], narrow["stored"]), (340, None))
         self.assertEqual(self.console_errors(), [])
 
@@ -252,7 +294,7 @@ class HandleTests(PanelTestCase):
         self.open_two()
         self.press("End")
         target = self.view.focusProxy() or self.view
-        QTest.mouseClick(target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, self.handle_point(2))
+        QTest.mouseClick(target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, self.handle_point())
         self.pump(0.3)
         state = self.state()
         self.assertEqual((state["width"], state["stored"], state["resizing"], state["focused"]), (640, "640", None, True))
@@ -451,6 +493,178 @@ class LayoutTests(PanelTestCase):
         rows = self.script("return [...document.querySelectorAll('#help-modal tr')].map(row => row.textContent.trim()).slice(-8)")
         self.assertTrue(any("一" <= character <= "鿿" for character in " ".join(rows)))
         self.assertNotIn("Resize the panel", " ".join(rows))
+
+
+class LookTests(PanelTestCase):
+    """Beside the canvas the panel is no panel to look at: its cards stand on the page, in a row with the Structure View card."""
+
+    THEMES = ("light", "dark")
+
+    def theme(self, name):
+        # (Not kept: the next page opens in the light theme.)
+        self.script("applyTheme(%s, false); return 1" % json.dumps(name))
+        self.settle(150)
+
+    def look(self):
+        return self.script("return panelLook()")
+
+    def test_the_panel_has_no_background_and_no_edge_and_its_cards_stand_on_the_pages_background(self):
+        self.open_two()
+        for theme in self.THEMES:
+            with self.subTest(theme=theme):
+                self.theme(theme)
+                look = self.look()
+                self.assertEqual(look["background"], "rgba(0, 0, 0, 0)")
+                self.assertEqual(look["edges"], ["0px", "0px", "0px", "0px"])
+                self.assertEqual(look["shadow"], "none")
+                # The cards of the panel and the card of the canvas stand on the same thing: the page's own background (--bg-main, which
+                # the Studio theme's colour sets), which is not the cards' own (--bg-card), so that they stand out from it.
+                self.assertEqual(look["standsOnStage"], "BODY " + look["page"])
+                self.assertEqual(look["standsOnCards"], look["standsOnStage"])
+                self.assertNotEqual(look["page"], look["card"])
+
+    def test_the_look_follows_the_studio_theme_colour_with_nothing_of_its_own(self):
+        # The Viewer's theme colour (desktop/Studio_Theme.py) sets the page's tokens, light and dark, as the server serves the page; the
+        # panel's look draws nothing of its own, so the cards stand on whatever page colour that is, and the grip is that colour's accent.
+        from desktop.Studio_Theme import DEFAULT_THEME_COLOR, set_theme_color
+
+        default_accent = None
+        for color in (DEFAULT_THEME_COLOR, "teal"):
+            set_theme_color(color)
+            self.addCleanup(set_theme_color, DEFAULT_THEME_COLOR)
+            self.open_two()
+            for theme in self.THEMES:
+                with self.subTest(color=color, theme=theme):
+                    self.theme(theme)
+                    look = self.look()
+                    self.assertEqual((look["background"], look["edges"], look["shadow"]), ("rgba(0, 0, 0, 0)", ["0px"] * 4, "none"))
+                    self.assertEqual(look["standsOnCards"], "BODY " + look["page"])
+                    self.assertEqual(look["standsOnStage"], look["standsOnCards"])
+                    target = self.view.focusProxy() or self.view
+                    QTest.mouseMove(target, self.handle_point())
+                    self.pump(0.5)
+                    self.assertEqual(self.state()["grip"], look["accent"])
+                    QTest.mouseMove(target, QPoint(200, 300))
+                    if color == DEFAULT_THEME_COLOR and theme == "light":
+                        default_accent = look["accent"]
+                    if color == "teal" and theme == "light":
+                        # (The theme colour really reached the page: its accent is not the default colour's.)
+                        self.assertNotEqual(look["accent"], default_accent)
+
+    def test_the_first_card_starts_where_the_canvas_card_starts_and_the_gaps_are_the_panels_own(self):
+        self.open_two()
+        for theme, window, panel in (("light", 1300, "Home"), ("light", 1500, "Home"), ("light", 1300, "End"), ("light", 1100, "Home"),
+                                     ("light", 1041, "Home"), ("dark", 1300, "Home"), ("dark", 1100, "End")):
+            with self.subTest(theme=theme, window=window, panel=panel):
+                self.theme(theme)
+                self.at_width(window)
+                self.press(panel)
+                look = self.look()
+                self.assertAlmostEqual(look["structuresTop"], look["stageTop"], delta=0.01)
+                # 10 px between the canvas's card and the panel's (as between the panel's cards), where the handle is; 14 px of space round
+                # the cards as round the canvas's card.
+                self.assertAlmostEqual(look["structuresLeft"] - look["stageRight"], 10, delta=0.01)
+                self.assertAlmostEqual(look["colorTop"] - look["structuresBottom"], 10, delta=0.01)
+                self.assertAlmostEqual(look["workspaceRight"] - look["structuresRight"], 14, delta=0.01)
+                self.assertAlmostEqual(look["workspaceBottom"] - look["stageBottom"], 14, delta=0.01)
+                self.assertAlmostEqual(look["handleLeft"], look["stageRight"], delta=0.01)
+                self.assertAlmostEqual(look["handleRight"], look["structuresLeft"], delta=0.01)
+
+    def test_without_a_structure_the_tops_are_still_level(self):
+        self.open_page()
+        self.js(PANEL)
+        look = self.look()
+        self.assertAlmostEqual(look["structuresTop"], look["stageTop"], delta=0.01)
+        self.assertAlmostEqual(look["structuresLeft"] - look["stageRight"], 10, delta=0.01)
+
+    def test_a_scrolling_panel_keeps_the_same_room_for_its_cards(self):
+        # The scrollbar's room is always there (as before), so the cards are as wide, and as far from the edge, with a scrollbar as without.
+        self.open_two()
+        self.at_width(1300)
+        self.view.resize(1300, 360)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.settle(300)
+        self.assertTrue(self.script("const s = document.getElementById('side-scroll'); return s.scrollHeight > s.clientHeight"))
+        short = self.look()
+        self.view.resize(1300, 1000)
+        self.settle(300)
+        self.assertFalse(self.script("const s = document.getElementById('side-scroll'); return s.scrollHeight > s.clientHeight"))
+        tall = self.look()
+        for key in ("structuresLeft", "structuresRight", "stageRight"):
+            self.assertAlmostEqual(short[key], tall[key], delta=0.01, msg=key)
+        self.assertAlmostEqual(short["structuresTop"], short["stageTop"], delta=0.01)
+
+    def test_the_handle_draws_nothing_at_rest_and_shows_its_grip_under_the_pointer_and_on_the_keyboard(self):
+        self.open_two()
+        target = self.view.focusProxy() or self.view
+        for theme in self.THEMES:
+            with self.subTest(theme=theme):
+                self.theme(theme)
+                accent = self.script("return tokenColor('--accent')")
+                QTest.mouseMove(target, QPoint(200, 300))
+                self.pump(0.4)
+                rest = self.state()
+                self.assertEqual(rest["grip"], "rgba(0, 0, 0, 0)")
+                self.assertEqual(rest["cursor"], "col-resize")
+                # The handle has no look of its own: nothing is drawn in the gap but the page.
+                self.assertEqual(self.script("return getComputedStyle(document.getElementById('side-resizer')).backgroundColor"), "rgba(0, 0, 0, 0)")
+                QTest.mouseMove(target, self.handle_point())
+                self.pump(0.5)
+                self.assertEqual(self.state()["grip"], accent)
+                QTest.mouseMove(target, QPoint(200, 300))
+                self.pump(0.5)
+                self.assertEqual(self.state()["grip"], "rgba(0, 0, 0, 0)")
+                # On the keyboard: the focus is on the handle and a key goes to it (Home, which keeps its width), and it shows the same grip.
+                self.script("document.getElementById('side-resizer').focus(); return 1")
+                QTest.keyClick(target, Qt.Key.Key_Home)
+                self.pump(0.5)
+                focused = self.state()
+                self.assertTrue(focused["focused"])
+                self.assertTrue(focused["keyboardFocus"])
+                self.assertEqual(focused["grip"], accent)
+                self.script("document.getElementById('side-resizer').blur(); return 1")
+                self.pump(0.5)
+                self.assertEqual(self.state()["grip"], "rgba(0, 0, 0, 0)")
+
+    def test_the_drawer_and_the_strip_keep_a_background_an_edge_and_a_shadow_of_their_own(self):
+        self.open_two()
+        card = self.look()["card"]
+        for theme in self.THEMES:
+            self.theme(theme)
+            card = self.look()["card"]
+            with self.subTest(theme=theme, layout="beside the canvas at 1041 px"):
+                self.at_width(1041)
+                look = self.look()
+                self.assertEqual((look["background"], look["shadow"]), ("rgba(0, 0, 0, 0)", "none"))
+            # A drawer over the canvas (1040 px and under; the panel is opened first), and a strip under it (700 px and under).
+            for window, edges in ((1040, ["0px", "0px", "0px", "1px"]), (900, ["0px", "0px", "0px", "1px"]), (701, ["0px", "0px", "0px", "1px"]),
+                                  (700, ["1px", "0px", "0px", "0px"]), (600, ["1px", "0px", "0px", "0px"])):
+                with self.subTest(theme=theme, window=window):
+                    self.at_width(window)
+                    self.script("setPanel(true); return 1")
+                    self.settle(300)
+                    look = self.look()
+                    self.assertEqual(look["background"], card)
+                    self.assertEqual(look["edges"], edges)
+                    self.assertNotEqual(look["shadow"], "none")
+                    # And the room round their cards, as they were.
+                    self.assertEqual(look["padding"], "10px 2px 4px 10px")
+
+    def test_with_no_panel_the_canvas_card_keeps_its_14_px_on_the_right(self):
+        # Advanced and the failed view hide the panel and its handle, and with them the gap the handle takes out of the card's space.
+        self.open_two()
+        self.at_width(1300)
+        self.script("setAdvanced(true); return 1")
+        self.settle(300)
+        look = self.look()
+        self.assertAlmostEqual(look["workspaceRight"] - look["stageRight"], 14, delta=0.01)
+        self.script("setAdvanced(false); return 1")
+        self.settle(300)
+        self.assertAlmostEqual(self.look()["structuresLeft"] - self.look()["stageRight"], 10, delta=0.01)
+        self.script("failStart(new Error('no WebGL, no Mol*')); return 1")
+        self.settle(300)
+        look = self.look()
+        self.assertAlmostEqual(look["workspaceRight"] - look["stageRight"], 14, delta=0.01)
 
 
 if __name__ == "__main__":
