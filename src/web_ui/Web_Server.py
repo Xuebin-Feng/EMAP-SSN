@@ -279,18 +279,24 @@ PAGE_POLICY = {
 # that no longer needs it shows up there). Mol* also contacts public servers
 # when asked to download structures, maps or saved states. esmfold.html turns
 # off its list of remote states, which it would otherwise fetch on load.
+# The table is keyed by the page's absolute path, normalized as THEMED_PAGES'
+# are, so that only the Fold View page that ships in this folder has them: a
+# file of the same name that a plugin route or another folder serves does not.
 PAGE_POLICY_ADDITIONS = {
-    "esmfold.html": {"script-src": "'unsafe-eval'", "connect-src": "https: data:"},
+    os.path.normcase(os.path.join(BASE_DIR, "esmfold.html")): {
+        "script-src": "'unsafe-eval'", "connect-src": "https: data:",
+    },
 }
 INLINE_SCRIPT = re.compile(
     rb"<script\b(?![^>]*\ssrc\s*=)[^>]*>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL
 )
 
 
-def content_security_policy(page_name, body):
-    """Return the Content-Security-Policy for the HTML page ``body``."""
+def content_security_policy(filepath, body):
+    """Return the Content-Security-Policy for ``body``, the HTML page in the file ``filepath``."""
     directives = dict(PAGE_POLICY)
-    for name, sources in PAGE_POLICY_ADDITIONS.get(page_name, {}).items():
+    additions = PAGE_POLICY_ADDITIONS.get(os.path.normcase(os.path.abspath(filepath)), {})
+    for name, sources in additions.items():
         directives[name] += " " + sources
     for script in INLINE_SCRIPT.findall(body):
         # Browsers hash a script's text after the HTML parser has turned CRLF
@@ -605,7 +611,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         if content_type == "text/html":
             self.send_header(
                 "Content-Security-Policy",
-                content_security_policy(os.path.basename(filepath), body),
+                content_security_policy(filepath, body),
             )
         self.end_headers()
         self.wfile.write(body)

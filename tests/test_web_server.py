@@ -70,7 +70,7 @@ class PagePolicyTests(unittest.TestCase):
         # into LF; external scripts are covered by 'self' instead.
         body = (b'<script src="/x.js"></script><script>\r\nlet a = 1;\r\n</script>'
                 b'<SCRIPT type="module">b()\r</SCRIPT >')
-        script_src = directives(content_security_policy('page.html', body))['script-src']
+        script_src = directives(content_security_policy(str(PAGES / 'page.html'), body))['script-src']
         self.assertEqual(script_src, ["'self'", sha256_source('\nlet a = 1;\n'), sha256_source('b()\n')])
 
     def test_bundled_pages_cannot_run_injected_markup(self):
@@ -81,7 +81,7 @@ class PagePolicyTests(unittest.TestCase):
         inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 2}
         for page, count in inline_scripts.items():
             with self.subTest(page=page):
-                policy = directives(content_security_policy(page, (PAGES / page).read_bytes()))
+                policy = directives(content_security_policy(str(PAGES / page), (PAGES / page).read_bytes()))
                 script_src = policy['script-src']
                 self.assertNotIn("'unsafe-inline'", script_src)
                 self.assertEqual(sum(source.startswith("'sha256-") for source in script_src), count)
@@ -93,13 +93,30 @@ class PagePolicyTests(unittest.TestCase):
     def test_only_mol_star_may_evaluate_code_and_reach_public_servers(self):
         for page in ('agent.html', 'meta.html'):
             with self.subTest(page=page):
-                policy = directives(content_security_policy(page, b''))
+                policy = directives(content_security_policy(str(PAGES / page), b''))
                 self.assertNotIn("'unsafe-eval'", policy['script-src'])
                 self.assertEqual(policy['connect-src'], ["'self'"])
                 self.assertEqual(policy['img-src'], ["'self'", 'data:', 'blob:'])
-        esmfold = directives(content_security_policy('esmfold.html', b''))
+        esmfold = directives(content_security_policy(str(PAGES / 'esmfold.html'), b''))
         self.assertIn("'unsafe-eval'", esmfold['script-src'])
         self.assertEqual(esmfold['connect-src'], ["'self'", 'https:', 'data:'])
+
+    def test_mol_stars_additions_belong_to_the_pages_file_not_to_its_name(self):
+        # The file of the page that ships with the Viewer, however its path is
+        # written; a file of the same name anywhere else gets the base policy.
+        written = [PAGES / 'esmfold.html', PAGES / 'plugins' / '..' / 'esmfold.html']
+        if os.name == 'nt':
+            written.append(PAGES / 'ESMFOLD.HTML')
+        for path in written:
+            with self.subTest(path=str(path)):
+                self.assertIn("'unsafe-eval'", directives(content_security_policy(str(path), b''))['script-src'])
+        others = [SRC_DIR / 'esmfold.html', PAGES / 'plugins' / 'esmfold.html', PAGES / 'esmfold.html.js',
+                  Path(tempfile.gettempdir()) / 'esmfold.html']
+        for path in others:
+            with self.subTest(path=str(path)):
+                policy = directives(content_security_policy(str(path), b''))
+                self.assertNotIn("'unsafe-eval'", policy['script-src'])
+                self.assertEqual(policy['connect-src'], ["'self'"])
 
 
 class BundledPageIconTests(unittest.TestCase):
@@ -198,7 +215,7 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
                 self.assertEqual(response.getheader('Content-Type'), 'text/html; charset=utf-8')
                 self.assertEqual(
                     response.msg.get_all('Content-Security-Policy'),
-                    [content_security_policy(page, body)],
+                    [content_security_policy(str(PAGES / page), body)],
                 )
                 script_src = directives(response.getheader('Content-Security-Policy'))['script-src']
                 self.assertEqual("'unsafe-eval'" in script_src, page == 'esmfold.html')
@@ -368,6 +385,50 @@ class ServedFileTypeTests(RunningServerTestCase):
             '/agent_backend.py?x=1': 404, '/plugins/agent.py?v=1': 404, '/files/x.py?x=1': 404,
             '/files/page.html?v=1': 200, '/page_text.js?v=1': 200, '/esmfold/molstar.js?v=1': 200,
         })
+
+
+class FoldViewPolicyTests(RunningServerTestCase):
+    """Only the Fold View page that ships with the Viewer gets the policy Mol* needs, not a page of its name."""
+
+    PAGE = b'<html><head><script>run();</script></head><body></body></html>'
+
+    def policy(self, path):
+        response, _body = self.get(path)
+        self.assertEqual(response.status, 200, path)
+        return directives(response.getheader('Content-Security-Policy'))
+
+    def test_the_fold_view_page_gets_the_policy_mol_star_needs(self):
+        spellings = ['/esmfold.html', '/esmfold.html?x=1', '/esmfold.html?', '/./esmfold.html',
+                     '/plugins/../esmfold.html']
+        if os.name == 'nt':
+            spellings.append('/ESMFOLD.HTML')  # the same file, in a case-insensitive file system
+        for path in spellings:
+            with self.subTest(path=path):
+                policy = self.policy(path)
+                self.assertIn("'unsafe-eval'", policy['script-src'])
+                self.assertEqual(policy['connect-src'], ["'self'", 'https:', 'data:'])
+
+    def test_a_page_of_that_name_under_a_route_gets_the_base_policy(self):
+        files = self.make_folder({
+            'esmfold.html': self.PAGE, 'sub/esmfold.html': self.PAGE,
+            'copy/esmfold.html': (PAGES / 'esmfold.html').read_bytes(),
+        })
+        self.registry.register_static_route('files', '/files/', str(files))
+        for name in ('esmfold.html', 'sub/esmfold.html', 'copy/esmfold.html'):
+            for query in ('', '?x=1'):
+                with self.subTest(name=name, query=query):
+                    policy = self.policy(f'/files/{name}{query}')
+                    self.assertNotIn("'unsafe-eval'", policy['script-src'])
+                    self.assertEqual(policy['connect-src'], ["'self'"])
+
+    def test_a_page_of_that_name_in_another_pages_folder_gets_the_base_policy(self):
+        base = self.make_folder({'esmfold.html': self.PAGE})
+        with mock.patch.object(Web_Server, 'BASE_DIR', str(base)):
+            for path in ('/esmfold.html', '/esmfold.html?x=1'):
+                with self.subTest(path=path):
+                    policy = self.policy(path)
+                    self.assertNotIn("'unsafe-eval'", policy['script-src'])
+                    self.assertEqual(policy['connect-src'], ["'self'"])
 
 
 class ConcurrentWebServerTests(unittest.TestCase):

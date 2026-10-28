@@ -547,10 +547,13 @@ class ScriptPolicyTests(StartFailureChecks, PageTestCase):
     """The page's script policy (Web_Server.PAGE_POLICY_ADDITIONS) keeps 'unsafe-eval' because Mol*'s bundle needs it to load."""
 
     def test_the_bundle_cannot_load_without_unsafe_eval_because_of_embinds_new_function(self):
+        import os
         from unittest import mock
         from web_ui import Web_Server
 
-        additions = {"esmfold.html": {"connect-src": "https: data:"}}
+        # The table is keyed by the page's path, so this replaces the real page's entry.
+        page = os.path.normcase(os.path.join(Web_Server.BASE_DIR, "esmfold.html"))
+        additions = {page: {"connect-src": "https: data:"}}
         with mock.patch.dict(Web_Server.PAGE_POLICY_ADDITIONS, additions):
             self.view.page().scripts().insert(self.record_script())
             self.load_page()

@@ -364,7 +364,7 @@ class ServedPageTests(unittest.TestCase):
                 self.assertIn(pseudo_translate(SERVED_TEXTS[path]), body.decode("utf-8"))
                 if file.suffix == ".html":
                     self.assertEqual(response.getheader("Content-Security-Policy"),
-                                     content_security_policy(file.name, body))
+                                     content_security_policy(str(file), body))
         self.assertEqual({path for path, file in PageHandler.files.items() if page_context(file)},
                          set(SERVED_TEXTS))
 

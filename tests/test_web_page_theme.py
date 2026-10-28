@@ -101,7 +101,7 @@ class ServedPageThemeTests(unittest.TestCase):
         styles = f"<style>\n{web_theme_css('teal')}\n</style>\n"
         self.assertTrue(end and head.endswith(styles), head[-300:])
         self.assertEqual(shown.count(web_theme_css("teal")), 1)
-        self.assertEqual(response.getheader("Content-Security-Policy"), content_security_policy(page, body))
+        self.assertEqual(response.getheader("Content-Security-Policy"), content_security_policy(str(PAGES / page), body))
         return body
 
     def test_the_pages_end_their_head_with_the_theme_colour(self):
@@ -109,8 +109,8 @@ class ServedPageThemeTests(unittest.TestCase):
             with self.subTest(page=page):
                 body = self.assert_themed(page)
                 # An inline style leaves the policy as the page's own bytes have it.
-                self.assertEqual(content_security_policy(page, body),
-                                 content_security_policy(page, (PAGES / page).read_bytes()))
+                self.assertEqual(content_security_policy(str(PAGES / page), body),
+                                 content_security_policy(str(PAGES / page), (PAGES / page).read_bytes()))
 
     def test_a_page_in_another_language_takes_the_theme_colour_too(self):
         for language in ("pseudo", "zh_CN"):
@@ -128,9 +128,9 @@ class ServedPageThemeTests(unittest.TestCase):
         # Its additions for Mol* (compiling code, public servers) stay on, and
         # the styles the server adds change no inline script's hash.
         body = self.assert_themed("esmfold.html")
-        policy = content_security_policy("esmfold.html", body)
+        policy = content_security_policy(str(PAGES / "esmfold.html"), body)
         self.assertIn("'unsafe-eval'", policy)
-        self.assertEqual(policy, content_security_policy("esmfold.html", (PAGES / "esmfold.html").read_bytes()))
+        self.assertEqual(policy, content_security_policy(str(PAGES / "esmfold.html"), (PAGES / "esmfold.html").read_bytes()))
 
     def test_only_the_viewers_own_pages_take_it(self):
         page = b"<html><head><style>p {}</style></head><body></body></html>"
