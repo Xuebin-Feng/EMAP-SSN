@@ -879,7 +879,7 @@ computes gives the text it reports as `progress` (MCL clustering's iterations an
 copied in about twice a second, at most 256 characters, with the last line kept after it ends.
 `wait_command_request`'s progress notifications include it, as `queue` or as a job. `jobs cancel` does not reach a
 command in the queue, and an `undo` sent through `execute_commands` waits its turn behind it, so a client cannot
-stop one; the user can, by typing `undo` in the Viewer or pressing Ctrl+Z.
+stop one; the user can, by typing `undo` in the Viewer, pressing Ctrl+Z or clicking its Undo button.
 
 Agent batches are sequential and stop after failure/cancellation; completed effects
 are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Viewer's

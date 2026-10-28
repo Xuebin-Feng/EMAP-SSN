@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="75465888bb3c82ded9fed6b4aa695ee8d9f24a7b922060006d8223ecf2db0122">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="a8cc1c7309632e47a03c1a9c366da45077f7ffc44c9d4dfd8ef0b4a7013bcfe9">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -533,7 +533,7 @@
 
                 <h3>1. OpenGL 画布与相机导航</h3>
                 <p>
-                    主视口是一个可平移、可缩放的 2D 画布。阈值滑块起始处的信息按钮会在画布上打开一张卡片。卡片显示会话信息（节点和边的数量，以及序列集、网络、布局缓存、比对和 embedding 文件，每个路径均以所属文件夹的别名写出），列出这些绑定，并链接到查看器命令参考。比对和 embedding 可通过卡片上各自旁边的按钮更改。其下的<strong>后台任务</strong>部分列出与命令并行运行的耗时任务，并给出各自的用时或其所在队列中的排队位置：即 <code>print</code>、<code>label</code> 和 <code>logo</code> 写入的文件（在<em>文件</em>队列中依次进行），以及 <code>esmfold</code> 折叠的结构（在旁边的<em>折叠</em>队列中依次进行，两个队列同时运行）。运行中的任务排在最前，其后是等待中的任务；没有任务时，以一行灰色文字说明。等待中的任务可以上移、下移或移除；运行中的任务可在确认后停止并移除：它会在下一步停止，在停止之前一直列为“正在停止”，正在写入的未完成文件会被删除。失败的任务会连同原因一直列出，若有日志还带有<em>打开日志</em>按钮，直到被清除。<code>jobs</code> 列出并取消的是同一批任务。<code>cluster</code> 这类耗时命令不是后台任务：这里不会列出它，<code>jobs</code> 也不会列出或取消它；它计算期间，可用 <code>undo</code> 或 Ctrl+Z 将其撤回。在对网络进行操作期间，卡片保持打开，只能通过其 × 或再次点击信息按钮关闭。
+                    主视口是一个可平移、可缩放的 2D 画布。阈值滑块起始处的信息按钮会在画布上打开一张卡片。卡片显示会话信息（节点和边的数量，以及序列集、网络、布局缓存、比对和 embedding 文件，每个路径均以所属文件夹的别名写出），列出这些绑定，并链接到查看器命令参考。比对和 embedding 可通过卡片上各自旁边的按钮更改。其下的<strong>后台任务</strong>部分列出与命令并行运行的耗时任务，并给出各自的用时或其所在队列中的排队位置：即 <code>print</code>、<code>label</code> 和 <code>logo</code> 写入的文件（在<em>文件</em>队列中依次进行），以及 <code>esmfold</code> 折叠的结构（在旁边的<em>折叠</em>队列中依次进行，两个队列同时运行）。运行中的任务排在最前，其后是等待中的任务；没有任务时，以一行灰色文字说明。等待中的任务可以上移、下移或移除；运行中的任务可在确认后停止并移除：它会在下一步停止，在停止之前一直列为“正在停止”，正在写入的未完成文件会被删除。失败的任务会连同原因一直列出，若有日志还带有<em>打开日志</em>按钮，直到被清除。<code>jobs</code> 列出并取消的是同一批任务。<code>cluster</code> 这类耗时命令不是后台任务：这里不会列出它，<code>jobs</code> 也不会列出或取消它；它计算期间，可用 <code>undo</code>、Ctrl+Z 或“撤销”按钮将其撤回。在对网络进行操作期间，卡片保持打开，只能通过其 × 或再次点击信息按钮关闭。
                 </p>
                 <div class="table-responsive">
                     <table>
@@ -609,6 +609,11 @@
                                 <td><strong>复制序列</strong></td>
                                 <td>在节点上 <span class="kbd">Shift</span> + <span class="kbd">左键单击</span> 两次（双击）</td>
                                 <td>改为将节点的序列复制到剪贴板，不复制序列标题，因此剪贴板只增加一条记录。在第二次单击松开按键时复制，且指针自按下起移动不足 5 像素。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>撤销与重做</strong></td>
+                                <td><span class="kbd">Ctrl+Z</span> 与 <span class="kbd">Ctrl+Y</span>，或画布右上角的<strong>撤销</strong>和<strong>重做</strong>按钮</td>
+                                <td>在查看器的历史记录中后退和前进。按钮的作用与对应的按键相同：撤销先撤回最新的、仍在等待或计算中的命令，再撤销最新的一步历史记录；重做重新应用被撤销的那一步，在有命令等待时无事可做。按键无事可做时，对应按钮显示为灰色。按钮不获取键盘焦点，因此输入仍然进入命令行；<code>print</code> 或 MCP 截取的图片中也不会出现它们。开启“显示帧率（FPS）”后，帧率显示在它们的左侧。</td>
                             </tr>
                         </tbody>
                     </table>

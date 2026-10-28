@@ -363,7 +363,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-undoredo" data-source-sha256="5ae0d765886d566db4cc5595af1470ac677cdff1a4c6f6589e9c9cc6e2447bfe">
+            <section class="command-card" id="cmd-undoredo" data-source-sha256="b259c50017cec9bd0c249748a613d905fdfb52c2eb75cda618f140ca5d25afe6">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">undo &amp; redo</span>
@@ -376,7 +376,8 @@
                     <button class="copy-btn" onclick="copyText('undo', this)">复制</button>
                 </div>
                 <p><strong>功能：</strong><code>undo</code> 恢复到上一个已保存的可视/空间状态；<code>redo</code> 重新应用被撤销的状态。调用查看器状态保存钩子的命令都会参与这一历史记录。状态包括 HUD 显示的是哪个元数据属性（由 <code>meta show</code> 和 <code>spectrum</code> 设置），因此撤销 <code>spectrum</code> 也会把其属性从 HUD 上移除。状态不包括控制台窗口的页面按钮行：撤销和重做不会改变它。</p>
-                <p>当有命令在查看器的命令队列中等待或计算时，手动输入的 <code>undo</code> 或 Ctrl+Z 会先取消其中最新的一条，因为它们尚未执行；剩余的步数再撤销网络的状态。来自脚本、智能体回复或 MCP 的 <code>undo</code> 则与其他命令一样排队等候。</p>
+                <p>当有命令在查看器的命令队列中等待或计算时，手动输入的 <code>undo</code>、Ctrl+Z 或点击“撤销”按钮会先取消其中最新的一条，因为它们尚未执行；剩余的步数再撤销网络的状态。来自脚本、智能体回复或 MCP 的 <code>undo</code> 则与其他命令一样排队等候。</p>
+                <p>查看器画布右上角的“撤销”和“重做”按钮的作用与 Ctrl+Z 和 Ctrl+Y 相同，供不使用快捷键的用户使用。按键无事可做时，对应按钮显示为灰色：没有可撤销的步骤、也没有等待中的命令时撤销为灰色；没有被撤销的步骤、或有命令在等待时重做为灰色。</p>
                 <p>带有 <code>N</code>（正整数）时，<code>undo N</code> 最多恢复 N 个状态，<code>redo N</code> 最多重新应用 N 个被撤销的状态。历史用完时各自会提前停止，并报告完成了多少步。零、负数、非整数或多余的参数都会被拒绝，且不做任何更改。</p>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
@@ -473,7 +474,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-jobs" data-source-sha256="0b74146f83592b0048bff258785a7884ff90d0b76b467084175b53f63ff2923e">
+            <section class="command-card" id="cmd-jobs" data-source-sha256="f8c6a3e516fcdfcd855cd95eadee7193c780c0306a1302105c195647da55c6e4">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">jobs</span>
@@ -489,7 +490,7 @@
                 <div class="subheading">任务详情</div>
                 <ul>
                     <li><strong>取消：</strong>单独的 <code>jobs cancel</code> 取消最新的后台任务，<code>jobs cancel 14 15</code>（或 <code>#14</code>）取消这些任务，<code>jobs cancel all</code> 取消全部任务。只要有一个编号不对应正在等待或运行的后台任务，就不会取消任何任务。尚未开始的任务会被直接移除。正在运行的任务会被通知停止：在真正停止之前，它显示为正在停止，停止后报告为已取消，并删除它已写入的内容；之前已存在的同名文件保持不变。没有可停止步骤的任务则会照常完成。</li>
-                    <li><strong>不同于命令队列：</strong>在查看器命令队列中等待或计算的命令（例如 <code>cluster</code> 或 <code>subcluster</code>）不是后台任务：它没有编号，<code>jobs</code> 既不列出也不取消它。要取消最新的此类命令，请在它等待或计算时输入 <code>undo</code> 或按 Ctrl+Z。</li>
+                    <li><strong>不同于命令队列：</strong>在查看器命令队列中等待或计算的命令（例如 <code>cluster</code> 或 <code>subcluster</code>）不是后台任务：它没有编号，<code>jobs</code> 既不列出也不取消它。要取消最新的此类命令，请在它等待或计算时输入 <code>undo</code>、按 Ctrl+Z 或点击“撤销”按钮。</li>
                     <li><strong>工作进程与脚本：</strong><code>esmfold stop</code> 结束折叠工作进程，<code>run stop</code> 结束 Python 脚本。</li>
                     <li><strong>会话卡片：</strong>由查看器信息按钮打开的会话卡片会列出同样的任务；在那里还可以上移、下移或移除等待中的任务，并停止正在运行的任务。有任务等待或运行时，画布右上角的角标会显示任务数。</li>
                     <li><strong>立即运行：</strong>即使其他命令正在等待，它也会立即运行。</li>
