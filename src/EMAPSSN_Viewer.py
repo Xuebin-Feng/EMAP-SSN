@@ -162,6 +162,7 @@ import shiboken6
 import EMAPSSN_Config as cfg
 if _startup_settings is not None:
     cfg.__dict__.update(_startup_settings)
+import Command_Declarations
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Background_Job_Scheduler import BackgroundJobScheduler
@@ -682,6 +683,12 @@ CUSTOM_ATTRIBUTES_INIT = {
 # network's history: restoring an older list would drop a button that a later
 # `save` or `meta` call added. `save` still writes it into the cache.
 UNDO_EXCLUDED_ATTRIBUTES = frozenset({"sidebar_buttons_to_persist"})
+
+
+def _quoted_for_log(value, limit=60):
+    """repr(value), cut to ``limit`` characters: a cache is a file people share, and what it holds is not trusted."""
+    text = repr(value)
+    return text if len(text) <= limit else text[:limit - 3] + '...'
 
 
 # --- Undo history snapshots -------------------------------------------------
@@ -4018,9 +4025,37 @@ class MainViewer:
         return self.console_button_registry().add(name, label, callback, tooltip, icon)
 
     def _register_persisted_console_buttons(self):
-        """Run the registration command of each Console button the session had (sidebar_buttons_to_persist)."""
-        for cmd_name in getattr(self, 'sidebar_buttons_to_persist', None) or []:
-            self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
+        """Run the registration command of each Console button the session had (sidebar_buttons_to_persist).
+
+        The list comes from a layout cache, a file people share, so an entry is run only when it is a bare command
+        name, once, and the command's module declares a Console button (Command_Declarations): nothing else a cache
+        lists is typed at the command line. The entries that are not run are dropped from the list, so that `save`
+        does not write them back, and one line says which and why.
+        """
+        persisted = getattr(self, 'sidebar_buttons_to_persist', None)
+        if persisted is None:
+            return
+        if not isinstance(persisted, (list, tuple)):  # a cache can hold anything, an array too: never test its truth
+            print(f"Warning: ignoring the cache's list of Console buttons: {_quoted_for_log(persisted)} is not a list.")
+            self.sidebar_buttons_to_persist = []
+            return
+        if not persisted:
+            return
+        names, ignored = [], []
+        for entry in persisted:
+            if not isinstance(entry, str) or not entry.isidentifier():
+                ignored.append(f"{_quoted_for_log(entry)} (not a bare command name)")
+            elif entry in names:
+                ignored.append(f"{_quoted_for_log(entry)} (listed twice)")
+            elif not Command_Declarations.registers_console_button(entry):
+                ignored.append(f"{_quoted_for_log(entry)} (not a command with a Console button)")
+            else:
+                names.append(entry)
+        if ignored:
+            print("Warning: ignoring entries of the cache's list of Console buttons: " + "; ".join(ignored) + ".")
+            self.sidebar_buttons_to_persist = names
+        for name in names:
+            self.process_command(f"{name} --register-only", record_history=False, silent=True)
 
     def console_button_registry(self):
         """The ButtonRegistry of the Console's second header row, made when it is first needed."""

@@ -2430,5 +2430,134 @@ class ViewerEntryPointTests(WindowCase):
         self.assertEqual(bare.sidebar_buttons_to_persist, [])
 
 
+class PersistedButtonRegistrationTests(unittest.TestCase):
+    """The list of Console buttons comes from a layout cache, a file people share, so it is never typed as it stands.
+
+    Every test's process_command is a recorder: nothing is dispatched, and a line it receives is a line the
+    Viewer would have typed at its command line.
+    """
+
+    def setUp(self):
+        import EMAPSSN_Viewer
+
+        self.viewer = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
+        self.typed = []
+        self.viewer.process_command = lambda command, **options: self.typed.append((command, options))
+
+    def register(self, persisted):
+        """Set the list a loaded session holds and register; return the line printed."""
+        import io
+
+        self.viewer.sidebar_buttons_to_persist = persisted
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.viewer._register_persisted_console_buttons()
+        return output.getvalue()
+
+    def lines_typed(self):
+        return [command for command, _options in self.typed]
+
+    def test_a_command_line_in_the_list_is_not_typed(self):
+        # The injection: a cache whose list holds "run C:/some/script.py" made the Viewer type
+        # "run C:/some/script.py --register-only" at its command line when it opened.
+        printed = self.register(["run C:/some/script.py", "meta"])
+        self.assertEqual(self.lines_typed(), ["meta --register-only"])
+        self.assertNotIn("run C:/some/script.py --register-only", self.lines_typed())
+        self.assertEqual(self.viewer.sidebar_buttons_to_persist, ["meta"])
+        self.assertEqual(printed.count("\n"), 1)
+        self.assertIn("'run C:/some/script.py' (not a bare command name)", printed)
+
+    def test_the_three_commands_that_declare_a_button_still_register_in_order_without_history(self):
+        printed = self.register(["agent", "esmfold", "meta"])
+        self.assertEqual(self.typed, [(f"{name} --register-only", {"record_history": False, "silent": True})
+                                      for name in ("agent", "esmfold", "meta")])
+        self.assertEqual(self.viewer.sidebar_buttons_to_persist, ["agent", "esmfold", "meta"])
+        self.assertEqual(printed, "")  # a list the program wrote itself says nothing
+
+    def test_an_entry_that_is_not_a_bare_name_is_not_typed_and_is_dropped_from_the_list(self):
+        entries = [5, 1.5, True, None, b"meta", ["meta"], ("meta",), {"meta": 1}, {"meta"},
+                   "meta upload x.csv", "meta --register-only", "agent hello", "meta;meta", " meta", "meta ", "meta\n",
+                   "", "..", "a.b", "commands.meta", "-h", "run C:/some/script.py", "meta && run x"]
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.typed.clear()
+                printed = self.register([entry, "meta"])
+                self.assertEqual(self.lines_typed(), ["meta --register-only"])
+                self.assertEqual(self.viewer.sidebar_buttons_to_persist, ["meta"])
+                self.assertEqual(printed.count("\n"), 1)
+                self.assertIn("(not a bare command name)", printed)
+
+    def test_a_command_without_a_console_button_or_without_a_module_is_not_typed(self):
+        entries = ["run", "select", "save", "help", "undo", "console", "zoom", "jobs", "nosuchcommand", "_private",
+                   "__init__", "__import__", "os"]
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.typed.clear()
+                printed = self.register([entry, "agent"])
+                self.assertEqual(self.lines_typed(), ["agent --register-only"])
+                self.assertEqual(self.viewer.sidebar_buttons_to_persist, ["agent"])
+                self.assertIn(f"'{entry}' (not a command with a Console button)", printed)
+
+    def test_a_name_listed_twice_is_typed_once(self):
+        printed = self.register(["meta", "agent", "meta", "meta", "agent"])
+        self.assertEqual(self.lines_typed(), ["meta --register-only", "agent --register-only"])
+        self.assertEqual(self.viewer.sidebar_buttons_to_persist, ["meta", "agent"])
+        self.assertEqual(printed.count("\n"), 1)
+        self.assertEqual(printed.count("(listed twice)"), 3)
+
+    def test_one_line_says_which_entries_were_ignored_and_why(self):
+        printed = self.register([7, "run x", "meta", "nosuchcommand", "meta", "select"])
+        self.assertEqual(printed.count("\n"), 1)
+        self.assertTrue(printed.startswith("Warning: ignoring entries of the cache's list of Console buttons: "))
+        for reason in ("7 (not a bare command name)", "'run x' (not a bare command name)",
+                       "'nosuchcommand' (not a command with a Console button)", "'meta' (listed twice)",
+                       "'select' (not a command with a Console button)"):
+            self.assertIn(reason, printed)
+        self.assertEqual(self.lines_typed(), ["meta --register-only"])
+
+    def test_an_entry_of_any_length_is_quoted_short(self):
+        printed = self.register(["x" * 5000, "meta"])
+        self.assertEqual(printed.count("\n"), 1)
+        self.assertLess(len(printed), 250)
+
+    def test_what_is_not_a_list_registers_nothing_and_is_replaced_by_an_empty_list(self):
+        import numpy as np
+
+        for persisted in ("meta", "run C:/some/script.py", {"meta": 1}, 5, 0, "", np.array(["meta"]),
+                          np.array(["meta", "agent"]), np.array([b"meta", b"agent"], dtype=object), b"meta", {"meta"}):
+            with self.subTest(persisted=repr(persisted)):
+                self.typed.clear()
+                printed = self.register(persisted)
+                self.assertEqual(self.typed, [])
+                self.assertEqual(self.viewer.sidebar_buttons_to_persist, [])
+                self.assertEqual(printed.count("\n"), 1)
+                self.assertIn("is not a list", printed)
+
+    def test_a_tuple_of_names_registers_like_a_list(self):
+        self.register(("meta", "agent"))
+        self.assertEqual(self.lines_typed(), ["meta --register-only", "agent --register-only"])
+
+    def test_a_clean_list_keeps_its_identity_so_a_command_appends_to_the_one_the_viewer_saves(self):
+        persisted = ["meta"]
+        self.assertEqual(self.register(persisted), "")
+        self.assertIs(self.viewer.sidebar_buttons_to_persist, persisted)
+
+    def test_an_empty_or_missing_list_says_nothing(self):
+        self.assertEqual(self.register([]), "")
+        self.assertEqual(self.register(None), "")
+        del self.viewer.sidebar_buttons_to_persist
+        self.viewer._register_persisted_console_buttons()
+        self.assertEqual(self.typed, [])
+
+    def test_a_plugin_that_declares_a_button_is_typed_like_the_three(self):
+        from tests.command_fixtures import scratch_commands
+
+        plugins = {"zzbutton_plugin": "CONSOLE_BUTTON = True\ndef run(viewer, args):\n    pass\n",
+                   "zzbutton_undeclared": "def run(viewer, args):\n    pass\n"}
+        with scratch_commands(plugins):
+            self.register(["zzbutton_undeclared", "zzbutton_plugin"])
+        self.assertEqual(self.lines_typed(), ["zzbutton_plugin --register-only"])
+
+
 if __name__ == "__main__":
     unittest.main()
