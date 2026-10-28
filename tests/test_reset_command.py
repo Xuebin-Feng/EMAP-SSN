@@ -476,6 +476,16 @@ PLUGINS = {
         "def reset(viewer, target):\n"
         "    viewer.plugin_log.append(('zzreset_quiet', target))\n"
         "    return ResetOutcome('quiets', nodes=True, edges=True, note=Message('A note from the plugin.'))\n"),
+    # A second module for the same target, with a note of its own and no word for the reply.
+    "zzreset_quiet_more": (
+        "from commands.reset import ResetOutcome\n"
+        "from utilities.Localization import Message\n"
+        "RESET_TARGETS = ('zzquiet',)\n"
+        "def reset_changes_state(viewer, target):\n"
+        "    return viewer.quiet_dirty\n"
+        "def reset(viewer, target):\n"
+        "    viewer.plugin_log.append(('zzreset_quiet_more', target))\n"
+        "    return ResetOutcome(note=Message('Another note.'))\n"),
     # A name that ends in "s", declared as typed, and one declared in capitals.
     "zzreset_names": (
         "from commands.reset import ResetOutcome\n"
@@ -561,14 +571,23 @@ class ResetPluginTests(unittest.TestCase):
     def test_a_plugin_says_when_a_reset_changes_nothing_what_to_redraw_and_what_to_add(self):
         self.run_reset(["zzquiet"])
         self.viewer._save_state.assert_not_called()
-        self.assertEqual(self.viewer.plugin_log, [("zzreset_quiet", "zzquiet")])
+        self.assertEqual(self.viewer.plugin_log, [("zzreset_quiet", "zzquiet"), ("zzreset_quiet_more", "zzquiet")])
         self.viewer.update_nodes.assert_called_once_with()
         self.viewer.update_edges.assert_called_once_with()
 
         self.viewer.quiet_dirty = True
         succeeded, _ = self.run_reset(["zzquiet"])
         self.viewer._save_state.assert_called_once_with()
-        self.assertEqual(succeeded.call_args.args[1], "Reset successful: quiets. A note from the plugin.")
+        self.assertEqual(succeeded.call_args.args[1], "Reset successful: quiets. A note from the plugin. Another note.")
+
+    def test_the_notes_of_every_module_of_a_target_are_added_in_the_order_of_the_modules(self):
+        self.viewer.quiet_dirty = True
+        succeeded, failed = self.run_reset(["zzquiet"])
+
+        failed.assert_not_called()
+        self.assertEqual(self.viewer.plugin_log, [("zzreset_quiet", "zzquiet"), ("zzreset_quiet_more", "zzquiet")])
+        self.assertEqual(succeeded.call_args.args[1], "Reset successful: quiets. A note from the plugin. Another note.")
+        self.viewer._save_state.assert_called_once_with()
 
     def test_no_undo_step_is_saved_when_every_target_says_it_changes_nothing(self):
         # No node is hidden, and the plugin says so for its own target.
