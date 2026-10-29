@@ -1094,6 +1094,8 @@ def run(viewer, args):
     if saved:
         written = _show_saved(viewer, saved, abs_structures_dir)
         saved_notes = _saved_notes(saved, written, f"{words} refold")
+        # The status line has the counts only, as a run that shows alone does: the Console names the nodes.
+        print(_joined_notes(saved_notes)[1].strip())
     if headless:
         page_opened = False
     else:

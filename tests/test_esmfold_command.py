@@ -576,6 +576,45 @@ class SavedStructureTests(CommandCase):
         self.assertEqual([os.path.basename(path) for path in paths],
                          ["node_0.pdb", "node_0.residues.json", "node_2.pdb", "node_2.residues.json"])
 
+    def test_a_run_that_shows_and_folds_names_the_shown_nodes_in_the_console(self):
+        # The status line has the counts, as ever; a run that only shows prints its outcome with the names, and
+        # a run that shows and folds prints the sentences about the shown nodes with theirs.
+        folder = self.folder_with("node_1.pdb")
+        viewer = make_viewer(3)
+        output = io.StringIO()
+        with self.cpu():
+            run, succeeded = self.queued(viewer, ["multi"], structures=folder, output=output)
+        self.assertEqual(
+            output.getvalue().splitlines().count(
+                "Showed 1 structure from saved files instead of folding them again. (node_1) "
+                "Run esmfold multi refold to fold them again."), 1, output.getvalue())
+        self.assertNotIn("node_1", viewer.console_text.text)                 # the status line is as it was
+        self.assertIn("Showed 1 structure from saved files instead of folding them again. Run esmfold multi refold",
+                      viewer.console_text.text)
+        self.assertEqual(                                                    # and so is the outcome
+            succeeded.call_args.args[1],
+            "Queued local ESM3 folding for 2 structure(s) as job #1. "
+            "Showed 1 structure from saved files instead of folding them again. (node_1) "
+            f"Run esmfold multi refold to fold them again. {NO_ALIGNMENT} "
+            f"The worker runs without a window; its output is in {run.log_path}.")
+
+    def test_a_run_that_shows_and_folds_counts_many_shown_nodes_without_listing_them(self):
+        folder = self.folder_with(*(f"node_{index}.pdb" for index in range(1, 7)))
+        viewer = make_viewer(8)
+        output = io.StringIO()
+        with self.cpu():
+            self.queued(viewer, ["multi"], structures=folder, output=output)
+        self.assertIn("Showed 6 structures from saved files instead of folding them again. Run esmfold multi refold",
+                      output.getvalue())
+        self.assertNotIn("node_1", output.getvalue())
+
+    def test_a_run_that_shows_nothing_prints_no_such_line(self):
+        viewer = make_viewer(2)
+        output = io.StringIO()
+        with self.cpu():
+            self.queued(viewer, ["multi"], output=output)
+        self.assertNotIn("Showed", output.getvalue())
+
     def test_many_saved_nodes_are_counted_without_listing_them(self):
         folder = self.folder_with(*(f"node_{index}.pdb" for index in range(6)))
         succeeded, _ = self.run_reporting(make_viewer(6), ["multi"], structures=folder)
