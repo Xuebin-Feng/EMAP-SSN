@@ -784,7 +784,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
     def test_the_gestures_do_something(self):
         # Without this, a gesture that did nothing either way would pass above.
         expected = {
-            "right-click a node": ({"selected": [1], "dragging": True, "snapshots": 1}, ""),
+            "right-click a node": ({"selected": [1], "dragging": True, "snapshots": 1}, "Selected 1 node."),
             "right-drag a box": ({"selected": [0, 1]}, "Selected 2 nodes."),
             "right-click empty space": ({"selected": []}, "Selection cleared."),
             "shift-click a node": ({"copied": [mock.call("A first")]}, "Copied: A first"),

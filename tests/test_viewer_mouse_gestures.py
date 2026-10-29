@@ -15,12 +15,20 @@ on_mouse_release).
 * Shift on the right button toggles: it adds an unselected node at the press, removes a selected
   one when the button is let go as a click, and a box toggles the nodes in it. Ctrl no longer
   removes anything.
+* A right-click on a node that changes the selection (Shift adding or removing one, a press
+  selecting a node alone) writes the status line a box selection writes: "Selected N nodes." or
+  "Selection cleared."; one that changes nothing writes nothing.
+* A press on a node saves an undo step; when the button is let go, or a Ctrl + wheel turn ends,
+  the step stays only if the press changed the nodes' places or the selection. Otherwise it is
+  taken off the history, with the redo steps it cleared given back, as Esc does.
 * Shift while dragging nodes holds the move to one of eight directions, and the wheel's
   rotation never moves it.
 * The wheel during a drag turns the nodes 5 degrees a notch about the press, Shift or not.
 * Ctrl + right-drag from a selected node turns the selection about the exact point where the
   button went down, following the pointer, full turns included. The angle is measured from where
   the pointer first leaves 15 px of that point, so nothing jumps; Shift rounds it to 15 degrees.
+  The status line shows the angle wrapped into (-180, 180], so after circles it reads where the
+  nodes stand; the turn itself is whole.
 * Ctrl + wheel turns the selection 5 degrees a notch about the cursor, a run of notches being
   one turn and one undo step, and the camera does not zoom meanwhile: its wrapper gets the
   scene's own copy of the event, so CameraWheelTests send notches through a real canvas.
@@ -713,6 +721,208 @@ class ShiftSelectionTests(GestureTestCase):
         self.assertIsNone(viewer._drag_turn)
 
 
+class NodeClickStatusTests(GestureTestCase):
+    """A right-click that changes the selection says so on the status line, in the words a box selection uses."""
+
+    def test_a_box_and_a_click_say_the_same(self):
+        viewer = self.make_viewer(selected=[1])
+        self.press(viewer, 30, -10)
+        self.move(viewer, 90, 10)                                       # a box over nodes 1 and 2
+        self.release(viewer, 90, 10)
+        self.assertEqual(self.status(viewer), ["Selected 2 nodes."])
+        viewer = self.make_viewer(selected=[1])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), ["Selected 2 nodes."])
+
+    def test_a_shift_click_that_adds_a_node_says_how_many_are_selected(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), ["Selected 3 nodes."])
+        self.release(viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), ["Selected 3 nodes."])      # the release adds nothing
+
+    def test_a_shift_click_that_removes_a_node_says_so_when_the_button_is_let_go(self):
+        viewer = self.make_viewer(selected=[1, 2, 3])
+        self.press(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), [])                           # the press removes nothing
+        self.release(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), ["Selected 2 nodes."])
+
+    def test_removing_the_last_node_clears_the_selection(self):
+        for knn in (False, True):
+            with self.subTest(knn=knn), mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=knn):
+                viewer = self.make_viewer(selected=[2])
+                self.press(viewer, *NODE[2], modifiers=SHIFT)
+                self.release(viewer, *NODE[2], modifiers=SHIFT)
+                self.assertEqual(viewer.selected_indices, [])
+                self.assertEqual(self.status(viewer), ["Selection cleared."])
+
+    def test_a_shift_click_that_removes_a_node_where_nothing_can_be_dragged_says_so_too(self):
+        viewer = self.make_viewer(selected=[1, 2, 3])
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            self.press(viewer, *NODE[2], modifiers=SHIFT)
+            self.release(viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), ["Selected 2 nodes."])
+
+    def test_a_click_that_selects_a_node_alone_says_so(self):
+        for name, modifiers in (("plain", []), ("ctrl", CTRL), ("meta", ["Meta"])):
+            with self.subTest(modifiers=name):
+                viewer = self.make_viewer(selected=[1, 2, 4, 5])
+                self.press(viewer, *NODE[3], modifiers=modifiers)
+                self.release(viewer, *NODE[3], modifiers=modifiers)
+                self.assertEqual(viewer.selected_indices, [3])
+                self.assertEqual(self.status(viewer), ["Selected 1 node."])
+
+    def test_a_click_that_changes_nothing_says_nothing(self):
+        for modifiers in ([], CTRL, ["Meta"]):
+            with self.subTest(modifiers=modifiers):
+                viewer = self.make_viewer(selected=[1, 2])
+                self.press(viewer, *NODE[2], modifiers=modifiers)
+                self.release(viewer, *NODE[2], modifiers=modifiers)
+                self.assertEqual(self.status(viewer), [])
+        viewer = self.make_viewer(selected=[3])                           # Ctrl on the one selected node
+        self.press(viewer, *NODE[3], modifiers=CTRL)
+        self.release(viewer, *NODE[3], modifiers=CTRL)
+        self.assertEqual(self.status(viewer), [])
+
+    def test_a_drag_from_a_node_that_is_not_selected_names_the_selection_it_made(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3])
+        self.move(viewer, 150, 50)
+        self.release(viewer, 150, 50)
+        self.assertEqual(self.status(viewer), ["Selected 1 node."])    # once, at the press
+
+    def test_esc_leaves_the_message_of_the_selection_the_press_made(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3])
+        self.esc(viewer)                                                  # the selection stays as the press made it
+        self.release(viewer, *NODE[3])
+        self.assertEqual(viewer.selected_indices, [3])
+        self.assertEqual(self.status(viewer), ["Selected 1 node."])
+
+    def test_a_left_click_is_left_alone(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        for modifiers in ([], SHIFT, CTRL):
+            self.press(viewer, *NODE[3], button=1, modifiers=modifiers)
+            self.release(viewer, *NODE[3], button=1, modifiers=modifiers)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertEqual(self.status(viewer), [])               # "Selected: <header>" is the focus's, mocked here
+
+
+class IdlePressStepTests(GestureTestCase):
+    """A press on a node saves an undo step, but only one that changes something stays when the button is let go."""
+
+    def setUp(self):
+        super().setUp()
+        self.viewer = self.make_viewer(selected=[1, 2])
+        self.viewer._save_state()                                    # an earlier step
+        self.earlier = list(self.viewer.position_history)
+        self.undone = {"pos": "a step that was undone"}
+        self.viewer.redo_stack = [self.undone]
+
+    def assert_history_as_before(self, viewer=None):
+        viewer = viewer or self.viewer
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertIs(viewer.position_history[0], self.earlier[0])
+        self.assertEqual(viewer.redo_stack, [self.undone])           # Ctrl+Y still has its step
+
+    def test_a_right_click_on_a_selected_node_leaves_no_step(self):
+        for modifiers in ([], CTRL, ["Meta"]):
+            with self.subTest(modifiers=modifiers):
+                self.setUp()
+                self.press(self.viewer, *NODE[1], modifiers=modifiers)
+                self.assertEqual(len(self.viewer.position_history), 2)    # the press saves, as ever
+                self.assertEqual(self.viewer.redo_stack, [])
+                self.release(self.viewer, *NODE[1], modifiers=modifiers)
+                self.assert_history_as_before()
+                self.assertEqual(self.viewer.selected_indices, [1, 2])
+
+    def test_a_ctrl_right_click_where_nothing_can_move_and_the_node_is_the_selection_leaves_no_step(self):
+        viewer = self.make_viewer(selected=[3])
+        viewer._save_state()
+        self.earlier = list(viewer.position_history)
+        viewer.redo_stack = [self.undone]
+        with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
+            self.press(viewer, *NODE[3], modifiers=CTRL)
+            self.assertFalse(viewer.is_multi_dragging)
+            self.assertEqual(len(viewer.position_history), 2)
+            self.release(viewer, *NODE[3], modifiers=CTRL)
+        self.assertEqual(viewer.selected_indices, [3])
+        self.assert_history_as_before(viewer)
+        self.assertIsNone(viewer._press_history)                      # nothing is left waiting
+
+    def test_a_press_that_changes_the_selection_keeps_its_step(self):
+        # Undo restores no selection, but the step stays as it did: the press chose a node.
+        for knn in (False, True):
+            for name, modifiers in (("plain", []), ("shift add", SHIFT), ("ctrl", CTRL)):
+                with self.subTest(knn=knn, press=name), \
+                        mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=knn):
+                    self.setUp()
+                    self.press(self.viewer, *NODE[3], modifiers=modifiers)
+                    self.release(self.viewer, *NODE[3], modifiers=modifiers)
+                    self.assertEqual(len(self.viewer.position_history), 2)
+                    self.assertEqual(self.viewer.redo_stack, [])
+
+    def test_a_shift_click_that_removes_a_node_keeps_its_step(self):
+        self.press(self.viewer, *NODE[2], modifiers=SHIFT)
+        self.release(self.viewer, *NODE[2], modifiers=SHIFT)
+        self.assertEqual(self.viewer.selected_indices, [1])
+        self.assertEqual(len(self.viewer.position_history), 2)
+
+    def test_a_press_that_moved_the_nodes_keeps_its_step(self):
+        self.press(self.viewer, *NODE[1])
+        self.move(self.viewer, 70, 20)
+        self.release(self.viewer, 70, 20)
+        self.assertEqual(len(self.viewer.position_history), 2)
+        self.viewer._do_undo(announce=False)
+        np.testing.assert_array_equal(self.viewer.pos[1], NODE[1])
+
+    def test_a_press_that_turned_the_nodes_keeps_its_step(self):
+        self.press(self.viewer, *NODE[1])
+        self.wheel(self.viewer, (0.0, 6.0), *NODE[1])                 # the wheel during a drag turns them
+        self.release(self.viewer, *NODE[1])
+        self.assertEqual(len(self.viewer.position_history), 2)
+
+    def test_a_step_added_meanwhile_is_not_taken_back(self):
+        self.press(self.viewer, *NODE[1])
+        self.viewer._save_state()                                    # something else, meanwhile
+        self.release(self.viewer, *NODE[1])
+        self.assertEqual(len(self.viewer.position_history), 3)
+
+    def test_the_buttons_follow_the_history(self):
+        self.viewer._refresh_history_buttons = mock.Mock()
+        self.press(self.viewer, *NODE[1])
+        self.viewer._refresh_history_buttons.reset_mock()
+        self.release(self.viewer, *NODE[1])
+        self.viewer._refresh_history_buttons.assert_called_once_with()
+
+    def test_the_release_after_esc_leaves_the_history_alone(self):
+        self.press(self.viewer, *NODE[1])
+        self.esc(self.viewer)
+        self.assert_history_as_before()
+        self.release(self.viewer, *NODE[1])
+        self.assert_history_as_before()
+
+    def test_a_left_release_with_no_press_waiting_leaves_the_history_alone(self):
+        self.viewer._save_state()
+        self.release(self.viewer, *NODE[1], button=1)
+        self.assertEqual(len(self.viewer.position_history), 2)
+
+    def test_a_press_after_a_missed_release_starts_afresh(self):
+        self.press(self.viewer, *NODE[1])                            # no release comes
+        self.press(self.viewer, *NODE[1])
+        self.release(self.viewer, *NODE[1])
+        self.assertEqual(len(self.viewer.position_history), 2)       # the first press's step, and no more
+        self.assertIs(self.viewer.position_history[0], self.earlier[0])
+
+    def test_a_press_on_empty_space_forgets_an_earlier_press(self):
+        self.press(self.viewer, *NODE[1])
+        self.press(self.viewer, 30, -10)                             # a box
+        self.assertIsNone(self.viewer._press_selection)
+        self.release(self.viewer, 30, -10)
+        self.assertEqual(len(self.viewer.position_history), 2)       # nothing was taken back by the box's release
+
+
 class BoxToggleTests(GestureTestCase):
     def box(self, viewer, modifiers=(), end=(90, 10), release=True):
         """Press on empty space and draw a box over nodes 1 and 2."""
@@ -1107,13 +1317,13 @@ class TurnByDragTests(GestureTestCase):
                 self.round_about(direction * 180, first=self.FIRST + direction * 540, viewer=viewer)    # to two
                 self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 720.0, places=6)
                 self.assert_places(viewer, [1, 3], self.start)
-                self.assertEqual(self.status(viewer)[-1], f"Rotate {direction * 720}°")
+                self.assertEqual(self.status(viewer)[-1], "Rotate 0°")     # where they stand, not 720
 
     def test_one_circle_makes_360_degrees(self):
         self.start_turn()
         self.round_about(360)
         self.assertAlmostEqual(self.viewer._drag_turn.degrees, 360.0, places=6)
-        self.assertEqual(self.status(self.viewer)[-1], "Rotate 360°")
+        self.assertEqual(self.status(self.viewer)[-1], "Rotate 0°")
         self.assert_places(self.viewer, [1, 3], self.start)
 
     def test_a_step_across_the_half_turn_is_taken_the_short_way(self):
@@ -1225,6 +1435,38 @@ class TurnByDragTests(GestureTestCase):
         self.assertEqual(self.viewer.selected_indices, [1, 3])
         self.assertEqual(self.status(self.viewer), [])
         self.assertFalse(self.viewer.is_multi_dragging)
+        self.assertEqual(self.viewer.position_history, [])      # the press's step turned out to be nothing
+
+    def test_a_drag_that_never_leaves_the_dead_zone_leaves_no_undo_step(self):
+        viewer = self.viewer
+        viewer._save_state()                                      # an earlier step
+        earlier = list(viewer.position_history)
+        undone = {"pos": "a step that was undone"}
+        viewer.redo_stack = [undone]
+        self.press_turn()
+        self.assertEqual(len(viewer.position_history), 2)
+        self.at(33.0, radius=6.0)                                 # past the click radius, inside the dead zone
+        self.assertFalse(viewer._drag_in_click)
+        self.release(viewer, 0, 0)
+        np.testing.assert_array_equal(self.places(viewer, [1, 3]), self.start)
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertIs(viewer.position_history[0], earlier[0])
+        self.assertEqual(viewer.redo_stack, [undone])             # Ctrl+Y still has its step
+
+    def test_a_turn_that_comes_back_to_where_it_began_leaves_no_undo_step(self):
+        self.start_turn()
+        self.at(self.FIRST + 90, modifiers=SHIFT)
+        self.assertFalse(np.array_equal(self.places(self.viewer, [1, 3]), self.start))
+        self.at(self.FIRST, modifiers=SHIFT)                      # Shift: back to 0 exactly
+        self.release(self.viewer, 0, 0)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.assertEqual(self.viewer.position_history, [])
+
+    def test_a_turn_that_ends_elsewhere_keeps_its_undo_step(self):
+        self.start_turn()
+        self.at(self.FIRST + 90)
+        self.release(self.viewer, 0, 0)
+        self.assertEqual(len(self.viewer.position_history), 1)
 
     def test_the_release_is_one_undo_step(self):
         self.start_turn()
@@ -1305,6 +1547,44 @@ class TurnByDragTests(GestureTestCase):
         self.at(217.5)
         self.at(142.0)                                       # -38
         self.assertEqual(self.status(self.viewer), ["Rotate 0°", "Rotate 37°", "Rotate 37.5°", "Rotate -38°"])
+
+    def test_the_status_line_wraps_the_angle_into_minus_180_to_180_after_circles(self):
+        for direction in (1, -1):
+            with self.subTest(direction=direction):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.start_turn(viewer)
+                self.round_about(direction * 1090, viewer=viewer)             # three circles and 10 degrees
+                self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 1090.0, places=6)   # the turn is whole
+                shown = [float(text.split()[1].rstrip("°")) for text in self.status(viewer)]
+                self.assertTrue(all(-180.0 < angle <= 180.0 for angle in shown), shown)
+                self.assertEqual(self.status(viewer)[-1], f"Rotate {direction * 10}°")
+                self.assert_places(viewer, [1, 3], self.turned(direction * 10.0))        # the nodes are as they were
+
+    def test_shift_steps_stay_multiples_of_15_in_the_wrapped_angle(self):
+        viewer = self.make_viewer(selected=[1, 3])
+        self.start_turn(viewer)
+        self.round_about(820, step=5.0, viewer=viewer, modifiers=SHIFT)           # past two circles
+        self.assertEqual(viewer._drag_turn.degrees, 825.0)
+        shown = [float(text.split()[1].rstrip("°")) for text in self.status(viewer)]
+        self.assertGreater(len(shown), 40)
+        for angle in shown:
+            self.assertTrue(-180.0 < angle <= 180.0 and angle % ROTATE_SNAP_DEGREES == 0.0, angle)
+        self.assertEqual(self.status(viewer)[-1], "Rotate 105°")
+
+    def test_the_wrapped_angle_to_a_tenth_of_a_degree(self):
+        # Rounded to a tenth first, then wrapped, so that nothing reads -180 or 180.04, and no "-0".
+        cases = {0.0: "0", 2869.3: "-10.7", -1006.5: "73.5", -2.9: "-2.9", 180.0: "180", -180.0: "180",
+                 179.96: "180", -179.96: "180", 180.04: "180", 180.1: "-179.9", -180.1: "179.9",
+                 359.96: "0", -359.96: "0", -0.04: "0", 360.0: "0", -360.0: "0", 540.0: "180", -540.0: "180",
+                 15.0: "15", 195.0: "-165", -195.0: "165"}
+        for degrees, expected in cases.items():
+            with self.subTest(degrees=degrees):
+                viewer = self.make_viewer(selected=[1, 3])
+                turn = EMAPSSN_Viewer._Turn(np.array([1, 3], dtype=np.intp), self.start.copy(), self.PIVOT)
+                viewer._show_turn(turn, degrees)
+                self.assertEqual(self.status(viewer), [f"Rotate {expected}°"])
+                self.assertEqual(turn.degrees, degrees)                            # only the display wraps
+                self.assert_places(viewer, [1, 3], self.turned(degrees))
 
     def test_the_turn_goes_on_the_selection_without_changing_it(self):
         self.start_turn()
@@ -1516,6 +1796,52 @@ class TurnByWheelTests(GestureTestCase):
             self.notch()
         self.notch((0.0, -8.0))
         self.assertEqual(self.status(self.viewer), ["Rotate 5°", "Rotate 10°", "Rotate 15°", "Rotate -25°"])
+
+    def test_the_status_line_wraps_the_angle_into_minus_180_to_180(self):
+        self.notch((0.0, 37.0))                                      # 185 degrees
+        self.notch((0.0, 35.0))                                      # 360: a whole circle
+        self.notch((0.0, 1.0))
+        self.notch((0.0, -146.0))                                    # -365
+        self.assertEqual(self.status(self.viewer), ["Rotate -175°", "Rotate 0°", "Rotate 5°", "Rotate -5°"])
+        self.assertEqual(self.viewer._wheel_turn.degrees, -365.0)    # the turn itself is not wrapped
+        self.assert_places(self.viewer, [1, 2], self.turned(-5.0))
+
+    def test_a_turn_that_ends_where_it_began_leaves_no_undo_step(self):
+        for end in ("timer", "ctrl let go", "a press"):
+            with self.subTest(end=end):
+                viewer = self.make_viewer(selected=[1, 2])
+                viewer._save_state()                                 # an earlier step
+                earlier = list(viewer.position_history)
+                undone = {"pos": "a step that was undone"}
+                viewer.redo_stack = [undone]
+                for _ in range(4):
+                    self.notch(viewer=viewer)
+                for _ in range(4):
+                    self.notch((0.0, -1.0), x=10, y=10, viewer=viewer)
+                self.assertEqual(len(viewer.position_history), 2)    # the first notch took the snapshot
+                self.assertEqual(viewer.redo_stack, [])
+                if end == "timer":
+                    self.timer(viewer).fire()
+                elif end == "ctrl let go":
+                    self.key_release(viewer, "Control")
+                else:
+                    self.press(viewer, 150, 50, button=1)
+                self.assertIsNone(viewer._wheel_turn)
+                self.assertEqual(len(viewer.position_history), 1)
+                self.assertIs(viewer.position_history[0], earlier[0])
+                self.assertEqual(viewer.redo_stack, [undone])        # Ctrl+Y still has its step
+                np.testing.assert_array_equal(viewer.pos[[1, 2], :2], self.start.astype(np.float32))
+
+    def test_a_turn_that_moved_the_nodes_keeps_its_step_and_so_does_one_that_something_else_followed(self):
+        self.notch()
+        self.timer().fire()
+        self.assertEqual(len(self.viewer.position_history), 1)
+        viewer = self.make_viewer(selected=[1, 2])
+        self.notch((0.0, 1.0), viewer=viewer)
+        self.notch((0.0, -1.0), viewer=viewer)
+        viewer._save_state()                                         # something else was added meanwhile
+        self.timer(viewer).fire()
+        self.assertEqual(len(viewer.position_history), 2)
 
     def test_the_picture_follows_in_both_modes_and_the_pick_is_made_again_when_the_turn_ends(self):
         for drawing in (False, True):

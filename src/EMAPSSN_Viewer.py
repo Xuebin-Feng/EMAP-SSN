@@ -1034,6 +1034,9 @@ class MainViewer:
         self._node_drag_press = None
         self._box_press = None
         self._press_history = None
+        # The selection a right press on a node found, until the button is let go: if the press
+        # changed neither it nor the nodes' places, it leaves no undo step (_settle_press_history).
+        self._press_selection = None
         self._drag_translation = np.zeros(2)
         self._drag_cancelled = False
         # A right press that is a click until the pointer leaves CLICK_DISTANCE_PIXELS (Shift on a
@@ -3252,6 +3255,7 @@ class MainViewer:
             self._drag_in_click = False
             self._remove_on_click = None
             self._drag_turn = None
+            self._press_selection = None
             self.tooltip.text = ""
             self.selected_node_idx = None
             
@@ -3272,17 +3276,19 @@ class MainViewer:
             
             if is_node_clicked:
                 # The snapshot is taken before the press changes the selection; Esc takes it
-                # back with the history around it if the drag is cancelled (_cancel_drag).
+                # back with the history around it if the drag is cancelled (_cancel_drag), and
+                # so does the release if the press changed nothing (_settle_press_history).
                 history = getattr(self, 'position_history', [])
                 kept = (list(history), list(getattr(self, 'redo_stack', [])))
                 self._save_state()
-                press_history = (kept, history[-1] if history else None)
+                before = list(self.selected_indices)
+                self._press_history = (kept, history[-1] if history else None)
+                self._press_selection = before
 
                 # Modifier logic for individual node clicking. A node not selected yet is added with
                 # Shift and is the whole selection without it; a selected one is left as it is: a
                 # Shift click removes it only once the button is let go (_remove_if_clicked), and
                 # a drag from it, with Ctrl held or not, moves or turns the selection.
-                before = list(self.selected_indices)
                 shift = 'Shift' in event.modifiers
                 ctrl = 'Control' in event.modifiers or 'Meta' in event.modifiers
                 was_selected = nearest_idx in before
@@ -3293,6 +3299,7 @@ class MainViewer:
                         self.selected_indices = [nearest_idx]
                 if self.selected_indices != before:
                     self._note_hand_selection()
+                    self._show_selection_status()
 
                 starts_drag = nearest_idx in self.selected_indices and not knn_topology_layout(cfg)
                 # The web pages (the Meta Data sheet) hear of the selection once
@@ -3308,7 +3315,6 @@ class MainViewer:
                     # The wheel turns drag_start_nodes_pos in place; Esc puts back these.
                     self._node_drag_press = (
                         np.array(self.selected_indices, dtype=np.intp), self.drag_start_nodes_pos.copy())
-                    self._press_history = press_history
                     self._drag_translation = np.zeros(2)
                     if was_selected and ctrl:
                         # A turn about the press point, the exact place under the pointer, which
@@ -3845,6 +3851,13 @@ class MainViewer:
         """A selection was made by hand: it is newer than every command given so far."""
         self.selection_epoch = getattr(self, 'selection_epoch', 0) + 1
 
+    def _show_selection_status(self):
+        """Say on the status line how many nodes a right-click or a box selection left selected."""
+        if self.selected_indices:
+            self._show_click_status(Message("Selected %n node(s).", n=len(self.selected_indices)))
+        else:
+            self._show_click_status(Message("Selection cleared."))
+
     def undo_by_hand(self):
         """Ctrl+Z, the Undo button and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
 
@@ -4349,16 +4362,22 @@ class MainViewer:
             kept = (list(history), list(getattr(self, 'redo_stack', [])))
             self._save_state()
             self._press_history = (kept, history[-1] if history else None)
+            self._press_selection = list(self.selected_indices)
             self._wheel_turn = turn = _Turn(indices, self.pos[indices, :2].copy(), pivot)
         self._show_turn(turn, turn.degrees + notches * ROTATE_DEGREES_PER_NOTCH)
         self._restart_timer('_wheel_turn_timer', WHEEL_TURN_IDLE_SECONDS, self._end_wheel_turn)
 
     def _show_turn(self, turn, degrees):
-        """Put the nodes of turn where degrees about its pivot takes them, and show them and the angle."""
+        """Put the nodes of turn where degrees about its pivot takes them, and show them and the angle.
+
+        The status line gives the angle to a tenth of a degree, wrapped into (-180, 180]: after a
+        few circles it reads where the nodes stand, not 2869. turn.degrees keeps the whole turn.
+        """
         turn.degrees = degrees
         self.pos[turn.indices, :2] = _rotated_about(turn.start, turn.pivot, degrees)
         self._redraw_moved_nodes()
-        shown = f"{round(degrees, 1) + 0.0:g}"
+        tenths = round(degrees, 1)  # rounded before it is wrapped, so that -179.96 reads 180, not -180
+        shown = f"{round(180.0 - (180.0 - tenths) % 360.0, 1) + 0.0:g}"
         if shown != turn.shown:
             turn.shown = shown
             self._show_click_status(Message("Rotate {angle}°", angle=shown))
@@ -4380,6 +4399,7 @@ class MainViewer:
         turn, self._wheel_turn = getattr(self, '_wheel_turn', None), None
         if turn is None:
             return
+        self._settle_press_history()  # the turn's step stays unless the nodes are where they were
         self._press_history = None  # no cancelling now
         timer = getattr(self, '_wheel_turn_timer', None)
         if timer is not None:
@@ -4621,7 +4641,7 @@ class MainViewer:
         off the end, and the steps it cleared from redo given back. Left as it is when
         something else has been added since."""
         press = getattr(self, '_press_history', None)
-        self._press_history = None
+        self._press_history = self._press_selection = None
         history = getattr(self, 'position_history', None)
         redo = getattr(self, 'redo_stack', None)
         if press is None or not history or redo is None:
@@ -4631,6 +4651,27 @@ class MainViewer:
             history[:] = history_before
             redo[:] = redo_before
             self._refresh_history_buttons()
+
+    def _settle_press_history(self):
+        """The press on a node, or the turn by Ctrl + wheel, is over: keep its undo step only if it changed something.
+
+        The snapshot the press took holds the nodes' places and the rest of the state, never the
+        selection (_cancel_drag says why). A press that moved and turned nothing and left the
+        selection as it found it (a Ctrl + right-click in a UMAP Viewer, where nothing can move,
+        or a Ctrl + right-drag that never left the dead zone) would leave a step that undoes
+        nothing, so it is taken off the history as Esc takes it, with the steps it cleared from
+        redo given back (_take_back_press_history). A press that changed the selection, even
+        alone, keeps its step. A turn by Ctrl + wheel notches that ends at 0 degrees, or at any
+        whole number of circles, leaves no step either.
+        """
+        selection = getattr(self, '_press_selection', None)
+        if selection is None:
+            return  # no press on a node is waiting for its release
+        press = getattr(self, '_press_history', None)
+        if press is not None and press[1] is not None:
+            if self.selected_indices == selection and _holds_same_bits(self.pos, press[1].get('pos')):
+                self._take_back_press_history()
+        self._press_history = self._press_selection = None
 
     def pick_hovered_node(self, cursor):
         """The node a cursor at canvas position cursor hovers: the topmost one
@@ -4682,6 +4723,9 @@ class MainViewer:
 
         # ---> 1. MULTI-DRAG RELEASE <---
         removed = self._remove_if_clicked(event)
+        if removed:
+            self._show_selection_status()
+        self._settle_press_history()  # no cancelling now: the press's step stays, or goes
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
             self._node_drag_press = self._press_history = None  # no cancelling now
@@ -4748,11 +4792,7 @@ class MainViewer:
                 self._box_selection_unsent = False
                 self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
 
-            # Output final count to console
-            if len(self.selected_indices) > 0:
-                self._show_click_status(Message("Selected %n node(s).", n=len(self.selected_indices)))
-            else:
-                self._show_click_status(Message("Selection cleared."))
+            self._show_selection_status()
             self._resume_command_queue()
                 
             event.handled = True
