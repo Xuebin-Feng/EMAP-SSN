@@ -164,11 +164,16 @@ class ShellTests(PageTestCase):
                 updateView();
                 const cards = [...document.querySelectorAll('.empty[data-for]')]
                     .filter(card => getComputedStyle(card).display !== 'none').map(card => card.dataset.for);
-                return {view: document.body.dataset.view, count: document.body.dataset.count, cards};
+                // Mol*'s own message about WebGL, when it made one, and the canvas it sits in, as a person sees them.
+                const molstar = [byId('viewer'), ...document.querySelectorAll('#viewer .msp-no-webgl')]
+                    .map(element => getComputedStyle(element).visibility);
+                return {view: document.body.dataset.view, count: document.body.dataset.count, cards, molstar};
             };
             const out = {};
             try {
                 stand(undefined); isRestoring = false; out.nocanvas = state();
+                // Advanced hides the page's card, so Mol*'s own message is the one shown then.
+                document.body.dataset.adv = '1'; out.advanced = state(); document.body.dataset.adv = '0';
                 stand({}); isRestoring = true; out.restoring = state();
                 isRestoring = false; out.empty = state();
             } finally {
@@ -178,9 +183,12 @@ class ShellTests(PageTestCase):
             }
             return out;
             """)
-        self.assertEqual(found["nocanvas"], {"view": "webgl", "count": "0", "cards": ["webgl"]})
-        self.assertEqual(found["restoring"], {"view": "restoring", "count": "0", "cards": ["restoring"]})
-        self.assertEqual(found["empty"], {"view": "empty", "count": "0", "cards": ["empty"]})
+        # Without WebGL 2 only the page's note is shown: Mol*'s own message and canvas under it are not.
+        self.assertEqual(found["nocanvas"], {"view": "webgl", "count": "0", "cards": ["webgl"], "molstar": ["hidden"] * len(found["nocanvas"]["molstar"])})
+        self.assertEqual(found["advanced"]["cards"], [])
+        self.assertEqual(set(found["advanced"]["molstar"]), {"visible"})
+        self.assertEqual(found["restoring"], {"view": "restoring", "count": "0", "cards": ["restoring"], "molstar": ["visible"] * len(found["restoring"]["molstar"])})
+        self.assertEqual(found["empty"], {"view": "empty", "count": "0", "cards": ["empty"], "molstar": ["visible"] * len(found["empty"]["molstar"])})
 
     def test_each_structure_gets_a_row_with_what_the_alignment_found(self):
         self.open_with_two()

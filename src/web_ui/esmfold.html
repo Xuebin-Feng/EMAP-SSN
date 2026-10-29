@@ -340,6 +340,10 @@
         /* The stage holds Mol*'s canvas (#viewer) and what the page draws over it. */
         .stage { position: relative; flex: 1; min-height: 240px; background: var(--canvas-bg); overflow: hidden; }
         #viewer { position: absolute; inset: 0; }
+        /* Without WebGL 2 Mol* has no canvas, and writes a message of its own in the viewport. The page says it in
+           its own words (the "webgl" card below), so Mol*'s is not drawn under it. Advanced hides the page's card,
+           and shows Mol*'s message then. */
+        body[data-view="webgl"]:not([data-adv="1"]) #viewer { visibility: hidden; }
         /* Mol* keeps a few things of its own in the viewport: its button for illumination and VR, its logo, and
            the hover label (which the page reads and shows in its own way). Advanced shows them again. */
         body:not([data-adv="1"]) .msp-viewport-controls,
