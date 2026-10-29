@@ -301,15 +301,16 @@ class ControlsCardTests(unittest.TestCase):
         self.services = patcher.start()
         self.addCleanup(patcher.stop)
         # Clear of the screen's left edge, and wide enough for the card in the offscreen platform's large
-        # font, where the counts line alone is 700 px.
+        # font, where the counts line alone is 700 px. Tall enough, too, for the whole card above its button in
+        # any font (it is over 700 px high in that one): a card that does not fit is held to its room and scrolls.
         self.host = RecordingCanvas()
         self.addCleanup(self.host.deleteLater)
-        self.host.setGeometry(10, 0, 1000, 760)
+        self.host.setGeometry(10, 0, 1000, 1000)
         self.button = ControlsButton(
             "Session and controls", shipped_actions(), self.host, host=self.host, session=self.read_session,
             controls_title="Mouse and keyboard controls", area=lambda: self.area or self.host.rect().adjusted(8, 8, -8, -8),
             command=self.command, command_line_open=lambda: self.command_line_open)
-        self.button.move(20, 700)
+        self.button.move(20, 940)
         self.host.show()
         flush(self.app)
 
@@ -1079,7 +1080,7 @@ class ControlsCardTests(unittest.TestCase):
         self.assertEqual(card.size(), natural)
         self.assertEqual(card.scroll.verticalScrollBar().maximum(), 0)
         # Room above the button for only part of it: the card keeps to the room and scrolls.
-        self.area = QRect(8, 330, 400, 340)
+        self.area = QRect(8, self.button.y() - 370, 400, 340)
         self.button.place_card()
         flush(self.app)
         rect = self.card_rect_in_host(card)
@@ -1104,7 +1105,7 @@ class ControlsCardTests(unittest.TestCase):
         self.assert_halves(card)
         # A button at the right edge moves the card back in.
         self.area = None
-        self.button.move(self.host.width() - 40, 700)
+        self.button.move(self.host.width() - 40, self.button.y())
         self.button.place_card()
         rect = self.card_rect_in_host(card)
         self.assertLessEqual(rect.right(), self.host.width() - 8)
@@ -1112,11 +1113,12 @@ class ControlsCardTests(unittest.TestCase):
     def test_the_card_follows_its_button(self):
         card = self.open_card()
         first = card.pos()
-        self.button.move(20, 650)
+        higher = self.button.y() - 50
+        self.button.move(20, higher)
         self.button.place_card()
         self.assertEqual(card.pos().y(), first.y() - 50)
         self.assertEqual(card.pos().x(), first.x())
-        self.button.move(60, 650)
+        self.button.move(60, higher)
         self.button.place_card()
         self.assertEqual(card.pos().x(), first.x() + 40)
 

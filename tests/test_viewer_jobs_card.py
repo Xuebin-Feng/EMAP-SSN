@@ -581,16 +581,19 @@ class CardTests(ScheduledJobsCase):
 
     def setUp(self):
         super().setUp()
+        # Tall enough for the card whole above its button, and for the jobs these tests hold, in any font: the
+        # empty card is over 700 px high in the offscreen platform's. A card that does not fit is held to its
+        # room and scrolls, and it could not grow when a job came.
         self.host = RecordingCanvas()
         self.addCleanup(dispose, self.host)
-        self.host.setGeometry(10, 0, 1000, 800)
+        self.host.setGeometry(10, 0, 1000, 1600)
         self.info = {"node_count": 10, "edge_count": 20, "inputs": {}, "directories": {}, "project_root": ""}
         self.button = ControlsButton(
             "Session and controls", shipped_actions(), self.host, host=self.host, session=lambda: self.info,
             controls_title="Mouse and keyboard controls",
             area=lambda: self.host.rect().adjusted(8, 8, -8, -8), command=mock.Mock(), jobs=self.jobs,
             confirm_stop=lambda job, description: True)
-        self.button.move(20, 760)
+        self.button.move(20, 1560)
         self.host.show()
         self.host.activateWindow()
         QTest.qWaitForWindowActive(self.host)
@@ -606,8 +609,6 @@ class CardTests(ScheduledJobsCase):
     def test_a_card_opened_over_jobs_that_are_already_there_fits_them_without_scrolling(self):
         # The rows are made before the card is styled and shown, and size themselves as they are: the card
         # measures again once they have, or its last rows would be cut off and need a scroll bar.
-        self.host.setGeometry(10, 0, 1000, 1600)
-        self.button.move(20, 1560)
         first, entered = self.hold("a")
         self.assertTrue(entered.wait(10))
         self.hold("b")
@@ -622,8 +623,6 @@ class CardTests(ScheduledJobsCase):
         # A job queued from another thread reaches the card as an event of the loop, in the same turns that
         # measure the card after it opened. The rows that change makes are not shown yet then, and a measure
         # that ran before they were shown would leave them out and the card too short for them.
-        self.host.setGeometry(10, 0, 1000, 1600)
-        self.button.move(20, 1560)
         first, entered = self.hold("a")
         self.assertTrue(entered.wait(10))
         card = self.button.toggle_card()
@@ -676,7 +675,7 @@ class CardTests(ScheduledJobsCase):
         card.close()
         plain = ControlsButton("Session and controls", shipped_actions(), self.host, host=self.host, session=lambda: self.info,
                                controls_title="Mouse and keyboard controls")
-        plain.move(20, 760)
+        plain.move(20, 1560)
         plain.show()
         card = plain.toggle_card()
         self.assertIsNone(card.jobs_section)
