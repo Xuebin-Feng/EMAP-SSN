@@ -245,11 +245,12 @@ def _worker_records(viewer, indices, nodes):
             missing.setdefault(Residue_Data.FAILED, []).append(rec_id)
             continue
         result = Residue_Data.compute_residue_data(inputs, index, sequence)
-        for error in result.unavailable.values():
-            if error.kind == Residue_Data.FAILED:
-                print(f"Warning: Could not compute per-residue data for {rec_id}: {error.reason}")
-            elif error.kind != Residue_Data.NO_ALIGNMENT:
-                print(f"Note: No per-residue alignment data for {rec_id}: {error.reason}.")
+        # Every property of a node the alignment lacks says the same: it is said once for the node.
+        for kind, reason in dict.fromkeys((error.kind, error.reason) for error in result.unavailable.values()):
+            if kind == Residue_Data.FAILED:
+                print(f"Warning: Could not compute per-residue data for {rec_id}: {reason}")
+            elif kind != Residue_Data.NO_ALIGNMENT:
+                print(f"Note: No per-residue alignment data for {rec_id}: {reason}.")
         if result.properties:
             records.append([rec_id, sequence, {
                 "header": viewer.full_headers[index],

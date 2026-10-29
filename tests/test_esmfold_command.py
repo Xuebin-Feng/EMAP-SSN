@@ -1071,6 +1071,27 @@ class ReportingTests(CommandCase):
         self.assertIn("Note: No per-residue alignment data for node_1: its sequence (4 residues) differs", output)
         self.assertIn("Note: No per-residue alignment data for node_2: it is not in the alignment.", output)
 
+    def test_the_note_about_a_node_without_data_is_printed_once_not_once_a_property(self):
+        # Both properties are out for node_1 and node_2 for the same reason, which is said once for the node.
+        viewer = self.alignment_viewer()
+        self.assertEqual(len(esmfold_command.Residue_Data.PROVIDERS), 2)
+        _records, outcome, output = self.worker_records(viewer)
+        lines = output.splitlines()
+        self.assertEqual(sum(line.startswith("Note: No per-residue alignment data for node_1:") for line in lines), 1)
+        self.assertEqual(sum(line.startswith("Note: No per-residue alignment data for node_2:") for line in lines), 1)
+        self.assertEqual(sum("node_0" in line and "per-residue" in line for line in lines), 0)
+        # The outcome's sentence for the nodes is the same.
+        self.assertEqual(outcome.count("No per-residue alignment data for 1 structure: not in the alignment."), 1)
+
+    def test_a_note_for_a_node_saved_already_is_printed_once_too(self):
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        fixtures.write_structure(folder, "node_2_esm3-large-2024-03.pdb", "ACDE", sidecar=False)
+        viewer = self.alignment_viewer()
+        output = io.StringIO()
+        self.run_reporting(viewer, ["multi", "large"], output=output, structures=folder)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(sum(line.startswith("Note: No per-residue alignment data for node_2:") for line in lines), 1)
+
     def test_the_data_is_the_alignment_s_at_the_time_of_the_command_not_at_the_time_of_the_job(self):
         viewer = self.alignment_viewer()
         records, _, _ = self.worker_records(viewer)
