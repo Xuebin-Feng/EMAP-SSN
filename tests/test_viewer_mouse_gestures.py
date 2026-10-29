@@ -19,8 +19,9 @@ on_mouse_release).
   selecting a node alone) writes the status line a box selection writes: "Selected N nodes." or
   "Selection cleared."; one that changes nothing writes nothing.
 * A press on a node saves an undo step; when the button is let go, or a Ctrl + wheel turn ends,
-  the step stays only if the press changed the nodes' places or the selection. Otherwise it is
-  taken off the history, with the redo steps it cleared given back, as Esc does.
+  the step stays only if the nodes' places changed. Undo never holds the selection, so a press
+  that only changed that leaves no step: it is taken off the history, with the redo steps it
+  cleared given back, as Esc does.
 * Shift while dragging nodes holds the move to one of eight directions, and the wheel's
   rotation never moves it.
 * The wheel during a drag turns the nodes 5 degrees a notch about the press, Shift or not.
@@ -272,13 +273,20 @@ class CancelNodeDragTests(GestureTestCase):
                 self.assertEqual(viewer.redo_stack, [undone])         # Ctrl+Y still has its step
 
     def test_undo_does_not_restore_a_selection_so_the_press_snapshot_is_never_worth_keeping(self):
-        # Why Esc never keeps the press's snapshot, even when the press changed the selection: it
-        # holds the nodes' places and the colours, sizes and so on, never the selection, so undoing
-        # it would change nothing.
+        # Why neither Esc nor a release keeps the press's snapshot when the press only changed the
+        # selection: it holds the nodes' places and the colours, sizes and so on, never the
+        # selection, so undoing it would change nothing.
         viewer = self.make_viewer(selected=[1, 2])
         self.press(viewer, *NODE[3])
         self.release(viewer, *NODE[3])
         self.assertEqual(viewer.selected_indices, [3])
+        self.assertEqual(viewer.position_history, [])                 # a step with nothing to undo is no step
+        self.assertFalse(viewer._do_undo(announce=False))
+        # Moved, the same press keeps its step, which holds no selection and brings none back.
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, *NODE[3])
+        self.move(viewer, 150, 50)
+        self.release(viewer, 150, 50)
         self.assertEqual(len(viewer.position_history), 1)
         self.assertNotIn("selected_indices", viewer.position_history[0])
         viewer._do_undo(announce=False)
@@ -681,14 +689,14 @@ class ShiftSelectionTests(GestureTestCase):
         self.assertEqual(viewer.selected_indices, [1, 2])                       # and taken out again
 
     def test_a_removal_is_no_undo_step_of_its_own(self):
-        # Undo holds the nodes' places, colours and so on, never the selection, so it does not bring
-        # the node back; the press's snapshot is the one every node click takes.
+        # Undo holds the nodes' places, colours and so on, never the selection, so it would not
+        # bring the node back: the press's snapshot, which every node click takes, is taken off.
         viewer = self.make_viewer(selected=[1, 2])
         self.press(viewer, *NODE[2], modifiers=SHIFT)
         self.release(viewer, *NODE[2])
-        self.assertEqual(len(viewer.position_history), 1)
-        self.assertNotIn("selected_indices", viewer.position_history[0])
-        viewer._do_undo(announce=False)
+        self.assertEqual(viewer.selected_indices, [1])
+        self.assertEqual(viewer.position_history, [])
+        self.assertFalse(viewer._do_undo(announce=False))
         self.assertEqual(viewer.selected_indices, [1])
 
     def test_ctrl_no_longer_removes_by_click(self):
@@ -810,7 +818,7 @@ class NodeClickStatusTests(GestureTestCase):
 
 
 class IdlePressStepTests(GestureTestCase):
-    """A press on a node saves an undo step, but only one that changes something stays when the button is let go."""
+    """A press on a node saves an undo step, but only one that moved the nodes stays when the button is let go."""
 
     def setUp(self):
         super().setUp()
@@ -851,23 +859,44 @@ class IdlePressStepTests(GestureTestCase):
         self.assert_history_as_before(viewer)
         self.assertIsNone(viewer._press_history)                      # nothing is left waiting
 
-    def test_a_press_that_changes_the_selection_keeps_its_step(self):
-        # Undo restores no selection, but the step stays as it did: the press chose a node.
+    def test_a_press_that_only_changes_the_selection_leaves_no_step_either(self):
+        # Undo restores no selection, so the step would undo nothing: a quick Shift + right
+        # double-click, which adds a node and takes it out again, left two of them.
         for knn in (False, True):
-            for name, modifiers in (("plain", []), ("shift add", SHIFT), ("ctrl", CTRL)):
+            for name, modifiers, selection in (("plain", [], [3]), ("shift add", SHIFT, [1, 2, 3]),
+                                               ("ctrl", CTRL, [3]), ("meta", ["Meta"], [3])):
                 with self.subTest(knn=knn, press=name), \
                         mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=knn):
                     self.setUp()
                     self.press(self.viewer, *NODE[3], modifiers=modifiers)
                     self.release(self.viewer, *NODE[3], modifiers=modifiers)
-                    self.assertEqual(len(self.viewer.position_history), 2)
-                    self.assertEqual(self.viewer.redo_stack, [])
+                    self.assertEqual(self.viewer.selected_indices, selection)
+                    self.assert_history_as_before()
 
-    def test_a_shift_click_that_removes_a_node_keeps_its_step(self):
-        self.press(self.viewer, *NODE[2], modifiers=SHIFT)
-        self.release(self.viewer, *NODE[2], modifiers=SHIFT)
-        self.assertEqual(self.viewer.selected_indices, [1])
+    def test_a_shift_click_that_removes_a_node_leaves_no_step(self):
+        for knn in (False, True):
+            with self.subTest(knn=knn), mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=knn):
+                self.setUp()
+                self.press(self.viewer, *NODE[2], modifiers=SHIFT)
+                self.release(self.viewer, *NODE[2], modifiers=SHIFT)
+                self.assertEqual(self.viewer.selected_indices, [1])
+                self.assert_history_as_before()
+
+    def test_two_quick_shift_right_clicks_that_add_a_node_and_take_it_out_leave_no_step(self):
+        self.press(self.viewer, *NODE[3], modifiers=SHIFT)
+        self.release(self.viewer, *NODE[3], modifiers=SHIFT)
+        self.double_click(self.viewer, *NODE[3], button=2, modifiers=SHIFT)     # Qt sends the second press so
+        self.release(self.viewer, *NODE[3], modifiers=SHIFT)
+        self.assertEqual(self.viewer.selected_indices, [1, 2])
+        self.assert_history_as_before()
+
+    def test_a_press_that_changed_the_selection_and_moved_the_nodes_keeps_its_step(self):
+        self.press(self.viewer, *NODE[3])
+        self.move(self.viewer, 150, 50)
+        self.release(self.viewer, 150, 50)
+        self.assertEqual(self.viewer.selected_indices, [3])
         self.assertEqual(len(self.viewer.position_history), 2)
+        self.assertEqual(self.viewer.redo_stack, [])
 
     def test_a_press_that_moved_the_nodes_keeps_its_step(self):
         self.press(self.viewer, *NODE[1])
@@ -908,6 +937,15 @@ class IdlePressStepTests(GestureTestCase):
         self.release(self.viewer, *NODE[1], button=1)
         self.assertEqual(len(self.viewer.position_history), 2)
 
+    def test_a_release_during_a_wheel_turn_leaves_the_turns_step_for_esc(self):
+        self.wheel(self.viewer, (0.0, 1.0), 60, 30, buttons=(), modifiers=CTRL)
+        self.assertEqual(len(self.viewer.position_history), 2)
+        self.release(self.viewer, 150, 50, button=1)                  # a stray release, no press before it
+        self.assertEqual(len(self.viewer.position_history), 2)
+        with mock.patch.object(Command_Engine, "show_status"):
+            self.assertTrue(self.esc(self.viewer).handled)
+        self.assert_history_as_before()
+
     def test_a_press_after_a_missed_release_starts_afresh(self):
         self.press(self.viewer, *NODE[1])                            # no release comes
         self.press(self.viewer, *NODE[1])
@@ -918,7 +956,7 @@ class IdlePressStepTests(GestureTestCase):
     def test_a_press_on_empty_space_forgets_an_earlier_press(self):
         self.press(self.viewer, *NODE[1])
         self.press(self.viewer, 30, -10)                             # a box
-        self.assertIsNone(self.viewer._press_selection)
+        self.assertIsNone(self.viewer._press_history)
         self.release(self.viewer, 30, -10)
         self.assertEqual(len(self.viewer.position_history), 2)       # nothing was taken back by the box's release
 
