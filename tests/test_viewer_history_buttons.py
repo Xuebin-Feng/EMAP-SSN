@@ -37,13 +37,13 @@ if SRC_DIR not in sys.path:
 import EMAPSSN_Config as cfg  # noqa: E402
 import EMAPSSN_Viewer  # noqa: E402
 from Command_Queue import CommandQueue, ManualExecutor  # noqa: E402
-from EMAPSSN_Viewer import CLICK_STATUS_SEPARATOR, MainViewer  # noqa: E402
+from EMAPSSN_Viewer import CLICK_STATUS_SEPARATOR, COMMAND_LINE_MIN_WIDTH, MainViewer  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, QRect, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from desktop.Desktop_App import PSEUDO_LANGUAGE, install_translations  # noqa: E402
 from desktop.Viewer_Caret import CommandCaret  # noqa: E402
-from desktop.Viewer_Fps import FPS_GAP, fps_text  # noqa: E402
+from desktop.Viewer_Fps import FPS_GAP  # noqa: E402
 from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability  # noqa: E402
 from desktop.Viewer_Jobs import BADGE_GAP  # noqa: E402
 from tests.test_viewer_undo_redo import make_viewer, quietly  # noqa: E402
@@ -204,14 +204,15 @@ class PlacementTests(ViewerCase):
         for width, height in SIZES:
             with self.subTest(size=(width, height)):
                 viewer = self.build((width, height), fps=True)
-                viewer.fps_overlay.show_text(fps_text(123.0, 45.6, 64))
+                # The longest text it shows at this size: the rate alone in the smallest window.
+                viewer.fps_overlay.show_text(viewer.fps_overlay.text_for(123.0, 45.6, 64))
                 self.check(viewer, fps=True, toggle=False)
                 undo, _redo = self.row(viewer)
                 card = viewer.fps_overlay.geometry()
                 self.assertEqual(card.x() + card.width() + FPS_GAP, undo.x())
 
     def test_the_command_line_never_overlaps_the_row_even_when_it_is_long(self):
-        # The box runs from its left edge to _command_line_right(); at the smallest window it still fits.
+        # The box runs from its left edge to _command_line_right(); at the smallest window it keeps a usable width.
         for width, height in SIZES:
             for fps in (False, True):
                 with self.subTest(size=(width, height), fps=fps):
@@ -219,8 +220,28 @@ class PlacementTests(ViewerCase):
                     undo, _redo = self.row(viewer)
                     left = viewer.hud_layout["console_bg_left_offset"] if hasattr(viewer, "hud_layout") else 20.0
                     right = viewer._command_line_right()
-                    self.assertGreater(right - left, 0)
+                    self.assertGreaterEqual(right - left, COMMAND_LINE_MIN_WIDTH)
                     self.assertLessEqual(right, undo.x() - FPS_GAP)
+
+    def test_a_narrow_window_shows_the_rate_alone_and_keeps_the_command_line_wide(self):
+        # The full text's room would leave the command line ~110 px in the smallest window; the rate alone leaves it more.
+        viewer = self.build((1400, 900), fps=True)
+        overlay = viewer.fps_overlay
+        overlay.frames.gpu_ms, overlay.frames.detail = 2.5, 16
+        left = viewer.hud_layout["console_bg_left_offset"] if hasattr(viewer, "hud_layout") else 20.0
+        with mock.patch.object(overlay.frames, "rate", return_value=40.0):
+            for size, rate_only in (((1400, 900), False), ((563, 300), True), ((1400, 900), False)):
+                with self.subTest(size=size):
+                    viewer.main_window.resize(*size)
+                    self.app.processEvents()
+                    native = viewer.canvas.native
+                    viewer.canvas.size = (native.width(), native.height())
+                    viewer.reposition_expand_btn()
+                    overlay.refresh()                 # its next tick
+                    self.assertEqual(overlay.rate_only, rate_only)
+                    self.assertEqual(overlay.text(), "40 fps" if rate_only else "40 fps · GPU 2.5 ms · edges 1/16")
+                    self.assertGreaterEqual(viewer._command_line_right() - left, COMMAND_LINE_MIN_WIDTH)
+                    self.check(viewer, fps=True, toggle=False)
 
     def test_it_keeps_its_place_as_the_window_is_resized(self):
         viewer = self.build((1400, 900), fps=True)

@@ -268,7 +268,8 @@ still change before version 1.0.0.
   (below) shows the Viewer's frame rate at the top right: the
   frames shown on screen in the last second, the GPU time of a recent frame and, while
   edges are thinned, the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
-  being drawn. It never makes the Viewer redraw and never appears in prints or captures.
+  being drawn. In a window too narrow for all of that beside the command line, it shows the rate alone, so
+  the command line keeps its width. It never makes the Viewer redraw and never appears in prints or captures.
 - **Hidden Viewers that MCP can bring on screen.** MCP `start_session` takes
   `mode="hidden"`.
   - **Launch and drawing:** the Viewer starts with no window, taskbar button or terminal,

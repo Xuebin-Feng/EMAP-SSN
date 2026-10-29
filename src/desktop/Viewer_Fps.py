@@ -24,7 +24,9 @@ reads Idle and its timer stops, so an idle Viewer runs nothing for it.
 With the rate go the graphics card's time for a recent frame (GL
 timestamps around the scene's draw, desktop.Viewer_Motion.GpuTimer, read a
 frame or two later without waiting; left out where the GL lacks them), and,
-while the edges are thinned, the share drawn (desktop.Viewer_Motion).
+while the edges are thinned, the share drawn (desktop.Viewer_Motion). In a
+window too narrow for those beside the command line, it shows the rate alone
+(show_rate_only).
 """
 
 from __future__ import annotations
@@ -51,8 +53,9 @@ FPS_IDLE_S = 0.5
 FPS_GAP = 8
 # The display's height, the toggle's.
 FPS_HEIGHT = 30
-# The text that sets the room the command line leaves the display.
+# The text that sets the room the command line leaves the display; the rate alone when that is all it shows.
 _WIDEST = (888.0, 888.8, 64)
+_WIDEST_RATE = (888.0,)
 
 
 def fps_text(rate, gpu_ms=None, detail=1):
@@ -125,6 +128,8 @@ class FpsOverlay(QLabel):
         self.edge_detail = edge_detail or (lambda: 1)
         self.frames = FrameRate(clock)
         self._gpu = gpu_timer
+        self.rate_only = False        # a narrow window: the rate, without the GPU time and the thinning
+        self._widest = {}
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFont(qt_monospace_font(self.font()))
@@ -180,9 +185,17 @@ class FpsOverlay(QLabel):
         rate = self.frames.rate()
         if rate is None:
             self.timer.stop()
-            self.show_text(fps_text(None))
-            return
-        self.show_text(fps_text(rate, self.frames.gpu_ms, self.frames.detail))
+        self.show_text(self.text_for(rate, self.frames.gpu_ms, self.frames.detail))
+
+    def text_for(self, rate, gpu_ms=None, detail=1):
+        """What the display reads for this rate (None: Idle): fps_text, the rate alone while rate_only."""
+        return fps_text(rate) if self.rate_only else fps_text(rate, gpu_ms, detail)
+
+    def show_rate_only(self, rate_only):
+        """Show the rate alone (True: the window is narrow) or with the GPU time and the thinning."""
+        if rate_only != self.rate_only:
+            self.rate_only = rate_only
+            self.refresh()
 
     def show_text(self, text):
         if text != self.text():
@@ -190,17 +203,23 @@ class FpsOverlay(QLabel):
             self.adjustSize()
             self._keep_right_edge()
 
-    def widest_width(self):
-        """The display's width with its longest text: the room the command line leaves it."""
-        widest = getattr(self, "_widest", None)
+    def widest_width(self, rate_only=None):
+        """The display's width with its longest text: the room the command line leaves it. rate_only
+        asks for the display that shows the rate alone, or the full one; None, as it is now."""
+        rate_only = self.rate_only if rate_only is None else rate_only
+        widest = self._widest.get(rate_only)
         if widest is None:
-            # Measured as the display measures itself: a label like it, with that text.
-            probe = QLabel(fps_text(*_WIDEST))
+            # Measured as the display measures itself: a label like it, with the longest of its texts.
+            probe = QLabel()
             probe.setObjectName(self.objectName())
             probe.setFont(self.font())
             probe.setStyleSheet(self.styleSheet())
-            probe.ensurePolished()
-            widest = self._widest = probe.sizeHint().width()
+            widths = []
+            for text in (fps_text(*(_WIDEST_RATE if rate_only else _WIDEST)), fps_text(None)):
+                probe.setText(text)
+                probe.ensurePolished()
+                widths.append(probe.sizeHint().width())
+            widest = self._widest[rate_only] = max(widths)
             probe.deleteLater()
         return widest
 

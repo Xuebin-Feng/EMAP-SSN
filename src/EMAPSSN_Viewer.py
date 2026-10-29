@@ -286,6 +286,9 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
 SIDEBAR_ENABLED = False
 # How long the sidebar takes to slide fully open or closed, in ms; 0 switches it at once.
 SIDEBAR_SLIDE_MS = 220
+# The command line keeps at least this width beside the top-right row, in canvas px: in a window too narrow
+# for that beside the frame rate's longest text, the frame rate shows the rate alone (FpsOverlay.show_rate_only).
+COMMAND_LINE_MIN_WIDTH = 320
 # The command line's box: a light tint of the theme colour, a touch see-through over the network.
 COMMAND_BOX_OPACITY = 0.95
 # VisPy draws each text from a texture of glyphs that the text keeps for itself, and builds a glyph the first
@@ -3751,7 +3754,8 @@ class MainViewer:
         While it slides, the panel's left part shows and the canvas clips the
         rest; the toggle keeps 10 px clear of its left edge, the Undo and Redo
         buttons FPS_GAP left of the toggle, and the frame rate, if shown,
-        FPS_GAP left of them.
+        FPS_GAP left of them: the rate alone where its longest text would
+        leave the command line less than COMMAND_LINE_MIN_WIDTH.
         """
         if hasattr(self, 'canvas'):
             w, h = self.canvas.size
@@ -3766,6 +3770,9 @@ class MainViewer:
                 buttons.place(self._top_row_right(left), 25)
             overlay = getattr(self, 'fps_overlay', None)
             if overlay is not None:
+                command_left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
+                full_right = self._fps_overlay_right(left) - overlay.widest_width(rate_only=False) - FPS_GAP
+                overlay.show_rate_only(full_right - command_left < COMMAND_LINE_MIN_WIDTH)
                 overlay.place(self._fps_overlay_right(left), 25)
             badge = getattr(self, 'jobs_badge', None)
             if badge is not None:
@@ -3883,7 +3890,8 @@ class MainViewer:
         """Where the command line's box may reach, in canvas px: as wide as the
         canvas less the sidebar's room and 40 px, from its left offset, and
         short of the room the top-right row takes: the Undo and Redo buttons,
-        and the frame rate beside them when that is shown."""
+        and the frame rate beside them when that is shown, with room for its
+        longest text (the rate alone in a narrow window, reposition_expand_btn)."""
         left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
         room_left = self.canvas.size[0] - _sidebar_room(self)
         right = left + room_left - 40.0
