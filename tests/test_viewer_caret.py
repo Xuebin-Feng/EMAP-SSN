@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from desktop import Viewer_Caret  # noqa: E402
 from desktop.Studio_Theme import TOKENS  # noqa: E402
 from desktop.Viewer_Caret import CommandCaret  # noqa: E402
+from tests.gl_window_environment import gl_window_environment  # noqa: E402
 
 
 class CaretTestCase(unittest.TestCase):
@@ -287,9 +288,10 @@ _GL_SCRIPT = textwrap.dedent(
         handle = window.windowHandle()
         return handle is not None and handle.isExposed()
 
-    # Whether the desktop covered, hid or exposed the window since this was last cleared. It draws a window
-    # it covers or hides not at all (a Wayland compositor stops sending it frame callbacks), and Qt draws the
-    # whole scene again each time the desktop exposes it: a count taken then says nothing about the caret.
+    # Whether the desktop covered, hid, exposed or stalled the window since this was last cleared. It draws a window
+    # it covers or hides not at all (a Wayland compositor stops sending it frame callbacks, and on XWayland the
+    # event loop then waits a second at a time, so the blink timer ticks a few times), and Qt draws the whole
+    # scene again each time the desktop exposes it: a count taken then says nothing about the caret.
     disturbed = [False]
 
     class ExposeWatcher(QtCore.QObject):
@@ -304,8 +306,10 @@ _GL_SCRIPT = textwrap.dedent(
     def wait(seconds):
         end = time.monotonic() + seconds
         while time.monotonic() < end:
+            began = time.monotonic()
             qapp.processEvents()
-            disturbed[0] = disturbed[0] or not exposed()
+            stalled = time.monotonic() - began > 0.25     # a turn of the loop takes a few milliseconds
+            disturbed[0] = disturbed[0] or stalled or not exposed()
             time.sleep(0.005)
 
     wait(1.0)
@@ -335,7 +339,8 @@ _GL_SCRIPT = textwrap.dedent(
                 wait(0.04)
 
         def measure():
-            # Run every phase; return whether the desktop left the window alone all the while, as the counts need.
+            # Run every phase; return whether the desktop left the window alone all the while, as the counts need,
+            # and the canvas kept the keyboard: a caret over a canvas that lost it does not blink.
             caret.away()
             flips[0] = 0
             disturbed[0] = False
@@ -347,12 +352,12 @@ _GL_SCRIPT = textwrap.dedent(
                 ("control", 0.5, canvas.update),
             ):
                 phase(name, seconds, action)
-                if disturbed[0]:
+                if disturbed[0] or (name == "opens" and not caret.blinking):
                     return False
             return True
 
-        # The desktop covers, uncovers and exposes the window as it likes: measure while it leaves it alone,
-        # and again when it did not, for as long as that takes.
+        # The desktop covers, uncovers and exposes the window as it likes, and takes the keyboard from it: measure
+        # while it leaves it alone, and again when it did not, for as long as that takes.
         give_up = time.monotonic() + 30
         while not (exposed() and measure()):
             if time.monotonic() > give_up:
@@ -369,9 +374,7 @@ _GL_SCRIPT = textwrap.dedent(
 
 class SceneDrawTests(unittest.TestCase):
     def test_the_blink_and_the_cursor_keys_draw_no_scene(self):
-        environment = dict(os.environ)
-        environment.pop("QT_QPA_PLATFORM", None)
-        environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0")
+        environment = gl_window_environment()
         try:
             result = subprocess.run(
                 [sys.executable, "-c", _GL_SCRIPT, SRC_DIR],
@@ -384,7 +387,8 @@ class SceneDrawTests(unittest.TestCase):
         if "CONTEXT OK" not in result.stdout:
             self.skipTest(f"no OpenGL context to draw with (exit {result.returncode})")
         if "DISTURBED" in result.stdout:
-            self.skipTest("the desktop kept covering or exposing the test window, so its draws cannot be counted")
+            self.skipTest("the desktop kept covering, exposing or stalling the test window, or kept the keyboard from "
+                          "it, so its draws cannot be counted")
         self.assertEqual(result.returncode, 0, output)
         line = next(line for line in result.stdout.splitlines() if line.startswith("DRAWS "))
         values = {key: int(value) for key, value in (item.split("=") for item in line.split()[1:])}

@@ -46,6 +46,7 @@ from desktop.Viewer_Caret import CommandCaret  # noqa: E402
 from desktop.Viewer_Fps import FPS_GAP  # noqa: E402
 from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability  # noqa: E402
 from desktop.Viewer_Jobs import BADGE_GAP  # noqa: E402
+from tests.gl_window_environment import gl_window_environment  # noqa: E402
 from tests.test_viewer_undo_redo import make_viewer, quietly  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from vispy.util.keys import Key  # noqa: E402
@@ -836,9 +837,7 @@ _GL_SCRIPT = textwrap.dedent(
 
 class SceneDrawTests(unittest.TestCase):
     def test_enabling_the_buttons_draws_no_scene_and_a_picture_holds_none_of_them(self):
-        environment = dict(os.environ)
-        environment.pop("QT_QPA_PLATFORM", None)
-        environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0")
+        environment = gl_window_environment()
         try:
             result = subprocess.run(
                 [sys.executable, "-c", _GL_SCRIPT, SRC_DIR],
