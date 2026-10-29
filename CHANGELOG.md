@@ -80,6 +80,9 @@ still change before version 1.0.0.
   `submission_id` shorter than 32 or longer than 128 characters: a client that sent short
   ids such as `req-1` must send a new random UUID for each submission, and the same id
   only to retry the same commands.
+- `esmfold` no longer folds a node whose structure is already saved: it shows the saved
+  file. A script or MCP client that ran `esmfold` to fold a node again must now run
+  `esmfold refold`.
 
 ### Added
 
@@ -313,7 +316,8 @@ still change before version 1.0.0.
     stays the default, with a legend naming the MSA the values came from. Residues
     without a value are grey, and so is a structure with no values for the chosen layer,
     marked "No data". The page shows a data file only on the structure it was made for:
-    one made for another protein is refused, and the page says why.
+    one made for another protein is refused, and the page says why. The layers' names
+    follow the page's language; the saved file keeps them in English.
   - **Code layout:** the logo and identity-weight computation moved into
     `utilities.Alignment_Profiles`, shared by `logo`, `label` and the new data. Their
     output is bit-identical.
@@ -399,7 +403,7 @@ still change before version 1.0.0.
     dragged from a selected node, the nodes follow the pointer round that point, as many
     times as it goes round. They hold still until the pointer is 15 px away, and the turn
     is measured from there, so they do not jump. Shift turns them in 15° steps, and the
-    status line shows the angle. One undo step takes the turn back.
+    status line shows the angle, from -180° to 180°. One undo step takes the turn back.
   - **Ctrl + wheel turns the selection about the pointer,** 5° a notch, with no button
     held, so the nodes cannot slip. The point stays where the turn began while you
     scroll. Letting go of Ctrl, or a second's pause, ends the turn, and one undo step
@@ -407,9 +411,13 @@ still change before version 1.0.0.
   - **The wheel during a move** still turns the nodes 5° a notch about where they were
     grabbed. A high-resolution wheel or a touchpad turns them by the share of a notch it
     reports.
+  - **A press that moves nothing leaves no undo step:** a click on a node, a Ctrl +
+    right-drag that never leaves the 15 px circle, or a turn that ends where it began.
+    Undo never restores a selection, so a click that only changes it adds no step either.
   - In the UMAP and PaCMAP layouts, where nodes cannot be moved, they cannot be turned
-    either. On macOS, Cmd does what Ctrl does. The ⓘ card and the Quick Start list every
-    mouse control.
+    either. There the ⓘ card lists only the mouse controls that work, and says that nodes
+    keep their layout positions. On macOS, Cmd does what Ctrl does. The Quick Start lists
+    every mouse control.
 - **Undo and Redo buttons in the Viewer.** Two buttons at the top right of the canvas do
   what Ctrl+Z and Ctrl+Y do, for anyone who does not use the keys.
   - **Undo** first takes back the newest command that still waits or computes, then the
@@ -755,8 +763,9 @@ still change before version 1.0.0.
   - **Canvas:** Reset view, Full screen, and Advanced, which opens Mol*'s own panels on the
     same scene and session (English only). Esc or "Back to simple view" returns.
   - **States:** the page says what to do when there are no structures yet, with a button to
-    open a structure file, and says so when WebGL is missing, while a saved session is
-    restored and when the connection to the Viewer is lost.
+    open a structure file, and says so when WebGL is missing (in place of Mol*'s own
+    message), while a saved session is restored and when the connection to the Viewer is
+    lost.
   - **Color by card:** one choice for the whole scene, in place of a select per structure:
     Structure color, pLDDT, each per-residue layer (with "1 of 2" when only some
     structures have it), and under More colorings, Secondary structure and Residue
@@ -818,6 +827,13 @@ still change before version 1.0.0.
 - **`esmfold` with nothing selected folds nothing.** It opens Fold View, even if a node was
   clicked: a clicked node is no longer folded in place of a selection. `esmfold multi` and
   `esmfold large` with nothing selected fail with "No nodes selected".
+- **`esmfold` shows a structure that is already saved instead of folding it again.** A
+  selected node whose structure file, the one this fold would write, already exists is
+  shown in Fold View with no model and no job, and the outcome names it.
+  - **`esmfold refold`** folds such nodes again. It combines with `large` and `multi`.
+  - A local fold and `large` write different files, so a node folded by one is still
+    folded by the other.
+  - With an alignment loaded, a shown structure gets its per-residue data as a fold would.
 - **Fold View's side panel is part of the page.** In a wide window the panel has no
   background or edge line of its own: its cards sit on the page beside the Structure View
   card, with their tops in line and the same gaps as between the cards. The grip that
@@ -1037,6 +1053,9 @@ still change before version 1.0.0.
   to read; it is checked again when the panel or the window changes size.
 - **`reset clusters cluster`** kept only one of its notes when a target was named twice:
   the "Removed N generated subcluster groups" note was lost. Every note is now reported.
+- **The status line kept an old count after right-clicks on nodes.** "Selected 41 nodes."
+  stayed after Shift + right-click or Ctrl + right-click changed the selection. A
+  right-click that changes the selection now gives the new count, as a box selection does.
 
 ## [0.4.0] - 2026-10-16
 
