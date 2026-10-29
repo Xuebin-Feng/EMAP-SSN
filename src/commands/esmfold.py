@@ -40,20 +40,21 @@ from desktop.Command_Metadata import argument, choice, entry
 AGENT_POLICY = 'approve'
 
 CATALOG_ENTRY = entry('Open the structure viewer or submit selected sequences for ESM3 folding. With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
-    argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi and large fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. large and multi may be combined in either order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
-        choice('large'), choice('multi'), choice('--register-only')),
+    argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi, large and refold fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. A selected node whose structure is saved already (the file this fold would write, not empty: a local and a large fold write different files) is not folded again: it is shown in the structure viewer from that file, no job is queued for it, and the outcome names it and says that refold folds it again. refold folds such nodes anyway and replaces the file. When every selected node is saved, no job is queued and the command succeeds with that note; with an alignment loaded, a shown structure also gets its per-residue data file written. large, multi and refold may be combined in any order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left and none was shown from a saved file the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
+        choice('large'), choice('multi'), choice('refold'), choice('--register-only')),
     argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop')), writes_files=True, opens_interface=True)
 
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
 AGENT_PROMPT_ORDER = 240
 AGENT_PROMPT = """
-`esmfold [large] [multi] | esmfold stop`
-- With no keyword and no selected node, adds the Fold View Console button and opens the browser Mol* structure viewer, and folds nothing, even if a node was clicked. With exactly one selected node, the default mode runs local ESM3 1.4B structure prediction; if several nodes are selected, the command fails unless `multi` is supplied.
-- `large` routes structure prediction through the Biohub API; a selected node is required, and a node that was only clicked does not count. `multi` processes all selected nodes sequentially and may appear before or after `large`.
-- Sequences are resolved from the configured source FASTA and structures are stored beneath the configured Cache File directory, using `Cache_Files/Predicted_Structures/` by default; `large` does not use local compute hardware.
-- Each fold is a job of the background scheduler's folding line, beside the line of `label`, `logo` and `print`: it waits behind the folds already queued instead of being refused, one worker runs at a time, and it runs without any window. A node another fold is to write or is writing is left out, and the outcome names the job that holds it. `large` needs the user's Biohub API token: with none saved the Viewer asks for it in a dialog, which the user must answer (never ask for the token or put it in a command), and a Viewer that shows no windows fails the command.
-- While an alignment is loaded, each structure folded for a node the alignment holds also gets `<pdb name>.residues.json` beside its PDB: per-residue Information Content and Residue Agreement from the whole loaded alignment. The result says what was saved, and why not.
-- `esmfold stop` ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold's job is reported cancelled; with none running or waiting it reports that and succeeds.
+`esmfold [large] [multi] [refold] | esmfold stop`
+- With no keyword and no selected node, adds the Fold View Console button and opens the browser Mol* structure viewer, and folds nothing, even if a node was clicked. With exactly one selected node, the default mode runs local ESM3 1.4B structure prediction; with several, the command fails unless `multi` is supplied.
+- `large` routes prediction through the Biohub API and needs a selected node (a clicked node does not count). `multi` processes all selected nodes sequentially. `large`, `multi` and `refold` combine in any order.
+- A selected node whose structure file is saved already (local and `large` folds write different files) is shown in Fold View, not folded again: no job is queued for it, and the outcome names it and says `refold` folds it again.
+- Sequences come from the configured source FASTA; structures go to `Cache_Files/Predicted_Structures/` by default; `large` uses no local compute hardware.
+- Each fold is a job of the background scheduler's folding line, beside the line of `label`, `logo` and `print`: it waits behind queued folds instead of being refused, one worker runs at a time, without any window. A node another fold is to write or is writing is left out, and the outcome names that job. `large` needs the user's Biohub API token: with none saved the Viewer asks for it in a dialog, which the user must answer (never ask for the token or put it in a command), and a Viewer that shows no windows fails the command.
+- While an alignment is loaded, each structure folded or shown for a node the alignment holds also gets `<pdb name>.residues.json` beside its PDB: per-residue Information Content and Residue Agreement from the whole loaded alignment. The result says what was saved, and why not.
+- `esmfold stop` ends the running fold with every process it started and takes the waiting folds out of the line; nothing else. Saved structures are kept, a half-written one is deleted, each fold's job is reported cancelled; with none it succeeds and says so.
 """
 
 
@@ -88,6 +89,9 @@ def print_help():
       esmfold large multi
       esmfold multi large
           Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
+      esmfold refold
+          Folds the selected nodes even when their structures are saved already (see below).
+          It may be combined with large and multi in any order, as in esmfold refold large multi.
       esmfold stop
           Ends the fold that is running, with every process it started, and takes the folds
           that wait out of the line. Structures already saved are kept, a half-written one
@@ -96,6 +100,12 @@ def print_help():
       esmfold help
           Displays this help message.
 
+    Saved structures: a selected node whose structure file is saved already (the file this
+    fold would write, not empty; a local fold's and a Biohub fold's are different files) is
+    not folded again. It is shown in the Fold View page from that file, no job is queued for
+    it, and the outcome names it and says that refold folds it again. When every selected
+    node is saved, no job is queued, no model starts, and the command succeeds with that note.
+
     Each esmfold is a job of the background scheduler's folding lane: it never refuses, it
     waits its turn behind the folds already queued, and one worker runs at a time so that
     only one model is in memory. The Viewer's Session card lists the folds (Background jobs,
@@ -103,7 +113,7 @@ def print_help():
     lists and cancels them too. A node that another fold is to write, or is writing, is left
     out of the new one, and the outcome says which job holds it.
 
-    Per-residue data: while an alignment is loaded, each structure folded for a node the
+    Per-residue data: while an alignment is loaded, each structure folded or shown for a node the
     alignment holds gets a file beside its PDB, <pdb name>.residues.json, with two values
     for every residue from the whole loaded alignment: Information Content (the logo
     command's column height, as a percentage of log2(20) bits) and Residue Agreement (the
@@ -142,7 +152,7 @@ def _report_usage_error(viewer, message):
     """Report message, a Message, in English to the terminal and translated on the console line."""
     print(f"Error: {message}")
     Command_Engine.command_failed(viewer, f'Error: {message}')
-    print("Usage: esmfold [large] [multi]")
+    print("Usage: esmfold [large] [multi] [refold]")
     _set_console_text(viewer, Message("Error: {error}", error=message))
 
 
@@ -649,7 +659,7 @@ def _stop_workers(viewer):
 
 def _parse_options(viewer, args):
     normalized = [str(argument).lower() for argument in args]
-    allowed = {"large", "multi"}
+    allowed = {"large", "multi", "refold"}
     unknown = [argument for argument in normalized if argument not in allowed]
     if unknown:
         _report_usage_error(viewer, Message("Unknown esmfold keyword: {keyword}", keyword=unknown[0]))
@@ -661,6 +671,7 @@ def _parse_options(viewer, args):
     return {
         "large": "large" in normalized,
         "multi": "multi" in normalized,
+        "refold": "refold" in normalized,
     }
 
 
@@ -726,6 +737,94 @@ def _report_failure(viewer, message):
     print(f"Error: {message}")
     Command_Engine.command_failed(viewer, f"Error: {message}")
     _set_console_text(viewer, Message("Error: {error}", error=message))
+
+
+def _structure_is_saved(path):
+    """Whether the structure file at ``path`` is saved: a file with something in it.
+
+    A fold writes its file whole or not at all (the worker renames it into place), so a file
+    that is there is a finished structure; an empty one is not counted.
+    """
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def _show_saved(viewer, saved, structures_dir):
+    """Show the structures saved for selected nodes in the Fold View page, as a fold's are; return how many got residue data.
+
+    ``saved`` holds (node index, node name, sequence, PDB file name) for each node. A node the loaded
+    alignment holds gets its residue data file written now, as a fold writes it beside the structure it
+    saves (the data comes from the alignment, not from the model), before the page is told: the page
+    finds the file when it loads the structure. Without an alignment, or for a node it lacks, an older
+    file is left as it is. A request from the portal lists each file written among its artifacts.
+    """
+    from Viewer_Command_Portal import report
+    from resources.esmfold import esmfold_worker as worker_files
+    records, _notes = _worker_records(viewer, [item[0] for item in saved], [item[1:3] for item in saved])
+    written = 0
+    for (_index, name, sequence, pdb_filename), record in zip(saved, records):
+        sidecar = len(record) == 3 and worker_files._write_residue_data(structures_dir, pdb_filename, name, sequence, record[2])
+        if sidecar:
+            written += 1
+            report(artifact=os.path.join(structures_dir, sidecar), viewer=viewer)
+    esmfold_backend.show_structures(viewer, [(item[1], item[3]) for item in saved])
+    return written
+
+
+def _saved_notes(saved, written, command):
+    """The sentences for the selected nodes that are shown from saved structures, as (Message, names) pairs.
+
+    ``written`` is how many of them got residue data, and ``command`` the command that folds them again.
+    """
+    names = [item[1] for item in saved]
+    notes = [(Message("Showed %n structure(s) from saved files instead of folding them again.", n=len(names)), names)]
+    if written:
+        notes.append((Message("Per-residue alignment data was saved beside %n shown structure(s).", n=written), []))
+    notes.append((Message("Run {command} to fold them again.", command=command), []))
+    return notes
+
+
+def _left_out_notes(skipped_ids, taken):
+    """The sentences for the selected nodes that are not folded: without a sequence, and held by another fold."""
+    notes = []
+    if skipped_ids:
+        notes.append((Message("Skipped %n selected node(s) without a sequence.", n=len(skipped_ids)), skipped_ids))
+    if taken:
+        notes.append((Message("Left out %n selected node(s) another fold holds: {nodes}.", n=len(taken), nodes=", ".join(taken)), []))
+    return notes
+
+
+def _joined_notes(notes):
+    """(the sentences of ``notes``, their English for the outcome with a space before each).
+
+    A note is a (Message, names) pair; when it names a few nodes, they follow its sentence in the outcome.
+    """
+    text = ""
+    for note, names in notes:
+        text += f" {note}"
+        if names and len(names) <= MAX_LISTED_SKIPPED:
+            text += f" ({', '.join(names)})"
+    return [note for note, _names in notes], text
+
+
+def _report_outcome(viewer, headless, page_opened, message, outcome):
+    """End the command with success: ``message`` is its console line and ``outcome`` its result.
+
+    A Viewer that shows no windows opens no page, and the outcome gives the structure viewer's address;
+    a page that did not open and is not connected is mentioned.
+    """
+    if headless:
+        address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)
+        if address is not None:
+            outcome += f" A Viewer with no window opens no browser page; the structure viewer is served at {address}."
+        Command_Engine.command_succeeded(viewer, outcome)
+        return
+    if not page_opened and not _structure_viewer_connected(viewer):
+        outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
+    _set_console_text(viewer, message)
+    Command_Engine.command_succeeded(viewer, outcome)
 
 
 def run(viewer, args):
@@ -812,25 +911,7 @@ def run(viewer, args):
         _set_console_text(viewer, Message("Error: {error}", error=failure))
         return
 
-    # 5. Select hardware only for local inference. Biohub runs remotely.
-    device_str = None
-    if not is_large:
-        try:
-            from utilities import Hardware_Acceleration as Hardware_Utils
-            import torch
-        except ImportError:
-            print("Error: PyTorch or Hardware_Utils could not be imported.")
-            Command_Engine.command_failed(viewer, 'Error: PyTorch or Hardware_Utils could not be imported.')
-            _set_console_text(viewer, Message("Error: PyTorch/Hardware_Utils missing"))
-            return
-
-        device = Hardware_Utils.get_optimal_device()
-        device_str = str(device)
-        print(f"Optimal device selected: {device_str}")
-        if device.type == 'cpu':
-            print("Warning: Running local ESM3 on CPU will be extremely slow.")
-
-    # 6. Parse sequences from FASTA subset/main database
+    # 5. Parse sequences from FASTA subset/main database
     if not hasattr(viewer, 'sequences_map'):
         viewer.sequences_map = {}
         fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', '')
@@ -872,7 +953,7 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, failure)
         return
 
-    # 8. Set up Directory & Web Registration
+    # 6. Set up Directory & Web Registration
     structures_dir = esmfold_backend.get_structures_directory()
     os.makedirs(structures_dir, exist_ok=True)
 
@@ -892,6 +973,62 @@ def run(viewer, args):
         _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
 
+    # 7. A node another fold waits to write, or is writing, is left out of this one: two folds never
+    # write the same file. The node says which job holds it. A node whose structure is saved already (the
+    # file this fold would write) is shown from it instead of being folded again, unless the command says refold.
+    from resources.esmfold import esmfold_worker as worker_files
+    abs_structures_dir = os.path.abspath(structures_dir)
+    suffix = _model_suffix(is_large)
+    taken = []
+    saved = []
+    kept_nodes, kept_indices = [], []
+    for index, (rec_id, sequence) in zip(fold_indices, nodes_to_fold):
+        pdb_filename = worker_files.prediction_filename(rec_id, suffix)
+        pdb_path = os.path.join(abs_structures_dir, pdb_filename)
+        holder = scheduler.reservation_holder(pdb_path)
+        if holder is not None:
+            taken.append(f"{rec_id} (#{holder})")
+        elif not options["refold"] and _structure_is_saved(pdb_path):
+            saved.append((index, rec_id, sequence, pdb_filename))
+        else:
+            kept_nodes.append((rec_id, sequence))
+            kept_indices.append(index)
+    if not kept_nodes and not saved:
+        refusal = Message("Every selected node is already queued or being folded: {nodes}.", nodes=", ".join(taken))
+        print(f"Error: {refusal}")
+        Command_Engine.command_failed(viewer, f'Error: {refusal}')
+        _set_console_text(viewer, Message("Error: {error}", error=refusal))
+        return
+    words = " ".join(["esmfold"] + [word for word in ("large", "multi", "refold") if options[word]])
+    if not kept_nodes:
+        # Nothing is left to fold: no job, no worker, no model, and none of what a fold needs.
+        written = _show_saved(viewer, saved, abs_structures_dir)
+        page_opened = False if headless else esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
+        notes = _saved_notes(saved, written, f"{words} refold") + _left_out_notes(skipped_ids, taken)
+        parts, outcome = _joined_notes(notes)
+        print(outcome.strip())
+        _report_outcome(viewer, headless, page_opened, JoinedMessage(parts), outcome.strip())
+        return
+    nodes_to_fold, fold_indices = kept_nodes, kept_indices
+
+    # 8. Select hardware only for local inference. Biohub runs remotely.
+    device_str = None
+    if not is_large:
+        try:
+            from utilities import Hardware_Acceleration as Hardware_Utils
+            import torch
+        except ImportError:
+            print("Error: PyTorch or Hardware_Utils could not be imported.")
+            Command_Engine.command_failed(viewer, 'Error: PyTorch or Hardware_Utils could not be imported.')
+            _set_console_text(viewer, Message("Error: PyTorch/Hardware_Utils missing"))
+            return
+
+        device = Hardware_Utils.get_optimal_device()
+        device_str = str(device)
+        print(f"Optimal device selected: {device_str}")
+        if device.type == 'cpu':
+            print("Warning: Running local ESM3 on CPU will be extremely slow.")
+
     # 8b. A run through Biohub needs the credentials. A worker with no window cannot ask for them, so the
     # Viewer does, below, once it is sure there is something to fold; a settings file it cannot use is not
     # written over.
@@ -902,30 +1039,7 @@ def run(viewer, args):
             error=credentials[1]))
         return
 
-    # 8c. A node another fold waits to write, or is writing, is left out of this one: two folds never
-    # write the same file. The node says which job holds it.
-    from resources.esmfold import esmfold_worker as worker_files
-    abs_structures_dir = os.path.abspath(structures_dir)
-    suffix = _model_suffix(is_large)
-    taken = []
-    kept_nodes, kept_indices = [], []
-    for index, (rec_id, sequence) in zip(fold_indices, nodes_to_fold):
-        pdb_path = os.path.join(abs_structures_dir, worker_files.prediction_filename(rec_id, suffix))
-        holder = scheduler.reservation_holder(pdb_path)
-        if holder is None:
-            kept_nodes.append((rec_id, sequence))
-            kept_indices.append(index)
-        else:
-            taken.append(f"{rec_id} (#{holder})")
-    if not kept_nodes:
-        refusal = Message("Every selected node is already queued or being folded: {nodes}.", nodes=", ".join(taken))
-        print(f"Error: {refusal}")
-        Command_Engine.command_failed(viewer, f'Error: {refusal}')
-        _set_console_text(viewer, Message("Error: {error}", error=refusal))
-        return
-    nodes_to_fold, fold_indices = kept_nodes, kept_indices
-
-    # 8d. Nothing is left to ask in vain about: ask for the token a run through Biohub still lacks.
+    # 8c. Nothing is left to ask in vain about: ask for the token a run through Biohub still lacks.
     if credentials[0] == "missing" and not _ask_for_token(viewer):
         return
 
@@ -944,7 +1058,6 @@ def run(viewer, args):
         pdb_filename = worker_files.prediction_filename(rec_id, suffix)
         paths += [os.path.join(abs_structures_dir, pdb_filename),
                   os.path.join(abs_structures_dir, worker_files.residue_data_filename(pdb_filename))]
-    words = " ".join(["esmfold"] + (["large"] if is_large else []) + (["multi"] if is_multi else []))
     count = len(nodes_to_fold)
     description = f"{words} -> {nodes_to_fold[0][0]}" if count == 1 else f"{words} -> {count} structures"
     _remember(run)
@@ -974,7 +1087,12 @@ def run(viewer, args):
         return
     run.job_id = job_id
 
-    # 10. Open Mol* web browser tab immediately. A headless Viewer has no browser to open it in.
+    # 10. The structures that were saved already are shown now that the fold is queued, and the Mol* web
+    # browser tab is opened immediately. A headless Viewer has no browser to open it in.
+    saved_notes = []
+    if saved:
+        written = _show_saved(viewer, saved, abs_structures_dir)
+        saved_notes = _saved_notes(saved, written, f"{words} refold")
     if headless:
         page_opened = False
     else:
@@ -986,34 +1104,12 @@ def run(viewer, args):
     else:
         queued = Message("Queued %n structure(s) for folding with local ESM3 as job #{job}.", n=len(nodes_to_fold), job=job_id)
     outcome = f"Queued {mode_label} folding for {len(nodes_to_fold)} structure(s) as job #{job_id}."
+    notes = []
     if position > 1:
-        waiting = Message("It is number {position} in the folding line.", position=position)
-        queued = JoinedMessage([queued, waiting])
-        outcome += f" {waiting}"
-    if skipped_ids:
-        skipped = Message("Skipped %n selected node(s) without a sequence.", n=len(skipped_ids))
-        queued = JoinedMessage([queued, skipped])
-        outcome += f" {skipped}"
-        if len(skipped_ids) <= MAX_LISTED_SKIPPED:
-            outcome += f" ({', '.join(skipped_ids)})"
-    if taken:
-        held = Message("Left out %n selected node(s) another fold holds: {nodes}.", n=len(taken), nodes=", ".join(taken))
-        queued = JoinedMessage([queued, held])
-        outcome += f" {held}"
-    for note, names in residue_notes:
+        notes.append((Message("It is number {position} in the folding line.", position=position), []))
+    notes += _left_out_notes(skipped_ids, taken) + saved_notes
+    for note, _names in residue_notes:
         print(note)
-        queued = JoinedMessage([queued, note])
-        outcome += f" {note}"
-        if names and len(names) <= MAX_LISTED_SKIPPED:
-            outcome += f" ({', '.join(names)})"
-    outcome += f" The worker runs without a window; its output is in {run.log_path}."
-    if headless:
-        address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)
-        if address is not None:
-            outcome += f" A Viewer with no window opens no browser page; the structure viewer is served at {address}."
-        Command_Engine.command_succeeded(viewer, outcome)
-        return
-    if not page_opened and not _structure_viewer_connected(viewer):
-        outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
-    _set_console_text(viewer, queued)
-    Command_Engine.command_succeeded(viewer, outcome)
+    parts, notes_text = _joined_notes(notes + residue_notes)
+    outcome += notes_text + f" The worker runs without a window; its output is in {run.log_path}."
+    _report_outcome(viewer, headless, page_opened, JoinedMessage([queued, *parts]), outcome)

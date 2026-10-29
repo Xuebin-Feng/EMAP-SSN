@@ -2306,6 +2306,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{name} is already in the scene.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Loading structure {name}...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3682,6 +3686,34 @@ Command-line usage:
         <source>Could not save the Biohub API token: {error}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Showed %n structure(s) from saved files instead of folding them again.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Per-residue alignment data was saved beside %n shown structure(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Run {command} to fold them again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Skipped %n selected node(s) without a sequence.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Help cannot be combined with other keywords.</source>
         <translation type="unfinished"></translation>
@@ -3703,10 +3735,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: PyTorch/Hardware_Utils missing</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: Sequence retrieval failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3720,11 +3748,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
+        <source>Every selected node is already queued or being folded: {nodes}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Every selected node is already queued or being folded: {nodes}.</source>
+        <source>Error: PyTorch/Hardware_Utils missing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3750,18 +3782,6 @@ Command-line usage:
     <message>
         <source>It is number {position} in the folding line.</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>Skipped %n selected node(s) without a sequence.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
     </message>
     <message>
         <source>Error: Export refused {source}: {error}</source>
@@ -5057,14 +5077,6 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Selected: {node}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Metadata UI</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Agent UI</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6459,15 +6471,23 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>ESMFold Mol* UI</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Importing metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold Mol* UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata UI</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

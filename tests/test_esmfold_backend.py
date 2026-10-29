@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -230,6 +231,64 @@ class FoldedStructureEventTests(unittest.TestCase):
         for data in ({"node_id": "WP_1"}, {"pdb_filename": "WP_1.pdb"}, {}):
             esmfold_backend.handle_structure_folded(viewer, data)
         self.assertEqual(viewer.events, [])
+
+
+class ShowStructuresTests(unittest.TestCase):
+    """A structure that is saved already reaches the page as a folded one does, once the page is there to take it."""
+
+    def viewer(self, connected):
+        viewer = RecordingViewer()
+        viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: connected and client_id == "esmfold")
+        return viewer
+
+    def load_session(self, viewer):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(
+            esmfold_backend, "resolve_selected_cache", return_value=os.path.join(folder, "version_00.h5")
+        ):
+            esmfold_backend.handle_load_session(viewer, {})
+
+    def event(self, name, node="WP_1"):
+        return {"type": "esmfold_pdb", "node_id": node, "pdb_url": f"/structures/{name}", "saved": True}
+
+    def test_a_connected_page_is_sent_each_structure_at_once_in_the_order_given(self):
+        viewer = self.viewer(connected=True)
+        esmfold_backend.show_structures(viewer, [("WP_2", "WP_2.pdb"), ("WP_1", "WP_1.pdb")])
+        self.assertEqual(viewer.events, [self.event("WP_2.pdb", "WP_2"), self.event("WP_1.pdb")])
+        # Nothing is kept for the page's next session request.
+        self.load_session(viewer)
+        self.assertEqual([event["type"] for event in viewer.events[2:]], ["restore_session"])
+
+    def test_a_page_that_is_not_connected_is_sent_them_after_the_session_it_restores_and_only_once(self):
+        viewer = self.viewer(connected=False)
+        esmfold_backend.show_structures(viewer, [("WP_1", "WP_1.pdb")])
+        esmfold_backend.show_structures(viewer, [("WP_2", "WP_2.pdb")])
+        self.assertEqual(viewer.events, [])
+        self.load_session(viewer)
+        self.assertEqual(
+            viewer.events,
+            [{"type": "restore_session", "session": None}, self.event("WP_1.pdb"), self.event("WP_2.pdb", "WP_2")])
+        # A page that connects again asks again, and is told nothing more.
+        self.load_session(viewer)
+        self.assertEqual([event["type"] for event in viewer.events[3:]], ["restore_session"])
+
+    def test_a_file_asked_for_twice_is_sent_once(self):
+        viewer = self.viewer(connected=False)
+        esmfold_backend.show_structures(viewer, [("WP_1", "WP_1.pdb"), ("WP_1", "WP_1.pdb")])
+        esmfold_backend.show_structures(viewer, [("WP_1", "WP_1.pdb")])
+        self.load_session(viewer)
+        self.assertEqual([event for event in viewer.events if event["type"] == "esmfold_pdb"], [self.event("WP_1.pdb")])
+
+    def test_a_viewer_with_no_web_server_holds_them_without_failing(self):
+        viewer = RecordingViewer()
+        esmfold_backend.show_structures(viewer, [("WP_1", "WP_1.pdb")])
+        self.assertFalse(esmfold_backend.page_connected(viewer))
+        self.assertEqual(viewer.events, [])
+
+    def test_a_structure_just_folded_is_not_marked_saved(self):
+        viewer = self.viewer(connected=True)
+        with redirect_stdout(io.StringIO()):
+            esmfold_backend.handle_structure_folded(viewer, {"node_id": "WP_1", "pdb_filename": "WP_1.pdb"})
+        self.assertNotIn("saved", viewer.events[0])
 
 
 class OpenLogTests(unittest.TestCase):

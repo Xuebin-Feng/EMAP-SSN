@@ -42,6 +42,12 @@ class PageTestCase(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
     def band(self, value):
         return next(color for floor, color in self.BANDS if value > floor)
 
+    def wait_for_toast(self, text):
+        deadline = time.monotonic() + 30
+        while text not in self.js("document.getElementById('toast').textContent"):
+            self.assertLess(time.monotonic(), deadline, text)
+            self.pump(0.1)
+
 
 class SavedSessionTests(PageTestCase):
     """A session the page saved before it was redesigned keeps loading."""
@@ -70,6 +76,25 @@ class SavedSessionTests(PageTestCase):
             plddt = fixtures.plddt_values(33, offset)
             for number in range(1, 34):
                 self.assertEqual(restored["colors"][index][str(number)], self.band(plddt[number - 1]), (index, number))
+
+
+    def test_a_saved_structure_the_restored_session_has_is_not_loaded_a_second_time(self):
+        write_session_structures(self.directory)
+        self.session = session_before_the_redesign()
+        handle_load = self.handle_action
+
+        def ask_for_session(data):
+            # The structure is asked for while the session is still being restored, as a Viewer does that
+            # shows a saved structure to a page it has only just opened.
+            if data.get("action") == "load_molstar_session":
+                self.broadcast({"type": "esmfold_pdb", "node_id": "protein_a", "pdb_url": "/structures/protein_a.pdb", "saved": True})
+            handle_load(data)
+
+        self.viewer.handle_web_action = ask_for_session
+        self.open_page()
+        self.wait_for_toast("protein_a is already in the scene.")
+        self.assertEqual(self.script("await structureQueue; return loadedStructures().map(structureFile)"),
+                         ["protein_a.pdb", "protein_b.pdb"])
 
 
 class ShellTests(PageTestCase):
@@ -175,6 +200,26 @@ class ShellTests(PageTestCase):
         self.assertTrue(all(title == label for title, label, _, _ in second["buttons"]))
         self.assertEqual(self.script("return document.getElementById('struct-count').textContent"), "(2)")
         self.assertEqual(self.script("return document.body.dataset.count"), "2")
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_saved_structure_is_loaded_unless_the_scene_has_it_and_a_folded_one_always_is(self):
+        self.write(self.FIRST)
+        self.write(self.SECOND, fixtures.SECOND_SEQUENCE)
+        self.open_page()
+        self.push(self.FIRST)
+        files = "await structureQueue; return loadedStructures().map(structureFile)"
+        self.assertEqual(self.script(files), [self.FIRST])
+        # A structure the Viewer shows from its saved file: the scene has it already, so nothing is loaded.
+        self.broadcast({"type": "esmfold_pdb", "node_id": "11", "pdb_url": f"/structures/{self.FIRST}", "saved": True})
+        self.wait_for_toast("11 is already in the scene.")
+        self.assertEqual(self.script(files), [self.FIRST])
+        # One the scene lacks is loaded and aligned as a folded one is.
+        self.broadcast({"type": "esmfold_pdb", "node_id": "22", "pdb_url": f"/structures/{self.SECOND}", "saved": True})
+        self.wait_for_toast("Loaded and aligned 22.")
+        self.assertEqual(self.script(files), [self.FIRST, self.SECOND])
+        # A structure just folded has a new file, so it is loaded even when the scene has one of the name.
+        self.push(self.FIRST)
+        self.assertEqual(self.script(files), [self.FIRST, self.SECOND, self.FIRST])
         self.assertEqual(self.console_errors(), [])
 
     def test_the_eye_hides_a_structure_and_the_row_follows_the_scene(self):

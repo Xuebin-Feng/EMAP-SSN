@@ -32,10 +32,12 @@ import numpy as np
 import psutil
 from PySide6 import QtCore
 
+import Viewer_Command_Portal
 import Viewer_Worker_Tracking
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Command_Portal import CURRENT, ExecutionContext, bind
 from commands import esmfold as esmfold_command
+from tests import esmfold_layer_fixtures as fixtures
 from tests.command_fixtures import end_scheduler
 from tests.sparse_alignment import sparse_alignment
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, apply_window_state
@@ -159,12 +161,15 @@ class CommandCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(esmfold_command.RUNS.clear)
+        # What the page's show_structures does when a test says (run_reporting); it is a mock otherwise.
+        self.on_show = None
 
     def run_reporting(self, viewer, arguments, *, opened=True, output=None, structures=None):
         """Run the command; return (succeeded, failed) and leave the job it queued on viewer's scheduler.
 
         ``output`` collects what the command prints. The private input file the run saved is deleted
-        when the test ends, as the scheduler's cleanup would.
+        when the test ends, as the scheduler's cleanup would. ``self.shown`` is the page's show_structures,
+        which a command that shows saved structures calls.
         """
         engine = esmfold_command.Command_Engine
         with contextlib.ExitStack() as stack:
@@ -174,6 +179,8 @@ class CommandCase(unittest.TestCase):
             enter(mock.patch.object(esmfold_command.esmfold_backend, "get_structures_directory", return_value=folder))
             enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
             enter(mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui", return_value=opened))
+            self.shown = enter(mock.patch.object(
+                esmfold_command.esmfold_backend, "show_structures", side_effect=self.on_show))
             succeeded = enter(mock.patch.object(engine, "command_succeeded"))
             failed = enter(mock.patch.object(engine, "command_failed"))
             enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
@@ -456,6 +463,260 @@ class QueuedFoldTests(CommandCase):
                 mock.patch.object(esmfold_command.token_dialog, "ask_token",
                                   side_effect=AssertionError("a local fold asks for no token")):
             self.queued(make_viewer(1), [])
+
+
+class SavedStructureTests(CommandCase):
+    """A selected node whose structure is saved already is shown, not folded again, unless the command says refold."""
+
+    def folder_with(self, *names, sequence="ACDE"):
+        """A structures folder holding a structure (and no residue data) under each of ``names``."""
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        for name in names:
+            fixtures.write_structure(folder, name, sequence, sidecar=False)
+        return folder
+
+    def cpu(self):
+        return mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cpu"))
+
+    def test_a_saved_node_is_shown_and_nothing_is_folded(self):
+        folder = self.folder_with("node_0.pdb")
+        viewer = make_viewer(1)
+        # No model is needed, so none is looked for.
+        with mock.patch.object(Hardware_Utils, "get_optimal_device", side_effect=AssertionError("a model was looked for")):
+            succeeded, failed = self.run_reporting(viewer, [], structures=folder)
+        failed.assert_not_called()
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
+        self.assertEqual(esmfold_command.RUNS, {})
+        self.shown.assert_called_once_with(viewer, [("node_0", "node_0.pdb")])
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Showed 1 structure from saved files instead of folding them again. (node_0) "
+            "Run esmfold refold to fold them again.")
+        self.assertEqual(
+            viewer.console_text.text,
+            "Showed 1 structure from saved files instead of folding them again. Run esmfold refold to fold them again.")
+
+    def test_the_command_to_fold_them_again_repeats_the_words_given(self):
+        folder = self.folder_with("node_0_esm3-large-2024-03.pdb", "node_1_esm3-large-2024-03.pdb")
+        succeeded, _ = self.run_reporting(make_viewer(2), ["multi", "large"], structures=folder)
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Showed 2 structures from saved files instead of folding them again. (node_0, node_1) "
+            "Run esmfold large multi refold to fold them again.")
+
+    def test_refold_folds_a_saved_node_anyway_and_shows_nothing(self):
+        folder = self.folder_with("node_0.pdb")
+        viewer = make_viewer(1)
+        with self.cpu():
+            run, succeeded = self.queued(viewer, ["refold"], structures=folder)
+        self.assertEqual(run.records, [["node_0", "ACDE"]])
+        self.shown.assert_not_called()
+        self.assertNotIn("Showed", succeeded.call_args.args[1])
+        self.assertEqual(viewer.background_job_scheduler.jobs[0]["description"], "esmfold refold -> node_0")
+        # The file is written over, as a worker's fold does: the job may.
+        self.assertTrue(viewer.background_job_scheduler.jobs[0]["allow_overwrite"])
+
+    def test_refold_combines_with_large_and_multi_in_any_order(self):
+        cases = {
+            ("refold", "large"): "esmfold large refold -> node_0",
+            ("large", "refold"): "esmfold large refold -> node_0",
+            ("multi", "refold", "large"): "esmfold large multi refold -> node_0",
+            ("refold", "multi"): "esmfold multi refold -> node_0",
+            ("large", "multi", "refold"): "esmfold large multi refold -> node_0",
+        }
+        for arguments, description in cases.items():
+            with self.subTest(arguments=arguments):
+                folder = self.folder_with("node_0.pdb", "node_0_esm3-large-2024-03.pdb")
+                viewer = make_viewer(1)
+                with self.cpu():
+                    run, _ = self.queued(viewer, list(arguments), structures=folder)
+                self.assertEqual(viewer.background_job_scheduler.jobs[0]["description"], description)
+                self.assertEqual(run.mode, "large" if "large" in arguments else "local")
+                self.shown.assert_not_called()
+
+    def test_a_repeated_or_unknown_word_fails_before_anything_is_shown_or_queued(self):
+        folder = self.folder_with("node_0.pdb")
+        for arguments, text in ((["refold", "refold"], "Duplicate esmfold keyword: refold"),
+                                (["large", "refold", "large"], "Duplicate esmfold keyword: large"),
+                                (["refolds"], "Unknown esmfold keyword: refolds")):
+            with self.subTest(arguments=arguments):
+                viewer = make_viewer(1)
+                succeeded, failed = self.run_reporting(viewer, arguments, structures=folder)
+                succeeded.assert_not_called()
+                self.assertIn(text, failed.call_args.args[1])
+                self.shown.assert_not_called()
+                self.assertEqual(viewer.background_job_scheduler.jobs, [])
+
+    def test_refold_with_nothing_selected_fails_like_the_other_words(self):
+        viewer = make_viewer()
+        succeeded, failed = self.run_reporting(viewer, ["refold"])
+        succeeded.assert_not_called()
+        self.assertIn("No nodes selected", failed.call_args.args[1])
+
+    def test_only_the_saved_nodes_of_a_selection_are_left_out_of_the_fold(self):
+        folder = self.folder_with("node_1.pdb")
+        viewer = make_viewer(3)
+        with self.cpu():
+            run, succeeded = self.queued(viewer, ["multi"], structures=folder)
+        self.assertEqual([record[0] for record in run.records], ["node_0", "node_2"])
+        self.shown.assert_called_once_with(viewer, [("node_1", "node_1.pdb")])
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Queued local ESM3 folding for 2 structure(s) as job #1. "
+            "Showed 1 structure from saved files instead of folding them again. (node_1) "
+            f"Run esmfold multi refold to fold them again. {NO_ALIGNMENT} "
+            f"The worker runs without a window; its output is in {run.log_path}.")
+        self.assertEqual(
+            viewer.console_text.text,
+            "Queued 2 structures for folding with local ESM3 as job #1. "
+            "Showed 1 structure from saved files instead of folding them again. "
+            f"Run esmfold multi refold to fold them again. {NO_ALIGNMENT}")
+        # What the job holds is what it folds, not the saved node.
+        [paths] = viewer.background_job_scheduler.reserved
+        self.assertEqual([os.path.basename(path) for path in paths],
+                         ["node_0.pdb", "node_0.residues.json", "node_2.pdb", "node_2.residues.json"])
+
+    def test_many_saved_nodes_are_counted_without_listing_them(self):
+        folder = self.folder_with(*(f"node_{index}.pdb" for index in range(6)))
+        succeeded, _ = self.run_reporting(make_viewer(6), ["multi"], structures=folder)
+        message = succeeded.call_args.args[1]
+        self.assertIn("Showed 6 structures from saved files instead of folding them again. Run esmfold multi refold", message)
+        self.assertNotIn("node_", message)
+        self.assertEqual(len(self.shown.call_args.args[1]), 6)
+
+    def test_the_file_a_fold_would_write_is_the_one_that_counts(self):
+        # A local fold and a large fold of the same node write different files: each is saved for its own.
+        folder = self.folder_with("node_0.pdb")
+        viewer = make_viewer(1)
+        run, _ = self.queued(viewer, ["large"], structures=folder)
+        self.assertEqual(run.mode, "large")
+        self.shown.assert_not_called()
+
+        folder = self.folder_with("node_0_esm3-large-2024-03.pdb")
+        viewer = make_viewer(1)
+        with self.cpu():
+            run, _ = self.queued(viewer, [], structures=folder)
+        self.assertEqual(run.mode, "local")
+        self.shown.assert_not_called()
+
+    def test_a_file_that_is_empty_or_not_a_file_is_not_a_saved_structure(self):
+        folder = self.folder_with()
+        Path(folder, "node_0.pdb").write_text("", encoding="utf-8")
+        os.mkdir(Path(folder, "node_1.pdb"))
+        # What an interrupted worker leaves under its own name, which the final name never has.
+        Path(folder, "node_2.pdb.4321.partial").write_text("ATOM\n", encoding="utf-8")
+        viewer = make_viewer(3)
+        with self.cpu():
+            run, succeeded = self.queued(viewer, ["multi"], structures=folder)
+        self.assertEqual([record[0] for record in run.records], ["node_0", "node_1", "node_2"])
+        self.shown.assert_not_called()
+        self.assertNotIn("Showed", succeeded.call_args.args[1])
+
+    def test_a_node_another_fold_holds_is_not_shown_whatever_is_saved(self):
+        folder = self.folder_with("node_0.pdb", "node_1.pdb")
+        viewer = make_viewer(2)
+        scheduler = viewer.background_job_scheduler
+        scheduler.held[scheduler.key(os.path.join(os.path.abspath(folder), "node_0.pdb"))] = 7
+        succeeded, failed = self.run_reporting(viewer, ["multi"], structures=folder)
+        failed.assert_not_called()
+        self.shown.assert_called_once_with(viewer, [("node_1", "node_1.pdb")])
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Showed 1 structure from saved files instead of folding them again. (node_1) "
+            "Run esmfold multi refold to fold them again. Left out 1 selected node another fold holds: node_0 (#7).")
+
+    def test_nodes_without_a_sequence_are_still_skipped_and_named(self):
+        folder = self.folder_with("node_0.pdb")
+        viewer = make_viewer(2)
+        del viewer.sequences_map["node_1 description"]
+        succeeded, _ = self.run_reporting(viewer, ["multi"], structures=folder)
+        self.shown.assert_called_once_with(viewer, [("node_0", "node_0.pdb")])
+        self.assertTrue(succeeded.call_args.args[1].endswith(
+            "Run esmfold multi refold to fold them again. Skipped 1 selected node without a sequence. (node_1)"))
+
+    def test_every_node_held_and_none_saved_is_still_refused(self):
+        folder = self.folder_with()
+        viewer = make_viewer(1)
+        scheduler = viewer.background_job_scheduler
+        scheduler.held[scheduler.key(os.path.join(os.path.abspath(folder), "node_0.pdb"))] = 3
+        succeeded, failed = self.run_reporting(viewer, [], structures=folder)
+        succeeded.assert_not_called()
+        self.assertIn("Every selected node is already queued or being folded: node_0 (#3).", failed.call_args.args[1])
+        self.shown.assert_not_called()
+
+    def test_a_run_that_shows_only_needs_no_credentials_and_no_token(self):
+        self.credentials.return_value = ("invalid", RuntimeError("a settings file that cannot be used"))
+        folder = self.folder_with("node_0_esm3-large-2024-03.pdb")
+        with mock.patch.object(esmfold_command.token_dialog, "ask_token", side_effect=AssertionError("asked for a token")):
+            succeeded, failed = self.run_reporting(make_viewer(1), ["large"], structures=folder)
+        failed.assert_not_called()
+        self.assertIn("Showed 1 structure from saved files", succeeded.call_args.args[1])
+        self.credentials.assert_not_called()
+
+    def test_a_fold_that_cannot_be_queued_shows_nothing(self):
+        folder = self.folder_with("node_1.pdb")
+        viewer = make_viewer(2)
+        viewer.background_job_scheduler.enqueue = mock.Mock(side_effect=FileExistsError("reserved"))
+        with self.cpu():
+            succeeded, failed = self.run_reporting(viewer, ["multi"], structures=folder)
+        succeeded.assert_not_called()
+        self.assertIn("Could not queue the fold", failed.call_args.args[1])
+        self.shown.assert_not_called()
+
+    # --- Per-residue data of the structures shown ---
+
+    def alignment_viewer(self, folder):
+        """node_0 is in the loaded alignment as it is, node_1 under another sequence, node_2 not at all; all are saved."""
+        viewer = make_viewer(3)
+        viewer.alignment = SimpleNamespace(
+            aln=sparse_alignment([("a", "AC-DE"), ("b", "ACGDE")]), msa_file="D:/alignments/family.fasta",
+            viewer_to_aln=np.array([0, 1, -1]))
+        for index in range(3):
+            fixtures.write_structure(folder, f"node_{index}.pdb", "ACDE", sidecar=False)
+        return viewer
+
+    def test_a_shown_structure_the_alignment_holds_gets_its_data_written_before_the_page_is_told(self):
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        viewer = self.alignment_viewer(folder)
+        found_when_told = []
+        self.on_show = lambda *arguments: found_when_told.append(sorted(os.listdir(folder)))
+        with mock.patch.object(Viewer_Command_Portal, "report") as report:
+            succeeded, failed = self.run_reporting(viewer, ["multi"], structures=folder)
+        failed.assert_not_called()
+        # A request from the portal lists the file written among its artifacts.
+        report.assert_called_once_with(artifact=os.path.join(os.path.abspath(folder), "node_0.residues.json"), viewer=viewer)
+        self.assertEqual(found_when_told, [["node_0.pdb", "node_0.residues.json", "node_1.pdb", "node_2.pdb"]])
+        with open(os.path.join(folder, "node_0.residues.json"), encoding="utf-8") as handle:
+            data = json.load(handle)
+        self.assertEqual(data["structure"], "node_0.pdb")
+        self.assertEqual(data["sequence"], "ACDE")
+        self.assertEqual(data["header"], "node_0 description")
+        self.assertEqual(list(data["properties"]), ["information_content", "same_residue_pct"])
+        self.assertEqual(data["properties"]["same_residue_pct"]["source"]["file"], "family.fasta")
+        self.assertIn(
+            "Showed 3 structures from saved files instead of folding them again. (node_0, node_1, node_2) "
+            "Per-residue alignment data was saved beside 1 shown structure. Run esmfold multi refold",
+            succeeded.call_args.args[1])
+
+    def test_without_an_alignment_the_data_file_beside_a_shown_structure_is_left_as_it_is(self):
+        folder = self.folder_with("node_0.pdb")
+        sidecar = Path(folder, "node_0.residues.json")
+        sidecar.write_text('{"older": "data"}', encoding="utf-8")
+        succeeded, _ = self.run_reporting(make_viewer(1), [], structures=folder)
+        self.assertEqual(sidecar.read_text(encoding="utf-8"), '{"older": "data"}')
+        self.assertNotIn("Per-residue", succeeded.call_args.args[1])
+
+    def test_a_structure_of_another_sequence_under_the_name_gets_no_data_file(self):
+        # The saved PDB has 6 residues, the node's sequence 4: the data would point at the wrong residues.
+        folder = self.folder_with("node_0.pdb", sequence="ACDEFG")
+        viewer = self.alignment_viewer(self.enterContext(tempfile.TemporaryDirectory()))
+        viewer.selected_indices = [0]
+        output = io.StringIO()
+        succeeded, _ = self.run_reporting(viewer, [], structures=folder, output=output)
+        self.assertFalse(os.path.exists(os.path.join(folder, "node_0.residues.json")))
+        self.assertIn("Warning: Could not write the residue data for node_0", output.getvalue())
+        self.assertNotIn("Per-residue", succeeded.call_args.args[1])
+        self.shown.assert_called_once_with(viewer, [("node_0", "node_0.pdb")])
 
 
 SECRET = "typed-secret-token-0123"
@@ -923,9 +1184,16 @@ class WindowStateTests(unittest.TestCase):
             viewer.headless = headless
         return opening_pages(viewer)
 
-    def run_esmfold(self, viewer, arguments):
-        """Run the command with only the scheduler stubbed; return what happened."""
+    def run_esmfold(self, viewer, arguments, saved=()):
+        """Run the command with only the scheduler stubbed; return what happened.
+
+        ``saved`` names the structures (of the sequence ACDE) that are saved in the folder already.
+        """
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        if saved:
+            os.makedirs(root / "structures")
+        for name in saved:
+            fixtures.write_structure(str(root / "structures"), name, "ACDE", sidecar=False)
         engine = esmfold_command.Command_Engine
         output = io.StringIO()
         with contextlib.ExitStack() as stack:
@@ -980,6 +1248,35 @@ class WindowStateTests(unittest.TestCase):
                     run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new_tab=True)
                     self.assertNotIn("served at", self.outcome(run))
                 self.assertIn("The worker runs without a window; its output is in", self.outcome(run))
+
+    def test_a_saved_structure_is_held_for_a_page_that_is_not_connected_and_the_page_opens_where_a_user_is(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(self.make_viewer(headless=None), state)
+                run = self.run_esmfold(viewer, [], saved=["node_0.pdb"])
+                self.assertEqual(run.scheduler.jobs, [])
+                run.hidden.assert_not_called()
+                self.assertEqual(viewer._esmfold_structures_to_show, {"node_0.pdb": "node_0"})
+                message = self.outcome(run)
+                self.assertTrue(message.startswith("Showed 1 structure from saved files"), message)
+                if state in NO_WINDOW_STATES:
+                    run.browser.assert_not_called()
+                    self.assertIn(f"served at {ADDRESS}/esmfold.html", message)
+                else:
+                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new_tab=True)
+                    self.assertNotIn("served at", message)
+
+    def test_a_connected_page_is_sent_the_saved_structure_at_once(self):
+        viewer = self.make_viewer(connected=True)
+        events = []
+        viewer.broadcast_event = events.append
+        run = self.run_esmfold(viewer, [], saved=["node_0.pdb"])
+        self.assertEqual(
+            events, [{"type": "esmfold_pdb", "node_id": "node_0", "pdb_url": "/structures/node_0.pdb", "saved": True}])
+        self.assertEqual(viewer._esmfold_structures_to_show, {})
+        run.browser.assert_not_called()
+        self.assertEqual(run.scheduler.jobs, [])
+        self.assertNotIn("served at", self.outcome(run))
 
     def test_the_bare_command_opens_the_page_or_gives_its_address_by_state(self):
         for state in WINDOW_STATES:
@@ -2117,6 +2414,9 @@ class RejectedTokenProcessTests(ProcessCase):
                 self.marker.unlink(missing_ok=True)
                 self.given.unlink(missing_ok=True)
                 self.dialogs.clear()
+                # Each state folds afresh: the structure the state before saved is not folded again.
+                for saved in (self.root / "structures").glob("*.pdb"):
+                    saved.unlink()
                 request_id, _, _ = self.fold_three(state=state)
                 result = self.finish(request_id)
                 self.assertEqual(result["status"], "failed", result)

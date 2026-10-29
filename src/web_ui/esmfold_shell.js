@@ -276,7 +276,7 @@ function setupSSE() {
     async function processPendingStructures() {
         for (const struct of pendingStructures) {
             showStatus(t("Processing queued structure: {name}...", {name: struct.node_id}), 0);
-            await enqueueStructure(struct.pdb_url, struct.node_id);
+            await (struct.saved ? enqueueSavedStructure : enqueueStructure)(struct.pdb_url, struct.node_id);
         }
         pendingStructures = [];
     }
@@ -306,13 +306,13 @@ function setupSSE() {
             } else if (msg.type === 'viewer_info') {
                 handleViewerInfo(msg);
             } else if (msg.type === 'esmfold_pdb') {
-                const { pdb_url, node_id } = msg;
+                const { pdb_url, node_id, saved } = msg;
                 if (isRestoring) {
                     // Queue incoming structure while waiting for the session state response
-                    pendingStructures.push({ pdb_url, node_id });
+                    pendingStructures.push({ pdb_url, node_id, saved });
                 } else {
                     showStatus(t("New structure received: {name}. Loading...", {name: node_id}), 0);
-                    await enqueueStructure(pdb_url, node_id);
+                    await (saved ? enqueueSavedStructure : enqueueStructure)(pdb_url, node_id);
                 }
             }
         } catch (e) {
@@ -337,6 +337,23 @@ function setupSSE() {
 let structureQueue = Promise.resolve();
 function enqueueStructure(url, label) {
     return enqueueLoad(() => viewerInstance.loadStructureFromUrl(url, 'pdb'), label, url);
+}
+
+// A structure the Viewer shows from a file it saved earlier (`saved` on the event), not one just folded: it is
+// loaded unless the scene has it already, as a restored session or an earlier request may have put it there.
+// The Viewer may have written the file's residue data again since, so its layers are asked for again.
+function enqueueSavedStructure(url, label) {
+    structureQueue = structureQueue
+        .then(() => {
+            const file = fileOfUrl(url);
+            if (!loadedStructures().some(structure => structureFile(structure) === file)) {
+                return loadAndAlignStructure(() => viewerInstance.loadStructureFromUrl(url, 'pdb'), label, url);
+            }
+            showStatus(t("{name} is already in the scene.", {name: label}));
+            return layerListing(file, true).then(() => renderColorCard());
+        })
+        .catch(err => console.error("Error loading structure:", err));
+    return structureQueue;
 }
 
 // `load` makes Mol* load a structure (from a URL, or from a file's text); `url` is where it came from, if anywhere.
@@ -390,8 +407,7 @@ async function loadAndAlignStructure(load, label, url) {
     } finally {
         // A structure written again under the same name has new residue data.
         if (url) {
-            const file = decodeURIComponent(url.split('?')[0].split('/').pop());
-            layerListing(file, true).then(() => renderColorCard());
+            layerListing(fileOfUrl(url), true).then(() => renderColorCard());
         }
         scheduleStructures();
         // Wait 1.5 seconds for representation state to finalize, then save session snapshot

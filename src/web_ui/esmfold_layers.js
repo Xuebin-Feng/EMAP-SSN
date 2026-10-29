@@ -82,10 +82,15 @@ function sceneBeingReplaced() {
     return plugin.state.data.behaviors.isUpdating.value && listedStructures().some(structure => !nodesAbove(structure));
 }
 
+// The file an address names, such as the PDB file of /structures/<file>.
+function fileOfUrl(url) {
+    return decodeURIComponent(url.split('?')[0].split('/').pop());
+}
+
 // The PDB file a structure was loaded from, from its download node.
 function structureFile(structure) {
     const url = structureSourceUrl(structure);
-    return url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : undefined;
+    return url ? fileOfUrl(url) : undefined;
 }
 
 function layerListing(file, refresh = false) {

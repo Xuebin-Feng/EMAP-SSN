@@ -3149,7 +3149,7 @@ Command-line usage:
 <context>
     <name>EsmfoldPage</name>
     <message>
-        <location filename="../../../web_ui/esmfold_layers.js" line="+116"/>
+        <location filename="../../../web_ui/esmfold_layers.js" line="+121"/>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished">此结构没有属性节点</translation>
     </message>
@@ -3383,7 +3383,12 @@ Command-line usage:
         <translation type="unfinished">收到新结构：{name}。正在加载…</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+38"/>
+        <source>{name} is already in the scene.</source>
+        <translation type="unfinished">{name} 已在场景中。</translation>
+    </message>
+    <message>
+        <location line="+18"/>
         <source>Loading structure {name}...</source>
         <translation type="unfinished">正在加载结构 {name}…</translation>
     </message>
@@ -4462,11 +4467,11 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1297"/>
+        <location filename="../../../commands/label.py" line="+1322"/>
         <location line="+452"/>
-        <location filename="../../../commands/logo.py" line="+233"/>
+        <location filename="../../../commands/logo.py" line="+260"/>
         <location line="+79"/>
-        <location filename="../../../commands/print.py" line="+1523"/>
+        <location filename="../../../commands/print.py" line="+1544"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -4584,7 +4589,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../../commands/query.py" line="+153"/>
+        <location filename="../../../commands/query.py" line="+174"/>
         <source>Grouped amino-acid target &apos;{target}&apos; must contain at least two one-letter residue symbols.</source>
         <translation type="unfinished">成组的氨基酸目标“{target}”必须至少包含两个单字母残基符号。</translation>
     </message>
@@ -4627,7 +4632,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+15"/>
-        <location filename="../../../commands/select.py" line="+272"/>
+        <location filename="../../../commands/select.py" line="+293"/>
         <location line="+57"/>
         <source>Selection</source>
         <translation type="unfinished">选择</translation>
@@ -4738,7 +4743,7 @@ Command-line usage:
         <translation type="unfinished">布尔表达式没有为每个 SSN 节点得出一个选择值。请检查是否有空的或格式错误的目标。</translation>
     </message>
     <message>
-        <location filename="../../../commands/reset.py" line="+283"/>
+        <location filename="../../../commands/reset.py" line="+357"/>
         <source>Reset successful: {targets}.</source>
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
@@ -4759,27 +4764,27 @@ Command-line usage:
     </message>
     <message>
         <location line="+54"/>
-        <location filename="../../../commands/help.py" line="+123"/>
+        <location filename="../../../commands/help.py" line="+132"/>
         <source>Unknown command: {command}</source>
         <translation type="unfinished">未知命令：{command}</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location filename="../../../commands/agent.py" line="+103"/>
+        <location filename="../../../commands/agent.py" line="+112"/>
         <location line="+16"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+124"/>
-        <location line="+582"/>
-        <location line="+84"/>
-        <location line="+112"/>
-        <location line="+49"/>
+        <location filename="../../../commands/esmfold.py" line="+156"/>
+        <location line="+583"/>
+        <location line="+169"/>
+        <location line="+89"/>
+        <location line="+86"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+195"/>
+        <location filename="../../../commands/meta.py" line="+221"/>
         <location line="+119"/>
         <location filename="../../../commands/print.py" line="-77"/>
         <location line="+52"/>
@@ -4799,26 +4804,26 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
-        <location filename="../../../commands/alignment.py" line="+54"/>
-        <location filename="../../../commands/cluster.py" line="+370"/>
-        <location filename="../../../commands/color.py" line="+476"/>
-        <location filename="../../../commands/console.py" line="+57"/>
-        <location filename="../../../commands/embedding.py" line="+62"/>
-        <location filename="../../../commands/esmfold.py" line="-225"/>
-        <location filename="../../../commands/export.py" line="+120"/>
-        <location filename="../../../commands/group.py" line="+141"/>
+        <location filename="../../../commands/alignment.py" line="+71"/>
+        <location filename="../../../commands/cluster.py" line="+389"/>
+        <location filename="../../../commands/color.py" line="+504"/>
+        <location filename="../../../commands/console.py" line="+64"/>
+        <location filename="../../../commands/embedding.py" line="+79"/>
+        <location filename="../../../commands/esmfold.py" line="-239"/>
+        <location filename="../../../commands/export.py" line="+141"/>
+        <location filename="../../../commands/group.py" line="+161"/>
         <location filename="../../../commands/help.py" line="-55"/>
-        <location filename="../../../commands/jobs.py" line="+201"/>
+        <location filename="../../../commands/jobs.py" line="+220"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
-        <location filename="../../../commands/offset.py" line="+92"/>
+        <location filename="../../../commands/offset.py" line="+110"/>
         <location filename="../../../commands/print.py" line="-152"/>
         <location filename="../../../commands/query.py" line="-236"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
-        <location filename="../../../commands/spectrum.py" line="+178"/>
-        <location filename="../../../commands/subcluster.py" line="+213"/>
+        <location filename="../../../commands/spectrum.py" line="+197"/>
+        <location filename="../../../commands/subcluster.py" line="+233"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -4840,7 +4845,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
         <location filename="../../../commands/embedding.py" line="+20"/>
-        <location filename="../../../commands/run.py" line="+249"/>
+        <location filename="../../../commands/run.py" line="+270"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -5079,7 +5084,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-548"/>
+        <location filename="../../../commands/esmfold.py" line="-634"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -5227,7 +5232,7 @@ Command-line usage:
         <translation type="unfinished">重复的 esmfold 关键字：{keyword}</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+51"/>
         <source>Could not ask for the Biohub API token: {error}</source>
         <translation type="unfinished">无法询问 Biohub API 令牌：{error}</translation>
     </message>
@@ -5241,8 +5246,20 @@ Command-line usage:
         <source>Could not save the Biohub API token: {error}</source>
         <translation type="unfinished">无法保存 Biohub API 令牌：{error}</translation>
     </message>
+    <message numerus="yes">
+        <location line="+48"/>
+        <source>Showed %n structure(s) from saved files instead of folding them again.</source>
+        <translation type="unfinished">
+            <numerusform>已从已保存的文件显示 %n 个结构，没有再次折叠。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+25"/>
+        <location line="+3"/>
+        <source>Run {command} to fold them again.</source>
+        <translation type="unfinished">要再次折叠它们，请运行 {command}。</translation>
+    </message>
+    <message>
+        <location line="+59"/>
         <source>Help cannot be combined with other keywords.</source>
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
@@ -5266,7 +5283,7 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+137"/>
         <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
         <translation type="unfinished">无法使用 Biohub API 设置：{error} 请修复或删除该文件，然后再次运行 esmfold large。</translation>
     </message>
@@ -5275,12 +5292,12 @@ Command-line usage:
         <translation type="obsolete">尚未保存 Biohub API 凭据。请先创建 Biohub API 设置文件，或设置 ESM_API_KEY，再使用 esmfold large 进行折叠。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="-40"/>
         <source>Every selected node is already queued or being folded: {nodes}.</source>
         <translation type="unfinished">所选节点都已在排队或正在折叠：{nodes}。</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+76"/>
         <source>Folding</source>
         <translation type="unfinished">折叠</translation>
     </message>
@@ -5290,7 +5307,7 @@ Command-line usage:
         <translation type="unfinished">无法将折叠加入队列：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+15"/>
+        <location line="+20"/>
         <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个结构加入 Biohub ESM3 折叠队列，任务 #{job}。</numerusform>
@@ -5304,12 +5321,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>It is number {position} in the folding line.</source>
         <translation type="unfinished">它在折叠队列中排第 {position} 位。</translation>
     </message>
     <message numerus="yes">
-        <location line="+10"/>
+        <location line="-314"/>
         <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
         <translation type="unfinished">
             <numerusform>已省略 %n 个所选节点，它们被另一个折叠占用：{nodes}。</numerusform>
@@ -5320,17 +5337,24 @@ Command-line usage:
         <translation type="obsolete">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
     </message>
     <message>
-        <location line="-176"/>
+        <location line="+228"/>
         <source>Error: PyTorch/Hardware_Utils missing</source>
         <translation type="unfinished">错误：缺少 PyTorch/Hardware_Utils</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="-71"/>
         <source>Error: Sequence retrieval failed.</source>
         <translation type="unfinished">错误：获取序列失败。</translation>
     </message>
+    <message numerus="yes">
+        <location line="-168"/>
+        <source>Per-residue alignment data was saved beside %n shown structure(s).</source>
+        <translation type="unfinished">
+            <numerusform>已在 %n 个所显示的结构旁保存逐残基比对数据。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+14"/>
+        <location line="+182"/>
         <source>ESMFold cannot start because the Viewer web server is unavailable:
 {error}</source>
         <translation type="unfinished">查看器的 Web 服务器不可用，因此无法启动 ESMFold：
@@ -5364,7 +5388,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+102"/>
+        <location line="-180"/>
         <source>Skipped %n selected node(s) without a sequence.</source>
         <translation type="unfinished">
             <numerusform>已跳过 %n 个没有序列的选中节点。</numerusform>
@@ -5577,18 +5601,18 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="-455"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
-        <location filename="../../../commands/hide.py" line="+40"/>
+        <location filename="../../../commands/hide.py" line="+58"/>
         <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
-        <location filename="../../../commands/redo.py" line="+57"/>
+        <location filename="../../../commands/redo.py" line="+73"/>
         <location line="+26"/>
-        <location filename="../../../commands/reference.py" line="+84"/>
+        <location filename="../../../commands/reference.py" line="+103"/>
         <location filename="../../../commands/run.py" line="-50"/>
-        <location filename="../../../commands/save.py" line="+32"/>
+        <location filename="../../../commands/save.py" line="+49"/>
         <location filename="../../../commands/subcluster.py" line="-235"/>
-        <location filename="../../../commands/undo.py" line="+57"/>
+        <location filename="../../../commands/undo.py" line="+73"/>
         <location line="+13"/>
-        <location filename="../../../commands/zoom.py" line="+65"/>
+        <location filename="../../../commands/zoom.py" line="+81"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -5773,7 +5797,7 @@ Command-line usage:
         <translation type="unfinished">未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-185"/>
+        <location filename="../../../commands/esmfold.py" line="+115"/>
         <location filename="../../../commands/label.py" line="+5"/>
         <location filename="../../../commands/print.py" line="+143"/>
         <source>The background job scheduler is unavailable.</source>
@@ -6942,7 +6966,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1653"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1656"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7015,17 +7039,17 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+489"/>
+        <location filename="../../../web_ui/plugins/meta.py" line="+13"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location filename="../../../web_ui/plugins/agent.py" line="+13"/>
         <source>Agent UI</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+542"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7035,7 +7059,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+160"/>
         <source>Rotate {angle}°</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
@@ -7560,7 +7584,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">智能体想要运行 {command}，该命令需要您的批准。请打开智能体页面来运行或放弃它。</translation>
     </message>
     <message>
-        <location line="+224"/>
+        <location line="+232"/>
         <source>Model card &apos;{card}&apos; sends your data to {host}, a server that is not on this computer. Switch the model on in the Agent page once to see what it receives and accept that.</source>
         <translation type="unfinished">模型卡片“{card}”会把您的数据发送到 {host}，该服务器不在本机上。请先在智能体页面中开启该模型一次，查看它会收到什么并接受。</translation>
     </message>
@@ -7586,13 +7610,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">模型卡未保存：{error}</translation>
     </message>
     <message>
+        <location line="+117"/>
         <location filename="../../../web_ui/agent_images.py" line="+22"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+772"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location filename="../../../web_ui/agent_images.py" line="+7"/>
         <source>Only image files are accepted.</source>
         <translation type="unfinished">只接受图片文件。</translation>
     </message>
@@ -7688,7 +7712,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在 {url} 打开{page}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_backend.py" line="+96"/>
+        <location filename="../../../web_ui/plugins/esmfold.py" line="+13"/>
         <source>ESMFold Mol* UI</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
@@ -8803,7 +8827,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-892"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-890"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -13137,7 +13161,7 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="+82"/>
+        <location filename="../../../commands/esmfold.py" line="+64"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
@@ -13178,7 +13202,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2232"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2236"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13247,7 +13271,7 @@ Fedora / RHEL：
         <translation type="obsolete">🤖 智能体</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="+116"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+15"/>
         <source>Agent</source>
         <translation type="unfinished">智能体</translation>
     </message>
@@ -13266,7 +13290,7 @@ Fedora / RHEL：
         <translation type="obsolete">🧬 结构视图</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_backend.py" line="-18"/>
+        <location filename="../../../web_ui/esmfold_backend.py" line="+85"/>
         <source>Fold View</source>
         <translation type="unfinished">结构视图</translation>
     </message>
@@ -13574,7 +13598,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerFps</name>
     <message>
-        <location filename="../../../desktop/Viewer_Fps.py" line="+62"/>
+        <location filename="../../../desktop/Viewer_Fps.py" line="+65"/>
         <source>Idle</source>
         <translation type="unfinished">空闲</translation>
     </message>

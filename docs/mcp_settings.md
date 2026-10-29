@@ -895,7 +895,10 @@ after the job, with work in the Viewer's command queue, or awaiting user input k
 place as before. A failed or cancelled job fails or cancels its request. A fold runs
 without any window, its output in a log file the outcome names (a failed fold's log opens from the Session card or the Fold View page, where a person is at the Viewer). A fold's artifacts are its PDB
 files and, beside each one folded with an alignment loaded, its per-residue data file
-(`<pdb name>.residues.json`). `esmfold stop` ends the running fold with every process it
+(`<pdb name>.residues.json`). A selected node whose structure is saved already is not folded again: the
+outcome says it was shown in Fold View from the saved file, and `esmfold refold` folds it anyway. When
+every selected node is saved, no job is queued and the request ends at once; the per-residue data files
+written beside the structures shown are its artifacts. `esmfold stop` ends the running fold with every process it
 started, takes the waiting folds out of the line and reports their jobs cancelled; `run
 stop` ends the Python scripts the same way. A request that holds only stop commands
 runs at once, even while the request it ends is waiting for its job, which would

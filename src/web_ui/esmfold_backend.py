@@ -16,6 +16,7 @@
 import os
 import json
 import re
+import threading
 from urllib.parse import unquote
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import translate
@@ -238,7 +239,8 @@ def handle_load_session(viewer, data):
 
     The page asks when it connects, so the Viewer also says then whether it has
     a window: a page opened by its address in a Viewer with none explains why
-    there is nobody to fold from."""
+    there is nobody to fold from. The structures that were to be shown while
+    the page was not there (show_structures) follow the session it restores."""
     shows_windows = getattr(viewer, "shows_windows", None)
     if callable(shows_windows):
         viewer.broadcast_event({"type": "viewer_info", "hidden": not shows_windows()})
@@ -256,6 +258,18 @@ def handle_load_session(viewer, data):
     except Exception as e:
         print(f"Error loading Mol* session: {e}")
         viewer.broadcast_event({"type": "restore_session", "session": None})
+    _send_structures_to_show(viewer)
+
+
+def _structure_event(node_id, pdb_filename, **extra):
+    """The esmfold_pdb event that makes the page load the structure file ``pdb_filename`` of node ``node_id``."""
+    return {
+        "type": "esmfold_pdb",
+        "node_id": node_id,
+        "pdb_url": f"/structures/{pdb_filename}",
+        **extra,
+    }
+
 
 def handle_structure_folded(viewer, data):
     """Broadcasts the esmfold_pdb event when a structure has finished folding in the worker process."""
@@ -263,13 +277,54 @@ def handle_structure_folded(viewer, data):
     pdb_filename = data.get("pdb_filename")
     if node_id and pdb_filename:
         _tell_command(viewer, "note_structure_folded", _run_id(data.get("run")), node_id)
-        pdb_url = f"/structures/{pdb_filename}"
-        viewer.broadcast_event({
-            "type": "esmfold_pdb",
-            "node_id": node_id,
-            "pdb_url": pdb_url
-        })
+        viewer.broadcast_event(_structure_event(node_id, pdb_filename))
         print(f"Structure folded for {node_id}. Broadcasted event to browser.")
+
+
+# What show_structures holds for a page that is not connected yet, and the lock of the threads that fill and empty it.
+_SHOWN_LOCK = threading.Lock()
+
+
+def _structures_to_show(viewer):
+    """The structures waiting for the page, {pdb file name: node id}, in the order they were asked for."""
+    waiting = getattr(viewer, "_esmfold_structures_to_show", None)
+    if not isinstance(waiting, dict):
+        waiting = {}
+        viewer._esmfold_structures_to_show = waiting
+    return waiting
+
+
+def _send_structures_to_show(viewer):
+    """Send the page the structures that wait for it, as events, and forget them."""
+    with _SHOWN_LOCK:
+        waiting = _structures_to_show(viewer)
+        structures = list(waiting.items())
+        waiting.clear()
+    for pdb_filename, node_id in structures:
+        viewer.broadcast_event(_structure_event(node_id, pdb_filename, saved=True))
+
+
+def page_connected(viewer):
+    """Whether the Fold View page is connected to the Viewer's event stream."""
+    has_event_client = getattr(getattr(viewer, "web_server", None), "has_event_client", None)
+    return bool(callable(has_event_client) and has_event_client("esmfold"))
+
+
+def show_structures(viewer, structures):
+    """Show structures that are saved already in the Fold View page, as a structure just folded is shown.
+
+    ``structures`` are (node id, PDB file name) pairs, the files being in the
+    folder the page's /structures/ route serves. Each reaches the page as the
+    esmfold_pdb event a worker's report makes (handle_structure_folded),
+    marked "saved": the page loads a saved structure only when its scene does
+    not have it already, where a structure just folded is loaded again. A
+    page that is not connected (it is being opened, or is not open) is sent
+    them when it asks for its session, after the one it restores.
+    """
+    with _SHOWN_LOCK:
+        _structures_to_show(viewer).update((pdb_filename, node_id) for node_id, pdb_filename in structures)
+    if page_connected(viewer):
+        _send_structures_to_show(viewer)
 
 def handle_console_debug_err(viewer, data):
     """Prints debug error logs from the browser console into the Python terminal."""
