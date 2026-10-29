@@ -30,6 +30,13 @@
 const LAYER_ROUTE = '/api/esmfold/layers/';
 const PLDDT_LAYER = 'plddt';
 const layerListings = new Map();
+// The Viewer writes the names of its two layers into the residue data file in English (utilities/Residue_Data.py), and a
+// saved file keeps its language whichever the page is shown in. So the page shows these two names in its own language,
+// and any other layer's name as its file has it.
+const LAYER_NAMES = new Map([
+    ['Information Content', t("Information Content")],
+    ['Residue Agreement', t("Residue Agreement")],
+]);
 
 // Runs `task` after the structure loads and layer changes queued before it.
 function runExclusive(task) {
@@ -97,6 +104,10 @@ function layerListing(file, refresh = false) {
     if (refresh || !layerListings.has(file)) {
         layerListings.set(file, fetch(LAYER_ROUTE + encodeURIComponent(file))
             .then(response => (response.ok ? response.json() : null))
+            .then(listing => {
+                for (const layer of listing?.layers ?? []) layer.label = LAYER_NAMES.get(layer.label) ?? layer.label;
+                return listing;
+            })
             .catch(() => null));
     }
     return layerListings.get(file);

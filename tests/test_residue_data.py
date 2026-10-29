@@ -298,6 +298,15 @@ class RegistryTests(unittest.TestCase):
             )
             self.assertEqual(len(data["values"]), 7)
 
+    def test_the_fold_view_page_translates_the_labels_the_providers_write(self):
+        # The labels are saved in the file in English; the page shows them in its language by this table.
+        page = os.path.join(SRC_DIR, "web_ui", "esmfold_layers.js")
+        with open(page, encoding="utf-8") as handle:
+            source = handle.read()
+        for property_id, provider in Residue_Data.PROVIDERS.items():
+            label = provider(inputs_for(HAND_ROWS), 0, "ACDEFGH")["label"]
+            self.assertIn(f"['{label}', t(\"{label}\")]", source, property_id)
+
     def test_without_an_alignment_every_property_is_unavailable_for_the_same_reason(self):
         result = Residue_Data.compute_residue_data(Residue_Data.ViewerInputs(), 0, "ACDE")
         self.assertEqual(result.properties, {})

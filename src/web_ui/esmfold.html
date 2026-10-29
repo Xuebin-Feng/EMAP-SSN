@@ -637,7 +637,9 @@
            of 100% with max-width 0, the way a table cell is made to shrink) and is cut with an ellipsis; the swatch stays beside it. */
         .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; line-height: 1.25; vertical-align: bottom; white-space: nowrap; }
         .res-table th:not(:first-child), .res-table td:not(:first-child) { text-align: right; padding-left: 8px; }
-        .res-table th.res-layer { white-space: normal; overflow-wrap: break-word; max-width: 12em; }
+        /* A layer's name breaks at its spaces; a name with none, such as a Chinese term, stays whole as a Latin word does,
+           instead of breaking after every character in the narrow column. */
+        .res-table th.res-layer { white-space: normal; word-break: keep-all; overflow-wrap: break-word; max-width: 12em; }
         .res-table td { padding: 3px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; white-space: nowrap; }
         .res-table td:first-child { color: var(--text-secondary); }
         .res-table td.res-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }

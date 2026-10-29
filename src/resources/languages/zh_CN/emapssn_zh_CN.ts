@@ -3149,7 +3149,17 @@ Command-line usage:
 <context>
     <name>EsmfoldPage</name>
     <message>
-        <location filename="../../../web_ui/esmfold_layers.js" line="+121"/>
+        <location filename="../../../web_ui/esmfold_layers.js" line="+37"/>
+        <source>Information Content</source>
+        <translation type="unfinished">信息含量</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Residue Agreement</source>
+        <translation type="unfinished">残基一致率</translation>
+    </message>
+    <message>
+        <location line="+94"/>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished">此结构没有属性节点</translation>
     </message>
@@ -3254,7 +3264,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+108"/>
-        <location filename="../../../web_ui/esmfold.html" line="+924"/>
+        <location filename="../../../web_ui/esmfold.html" line="+928"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3781,8 +3791,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-788"/>
-        <location line="+783"/>
+        <location filename="../../../web_ui/esmfold.html" line="-792"/>
+        <location line="+787"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -4775,7 +4785,7 @@ Command-line usage:
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+156"/>
         <location line="+583"/>
-        <location line="+169"/>
+        <location line="+172"/>
         <location line="+89"/>
         <location line="+86"/>
         <location filename="../../../commands/label.py" line="-115"/>
@@ -5084,7 +5094,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-634"/>
+        <location filename="../../../commands/esmfold.py" line="-637"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -5247,7 +5257,7 @@ Command-line usage:
         <translation type="unfinished">无法保存 Biohub API 令牌：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+48"/>
+        <location line="+51"/>
         <source>Showed %n structure(s) from saved files instead of folding them again.</source>
         <translation type="unfinished">
             <numerusform>已从已保存的文件显示 %n 个结构，没有再次折叠。</numerusform>

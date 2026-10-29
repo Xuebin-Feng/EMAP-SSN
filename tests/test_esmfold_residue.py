@@ -441,7 +441,10 @@ class ResidueTableLayoutTests(ResidueTestCase):
         install_translations(self.app, "zh_CN")
         self.addCleanup(install_translations, self.app, None)
         self.scene("same_residue_pct")
-        self.assert_laid_out(self.at(1300), "zh_CN", self.NAMES, True, 2)
+        layout = self.at(1300)
+        # The layer's name is translated, and a name with no spaces stays on one line, whole, as a Latin word does.
+        self.assertEqual(layout["header"][2]["text"], "残基一致率")
+        self.assert_laid_out(layout, "zh_CN", self.NAMES, True, 1)
 
 
 if __name__ == "__main__":

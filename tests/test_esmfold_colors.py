@@ -257,6 +257,47 @@ class SceneColoringTests(ColorTestCase):
         self.assertEqual(["#%06x" % item["value"] for item in after], [item["swatch"] for item in after])
 
 
+class LayerNameTests(ColorTestCase):
+    """The names of the two layers the Viewer writes are shown in the page's language, not saved that way."""
+
+    def open_with_three_layers(self):
+        self.write_with(A, "information_content", "same_residue_pct", "hydro")
+        self.open_scene(A)
+
+    def layer_chips(self, card):
+        return {chip[0]: chip[1] for chip in card["chips"] if chip[0] not in ("plddt", "builtin:structure")}
+
+    def test_in_simplified_chinese_the_card_and_its_legend_name_them_and_another_writers_layer_keeps_its_name(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_with_three_layers()
+        card = self.script("return await cardNow()")
+        self.assertEqual(self.layer_chips(card), {
+            "information_content": "信息含量", "same_residue_pct": "残基一致率", "hydro": "Hydrophobicity"})
+        card = self.choose("information_content")
+        self.assertEqual(card["legendTitle"], "信息含量")
+        self.assertTrue(card["compact"]["title"].startswith("信息含量"), card["compact"])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_in_english_the_names_are_the_files_and_the_file_keeps_its_english_in_any_language(self):
+        from desktop.Desktop_App import install_translations
+
+        self.open_with_three_layers()
+        self.assertEqual(self.layer_chips(self.script("return await cardNow()")), {
+            "information_content": "Information Content", "same_residue_pct": "Residue Agreement", "hydro": "Hydrophobicity"})
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_page()
+        self.push(A)
+        self.assertEqual(self.layer_chips(self.script("return await cardNow()"))["information_content"], "信息含量")
+        # What the page shows is a choice of the page: the saved file keeps the label it was written with.
+        with open(Path(self.directory) / "11.residues.json", encoding="utf-8") as handle:
+            labels = [entry["label"] for entry in json.load(handle)["properties"].values()]
+        self.assertEqual(labels, ["Information Content", "Residue Agreement", "Hydrophobicity"])
+
+
 class CardTests(ColorTestCase):
     def test_more_than_eight_layers_get_a_filter_and_a_scroll_area_and_fewer_do_not(self):
         fixtures.write_structure(self.directory, A, SEQUENCE, sidecar=False)

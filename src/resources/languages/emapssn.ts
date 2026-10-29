@@ -2114,6 +2114,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Information Content</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue Agreement</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished"></translation>
     </message>

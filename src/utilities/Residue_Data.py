@@ -32,7 +32,9 @@ A provider returns the property (everything but its id), or None when it has
 nothing to say. When it has nothing because the data does not exist, it raises
 ResidueDataUnavailable, whose kind and reason the command reports. To add a
 property, write the function and add one line to PROVIDERS; the order of
-PROVIDERS is the order of the file, and of the layers the page lists.
+PROVIDERS is the order of the file, and of the layers the page lists. A label is
+saved in the file in English, and the Fold View page shows it in its language
+through the table LAYER_NAMES of web_ui/esmfold_layers.js: add the label there.
 
 The module is Qt-free: the Viewer's command uses it, and so can a script.
 """
