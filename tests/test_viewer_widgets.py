@@ -6,8 +6,9 @@
 info button that opens it, the Console button beside that, its sidebar's
 rounded card and buttons, and the Zoom box.
 
-The Viewer lists its mouse and keyboard actions in one translated text. The
-card shows the session (the counts, and each input file as a read-only path;
+The Viewer lists its mouse and keyboard actions in one translated text for a
+physics (SSN) layout, and in another for a manifold (UMAP or PaCMAP) layout, where
+nothing moves. The card shows the session (the counts, and each input file as a read-only path;
 the sequence set, network and layout cache are fixed, the alignment and
 embedding have a pick button that types their command), then reads that text, as shipped in English
 and in Chinese, into key caps beside what each action does, on a light tint
@@ -83,15 +84,22 @@ VIEWER = SRC / "EMAPSSN_Viewer.py"
 ZH_CATALOG = SRC / "resources" / "languages" / "zh_CN" / "emapssn_zh_CN.ts"
 
 
-def shipped_actions():
-    """The Viewer's list of actions, as its source passes it to translate()."""
+# The last action of the manifold layouts' list, which has no keys.
+MANIFOLD_NOTE = "Nodes keep their layout positions"
+
+
+def shipped_actions(manifold=False):
+    """The Viewer's list of actions for a physics layout, or with manifold for a UMAP or PaCMAP one,
+    as its source passes it to translate()."""
     tree = ast.parse(VIEWER.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "translate"
-                and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
-                and str(node.args[1].value).startswith("[ENTER]")):
-            return node.args[1].value
-    raise AssertionError("The Viewer no longer lists its actions")
+    found = [node.args[1].value for node in ast.walk(tree)
+             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "translate"
+                 and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
+                 and str(node.args[1].value).startswith("[ENTER]"))]
+    wanted = [text for text in found if (MANIFOLD_NOTE in text) == manifold]
+    if len(found) != 2 or len(wanted) != 1:
+        raise AssertionError("The Viewer no longer lists its actions once for each kind of layout")
+    return wanted[0]
 
 
 def chinese_actions(source):
@@ -133,6 +141,50 @@ class ControlsRowsTests(unittest.TestCase):
         self.assertEqual(rows[0], (["回车"], "命令"))
         self.assertEqual(rows[3][0], ["左键", "Shift"])
         self.assertTrue(all(keys and description for keys, description in rows), rows)
+
+    def test_a_manifold_layout_lists_only_what_works_there(self):
+        rows = controls_rows(shipped_actions(manifold=True))
+        self.assertEqual(rows, [
+            (["ENTER"], "Command"),
+            (["LeftClick"], "Highlight"),
+            (["LeftClick", "Drag"], "Pan"),
+            (["LeftClick", "Shift"], "Copy Node Header"),
+            (["LeftDoubleClick", "Shift"], "Copy Node Sequence"),
+            (["RightClick"], "Select/Clear"),
+            (["RightClick", "Shift"], "Add/Remove Nodes"),
+            (["RightClick", "Drag"], "GroupSelect"),
+            (["Scroll"], "Zoom"),
+            (["Esc"], "Cancel Drag"),
+            ([], MANIFOLD_NOTE),
+        ])
+
+    def test_the_manifold_list_is_the_physics_list_without_what_moves_nodes(self):
+        physics = controls_rows(shipped_actions())
+        manifold = controls_rows(shipped_actions(manifold=True))
+        # The same rows, in the same order, but for the five that move or turn nodes, GroupSelect
+        # alone, and the note at the end.
+        moving = {"Move Straight (45° Steps)", "Rotate Around Grab Point", "Rotate Nodes (Shift: 15° Steps)",
+                  "Rotate Around Cursor"}
+        expected = [(keys, "GroupSelect" if description == "GroupSelect/MoveNodes" else description)
+                    for keys, description in physics if description not in moving]
+        expected.insert(expected.index((["Esc"], "Cancel Drag")) + 1, ([], MANIFOLD_NOTE))
+        self.assertEqual(manifold, expected)
+
+    def test_the_chinese_manifold_actions_are_the_chinese_physics_rows_with_group_select_alone(self):
+        physics = controls_rows(chinese_actions(shipped_actions()))
+        rows = controls_rows(chinese_actions(shipped_actions(manifold=True)))
+        self.assertEqual(len(rows), 11)
+        # The physics rows 0 to 6 (to "add or remove nodes"), the box alone, zoom, cancel, and the note.
+        self.assertEqual(rows[:7], physics[:7])
+        self.assertEqual(rows[7], (physics[7][0], "框选"))
+        self.assertEqual(rows[8:10], [physics[11], physics[13]])
+        self.assertEqual(rows[10], ([], "节点保持其布局位置"))
+        self.assertTrue(all(description for _keys, description in rows), rows)
+        self.assertTrue(all(keys for keys, _description in rows[:10]), rows)
+        # No Chinese text of what moves or turns nodes is left.
+        for _keys, description in rows:
+            for moving in ("移动", "旋转", "直线"):
+                self.assertNotIn(moving, description)
 
     def test_an_action_without_keys_is_all_description(self):
         self.assertEqual(controls_rows("[A] One |  | Two words | [B + C] Three"),
@@ -459,6 +511,39 @@ class ControlsCardTests(unittest.TestCase):
         self.assertIsNone(card.controls_heading)
         self.assertEqual([label.text() for label in card.findChildren(QLabel) if label.objectName() == "controlsHeading"],
                          ["Mouse and keyboard controls"])
+
+    def test_a_manifold_card_lists_what_works_there_with_the_note_in_the_descriptions(self):
+        button = ControlsButton("Mouse and keyboard controls", shipped_actions(manifold=True), self.host,
+                                host=self.host)
+        card = button.toggle_card()
+        flush(self.app)
+        self.assertEqual([label.text() for label in card.descriptions],
+                         ["Command", "Highlight", "Pan", "Copy Node Header", "Copy Node Sequence", "Select/Clear",
+                          "Add/Remove Nodes", "GroupSelect", "Zoom", "Cancel Drag", MANIFOLD_NOTE])
+        self.assertEqual([cap.text() for cap in card.key_caps],
+                         ["ENTER", "LeftClick", "LeftClick", "Drag", "LeftClick", "Shift",
+                          "LeftDoubleClick", "Shift", "RightClick", "RightClick", "Shift",
+                          "RightClick", "Drag", "Scroll", "Esc"])
+        shown = " ".join(label.text() for label in card.descriptions)
+        for gone in ("Move Straight", "Rotate Around Grab Point", "Rotate Nodes", "Rotate Around Cursor"):
+            self.assertNotIn(gone, shown)
+        # The note is a row without key caps: its left half is empty, and it starts where every description does.
+        note, holder = card.descriptions[-1], card.key_holders[-1]
+        self.assertEqual(holder.findChildren(QLabel), [])
+        self.assertEqual(note.geometry().left(), card.descriptions[0].geometry().left())
+        self.assertGreater(note.geometry().left(), 0)
+        self.assertGreaterEqual(note.width(), note.sizeHint().width())          # whole, not cut short
+        self.assertEqual(len(card.key_holders), len(card.descriptions))
+
+    def test_a_physics_card_is_as_it_was(self):
+        button = ControlsButton("Mouse and keyboard controls", shipped_actions(), self.host, host=self.host)
+        card = button.toggle_card()
+        flush(self.app)
+        shown = [label.text() for label in card.descriptions]
+        self.assertEqual(len(shown), 14)
+        self.assertEqual(shown[7:13], ["GroupSelect/MoveNodes", "Move Straight (45° Steps)", "Rotate Around Grab Point",
+                                       "Rotate Nodes (Shift: 15° Steps)", "Zoom", "Rotate Around Cursor"])
+        self.assertNotIn(MANIFOLD_NOTE, shown)
 
     @staticmethod
     def darkest_ink(widget):

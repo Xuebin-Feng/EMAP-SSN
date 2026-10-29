@@ -3264,7 +3264,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+108"/>
-        <location filename="../../../web_ui/esmfold.html" line="+928"/>
+        <location filename="../../../web_ui/esmfold.html" line="+930"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3791,8 +3791,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-792"/>
-        <location line="+787"/>
+        <location filename="../../../web_ui/esmfold.html" line="-794"/>
+        <location line="+789"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -6976,7 +6976,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1656"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1663"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7008,7 +7008,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
     <message>
-        <location line="+316"/>
+        <location line="+318"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7059,7 +7059,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+542"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+549"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7069,12 +7069,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message>
-        <location line="+160"/>
+        <location line="+165"/>
         <source>Rotate {angle}°</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="+389"/>
+        <location line="-525"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -8837,7 +8837,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-890"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+19"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -13212,7 +13212,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2236"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2245"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13249,12 +13249,17 @@ Fedora / RHEL：
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-29"/>
+        <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect | [Scroll] Zoom | [Esc] Cancel Drag | Nodes keep their layout positions</source>
+        <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [左键 + 拖动] 平移 | [左键 + Shift] 复制节点标题 | [左键双击 + Shift] 复制节点序列 | [右键] 选择/清除 | [右键 + Shift] 添加/移除节点 | [右键 + 拖动] 框选 | [滚轮] 缩放 | [Esc] 取消拖动 | 节点保持其布局位置</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [左键 + 拖动] 平移 | [左键 + Shift] 复制节点标题 | [左键双击 + Shift] 复制节点序列 | [右键] 选择/清除 | [右键 + Shift] 添加/移除节点 | [右键 + 拖动] 框选/移动节点 | [右键 + 拖动 + Shift] 直线移动（45° 步进） | [右键 + 拖动 + 滚轮] 绕抓取点旋转 | [右键 + 拖动 + Ctrl] 旋转节点（Shift：15° 步进） | [滚轮] 缩放 | [滚轮 + Ctrl] 绕光标旋转 | [Esc] 取消拖动</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+28"/>
         <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
     </message>
@@ -13272,7 +13277,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2055"/>
+        <location line="+2057"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

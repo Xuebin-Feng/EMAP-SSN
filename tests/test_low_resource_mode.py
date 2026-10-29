@@ -428,12 +428,13 @@ class UmapModeTests(unittest.TestCase):
                         reads.setdefault(path, set()).add(function.name)
                     if "knn_topology_layout" in body:
                         asks.setdefault(path, set()).add(function.name)
-        # The cache lookup, the drag, and the selection's edges: nothing else reads the mode, so
-        # nothing else makes a switch's effect differ there. A new reader needs this list
-        # (and the Config's greying) thought through again.
+        # The cache lookup, the drag, the selection's edges and the list of mouse actions the info
+        # card shows (no moving or turning nodes in a manifold layout): nothing else reads the
+        # mode, so nothing else makes a switch's effect differ there. A new reader needs this
+        # list (and the Config's greying) thought through again.
         self.assertEqual(reads, {"EMAPSSN_Viewer.py": {"load_and_simulate"}})
         self.assertEqual(asks, {
-            "EMAPSSN_Viewer.py": {"on_mouse_press", "_wheel_turns_nodes"},
+            "EMAPSSN_Viewer.py": {"on_mouse_press", "_wheel_turns_nodes", "_build_slider_overlay"},
             "Viewer_Visual_State.py": {"edge_stages", "edges_follow_selection"},
         })
         for path in sorted((SRC / "desktop").glob("Viewer_*.py")):

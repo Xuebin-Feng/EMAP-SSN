@@ -1437,6 +1437,13 @@ class MainViewer:
         overlay_layout.setContentsMargins(5, 5, 5, 5)
         overlay_layout.setSpacing(10)
 
+        # The card lists what the mouse does in this layout: nodes cannot be moved or turned in a
+        # manifold layout (UMAP or PaCMAP), whose positions are fixed for the session.
+        controls_text = (
+            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect | [Scroll] Zoom | [Esc] Cancel Drag | Nodes keep their layout positions")
+            if knn_topology_layout(cfg) else
+            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag"))
+
         # The info button at the slider's start opens the session (the nodes,
         # edges and files) and the mouse and keyboard controls on a card above
         # it. The card is a child of the canvas, so it stays open while the
@@ -1444,7 +1451,7 @@ class MainViewer:
         # command too: Command_Engine calls it).
         self.controls_button = ControlsButton(
             translate("Viewer", "Session and controls"),
-            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag"),
+            controls_text,
             host=self.canvas.native,
             session=self._session_overview,
             controls_title=translate("Viewer", "Mouse and keyboard controls"),

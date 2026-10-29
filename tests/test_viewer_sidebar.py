@@ -61,7 +61,9 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     ControlsButton,
     SidebarButton,
     SidebarPanel,
+    controls_rows,
 )
+from tests.test_viewer_widgets import chinese_actions, shipped_actions  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
 CANVAS_SIZE = (1200, 800)
@@ -463,6 +465,30 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertEqual(button.toolTip(), "Session and controls")
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
         self.assertEqual(viewer.threshold_box.text(), "3.740")
+
+    def test_the_card_lists_the_actions_of_the_layout_the_viewer_has(self):
+        # A manifold layout (UMAP or PaCMAP) moves no nodes, so its card leaves out what moves or turns them.
+        for manifold in (False, True):
+            with self.subTest(manifold=manifold), \
+                    mock.patch.object(EMAPSSN_Viewer.cfg, "UMAP_MODE", manifold, create=True):
+                button = self.make_viewer().controls_button
+                self.assertEqual(button.text_source, shipped_actions(manifold=manifold))
+                described = [description for _keys, description in controls_rows(button.text_source)]
+                self.assertEqual("Move Straight (45° Steps)" in described, not manifold)
+                self.assertEqual("Rotate Around Cursor" in described, not manifold)
+                self.assertEqual("Nodes keep their layout positions" in described, manifold)
+
+    def test_the_chinese_card_lists_the_actions_of_the_layout_the_viewer_has(self):
+        translator = QTranslator()
+        self.assertTrue(translator.load(str(ZH_QM)))
+        self.assertTrue(self.app.installTranslator(translator))
+        self.addCleanup(self.app.removeTranslator, translator)
+        for manifold in (False, True):
+            with self.subTest(manifold=manifold), \
+                    mock.patch.object(EMAPSSN_Viewer.cfg, "UMAP_MODE", manifold, create=True):
+                button = self.make_viewer().controls_button
+                self.assertEqual(button.text_source, chinese_actions(shipped_actions(manifold=manifold)))
+                self.assertEqual(len(controls_rows(button.text_source)), 11 if manifold else 14)
 
     def test_the_console_button_sits_between_the_info_button_and_the_threshold_box(self):
         viewer = self.make_viewer()

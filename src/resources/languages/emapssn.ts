@@ -5087,6 +5087,16 @@ The whole output is in {log}.</source>
         <source>Selected: {node}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Selected %n node(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Selection cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished"></translation>
@@ -5097,16 +5107,6 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Rotate {angle}°</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>Selected %n node(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
-    <message>
-        <source>Selection cleared.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8974,11 +8974,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Session and controls</source>
+        <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect | [Scroll] Zoom | [Esc] Cancel Drag | Nodes keep their layout positions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Session and controls</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
