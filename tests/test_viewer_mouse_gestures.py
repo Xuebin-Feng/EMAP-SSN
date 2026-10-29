@@ -21,7 +21,8 @@ on_mouse_release).
 * A press on a node saves an undo step; when the button is let go, or a Ctrl + wheel turn ends,
   the step stays only if the nodes' places changed. Undo never holds the selection, so a press
   that only changed that leaves no step: it is taken off the history, with the redo steps it
-  cleared given back, as Esc does.
+  cleared given back, as Esc does. The Undo and Redo buttons leave the snapshot out until the
+  nodes move, so a click that leaves no step does not flash them.
 * Shift while dragging nodes holds the move to one of eight directions, and the wheel's
   rotation never moves it.
 * The wheel during a drag turns the nodes 5 degrees a notch about the press, Shift or not.
@@ -959,6 +960,120 @@ class IdlePressStepTests(GestureTestCase):
         self.assertIsNone(self.viewer._press_history)
         self.release(self.viewer, 30, -10)
         self.assertEqual(len(self.viewer.position_history), 2)       # nothing was taken back by the box's release
+
+
+class PressStepButtonTests(GestureTestCase):
+    """The Undo and Redo buttons show a press's step only once it is one: when the nodes move.
+
+    A press on a node saves a snapshot at once, in case a drag follows, and a release that
+    moved nothing takes it back. The buttons must not light for it and dim again at the
+    release, a flash on every click, so they stay as they were until the nodes move.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.shown = []
+
+    def make_viewer(self, selected=(), earlier=1, undone=1):
+        """A viewer with ``earlier`` undo steps and ``undone`` redo steps, whose buttons record what they are told."""
+        viewer = super().make_viewer(selected=selected)
+        for _ in range(earlier):
+            viewer._save_state()
+        viewer.redo_stack = [{"pos": "a step that was undone"} for _ in range(undone)]
+        viewer.history_buttons = SimpleNamespace(show_state=lambda *state: self.shown.append(state))
+        viewer._refresh_history_buttons()
+        self.shown.clear()
+        return viewer
+
+    def test_a_click_that_leaves_no_step_never_changes_the_buttons(self):
+        for earlier, undone, before in ((1, 1, (True, True)), (0, 0, (False, False)),
+                                        (0, 1, (False, True)), (2, 0, (True, False))):
+            with self.subTest(earlier=earlier, undone=undone):
+                viewer = self.make_viewer(selected=[1, 2], earlier=earlier, undone=undone)
+                self.press(viewer, *NODE[1])
+                viewer._refresh_history_buttons()               # whatever else asks for them, meanwhile
+                self.assertEqual(len(viewer.position_history), earlier + 1)   # the snapshot is there
+                self.release(viewer, *NODE[1])
+                self.assertEqual(len(viewer.position_history), earlier)
+                self.assertEqual(set(self.shown), {before})
+
+    def test_a_click_that_changes_only_the_selection_never_changes_the_buttons(self):
+        for modifiers in ([], SHIFT):
+            with self.subTest(modifiers=modifiers):
+                self.shown.clear()
+                viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+                self.press(viewer, *NODE[3], modifiers=modifiers)
+                self.release(viewer, *NODE[3], modifiers=modifiers)
+                self.assertEqual(set(self.shown), {(False, True)})
+
+    def test_the_buttons_show_the_step_when_the_nodes_move(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.press(viewer, *NODE[1])
+        self.assertEqual(self.shown, [])
+        self.move(viewer, 70, 20)
+        self.assertEqual(self.shown, [(True, False)])           # Undo has the step, and the press cleared Redo
+        self.move(viewer, 90, 30)
+        self.release(viewer, 90, 30)
+        self.assertEqual(self.shown[-1], (True, False))
+        self.assertEqual(len(viewer.position_history), 1)
+
+    def test_a_turn_by_the_wheel_during_a_drag_shows_the_step_too(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.press(viewer, *NODE[1])
+        self.wheel(viewer, (0.0, 6.0), *NODE[1])
+        self.assertEqual(self.shown, [(True, False)])
+        self.release(viewer, *NODE[1])
+        self.assertEqual(self.shown[-1], (True, False))
+
+    def test_a_cancelled_drag_puts_the_buttons_back(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.press(viewer, *NODE[1])
+        self.move(viewer, 70, 20)
+        self.esc(viewer)
+        self.assertEqual(self.shown[-1], (False, True))
+        self.release(viewer, 70, 20)
+        self.assertEqual(self.shown[-1], (False, True))
+
+    def test_esc_before_the_nodes_move_leaves_the_buttons_as_they_were(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.press(viewer, *NODE[1])
+        self.esc(viewer)
+        self.assertEqual(set(self.shown), {(False, True)})
+
+    def test_a_waiting_command_still_lights_undo_during_a_press(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=0)
+        viewer.command_queue = SimpleNamespace(pending=lambda: ["a command"])
+        self.press(viewer, *NODE[1])
+        viewer._refresh_history_buttons()
+        self.assertEqual(set(self.shown), {(True, False)})
+
+    def test_the_keys_act_during_a_press_as_before(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=1, undone=1)
+        self.press(viewer, *NODE[1])
+        self.assertEqual(len(viewer.position_history), 2)
+        with mock.patch.object(Command_Engine, "show_status"), mock.patch.object(viewer, "_refresh_after_history"):
+            self.assertTrue(viewer.undo_by_hand())               # the press's snapshot is the step it takes
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertEqual(len(viewer.redo_stack), 1)
+        self.assertEqual(self.shown[-1], (True, True))           # the press's snapshot went to redo, which shows it
+        with mock.patch.object(Command_Engine, "show_status"), mock.patch.object(viewer, "_refresh_after_history"):
+            self.assertTrue(viewer.redo_by_hand())
+        self.assertEqual(len(viewer.position_history), 2)
+        self.assertEqual(self.shown[-1], (True, False))
+
+    def test_the_first_notch_of_a_ctrl_wheel_turn_turns_the_nodes_and_lights_undo_at_once(self):
+        # The turn's snapshot is no pending one: its first notch has turned the nodes by the time it is back.
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.wheel(viewer, (0.0, 1.0), 60, 30, buttons=(), modifiers=CTRL)
+        self.assertEqual(self.shown, [(True, False)])
+        self.assertEqual(len(viewer.position_history), 1)
+
+    def test_a_ctrl_wheel_turn_that_ends_where_it_began_puts_the_buttons_back(self):
+        viewer = self.make_viewer(selected=[1, 2], earlier=0, undone=1)
+        self.wheel(viewer, (0.0, 1.0), 60, 30, buttons=(), modifiers=CTRL)
+        self.wheel(viewer, (0.0, -1.0), 60, 30, buttons=(), modifiers=CTRL)
+        self.key_release(viewer, "Control")
+        self.assertEqual(self.shown[-1], (False, True))
 
 
 class BoxToggleTests(GestureTestCase):

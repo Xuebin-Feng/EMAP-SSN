@@ -14,7 +14,9 @@
   there is an undo step or a command waits or runs, Redo while there is a step to redo
   and no command waits. The Viewer tells the buttons wherever the history or the queue
   changes (MainViewer._refresh_history_buttons), and nothing polls: an idle Viewer runs
-  nothing for them.
+  nothing for them. A press on a node saves a snapshot at once, in case a drag follows,
+  and takes it back at the release if nothing moved: the buttons leave it out until the
+  nodes move, so a plain click does not flash them.
 * **They never move** on a state change. Qt draws the whole network again whenever a
   widget over the canvas is moved or resized, but not when a widget only repaints
   (see Viewer_Caret), so place() puts the buttons only where the other overlays are
@@ -41,17 +43,23 @@ HISTORY_BUTTON_GAP = 4
 ICON_SIZE = 16
 
 
-def history_availability(viewer):
+def history_availability(viewer, history=None, redo=None):
     """(Undo can act, Redo can act) as Ctrl+Z and Ctrl+Y find the Viewer now.
 
     Undo takes back the newest command that waits or runs, else the newest history
     step; Redo has nothing to redo while a command waits, since it comes after the
-    undone steps (MainViewer.undo_by_hand, redo_by_hand).
+    undone steps (MainViewer.undo_by_hand, redo_by_hand). ``history`` and ``redo``
+    are the steps to count in place of the Viewer's own: the Viewer gives them while
+    a press on a node holds a snapshot that is no step yet.
     """
     queue = getattr(viewer, 'command_queue', None)
     waiting = queue is not None and bool(queue.pending())
-    can_undo = waiting or bool(getattr(viewer, 'position_history', None))
-    can_redo = not waiting and bool(getattr(viewer, 'redo_stack', None))
+    if history is None:
+        history = getattr(viewer, 'position_history', None)
+    if redo is None:
+        redo = getattr(viewer, 'redo_stack', None)
+    can_undo = waiting or bool(history)
+    can_redo = not waiting and bool(redo)
     return can_undo, can_redo
 
 

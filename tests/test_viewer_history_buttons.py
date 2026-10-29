@@ -446,6 +446,15 @@ class EnabledStateTests(ViewerCase):
         self.assertEqual(history_availability(
             SimpleNamespace(command_queue=idle, position_history=[{}], redo_stack=[{}])), (True, True))
 
+    def test_the_steps_to_count_may_be_given_in_place_of_the_viewers_own(self):
+        # A press on a node holds a snapshot that is no step yet: the Viewer counts the history without it.
+        idle = SimpleNamespace(pending=lambda: [])
+        viewer = SimpleNamespace(command_queue=idle, position_history=[{}], redo_stack=[])
+        self.assertEqual(history_availability(viewer), (True, False))
+        self.assertEqual(history_availability(viewer, [], [{}]), (False, True))
+        self.assertEqual(history_availability(viewer, [], []), (False, False))
+        self.assertEqual(history_availability(viewer, redo=[{}]), (True, True))
+
 
 class ClickTests(ViewerCase):
     """A click is Ctrl+Z or Ctrl+Y: it calls undo_by_hand() or redo_by_hand(), and does what they do."""

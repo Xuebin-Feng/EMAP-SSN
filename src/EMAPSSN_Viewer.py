@@ -1034,6 +1034,7 @@ class MainViewer:
         self._node_drag_press = None
         self._box_press = None
         self._press_history = None
+        self._press_unmoved = False  # the press's snapshot is no step yet: the history buttons leave it out
         self._drag_translation = np.zeros(2)
         self._drag_cancelled = False
         # A right press that is a click until the pointer leaves CLICK_DISTANCE_PIXELS (Shift on a
@@ -2349,13 +2350,17 @@ class MainViewer:
                 setattr(self, attr_name, copy.deepcopy(val))
             self._cacheable_attrs.add(attr_name)
 
-    def _append_history_entry(self, entry):
-        """Append a full-state or compact history entry and clear redo state."""
+    def _append_history_entry(self, entry, refresh=True):
+        """Append a full-state or compact history entry and clear redo state.
+
+        The Undo and Redo buttons follow, unless refresh is False: the caller tells them later.
+        """
         self.position_history.append(entry)
         if len(self.position_history) > 50:
             self.position_history.pop(0)
         self.redo_stack.clear()
-        self._refresh_history_buttons()
+        if refresh:
+            self._refresh_history_buttons()
 
     def _save_metadata_cell_history(self, column, row, before, after):
         """Record one metadata cell edit without copying the full network state."""
@@ -2454,12 +2459,12 @@ class MainViewer:
                 return entry
         return None
 
-    def _save_state(self):
-        """Saves current state to history and clears redo stack."""
+    def _save_state(self, refresh=True):
+        """Saves current state to history and clears redo stack (refresh is as for _append_history_entry)."""
         # The newest full state is the likeliest to match: since it was taken,
         # usually just the last command's field has changed.
         self._append_history_entry(
-            self._get_current_state(share_with=self._latest_full_history_state())
+            self._get_current_state(share_with=self._latest_full_history_state()), refresh=refresh
         )
 
     def _do_undo(self, announce=True):
@@ -3260,6 +3265,7 @@ class MainViewer:
             self._remove_on_click = None
             self._drag_turn = None
             self._press_history = None
+            self._press_unmoved = False
             self.tooltip.text = ""
             self.selected_node_idx = None
             
@@ -3284,8 +3290,11 @@ class MainViewer:
                 # so does the release if the press moved nothing (_settle_press_history).
                 history = getattr(self, 'position_history', [])
                 kept = (list(history), list(getattr(self, 'redo_stack', [])))
-                self._save_state()
+                # The buttons are not told: the snapshot is no step until the nodes move
+                # (_press_step_began), or the release keeps it (_settle_press_history).
+                self._save_state(refresh=False)
                 self._press_history = (kept, history[-1] if history else None)
+                self._press_unmoved = True
 
                 # Modifier logic for individual node clicking. A node not selected yet is added with
                 # Shift and is the whole selection without it; a selected one is left as it is: a
@@ -3828,10 +3837,20 @@ class MainViewer:
             self._show_click_status(self.console_text.text)
 
     def _refresh_history_buttons(self):
-        """Enable the Undo and Redo buttons as the keys could act now: called wherever the history or the queue changes."""
+        """Enable the Undo and Redo buttons as the keys could act now: called wherever the history or the queue changes.
+
+        A press on a node whose nodes have not moved yet has taken a snapshot that may come
+        off again (_settle_press_history): the buttons are as they were before the press, for
+        a click that leaves no step would otherwise light Undo for as long as the button is down.
+        """
         buttons = getattr(self, 'history_buttons', None)
-        if buttons is not None:
-            buttons.show_state(*history_availability(self))
+        if buttons is None:
+            return
+        history, redo = getattr(self, 'position_history', None), getattr(self, 'redo_stack', None)
+        press = getattr(self, '_press_history', None)
+        if getattr(self, '_press_unmoved', False) and press is not None and history and history[-1] is press[1]:
+            history, redo = history[:-1], press[0][1]  # the steps and the redo steps as the press found them
+        buttons.show_state(*history_availability(self, history, redo))
 
     def _build_jobs_badge(self):
         """The jobs badge (desktop.Viewer_Jobs): shown while a background job waits or runs."""
@@ -4384,8 +4403,15 @@ class MainViewer:
             turn.shown = shown
             self._show_click_status(Message("Rotate {angle}°", angle=shown))
 
+    def _press_step_began(self):
+        """The nodes a press on a node holds have moved: its undo step is real now, and the buttons show it."""
+        if getattr(self, '_press_unmoved', False):
+            self._press_unmoved = False
+            self._refresh_history_buttons()
+
     def _redraw_moved_nodes(self):
         """The nodes of a drag or a turn have moved: show them, as a drag does, without telling the web pages."""
+        self._press_step_began()
         if low_resource_drawing(cfg):
             self._move_dragged_nodes()
         else:
@@ -4644,6 +4670,7 @@ class MainViewer:
         something else has been added since."""
         press = getattr(self, '_press_history', None)
         self._press_history = None
+        self._press_unmoved = False
         history = getattr(self, 'position_history', None)
         redo = getattr(self, 'redo_stack', None)
         if press is None or not history or redo is None:
@@ -4670,7 +4697,9 @@ class MainViewer:
         if press is None:
             return  # no press on a node, and no turn, is waiting
         if press[1] is not None and _holds_same_bits(self.pos, press[1].get('pos')):
-            self._take_back_press_history()
+            self._take_back_press_history()  # the buttons are told there
+        else:
+            self._press_step_began()  # a step that stays shows on the buttons whether or not the moves did
         self._press_history = None
 
     def pick_hovered_node(self, cursor):
