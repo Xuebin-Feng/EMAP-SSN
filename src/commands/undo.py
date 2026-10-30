@@ -24,7 +24,7 @@ from desktop.Command_Metadata import argument, entry
 AGENT_POLICY = 'run'
 
 CATALOG_ENTRY = entry('Restore the previous state; report a no-op if undo history is empty.',
-    argument('steps', 'Optional positive whole number N: undoes up to N steps, stopping early when the history runs out, and reports how many were undone. Omitted, one step is undone. Any other argument is refused before anything changes.'))
+    argument('steps', 'Optional positive whole number N: undoes up to N steps, stopping early when the history runs out, and reports how many were undone. Omitted, one step is undone. Any other argument is refused before anything changes. Typed in the Viewer, each step first cancels the newest command that still waits or computes; from a script or MCP, undo waits its turn and undoes the network.'))
 
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
 AGENT_PROMPT_ORDER = 60
@@ -73,7 +73,9 @@ def run(viewer, args):
             Message("Usage: {syntax}", syntax="undo [N]"),
             "Description: Reverts the visual and spatial state of the network to the previous action.\n"
             "Most commands automatically save state before execution, allowing them to be undone.\n"
-            "  - With N, a positive whole number, it undoes up to N steps, stops early when the history runs out, and reports once how many it undid.",
+            "  - With N, a positive whole number, it undoes up to N steps, stops early when the history runs out, and reports once how many it undid.\n"
+            "  - Typed in the Viewer, like Ctrl+Z and the Undo button, it first cancels the newest commands that still wait or compute, one per step;\n"
+            "    the steps left undo the network. From a script or MCP it waits its turn and undoes the network.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')

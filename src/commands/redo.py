@@ -72,7 +72,8 @@ def run(viewer, args):
         msg = JoinedMessage([
             Message("Usage: {syntax}", syntax="redo [N]"),
             "Description: Reapplies a state that was previously undone using the `undo` command.\n"
-            "  - With N, a positive whole number, it reapplies up to N states, stops early when there is nothing left to redo, and reports once how many it redid.",
+            "  - With N, a positive whole number, it reapplies up to N states, stops early when there is nothing left to redo, and reports once how many it redid.\n"
+            "  - Typed in the Viewer, like Ctrl+Y and the Redo button, it has nothing to redo while commands wait or compute: they come after the undone steps.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
