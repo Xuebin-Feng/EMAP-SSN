@@ -826,7 +826,9 @@ syntax, file effects, history, and manual controls remain the user-command behav
    `submission_id` must be 32 to 128 characters: a fresh random UUID (for example from `uuid4()`) for every
    different submission. Ids name a request in the whole Viewer, whichever client sent it, so a second client
    that reused an id with the same commands would silently be handed the first client's request; shorter ids
-   such as `task-1` are refused before anything is sent.
+   such as `task-1` are refused before anything is sent. Each string in `commands` is one command on one line:
+   a string holding a line break is refused, and a trailing ` \` joins nothing, as it does in the command line
+   and in `run` scripts.
 3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`): it points at
    `emapssn_viewer_data(action="wait_command_request", arguments={"request_id": "<the request's id>", "session_id": "viewer-session-id"})`;
    the submission's own `submission_id` works in place of `request_id`, and `timeout_seconds` (default 30, at
