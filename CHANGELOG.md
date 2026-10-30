@@ -442,6 +442,9 @@ still change before version 1.0.0.
     one at the threshold. Hiding nodes changes no other edge's opacity.
   - **For the SSN layout method only.** With UMAP or PaCMAP the switch is greyed out and
     keeps its setting, and the edges are drawn at the slider's value.
+  - **Very large networks:** with 16,777,216 nodes (2^24) or more, or with
+    `SSN_EDGE_POSITION_TEXTURE=0`, the edges are drawn from coordinates and every edge
+    takes the slider's value; so do edges without scores. The Console says so once.
   - **`print` follows it:** the PNG as the screen shows it, and the SVG in 128 groups of
     one opacity each, the most opaque first.
   - **Cost:** nothing per frame or per threshold move. The first time it is turned on in

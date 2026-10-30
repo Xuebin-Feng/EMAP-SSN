@@ -2535,6 +2535,7 @@ if __name__ == "__main__":
                     details=(
                         translate("Config", "Only for the SSN layout method. With UMAP or PaCMAP this switch is greyed out and every edge is drawn at the Edge Opacity."),
                         translate("Config", "Moving the threshold changes every edge's opacity, because the faintest edge drawn is always the one at the threshold."),
+                        translate("Config", "With 16,777,216 nodes or more, or edges without scores, every edge is drawn at the Edge Opacity, and the Viewer's Console says so once."),
                     ),
                 ),
                 "TEXT_SIZE": Tip(

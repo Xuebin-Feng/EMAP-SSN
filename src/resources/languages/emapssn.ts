@@ -1009,6 +1009,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>With 16,777,216 nodes or more, or edges without scores, every edge is drawn at the Edge Opacity, and the Viewer&apos;s Console says so once.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.</source>
         <translation type="unfinished"></translation>
     </message>

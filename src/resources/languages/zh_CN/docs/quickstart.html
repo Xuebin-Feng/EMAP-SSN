@@ -363,7 +363,7 @@
             </div>
 
             <!-- SECTION 4: CONFIGURATION GUI -->
-            <div id="gui-config" class="section-divider" data-source-sha256="a05759187038b5bd9f69f0443be806e7e5eebe115934a40ee0b854cd551776bc">
+            <div id="gui-config" class="section-divider" data-source-sha256="86a4bac20cdb36b9c6d77371ac7913c151f1c5beb7ef74dc39788e6cf378a716">
                 <span>4. EMAP-SSN 配置 GUI（EMAPSSN_Config.py）</span>
             </div>
 
@@ -500,7 +500,7 @@
 
                 <h3>4. 视觉效果与目录选项卡</h3>
                 <ul>
-                    <li><strong>视觉效果：</strong>设置默认的节点大小、边宽、边的 alpha 透明度、标签字号和默认颜色（初始节点、悬停、已连接的边）。<strong>边不透明度</strong>旁的<strong>自动</strong>开关让每条边的不透明度随其得分而变（得分越高越不透明：阈值处为 15%，最高得分处为 85%），而不是所有边同一个不透明度；它只适用于 SSN 布局方法，默认关闭。其下的四个<strong>低资源模式</strong>开关各自为较慢的硬件省去查看器的一类工作：<strong>移动时减少绘制的边</strong>、<strong>无缩放动画</strong>、<strong>松开鼠标后再更新颜色</strong>和<strong>松开鼠标后再更新网页</strong>；<strong>显示帧率（FPS）</strong>在查看器右上角显示帧率。默认全部关闭。</li>
+                    <li><strong>视觉效果：</strong>设置默认的节点大小、边宽、边的 alpha 透明度、标签字号和默认颜色（初始节点、悬停、已连接的边）。<strong>边不透明度</strong>旁的<strong>自动</strong>开关让每条边的不透明度随其得分而变（得分越高越不透明：阈值处为 15%，最高得分处为 85%），而不是所有边同一个不透明度；它只适用于 SSN 布局方法，默认关闭。节点数达到 16,777,216 个或以上、或边没有得分时，查看器改为按“边不透明度”绘制所有边，并在控制台中提示一次。其下的四个<strong>低资源模式</strong>开关各自为较慢的硬件省去查看器的一类工作：<strong>移动时减少绘制的边</strong>、<strong>无缩放动画</strong>、<strong>松开鼠标后再更新颜色</strong>和<strong>松开鼠标后再更新网页</strong>；<strong>显示帧率（FPS）</strong>在查看器右上角显示帧率。默认全部关闭。</li>
                     <li><strong>目录：</strong>配置文件系统的基础路径。支持可移植的目录别名，如 <code>$input_file$</code>、<code>$cache_file$</code>、<code>$analysis_result$</code> 和 <code>$embedding$</code>，使配置可以在不同计算机之间无缝共享。</li>
                 </ul>
             </div>

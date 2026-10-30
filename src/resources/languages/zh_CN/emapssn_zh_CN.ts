@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4007"/>
+        <location line="+4008"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4006"/>
+        <location line="-4007"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4641"/>
+        <location line="+4642"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4633"/>
+        <location line="-4634"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -812,12 +812,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3648"/>
+        <location line="+3649"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3645"/>
+        <location line="-3646"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -858,12 +858,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2402"/>
+        <location line="+2403"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2321"/>
+        <location line="-2322"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1255,7 +1255,7 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
 作为布局缓存，重新打开网络时无需重新计算布局。</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+409"/>
         <source>Directory where command-line layout generation JSON settings are exported.</source>
         <translation type="unfinished">导出命令行布局生成所用 JSON 设置的目录。</translation>
     </message>
@@ -1302,8 +1302,8 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="-223"/>
-        <location line="+409"/>
+        <location line="-224"/>
+        <location line="+410"/>
         <location line="+259"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
@@ -1611,7 +1611,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2413"/>
+        <location line="-2414"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1622,12 +1622,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2639"/>
+        <location line="+2640"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3179"/>
+        <location line="-3180"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1773,7 +1773,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2543"/>
+        <location line="+2544"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1885,7 +1885,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4009"/>
+        <location line="-4010"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
@@ -2231,6 +2231,11 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <location line="+1"/>
         <source>Moving the threshold changes every edge&apos;s opacity, because the faintest edge drawn is always the one at the threshold.</source>
         <translation type="unfinished">移动阈值会改变每条边的不透明度，因为所画的最淡的边始终是阈值处的那一条。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>With 16,777,216 nodes or more, or edges without scores, every edge is drawn at the Edge Opacity, and the Viewer&apos;s Console says so once.</source>
+        <translation type="unfinished">节点数达到 16,777,216 个或以上、或边没有得分时，所有边都按“边不透明度”绘制，查看器的控制台会提示一次。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -4784,7 +4789,7 @@ Command-line usage:
         <location line="+16"/>
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+156"/>
-        <location line="+583"/>
+        <location line="+584"/>
         <location line="+172"/>
         <location line="+89"/>
         <location line="+86"/>
@@ -5094,7 +5099,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-637"/>
+        <location filename="../../../commands/esmfold.py" line="-638"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -5115,7 +5120,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+55"/>
+        <location line="+56"/>
         <source>Per-residue alignment data from {file} will be saved beside %n structure(s): {properties}.</source>
         <translation type="unfinished">
             <numerusform>来自 {file} 的逐残基比对数据将保存在 %n 个结构旁：{properties}。</numerusform>
@@ -5317,7 +5322,7 @@ Command-line usage:
         <translation type="unfinished">无法将折叠加入队列：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+20"/>
+        <location line="+22"/>
         <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个结构加入 Biohub ESM3 折叠队列，任务 #{job}。</numerusform>
@@ -5336,7 +5341,7 @@ Command-line usage:
         <translation type="unfinished">它在折叠队列中排第 {position} 位。</translation>
     </message>
     <message numerus="yes">
-        <location line="-314"/>
+        <location line="-316"/>
         <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
         <translation type="unfinished">
             <numerusform>已省略 %n 个所选节点，它们被另一个折叠占用：{nodes}。</numerusform>
@@ -5615,13 +5620,13 @@ Command-line usage:
         <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
         <location filename="../../../commands/redo.py" line="+73"/>
-        <location line="+26"/>
+        <location line="+27"/>
         <location filename="../../../commands/reference.py" line="+103"/>
         <location filename="../../../commands/run.py" line="-50"/>
         <location filename="../../../commands/save.py" line="+49"/>
         <location filename="../../../commands/subcluster.py" line="-235"/>
         <location filename="../../../commands/undo.py" line="+73"/>
-        <location line="+13"/>
+        <location line="+15"/>
         <location filename="../../../commands/zoom.py" line="+81"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
@@ -6874,7 +6879,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4971"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4972"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6976,12 +6981,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1663"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1664"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+819"/>
+        <location line="+823"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -7008,7 +7013,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
     <message>
-        <location line="+318"/>
+        <location line="+322"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7059,7 +7064,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+549"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+559"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -8824,8 +8829,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/redo.py" line="-55"/>
-        <location filename="../../../commands/undo.py" line="-59"/>
+        <location filename="../../../commands/redo.py" line="-56"/>
+        <location filename="../../../commands/undo.py" line="-61"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
         <translation type="unfinished">错误：{syntax} 的步数必须为正整数，而不是“{value}”。</translation>
     </message>
@@ -8836,7 +8841,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：{syntax} 只接受一个步数；未使用“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location line="+23"/>
+        <location line="+24"/>
         <location filename="../../../EMAPSSN_Viewer.py" line="+19"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
@@ -8851,7 +8856,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/undo.py" line="+52"/>
+        <location filename="../../../commands/undo.py" line="+54"/>
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已撤销 %n 步。</numerusform>
@@ -13212,7 +13217,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2245"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2263"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13277,7 +13282,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2057"/>
+        <location line="+2065"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -13636,7 +13641,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerHistory</name>
     <message>
-        <location filename="../../../desktop/Viewer_History.py" line="+105"/>
+        <location filename="../../../desktop/Viewer_History.py" line="+113"/>
         <source>Undo (Ctrl+Z)</source>
         <translation type="unfinished">撤销（Ctrl+Z）</translation>
     </message>
