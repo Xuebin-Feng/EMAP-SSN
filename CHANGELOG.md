@@ -18,6 +18,10 @@ still change before version 1.0.0.
   mouse and key events. File jobs and folds are numbered background jobs in the info
   card's Session section, where they can be moved, removed or stopped, and `help`,
   `jobs` and `console` are new commands.
+- **New ways to handle the network.** Esc cancels a drag, Shift keeps a move on a line
+  and adds or removes nodes, Ctrl + right-drag and Ctrl + wheel turn the selection, and
+  Undo and Redo buttons sit at the top right. An Auto switch draws each edge's opacity by
+  its score.
 - **Faster drawing of dense networks.** The edge layer caps how many edges blend into a
   pixel, with the same picture, and reuses its last picture while only nodes or text
   change, hovering picks the node drawn under the cursor at a fifth of the cost, and Low
@@ -31,14 +35,17 @@ still change before version 1.0.0.
 - **A redesigned Fold View.** A frame of its own around Mol* 5.13.1, a Structures card,
   one Color by choice with per-residue alignment layers (Information Content and Residue
   Agreement), a sequence strip, Measure and Labels tools and image export; folds queue
-  instead of being refused, and `esmfold stop` ends them.
+  instead of being refused, `esmfold stop` ends them, and a node already folded is shown
+  instead of folded again (`esmfold refold` folds it again).
 - **Embeddings as an input.** Config and VR Config can select a protein language model
   embedding file, checked against the sequences like the MSA, and the `embedding`
   command switches it; commands name the inputs they need.
 - **Commands and docs.** The Zoom box, `zoom` and `print … zoom` use percentages, `color`
   sets alpha and takes attribute sets, more commands take a name in both of its forms,
-  the command line has a blinking caret, and the Quick Start and Command Reference are in
-  Simplified Chinese (drafts awaiting review).
+  a command can go on over several lines with a backslash, the command line has a
+  blinking caret, and the Quick Start and Command Reference are in Simplified Chinese
+  (drafts awaiting review). Commands and web pages declare themselves, so one can be
+  added or taken away without changing the rest of the program.
 - **MCP: hidden Viewers and waiting for commands** (server 0.16.0). `mode="hidden"`
   draws with no window until `show_session`, `wait_command_request` replaces polling,
   and a request whose only work left is a file job or a fold no longer holds the
@@ -180,8 +187,8 @@ still change before version 1.0.0.
     and progress, such as "Drawing tile 3 of 8" or "Folding 2 of 3") or waits (with its
     place). The card updates while open, growing to fit a job that starts or ends just
     as it opens, and screen readers read each row in full.
-  - **A badge** at the top right, under the frame rate's row, counts the jobs while one
-    waits or runs; its tooltip lists them.
+  - **A badge** at the top right, under the Undo and Redo buttons, counts the jobs while
+    one waits or runs; its tooltip lists them.
   - **Waiting jobs** can be moved up or down within their line, or removed.
   - **A running job** can be stopped, after a confirmation. It says "stopping" until it has
     really stopped, and is then reported cancelled. A stopped `print`, `label` or `logo`
@@ -352,7 +359,7 @@ still change before version 1.0.0.
     failure skips the rest of the request.
   - **Seeing and controlling it:** the console and status lines say what each command
     waits for. A waiting or computing command is not a background job: it has no job
-    number, `jobs` and the badge under the FPS row leave it out, and `undo` or Ctrl+Z
+    number, `jobs` and the jobs badge leave it out, and `undo` or Ctrl+Z
     takes it back.
   - **MCP:** `get_command_request` reports a command's place in the queue as `queue`:
     queued (with its place), running, applying, then how it ended.
@@ -477,8 +484,9 @@ still change before version 1.0.0.
   - **Ctrl + right-click and Ctrl boxes** no longer remove nodes: they work as plain ones.
 - **A node's sequence is copied with Shift + double-click,** no longer with Ctrl + click.
   - **Shift + click** still copies the header, when the button is let go within 5 px of
-    where it went down. It is copied about half a second later, once the click is not the
-    start of a double-click, so a double-click copies only the sequence. A slipped click
+    where it went down. It is copied after the system's double-click time (about half a
+    second by default), once the click is not the start of a double-click, so a
+    double-click copies only the sequence. A slipped click
     or a drag copies nothing.
   - **Ctrl + left click** is now a plain click.
 - **A quick second click counts.** A click soon after another on the same spot was taken
@@ -764,13 +772,14 @@ still change before version 1.0.0.
     same scene and session (English only). Esc or "Back to simple view" returns.
   - **States:** the page says what to do when there are no structures yet, with a button to
     open a structure file, and says so when WebGL is missing (in place of Mol*'s own
-    message), while a saved session is restored and when the connection to the Viewer is
-    lost.
+    message, which only Advanced shows), while a saved session is restored and when the
+    connection to the Viewer is lost.
   - **Color by card:** one choice for the whole scene, in place of a select per structure:
     Structure color, pLDDT, each per-residue layer (with "1 of 2" when only some
     structures have it), and under More colorings, Secondary structure and Residue
     position. The chosen coloring's legend shows its range, unit and source, and a
-    compact copy sits in the canvas's lower left. A structure loaded later takes the
+    compact copy sits in the canvas's lower left. The legend's note shows two lines, with
+    a chevron only when there is more of it to read. A structure loaded later takes the
     scene's choice, and a row's details can colour that one structure differently until
     the scene's choice changes. Beyond 8 layers the card adds a filter box.
   - **Hover and pin:** the pointer over a residue shows its name, chain and structure,
@@ -828,8 +837,9 @@ still change before version 1.0.0.
   clicked: a clicked node is no longer folded in place of a selection. `esmfold multi` and
   `esmfold large` with nothing selected fail with "No nodes selected".
 - **`esmfold` shows a structure that is already saved instead of folding it again.** A
-  selected node whose structure file, the one this fold would write, already exists is
-  shown in Fold View with no model and no job, and the outcome names it.
+  selected node whose structure file, the one this fold would write, already exists and
+  is not empty is shown in Fold View with no model and no job, and the outcome names it
+  (past five such nodes, it counts them).
   - **`esmfold refold`** folds such nodes again. It combines with `large` and `multi`.
   - A local fold and `large` write different files, so a node folded by one is still
     folded by the other.
@@ -847,8 +857,8 @@ still change before version 1.0.0.
   changes, apart from the details below.
   - **Commands:** a command module now carries its own catalog entry (what `help` and MCP
     `get_command_catalog` show), its Agent policy (run, approve or refuse), its item in
-    the Agent's instructions, the Session card button it answers, and the targets `reset`
-    restores. An undeclared policy means the Agent's command waits for approval. The
+    the Agent's instructions, whether it has a Console button, the Session card button it
+    answers, and the targets `reset` restores. An undeclared policy means the Agent's command waits for approval. The
     catalog, the Agent's instructions and every policy are byte-for-byte as before.
   - **`reset`** lives in its own command: each command that owns some state says how to
     reset it, and `reset help` lists what the commands declare.
@@ -1047,10 +1057,6 @@ still change before version 1.0.0.
   - **Other extra datasets** of a cache still load as custom attributes, as `save` writes
     them, but one can no longer replace a method or the Viewer's own state, or carry a
     name starting with `_`. Those are skipped with one warning line.
-- **Fold View: a coloring's note no longer has a button that does nothing.** A note with
-  no source line above it, such as pLDDT's, had a chevron that turned over and opened
-  nothing. Such a note now shows two lines, with a chevron only when there is more of it
-  to read; it is checked again when the panel or the window changes size.
 - **`reset clusters cluster`** kept only one of its notes when a target was named twice:
   the "Removed N generated subcluster groups" note was lost. Every note is now reported.
 - **The status line kept an old count after right-clicks on nodes.** "Selected 41 nodes."
