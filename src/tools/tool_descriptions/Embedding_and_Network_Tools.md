@@ -184,7 +184,7 @@ This script does not require additional configuration parameters.
 #### Extracted HDF5 Sub-Network Archive
 *   **Format**: HDF5 (`.h5`).
 *   **Embedding-network schema**: Copies source attributes and writes re-indexed `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`.
-*   **BLAST/E-value schema**: Copies source attributes and writes re-indexed `/headers`, `/i`, `/j`, and `/score`.
+*   **BLAST schema** (E-value or EFI alignment score): Copies source attributes, including `score_kind` of an EFI alignment score network, and writes re-indexed `/headers`, `/i`, `/j`, and `/score`. The file is named `<whitelist stem>_[BLAST]_EValue.h5`, or `_EFIScore.h5` for an EFI alignment score network (with `[DIAMOND]` for an imported DIAMOND network).
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -206,6 +206,6 @@ This script does not require additional configuration parameters.
      $$j'_k = \text{Map}_{\text{master\_idx} \to \text{subset\_idx}}(j_k)$$
 
 4. **Output Assembly**:
-     Preserves the detected source schema: embedding score/length datasets for alignment networks or the single `score` dataset for BLAST/E-value networks. Output names are derived from the whitelist FASTA basename and the source network's `model_name` metadata.
+     Preserves the detected source schema: embedding score/length datasets for alignment networks or the single `score` dataset for BLAST networks (E-value or EFI alignment score). Output names are derived from the whitelist FASTA basename and the source network's `model_name` metadata.
 
 </details>

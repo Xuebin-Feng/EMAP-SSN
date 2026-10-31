@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 3252042b1ab59214cc8aa2bbe29bb0cf73bdde92a7c2031df47ccf5645ad1287 -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 29acbc8f3b9af17986976e432e9ae8620a615173e05f21e179fdb26d4a511117 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -93,7 +93,7 @@
 
 # 替换矩阵比对 (`Align_Substitution_Matrix.py`)
 
-该脚本使用传统的氨基酸替换矩阵进行全对全的局部序列比对。它根据输入序列集构建一个本地 NCBI BLAST 数据库，并并行执行 BLASTP 查询。得到的期望值（E-value）会被转换为可线性比较的负 Log10(E) 边（edge）权重，用于构建网络。
+该脚本使用传统的氨基酸替换矩阵进行全对全的局部序列比对。它根据输入序列集构建一个本地 NCBI BLAST 数据库，并并行执行 BLASTP 查询。得到的期望值（E-value）会被转换为可线性比较的负 Log10(E) 边（edge）权重，用于构建网络；当 `SCORE_METRIC` 要求时，则改由 BLAST 的比特得分（bit score）和序列长度计算 EFI-EST 比对得分。
 
 ### 输入
 
@@ -107,6 +107,7 @@
 | 参数 | 说明 |
 | :--- | :--- |
 | 替换矩阵 **`MATRIX`** | BLAST 比对中用于传统打分的氨基酸替换矩阵（例如 BLOSUM45、BLOSUM50、BLOSUM62、BLOSUM80、BLOSUM90、PAM30、PAM70、PAM250）。 |
+| 得分 **`SCORE_METRIC`** | 网络为每个序列对存储的边得分。`evalue`（默认）是期望值的负 Log10；`efi_alignment_score` 是 EFI-EST 比对得分，由每个命中的比特得分和两条序列的长度计算。无论哪种，都保留一个序列对（任一方向）中最强的命中。 |
 | BLAST 线程数 **`NUM_THREADS`** | 分配给 BLASTP 执行和结果解析的 CPU 线程数。 |
 | 处理批大小 **`BATCH_SIZE`** | 在写入中间 HDF5 文件和汇总最终网络时，一次缓冲或复制的已解析边的最大数量。 |
 | BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空时，工具会在 `PATH` 和受支持平台的安装位置中查找。 |
@@ -119,13 +120,13 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
 ### 输出
 
 #### HDF5 比对网络
-*   **格式**：HDF5（`.h5`）。
+*   **格式**：HDF5（`.h5`），命名为 `<set>_[BLAST]_EValue.h5`；使用 EFI 比对得分时为 `<set>_[BLAST]_EFIScore.h5`。
 *   **结构**：
     - `/i`：源序列节点索引。
     - `/j`：目标序列节点索引。
-    - `/score`：每个无向序列对经双向去重后的最佳 $-\log_{10}(E_{\text{value}})$ 得分。
+    - `/score`：每个无向序列对经双向去重后的最佳 $-\log_{10}(E_{\text{value}})$ 得分，或最佳 EFI 比对得分。
     - `/headers`：序列标题数组。
-    - 属性 `model_name="BLAST"` 和 `matrix`。
+    - 属性 `model_name="BLAST"` 和 `matrix`；EFI 比对得分网络还有 `score_kind="efi_alignment_score"` 和 `score_transform`。没有 `score_kind` 的网络存储的是期望值得分。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>
@@ -152,6 +153,11 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
      
      加上下限偏移 $10^{-300}$ 是为了在期望值为 0.0 时避免数学上的除零问题。
 
+     当 `SCORE_METRIC` 设为 `efi_alignment_score` 时，改由比特得分和两条已清理序列的长度给出 EFI-EST 比对得分，且不做取整（EFI-EST 会将其向下取整为整数）：
+     $$\text{Score} = \text{bit score} \cdot \log_{10}(2) - \log_{10}(L_{\text{query}} \cdot L_{\text{subject}})$$
+
+     与 $-\log_{10}(E)$ 一样，它随相似度升高而增大，但没有 300 的上限，不依赖序列集的大小，并且长序列之间的弱命中可能得 0 分或负分。EFI-EST 没有给出通用的阈值：请从较低的值开始，逐步提高相似性阈值，直到功能已知的序列彼此分开。
+
 6. **整合**：
      合并分块输出文件，把临时索引还原为原始序列标题，并导出最终的网络文件。
 
@@ -161,7 +167,7 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
 
 # 解析 BLAST 输出 (`Parse_BLAST_Output.py`)
 
-该脚本解析严格的、以制表符分隔的 BLAST+ 或 DIAMOND 输出（需配合必需的配套 FASTA），并将其转换为标准的 HDF5 期望值网络。完整的 FASTA 序列标题和所选的 BLAST 序列标题都按查看器共享的序列标题规则清理，然后精确匹配。双向命中（reciprocal hit）和重复命中会合并为最强的无向边，没有任何命中的 FASTA 记录仍会作为孤立节点保留。
+该脚本解析严格的、以制表符分隔的 BLAST+ 或 DIAMOND 输出（需配合必需的配套 FASTA），并将其转换为期望值得分的标准 HDF5 网络；当 `SCORE_METRIC` 要求时，则转换为 EFI 比对得分的网络。完整的 FASTA 序列标题和所选的 BLAST 序列标题都按查看器共享的序列标题规则清理，然后精确匹配。双向命中（reciprocal hit）和重复命中会合并为最强的无向边，没有任何命中的 FASTA 记录仍会作为孤立节点保留。
 
 ### 输入
 
@@ -177,15 +183,16 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
 
 ### 参数
 
+*   `SCORE_METRIC`：边得分。`evalue`（默认）存储期望值的负 Log10；`efi_alignment_score` 存储 EFI-EST 比对得分，由每个命中的比特得分和配套 FASTA 中两条序列的长度计算。
 *   `BLAST_LAYOUT`：输入的解析方式。
-    - `standard_outfmt6`：恰好 12 个字段；查询、目标和期望值分别位于第 1、2 和 11 列。
-    - `outfmt7_fields`：使用完整的 `# Query:` 值，并根据一致的 `# Fields:` 声明确定目标列和期望值列。可识别目标的标题、ID 和 accession 等变体。
-    - `custom_columns`：使用明确给出的、从 1 开始编号的 `QUERY_COLUMN`、`SUBJECT_COLUMN` 和 `EVALUE_COLUMN` 值。
-*   `QUERY_COLUMN`、`SUBJECT_COLUMN`、`EVALUE_COLUMN`：从 1 开始编号的列号，仅供 `custom_columns` 使用。
+    - `standard_outfmt6`：恰好 12 个字段；查询、目标和期望值分别位于第 1、2 和 11 列，比特得分位于第 12 列，EFI 比对得分读取它而不是期望值。
+    - `outfmt7_fields`：使用完整的 `# Query:` 值，并根据一致的 `# Fields:` 声明确定目标列和期望值列（EFI 比对得分则为比特得分列）。可识别目标的标题、ID 和 accession 等变体。
+    - `custom_columns`：使用明确给出的、从 1 开始编号的 `QUERY_COLUMN`、`SUBJECT_COLUMN` 和 `EVALUE_COLUMN` 值；EFI 比对得分用 `BITSCORE_COLUMN` 取代 `EVALUE_COLUMN`。
+*   `QUERY_COLUMN`、`SUBJECT_COLUMN`、`EVALUE_COLUMN`、`BITSCORE_COLUMN`：从 1 开始编号的列号，仅供 `custom_columns` 使用。`SCORE_METRIC` 决定读取最后两者中的哪一个，另一个被忽略。
 
 导入的网络记录固定的矩阵来源标签 `Imported`。解析使用固定的批大小，即 `1,000,000` 行；这两个值都不是界面中的设置。
 
-对于含有描述的 FASTA 序列标题，推荐使用带目标标题的 BLAST outfmt 7 格式，例如 `-outfmt "7 qseqid stitle evalue"`。查询序列（query sequence）标题取自 `# Query:`，目标序列标题取自 `stitle`。DIAMOND 的对应写法为 `--outfmt 6 qtitle stitle evalue`，导入时使用 `custom_columns` 的第 1、2、3 列。只有当标准的 `qseqid`/`sseqid` 输出值与已清理的完整 FASTA 序列标题完全相同时才会被接受：BLAST+ 和 DIAMOND 在这两列中都只报告每个 FASTA 序列标题的第一个词，若某个无法匹配的序列标题恰好等于这样的第一个词，会被报告为截断。
+对于含有描述的 FASTA 序列标题，推荐使用带目标标题的 BLAST outfmt 7 格式，例如 `-outfmt "7 qseqid stitle evalue bitscore"`。查询序列（query sequence）标题取自 `# Query:`，目标序列标题取自 `stitle`。DIAMOND 的对应写法为 `--outfmt 6 qtitle stitle evalue bitscore`，导入时使用 `custom_columns` 的第 1、2、3 列（EFI 比对得分还要将 `BITSCORE_COLUMN` 设为 4）。同时报告比特得分，就可以用任一种 `SCORE_METRIC` 导入同一个搜索文件。只有当标准的 `qseqid`/`sseqid` 输出值与已清理的完整 FASTA 序列标题完全相同时才会被接受：BLAST+ 和 DIAMOND 在这两列中都只报告每个 FASTA 序列标题的第一个词，若某个无法匹配的序列标题恰好等于这样的第一个词，会被报告为截断。
 
 #### 推荐的 DIAMOND 全对全搜索
 
@@ -194,25 +201,25 @@ diamond makedb --in sequences.fasta -d sequences
 diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-sensitive -k 0 --max-hsps 1 --evalue 1e-5 --header verbose
 ```
 
-使用 `standard_outfmt6` 和同一个 `sequences.fasta` 导入 `sequences_diamond.tsv`。
+使用 `standard_outfmt6` 和同一个 `sequences.fasta` 导入 `sequences_diamond.tsv`。DIAMOND 默认的 `--outfmt 6` 已在第 12 列包含 EFI 比对得分所需的比特得分。
 
 *   **必须使用 `-k 0`。** DIAMOND 默认每个查询最多报告 25 条目标序列（`--max-target-seqs 25`），因此不加 `-k 0` 导入的全对全网络会悄悄丢失每个查询前 25 个命中之外的所有边。`--top` 也会以同样的方式截断命中列表，不应使用。
-*   **`--header verbose`** 会写入 `# DIAMOND v…` 和 `# Invocation: …` 注释行。导入程序会把它们记录为网络的搜索程序、版本和命令，将输出命名为 `<name>_[DIAMOND]_EValue.h5`，并检查记录的 `--max-target-seqs`。没有这一头部时，DIAMOND 输出仍可导入，但来源未知，并使用 `[BLAST]` 名称。`--header simple` 会写入一行列名，这会被拒绝。
+*   **`--header verbose`** 会写入 `# DIAMOND v…` 和 `# Invocation: …` 注释行。导入程序会把它们记录为网络的搜索程序、版本和命令，将输出命名为 `<name>_[DIAMOND]_EValue.h5`（EFI 比对得分则为 `_EFIScore.h5`），并检查记录的 `--max-target-seqs`。没有这一头部时，DIAMOND 输出仍可导入，但来源未知，并使用 `[BLAST]` 名称。`--header simple` 会写入一行列名，这会被拒绝。
 *   **序列标题**：请选择序列标题中不含空格的 FASTA 进行搜索（例如由 `Sanitize_Sequences.py` 写出的文件），使 `qseqid`/`sseqid` 包含完整的序列标题；或者使用上面的标题列。
 *   **灵敏度与阈值**：`--very-sensitive` 或 `--ultra-sensitive` 能找到 SSN 所依赖的远缘同源序列；更快的模式会漏掉更多远缘序列对。`--max-hsps 1`（DIAMOND 的默认值）对每个序列对只保留一个比对。期望值阈值决定了之后的得分阈值所能用到的最弱的边。
 
-两种程序生成的网络都保留 `model_name="BLAST"`，因此查看器会把它们作为期望值网络加载。
+两种程序生成的网络都保留 `model_name="BLAST"`，因此查看器会把它们作为 BLAST 网络加载，其得分是期望值还是 EFI 比对得分由 `score_kind` 决定。
 
 ### 输出
 
 #### HDF5 比对网络
-*   **格式**：HDF5（`.h5`），命名为 `<blast file name>_[BLAST]_EValue.h5`；若文件的注释头部声明了 DIAMOND，则为 `_[DIAMOND]_EValue.h5`。
+*   **格式**：HDF5（`.h5`），命名为 `<blast file name>_[BLAST]_EValue.h5`；若文件的注释头部声明了 DIAMOND，则为 `_[DIAMOND]_EValue.h5`。使用 EFI 比对得分时，名称改以 `_EFIScore.h5` 结尾。
 *   **结构**：
     - `/i`：源序列节点索引。
     - `/j`：目标序列节点索引。
-    - `/score`：每个无向序列对解析出的最佳 $-\log_{10}(E_{\text{value}})$ 得分。
+    - `/score`：每个无向序列对解析出的最佳 $-\log_{10}(E_{\text{value}})$ 得分，或最佳 EFI 比对得分。
     - `/headers`：按源顺序排列的已清理完整 FASTA 序列标题。
-    - 属性包括 `model_name="BLAST"`、矩阵和布局元数据、解析出的列、源文件和清单的哈希值、解析计数、清理计数，以及可用的 outfmt-7 来源信息。
+    - 属性包括 `model_name="BLAST"`、矩阵和布局元数据、解析出的列、源文件和清单的哈希值、解析计数、清理计数，以及可用的 outfmt-7 来源信息。EFI 比对得分网络还有 `score_kind="efi_alignment_score"` 和 `score_transform`；没有 `score_kind` 的网络存储的是期望值得分。
     - `search_program`、`search_version` 和 `search_invocation` 保存文件开头注释中的程序行（`# BLASTP 2.17.0+` 或 `# DIAMOND v2.1.23.`）和 DIAMOND 的 `# Invocation:` 命令，没有时为 `Unknown`。
     - `queries_observed`、`max_targets_per_query`、`queries_at_max_targets` 和 `import_warnings`（一个 JSON 列表）记录下文所述的搜索完整性检查。
 
@@ -235,11 +242,14 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
      按源顺序读取每条 FASTA 记录，校验其结构，并清理完整的序列标题。清理后的序列标题是查看器中唯一的规范标识。
 
 2. **严格的 BLAST 布局解析**：
-     根据所选的明确布局确定各列。字段数不正确、outfmt-7 声明不一致、UTF-8 无效、期望值无效或序列标题未知的行都会失败，并给出实际的行号。在其他布局中，`# Fields:` 注释必须在所选的期望值列上声明期望值，且一行列名会被拒绝。不使用任何启发式的期望值检测或首个词元别名。
+     根据所选的明确布局确定各列。字段数不正确、outfmt-7 声明不一致、UTF-8 无效、期望值无效（EFI 比对得分则为比特得分无效）或序列标题未知的行都会失败，并给出实际的行号。在其他布局中，`# Fields:` 注释必须在所选的期望值列上声明期望值（EFI 比对得分则在比特得分列上声明比特得分），且一行列名会被拒绝。不使用任何启发式的期望值检测或首个词元别名。
 
 3. **边解析与得分转换**：
      清理所选的完整 BLAST 序列标题，将其与清单精确匹配，并转换每个有限的非负期望值。零映射为封顶得分 300：
      $$\text{Score} = -\log_{10}(E_{\text{value}} + 10^{-300})$$
+     使用 EFI 比对得分时，改为转换每个有限的非负比特得分，两条序列的长度取自 FASTA 清单，结果不做取整：
+     $$\text{Score} = \text{bit score} \cdot \log_{10}(2) - \log_{10}(L_{\text{query}} \cdot L_{\text{subject}})$$
+     该得分没有上限，不依赖序列集的大小，长序列之间的弱命中其得分为 0 或负数。EFI-EST 没有给出通用的阈值：请从较低的值开始，逐步提高相似性阈值，直到功能已知的序列彼此分开。清理后没有任何残基的序列没有长度，因此涉及它的命中会使导入停止。
      每个查询的不同目标（包括自身命中），以及报告每条序列的查询数，都会被计入搜索完整性检查。
 
 4. **有界去重**：

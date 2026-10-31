@@ -302,7 +302,9 @@ network. The desktop workflow is:
    embeddings with `Generate_Embeddings.py` and score pairs with
    `Align_Similarity_Matrix.py`. `Parse_BLAST_Output.py` imports external BLAST or
    DIAMOND tabular results using a matching FASTA manifest; run DIAMOND all-vs-all
-   with `-k 0`, since it otherwise keeps only 25 hits per query. The BLAST
+   with `-k 0`, since it otherwise keeps only 25 hits per query. Both BLAST tools
+   score each pair by its E-value or, with Score set to EFI alignment score, by the
+   EFI-EST alignment score, which also needs each hit's bit score. The BLAST
    calculation requires separate `blastp` and `makeblastdb` executables; the
    importer reads saved results without running BLAST or DIAMOND.
 3. **Add an alignment when needed.** Generate an embedding-guided MSA with

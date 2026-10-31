@@ -193,7 +193,7 @@
             </div>
 
             <!-- SECTION 2: COMPLETE WORKFLOW -->
-            <div id="workflow" class="section-divider" data-source-sha256="6f1154701187594d8ba269a023917de1e5c60eaa7108fd9111d7772308d2e2c7">
+            <div id="workflow" class="section-divider" data-source-sha256="3680abee2501d4265dcacc5a143a3f894d10a0d88806234e534e6ce836e6abd4">
                 <span>2. 完整的端到端系统工作流程</span>
             </div>
 
@@ -240,7 +240,7 @@
                             </tr>
                             <tr>
                                 <td><strong>成对相似性</strong></td>
-                                <td>BLAST+（<code>blastp</code>）或 FASTA（<code>ssearch36</code>）产生期望值（E-value）和比特得分。以 HDF5 矩阵形式存储在 <code>Networks_EValues/</code> 中。</td>
+                                <td>BLAST+（<code>blastp</code>）或 FASTA（<code>ssearch36</code>）产生期望值（E-value）和比特得分。每个序列对按其期望值打分，或者（可选）按 EFI 比对得分打分。以 HDF5 矩阵形式存储在 <code>Networks_EValues/</code> 中。</td>
                                 <td>对残基级别的 embedding 相似性进行全对全动态规划（dynamic programming）比对（<code>Align_Similarity_Matrix.py</code>）。存储在 <code>Networks_EValues/</code> 中。</td>
                             </tr>
                             <tr>
@@ -278,7 +278,7 @@
             </div>
 
             <!-- SECTION 3: TOOLS GUI -->
-            <div id="gui-tools" class="section-divider" data-source-sha256="e5e875efff2e24acad6ed6e87b3b33f6d5822931eb43fe84bfaf63079b0b078a">
+            <div id="gui-tools" class="section-divider" data-source-sha256="71476a08c46a0034bdc7b9c5485b036909f943a26ef248b7e7d500664c369e73">
                 <span>3. EMAP-SSN 工具 GUI（EMAPSSN_Tools.py）</span>
             </div>
 
@@ -312,7 +312,7 @@
                         <strong>序列与 embedding 准备：</strong>包含 <code>Sanitize_Sequences.py</code>（清理序列数据库、执行长度阈值限制、去除片段关键字、去重）、<code>Generate_Embeddings.py</code>（使用 ESM-2、ESM C、ProtBERT、ProstT5 和 Ankh 等模型计算每个残基的表示），以及 <code>Embedding_Cropping.py</code>（从现有全序列数据库中为裁剪后的序列切取 embedding，而不是单独对片段进行 embedding）。
                     </li>
                     <li>
-                        <strong>序列相似性计算：</strong>包含 <code>Align_Similarity_Matrix.py</code>（基于残基级 embedding 相似性的全对全动态规划比对）、<code>Align_Substitution_Matrix.py</code>（使用传统替换矩阵进行全对全 BLASTP 比对；需要 NCBI BLAST+），以及 <code>Parse_BLAST_Output.py</code>（将现有的表格形式 BLAST 或 DIAMOND 结果作为期望值网络导入；请使用 <code>-k 0</code> 运行 DIAMOND，以便报告每个命中）。
+                        <strong>序列相似性计算：</strong>包含 <code>Align_Similarity_Matrix.py</code>（基于残基级 embedding 相似性的全对全动态规划比对）、<code>Align_Substitution_Matrix.py</code>（使用传统替换矩阵进行全对全 BLASTP 比对；需要 NCBI BLAST+），以及 <code>Parse_BLAST_Output.py</code>（导入现有的表格形式 BLAST 或 DIAMOND 结果；请使用 <code>-k 0</code> 运行 DIAMOND，以便报告每个命中）。两个 BLAST 工具都按期望值给每个序列对打分；将<strong>得分</strong>设为 <code>EFI alignment score</code>（“EFI 比对得分”）时，则按 EFI-EST 比对得分打分，这还需要每个命中的比特得分。
                     </li>
                     <li>
                         <strong>Embedding MSA：</strong><code>Embedding_MSA.py</code> 根据由网络得分导出的引导树构建渐进式多序列比对，比对时使用残基 embedding；<code>Sparse_MSA_Converter.py</code> 则把已比对的 FASTA 压缩为紧凑的稀疏 HDF5 MSA。
@@ -363,7 +363,7 @@
             </div>
 
             <!-- SECTION 4: CONFIGURATION GUI -->
-            <div id="gui-config" class="section-divider" data-source-sha256="86a4bac20cdb36b9c6d77371ac7913c151f1c5beb7ef74dc39788e6cf378a716">
+            <div id="gui-config" class="section-divider" data-source-sha256="6164cd44f19a573f4031dfe5cf3899ac9e9e6ac173080f0a93fc1072ce2ce0d7">
                 <span>4. EMAP-SSN 配置 GUI（EMAPSSN_Config.py）</span>
             </div>
 
@@ -394,12 +394,12 @@
                     <li><strong>序列集/子集（.fasta）：</strong>选择与网络节点对应的蛋白质序列。</li>
                     <li><strong>MSA 输入（.fasta / _sparse.h5）：</strong>绑定用于残基保守性映射和序列标识图（sequence logo）的多序列比对。</li>
                     <li><strong>Embedding 输入（.h5）：</strong>可选，绑定由 <code>Generate_Embeddings.py</code>（或提取、注入和裁剪工具）写入的逐残基蛋白质语言模型 embedding 数据库，供分析每条序列 embedding 的查看器命令使用。下拉列表列出 <code>.h5</code> 文件，它们位于 <strong>Embedding 目录</strong>中（默认为项目的 <code>Embeddings/</code> 文件夹，与工具中相同）；留空表示不使用。当文件中含有该节点的序列标题，且清理后的序列相同时，该节点就有 embedding；逐残基数据保留在磁盘上，仅在命令需要时才读取。</li>
-                    <li><strong>网络边输入（.h5）：</strong>绑定全对全的成对相似性矩阵或期望值矩阵。</li>
+                    <li><strong>网络边输入（.h5）：</strong>绑定全对全的成对相似性、期望值或 EFI 比对得分矩阵。</li>
                     <li><strong>得分模式与归一化模式：</strong>指定得分的解读方式（<code>global (Needleman-Wunsch)</code> 即“全局（Needleman-Wunsch）”，<code>local (Smith-Waterman)</code> 即“局部（Smith-Waterman）”）以及得分的归一化方式（<code>Alignment Length</code> 即“比对长度”、<code>Shorter Sequence</code> 即“较短序列长度”、<code>Longer Sequence</code> 即“较长序列长度”、<code>Average Sequence</code> 即“平均序列长度”；<code>Alignment Length</code> 仅适用于全局得分）。</li>
                     <li><strong>比对参考 ID 与偏移量：</strong>指定一个蛋白质，用其原生残基坐标锚定比对。该值会与网络中的序列标题匹配，优先精确匹配整个标题，其次匹配开头的标识符，再次是子串或通配符匹配；当 MSA 中含有解析出的标题时，比对即锚定在该标题上。随后，所有残基命令（例如 <code>color K188 red</code>）的编号都与这个参考蛋白质的原生残基坐标一一对应（1:1）。若没有任何匹配，或 MSA 中没有解析出的标题，查看器会在启动时发出警告，改用占有率（occupancy）编号，并忽略偏移量。</li>
                     <li><strong>布局方法：</strong>选择布局的计算方式，位于“相似性阈值”和“保留高分边 %”所在行的末尾。<code>SSN</code>（默认）运行力导向物理模拟（见“模拟与物理”选项卡）。<code>UMAP</code> 和 <code>PaCMAP</code> 则改为绘制非线性流形投影：UMAP，提供可调的<code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>；或 PaCMAP，提供 <code>PaCMAP Nearest Neighbors</code>（2 到 50），即每个节点最强的、保持靠近且由查看器绘制的边的数量。这些输入项取代“相似性阈值”和“保留高分边 %”输入项。</li>
                     <li><strong>最低占有率 %：</strong>比对列要在序列标识图、保守性等残基分析中被保留，所需的最低非空位（gap）字符百分比。默认为 10。</li>
-                    <li><strong>相似性阈值与保留高分边 %：</strong>修剪低于给定相似性得分的边，或在整个网络中只保留得分最高的前 $X\%$ 的边，以消除拓扑噪声。“保留高分边 %”会覆盖阈值；其<strong>清除</strong>按钮可取消这一设置，此时采用相似性阈值。</li>
+                    <li><strong>相似性阈值与保留高分边 %：</strong>修剪低于给定相似性得分的边，或在整个网络中只保留得分最高的前 $X\%$ 的边，以消除拓扑噪声。“保留高分边 %”会覆盖阈值；其<strong>清除</strong>按钮可取消这一设置，此时采用相似性阈值。在 BLAST 网络上，阈值使用网络自身的得分，即期望值的 -log10 或 EFI 比对得分；EFI 比对得分没有通用的阈值，请从较低的值开始，逐步提高，直到功能已知的序列彼此分开。</li>
                     <li><strong>目标缓存与所选缓存文件：</strong>自动扫描 <code>Cache_Files/Saved_Layouts/</code> 中的预计算布局坐标。如果找到，查看器会立即加载已有布局，无需重新计算。选择 <code>(New Layout Cache)</code> 会启动一次全新的模拟。</li>
                 </ul>
 
@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="7d6f761dc7f6f61f39fb2cc65f41f2fbfe5ac953364795a0a1159c916773d20d">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="7e9eb8f4f6c56f29f7ca659638f5a55a644daa675efdd58b09f0124ff3636fde">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -624,7 +624,7 @@
                     位于视口左下角（图 4）的<strong>边可见性滑块</strong>可实现即时的拓扑过滤：
                 </p>
                 <ul>
-                    <li>拖动滑块可动态增大或减小当前生效的相似性得分阈值（或期望值阈值）。</li>
+                    <li>拖动滑块可动态增大或减小当前生效的相似性得分阈值（在 BLAST 网络上则为 -log10 期望值或 EFI 比对得分阈值）。</li>
                     <li>滑块前面的框显示当前生效的阈值。输入一个值并按 <span class="kbd">Enter</span>，或使用框的箭头、在其上滚动鼠标滚轮，或点击后按 <span class="kbd">Up</span>/<span class="kbd">Down</span>，都可以精确设置，滑块会随之移动。其步长是满足以下条件的最大的 10 的幂（不超过 1）：按此步长跨越网络的得分范围时，仍能得到 1,000 步；显示的小数位数与该步长的小数位数相同。</li>
                     <li>低于当前滑块阈值的边会立即从屏幕上消失，无需重新运行布局模拟！</li>
                     <li>随着阈值升高，相互连接的超级簇会逐步分裂为不同的专门化子簇（subcluster），揭示精细的进化分歧。</li>
