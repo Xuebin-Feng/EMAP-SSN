@@ -148,27 +148,43 @@ class TooltipRoutingTests(unittest.TestCase):
             "Custom Columns (1-based indexing)", "custom_columns"
         )
         layout_combo.setProperty("persistItemData", True)
-        inputs = {"BLAST_LAYOUT": {"widget": layout_combo}}
+        score_combo = QComboBox()
+        score_combo.addItem("E-value (−log10)", "evalue")
+        score_combo.addItem("EFI alignment score", "efi_alignment_score")
+        score_combo.setProperty("persistItemData", True)
+        inputs = {
+            "BLAST_LAYOUT": {"widget": layout_combo},
+            "SCORE_METRIC": {"widget": score_combo},
+        }
         row_widgets = {}
-        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"):
+        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"):
             label = QLabel(name)
             widget = QSpinBox()
             inputs[name] = {"widget": widget}
             row_widgets[name] = (label, widget)
 
+        def enabled():
+            """Which of the column controls, and their labels, are enabled."""
+            controls = {name for name in row_widgets if inputs[name]["widget"].isEnabled()}
+            labels = {name for name, (label, _) in row_widgets.items() if label.isEnabled()}
+            self.assertEqual(controls, labels)
+            return controls
+
         bind_custom_blast_column_controls(inputs, row_widgets)
 
-        self.assertTrue(
-            all(not inputs[name]["widget"].isEnabled() for name in row_widgets)
-        )
-        self.assertTrue(all(not label.isEnabled() for label, _ in row_widgets.values()))
+        self.assertEqual(enabled(), set())
         layout_combo.setCurrentText("Custom Columns (1-based indexing)")
         self.app.processEvents()
         self.assertEqual(layout_combo.currentData(), "custom_columns")
-        self.assertTrue(
-            all(inputs[name]["widget"].isEnabled() for name in row_widgets)
-        )
-        self.assertTrue(all(label.isEnabled() for label, _ in row_widgets.values()))
+        # The score is read from one column: the E-value, or the bit score for EFI.
+        self.assertEqual(enabled(), {"QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"})
+        score_combo.setCurrentIndex(1)
+        self.assertEqual(enabled(), {"QUERY_COLUMN", "SUBJECT_COLUMN", "BITSCORE_COLUMN"})
+        layout_combo.setCurrentIndex(0)
+        self.assertEqual(enabled(), set())
+        layout_combo.setCurrentIndex(2)
+        score_combo.setCurrentIndex(0)
+        self.assertEqual(enabled(), {"QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"})
 
         self.window.script_data = {
             "parse": {
@@ -190,7 +206,7 @@ class TooltipRoutingTests(unittest.TestCase):
         container = QWidget()
         form = QFormLayout(container)
         row_widgets = {}
-        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"):
+        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"):
             label = QLabel(name)
             widget = QSpinBox()
             form.addRow(label, widget)
@@ -202,7 +218,7 @@ class TooltipRoutingTests(unittest.TestCase):
 
         self.assertEqual(form.rowCount(), 1)
         field = form.itemAt(0, QFormLayout.ItemRole.SpanningRole).widget()
-        self.assertEqual(field.property("compactColumnRatio"), "1:1:1")
+        self.assertEqual(field.property("compactColumnRatio"), "1:1:1:1")
 
 
 class ToolExportGuiTests(unittest.TestCase):

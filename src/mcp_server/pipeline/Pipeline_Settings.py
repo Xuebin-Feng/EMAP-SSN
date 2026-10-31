@@ -231,8 +231,11 @@ def _combination_errors(tool_id, values):
         if low > 0 and high > 0 and low > high:
             fail("MAX_SEQ_LENGTH", "Must be at least MIN_SEQ_LENGTH when both bounds are enabled.")
     if tool_id == "parse_blast_output" and values["BLAST_LAYOUT"] == "custom_columns":
-        if len({values[k] for k in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")}) != 3:
-            fail("EVALUE_COLUMN", "Query, subject, and E-value columns must be distinct.")
+        # The score is read from the E-value column, or with the EFI alignment score from the bit score column.
+        efi = values["SCORE_METRIC"] == "efi_alignment_score"
+        score_key = "BITSCORE_COLUMN" if efi else "EVALUE_COLUMN"
+        if len({values[k] for k in ("QUERY_COLUMN", "SUBJECT_COLUMN", score_key)}) != 3:
+            fail(score_key, f"Query, subject, and {'bit score' if efi else 'E-value'} columns must be distinct.")
     if values.get("ACCELERATOR_PRECISION") == "tf32" and values.get("DEVICE_SELECTION") not in (None, "auto"):
         if not values["DEVICE_SELECTION"].startswith("cuda:"):
             fail("ACCELERATOR_PRECISION", "TF32 requires auto selection or a NVIDIA CUDA device; availability is checked at execution.")
@@ -379,7 +382,8 @@ def inspection_parameters(tool_id, values, project_root):
     effective = {key: deepcopy(prop["default"]) for key, prop in schema["properties"].items()}
     effective.update(values)
     if tool_id == "parse_blast_output" and effective["BLAST_LAYOUT"] == "custom_columns":
-        columns = [effective[key] for key in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")]
+        score_key = "BITSCORE_COLUMN" if effective["SCORE_METRIC"] == "efi_alignment_score" else "EVALUE_COLUMN"
+        columns = [effective[key] for key in ("QUERY_COLUMN", "SUBJECT_COLUMN", score_key)]
         if len(set(columns)) != 3:
             raise PipelineSettingsError([{"field": "parameters", "message": "Custom BLAST columns must be distinct."}])
     return effective

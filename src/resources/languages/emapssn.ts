@@ -7182,6 +7182,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>E-value (−log10)</source>
+        <comment>score metric</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EFI alignment score</source>
+        <comment>score metric</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
@@ -7606,6 +7616,22 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Edge score the network stores for each pair of sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>For either score, the strongest hit of a pair, in either direction, is kept.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The negative log10 of the BLAST E-value; saved as `&lt;set&gt;_[BLAST]_EValue.h5`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST]_EFIScore.h5`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Number of parallel CPU threads allocated for BLASTP execution and parsing.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7838,6 +7864,22 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Edge score the imported network stores for each pair of sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The negative log10 of the E-value; saved as `&lt;name&gt;_[BLAST]_EValue.h5`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST]_EFIScore.h5`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>How the columns of the BLAST tabular file are read.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7863,6 +7905,18 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>One-based E-value column used only for Custom Columns.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not read for the EFI alignment score.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One-based bit score column used only for Custom Columns with the EFI alignment score.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not read for the E-value score.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8324,6 +8378,10 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Score:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Hardware &amp; Workspace Settings:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8367,6 +8425,10 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>EValue Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bit Score Column:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

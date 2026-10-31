@@ -200,7 +200,7 @@ INLINE_FIELD_GROUPS = {
         ("INPUT_FASTA", "MATRIX"),
     ],
     "Parse_BLAST_Output.py": [
-        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"),
+        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"),
     ],
     "Sanitize_Sequences.py": [
         ("INPUT_FASTA", "OVER_WRITE"),
@@ -231,7 +231,7 @@ INLINE_FIELD_RATIOS = {
     ("MODEL_NAME", "SAVING_MODE", "DEVICE_SELECTION"): (5, 3, 4),
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
     ("INPUT_FASTA", "MATRIX"): (2, 1),
-    ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"): (1, 1, 1),
+    ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"): (1, 1, 1, 1),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
     ("INPUT_FASTA", "OVER_WRITE"),
@@ -323,6 +323,14 @@ def alignment_mode_labels(modes):
         "local": translate("Tools", "local (Smith-Waterman)", "alignment mode"),
     }
     return [labels[mode] for mode in modes]
+
+
+def score_metric_labels(metrics):
+    labels = {
+        "evalue": translate("Tools", "E-value (−log10)", "score metric"),
+        "efi_alignment_score": translate("Tools", "EFI alignment score", "score metric"),
+    }
+    return [labels[metric] for metric in metrics]
 
 
 def normalization_labels(modes):
@@ -1332,28 +1340,41 @@ class DynamicComboBox(SteadyPopupComboBox):
 
 
 def bind_custom_blast_column_controls(inputs, row_widgets):
-    """Enable custom BLAST column controls only for the custom layout."""
+    """Enable custom BLAST column controls only for the custom layout.
+
+    The score is read from one column only: the E-value column, or with the EFI
+    alignment score the bit score column. The other stays disabled.
+    """
     layout_input = inputs.get("BLAST_LAYOUT")
-    custom_names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")
+    custom_names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN")
     if not layout_input or any(name not in inputs for name in custom_names):
         return
 
     layout_combo = layout_input["widget"]
+    score_input = inputs.get("SCORE_METRIC")
+    score_combo = score_input["widget"] if score_input else None
 
-    def sync_custom_blast_columns(current_layout=None):
-        selected_layout = (
-            layout_combo.currentData()
-            if layout_combo.property("persistItemData")
-            else layout_combo.currentText()
-        )
-        enabled = selected_layout == "custom_columns"
+    def selected(combo):
+        return combo.currentData() if combo.property("persistItemData") else combo.currentText()
+
+    def sync_custom_blast_columns(current_text=None):
+        custom = selected(layout_combo) == "custom_columns"
+        efi = score_combo is not None and selected(score_combo) == "efi_alignment_score"
         for name in custom_names:
+            if name == "EVALUE_COLUMN":
+                enabled = custom and not efi
+            elif name == "BITSCORE_COLUMN":
+                enabled = custom and efi
+            else:
+                enabled = custom
             inputs[name]["widget"].setEnabled(enabled)
             label = row_widgets.get(name, (None, None))[0]
             if label is not None:
                 label.setEnabled(enabled)
 
     layout_combo.currentTextChanged.connect(sync_custom_blast_columns)
+    if score_combo is not None:
+        score_combo.currentTextChanged.connect(sync_custom_blast_columns)
     sync_custom_blast_columns()
 
 def render_markdown_with_math(text):
@@ -1740,6 +1761,14 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Amino acid substitution matrix (e.g. `BLOSUM62`, `PAM250`) used for scoring."),
                     details=(translate("Tools", "Select based on the expected evolutionary distance of the sequence set."),),
                 ),
+                "SCORE_METRIC": Tip(
+                    translate("Tools", "Edge score the network stores for each pair of sequences."),
+                    details=(translate("Tools", "For either score, the strongest hit of a pair, in either direction, is kept."),),
+                    options=(
+                        TipOption("evalue", translate("Tools", "The negative log10 of the BLAST E-value; saved as `<set>_[BLAST]_EValue.h5`.")),
+                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `<set>_[BLAST]_EFIScore.h5`.")),
+                    ),
+                ),
                 "NUM_THREADS": Tip(
                     translate("Tools", "Number of parallel CPU threads allocated for BLASTP execution and parsing."),
                     details=(translate("Tools", "Increasing threads accelerates all-vs-all search across multi-core systems."),),
@@ -1869,6 +1898,17 @@ class ToolsGUI(QMainWindow):
                 "INPUT_FASTA": Tip(
                     translate("Tools", "Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."),
                 ),
+                "SCORE_METRIC": Tip(
+                    translate("Tools", "Edge score the imported network stores for each pair of sequences."),
+                    details=(translate("Tools", "For either score, the strongest hit of a pair, in either direction, is kept."),),
+                    options=(
+                        TipOption("evalue", translate("Tools", "The negative log10 of the E-value; saved as `<name>_[BLAST]_EValue.h5`.")),
+                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score, from each hit's bit score and the two sequence lengths in the FASTA; saved as `<name>_[BLAST]_EFIScore.h5`.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Tools", "The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.")),
+                    ),
+                ),
                 "BLAST_LAYOUT": Tip(
                     translate("Tools", "How the columns of the BLAST tabular file are read."),
                     options=(
@@ -1885,6 +1925,11 @@ class ToolsGUI(QMainWindow):
                 ),
                 "EVALUE_COLUMN": Tip(
                     translate("Tools", "One-based E-value column used only for Custom Columns."),
+                    details=(translate("Tools", "Not read for the EFI alignment score."),),
+                ),
+                "BITSCORE_COLUMN": Tip(
+                    translate("Tools", "One-based bit score column used only for Custom Columns with the EFI alignment score."),
+                    details=(translate("Tools", "Not read for the E-value score."),),
                 ),
             },
             "Embedding_Injection.py": {
@@ -2342,6 +2387,13 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Substitution Matrix:")
                         },
                         {
+                            "var_name": "SCORE_METRIC",
+                            "type": "dropdown",
+                            "options": score_metric_labels(["evalue", "efi_alignment_score"]),
+                            "option_values": ["evalue", "efi_alignment_score"],
+                            "display": translate("Tools", "Score:")
+                        },
+                        {
                             "var_name": "title_sub_hw",
                             "type": "title",
                             "display": translate("Tools", "Hardware & Workspace Settings:")
@@ -2389,6 +2441,13 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
+                            "var_name": "SCORE_METRIC",
+                            "type": "dropdown",
+                            "options": score_metric_labels(["evalue", "efi_alignment_score"]),
+                            "option_values": ["evalue", "efi_alignment_score"],
+                            "display": translate("Tools", "Score:")
+                        },
+                        {
                             "var_name": "BLAST_LAYOUT",
                             "type": "dropdown",
                             "options": [
@@ -2417,6 +2476,11 @@ class ToolsGUI(QMainWindow):
                             "var_name": "EVALUE_COLUMN",
                             "type": "number",
                             "display": translate("Tools", "EValue Column:")
+                        },
+                        {
+                            "var_name": "BITSCORE_COLUMN",
+                            "type": "number",
+                            "display": translate("Tools", "Bit Score Column:")
                         }
                     ]
                 }

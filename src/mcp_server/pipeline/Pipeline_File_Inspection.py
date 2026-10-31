@@ -369,12 +369,15 @@ class Inspector:
         self.report["checks_omitted"].append("FASTA has no reliable generation completion marker; raw sequences were not altered.")
 
     def blast(self, parameters):
-        from utilities.BLAST_Tabular import (_field_index, SUBJECT_FIELD_NAMES, EVALUE_FIELD_NAMES,
-                                             DIAMOND_PROGRAM, diamond_target_limit, parse_search_comment)
+        from utilities.BLAST_Tabular import (_field_index, SUBJECT_FIELD_NAMES, EVALUE_FIELD_NAMES, BITSCORE_FIELD_NAMES,
+                                             DIAMOND_PROGRAM, SCORE_METRIC_EFI, diamond_target_limit, parse_search_comment)
         layout = parameters.get("BLAST_LAYOUT", "standard_outfmt6")
-        columns = [parameters.get(k, default) - 1 for k, default in (("QUERY_COLUMN", 1), ("SUBJECT_COLUMN", 2), ("EVALUE_COLUMN", 11))]
+        # The score is read from the E-value column, or with the EFI alignment score from the bit score column.
+        efi = parameters.get("SCORE_METRIC", "evalue") == SCORE_METRIC_EFI
+        columns = [parameters.get(k, default) - 1 for k, default in (
+            ("QUERY_COLUMN", 1), ("SUBJECT_COLUMN", 2), ("BITSCORE_COLUMN", 12) if efi else ("EVALUE_COLUMN", 11))]
         width, current_query, fields, previous_fields, rows = None, None, None, None, 0
-        subject_index, evalue_index = None, None
+        subject_index, score_index = None, None
         search = {}
         for number, line in self.lines():
             if not line.strip(): continue
@@ -390,16 +393,17 @@ class Inspector:
                         self.require(previous_fields is None or previous_fields == fields, f"BLAST field schema changed on line {number}.")
                         previous_fields = fields
                         subject_index = _field_index(fields, SUBJECT_FIELD_NAMES, "subject", number)
-                        evalue_index = _field_index(fields, EVALUE_FIELD_NAMES, "E-value", number)
+                        score_index = (_field_index(fields, BITSCORE_FIELD_NAMES, "bit score", number) if efi
+                                       else _field_index(fields, EVALUE_FIELD_NAMES, "E-value", number))
                 continue
             parts = line.split("\t")
             if layout == "standard_outfmt6":
                 self.require(len(parts) == 12, f"BLAST line {number} must contain 12 tab-separated columns.")
-                required_columns = (0, 1, 10)
+                required_columns = (0, 1, 11 if efi else 10)
             elif layout == "outfmt7_fields":
                 self.require(bool(current_query) and fields is not None, f"BLAST line {number} lacks Query/Fields context.")
                 self.require(len(parts) == len(fields), f"BLAST line {number} disagrees with Fields declaration.")
-                required_columns = (subject_index, evalue_index)
+                required_columns = (subject_index, score_index)
             else:
                 if width is None: width = len(parts)
                 self.require(len(parts) == width and len(parts) > max(columns), f"Custom BLAST line {number} has inconsistent/missing columns.")

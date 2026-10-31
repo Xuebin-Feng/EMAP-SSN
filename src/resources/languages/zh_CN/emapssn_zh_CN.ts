@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4008"/>
+        <location line="+4009"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4007"/>
+        <location line="-4008"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4642"/>
+        <location line="+4643"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4634"/>
+        <location line="-4635"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -812,12 +812,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3649"/>
+        <location line="+3650"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3646"/>
+        <location line="-3647"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -858,12 +858,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2403"/>
+        <location line="+2404"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2322"/>
+        <location line="-2323"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1304,12 +1304,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     <message>
         <location line="-224"/>
         <location line="+410"/>
-        <location line="+259"/>
+        <location line="+260"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-599"/>
+        <location line="-600"/>
         <source>While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops.</source>
         <translation type="unfinished">平移、缩放或拖动节点时，按得分顺序每 4、16 或 64 条边只绘制 1 条；视图停下片刻后重新绘制全部边。</translation>
     </message>
@@ -1411,7 +1411,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">目标缓存：缺少输入文件</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <location line="+133"/>
         <source>Cache compatibility error: {error}</source>
         <translation type="unfinished">缓存兼容性错误：{error}</translation>
@@ -1611,7 +1611,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2414"/>
+        <location line="-2415"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1622,12 +1622,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2640"/>
+        <location line="+2641"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3180"/>
+        <location line="-3181"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1773,7 +1773,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2544"/>
+        <location line="+2545"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1885,7 +1885,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4010"/>
+        <location line="-4011"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
@@ -2720,7 +2720,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">默认使用 `$cache_file$`，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+766"/>
+        <location line="+767"/>
         <source>PaCMAP Nearest Neighbors:</source>
         <translation type="unfinished">PaCMAP 最近邻数：</translation>
     </message>
@@ -5455,7 +5455,7 @@ Command-line usage:
         <translation type="unfinished">错误：内存中没有可供导出的序列集。</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+60"/>
         <source>clustering parameters ({mode}, {minimum})</source>
         <translation type="unfinished">聚类参数（{mode}，{minimum}）</translation>
     </message>
@@ -6879,7 +6879,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4972"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4973"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -10155,7 +10155,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">分块</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+101"/>
         <source>The network metadata could not be validated.</source>
         <translation type="unfinished">无法验证网络元数据。</translation>
     </message>
@@ -10284,20 +10284,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+541"/>
-        <location line="+234"/>
+        <location line="+554"/>
+        <location line="+258"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-775"/>
-        <location line="+542"/>
-        <location line="+234"/>
+        <location line="-812"/>
+        <location line="+555"/>
+        <location line="+258"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-774"/>
+        <location line="-811"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -10863,20 +10863,20 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+800"/>
+        <location line="+837"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+46"/>
-        <location line="+216"/>
-        <location line="+55"/>
+        <location line="+223"/>
+        <location line="+67"/>
         <source>Sequence Set (.fasta):</source>
         <translation type="unfinished">序列集（.fasta）：</translation>
     </message>
     <message>
-        <location line="-312"/>
+        <location line="-331"/>
         <source>Show Length Histogram:</source>
         <translation type="unfinished">显示长度直方图：</translation>
     </message>
@@ -10891,7 +10891,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1807"/>
+        <location line="-1844"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -10942,7 +10942,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">所在磁盘剩余 {free}。</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+470"/>
         <source>The raw FASTA sequence database to clean.</source>
         <translation type="unfinished">要清理（sanitize）的原始 FASTA 序列库。</translation>
     </message>
@@ -11122,23 +11122,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+332"/>
+        <location line="+356"/>
         <source>Gap penalty applied in Smith-Waterman local alignment.</source>
         <translation type="unfinished">Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。</translation>
     </message>
     <message>
-        <location line="-331"/>
+        <location line="-355"/>
         <source>More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished">数值越负，对插入和延伸空位（gap）的惩罚越重，空位越少。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+332"/>
+        <location line="+356"/>
         <source>Gap penalty applied in Needleman-Wunsch global alignment.</source>
         <translation type="unfinished">Needleman-Wunsch 全局比对（global alignment）中使用的空位罚分。</translation>
     </message>
     <message>
-        <location line="-331"/>
+        <location line="-355"/>
         <source>Controls gap insertion penalties across end-to-end full-length alignments.</source>
         <translation type="unfinished">控制端到端全长比对中插入空位的罚分。</translation>
     </message>
@@ -11174,24 +11174,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+231"/>
+        <location line="+255"/>
         <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished">两两得分矩阵的处理方式。</translation>
     </message>
     <message>
-        <location line="-229"/>
-        <location line="+231"/>
+        <location line="-253"/>
+        <location line="+255"/>
         <source>Benchmarks the scalar and tiled plans where they are supported.</source>
         <translation type="unfinished">在支持时对标量和分块（tile）方案进行基准测试。</translation>
     </message>
     <message>
-        <location line="-230"/>
-        <location line="+231"/>
+        <location line="-254"/>
+        <location line="+255"/>
         <source>Processes one pairwise score matrix at a time.</source>
         <translation type="unfinished">一次处理一个两两得分矩阵。</translation>
     </message>
     <message>
-        <location line="-230"/>
+        <location line="-254"/>
         <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
         <translation type="unfinished">在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
@@ -11202,23 +11202,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+234"/>
+        <location line="+258"/>
         <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
         <translation type="unfinished">选择最多 {cap:g} GiB 的安全系统内存预算。</translation>
     </message>
     <message>
-        <location line="-233"/>
+        <location line="-257"/>
         <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
         <translation type="unfinished">可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+374"/>
+        <location line="+398"/>
         <source>Numeric format the accelerator uses for the score matrices.</source>
         <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
     </message>
     <message>
-        <location line="-372"/>
+        <location line="-396"/>
         <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
         <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
     </message>
@@ -11234,12 +11234,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+372"/>
+        <location line="+396"/>
         <source>Low precision; explicit and never automatic.</source>
         <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
     </message>
     <message>
-        <location line="-369"/>
+        <location line="-393"/>
         <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
@@ -11265,6 +11265,27 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+3"/>
+        <source>Edge score the network stores for each pair of sequences.</source>
+        <translation type="unfinished">网络为每对序列存储的边得分。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+137"/>
+        <source>For either score, the strongest hit of a pair, in either direction, is kept.</source>
+        <translation type="unfinished">无论采用哪种得分，每对序列都保留最强的比对（任一方向）。</translation>
+    </message>
+    <message>
+        <location line="-135"/>
+        <source>The negative log10 of the BLAST E-value; saved as `&lt;set&gt;_[BLAST]_EValue.h5`.</source>
+        <translation type="unfinished">BLAST 期望值（E-value）的负对数（log10）；保存为 `&lt;set&gt;_[BLAST]_EValue.h5`。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST]_EFIScore.h5`.</source>
+        <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST]_EFIScore.h5`。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Number of parallel CPU threads allocated for BLASTP execution and parsing.</source>
         <translation type="unfinished">分配给 BLASTP 运行和解析的并行 CPU 线程数。</translation>
     </message>
@@ -11375,30 +11396,30 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+272"/>
+        <location line="+288"/>
         <source>Divides the score by the alignment length.</source>
         <translation type="unfinished">用得分除以比对长度。</translation>
     </message>
     <message>
-        <location line="-271"/>
-        <location line="+272"/>
+        <location line="-287"/>
+        <location line="+288"/>
         <source>Divides the score by the length of the shorter sequence.</source>
         <translation type="unfinished">用得分除以较短序列的长度。</translation>
     </message>
     <message>
-        <location line="-271"/>
-        <location line="+272"/>
+        <location line="-287"/>
+        <location line="+288"/>
         <source>Divides the score by the length of the longer sequence.</source>
         <translation type="unfinished">用得分除以较长序列的长度。</translation>
     </message>
     <message>
-        <location line="-271"/>
-        <location line="+272"/>
+        <location line="-287"/>
+        <location line="+288"/>
         <source>Divides the score by the average length of the two sequences.</source>
         <translation type="unfinished">用得分除以两条序列的平均长度。</translation>
     </message>
     <message>
-        <location line="-268"/>
+        <location line="-284"/>
         <source>Toggle to average guide trees across randomly perturbed distance replicates.</source>
         <translation type="unfinished">切换是否对多组随机扰动的距离重复构建引导树并取平均。</translation>
     </message>
@@ -11554,6 +11575,26 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+3"/>
+        <source>Edge score the imported network stores for each pair of sequences.</source>
+        <translation type="unfinished">导入的网络为每对序列存储的边得分。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The negative log10 of the E-value; saved as `&lt;name&gt;_[BLAST]_EValue.h5`.</source>
+        <translation type="unfinished">期望值（E-value）的负对数（log10）；保存为 `&lt;name&gt;_[BLAST]_EValue.h5`。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST]_EFIScore.h5`.</source>
+        <translation type="unfinished">EFI-EST 比对得分，由每个比对的比特得分和 FASTA 中两条序列的长度计算；保存为 `&lt;name&gt;_[BLAST]_EFIScore.h5`。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.</source>
+        <translation type="unfinished">比特得分位于 `outfmt 6` 的第 12 列、`outfmt 7` 的 `bit score` 字段，或自定义布局的“比特得分列”。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>How the columns of the BLAST tabular file are read.</source>
         <translation type="unfinished">BLAST 表格文件各列的读取方式。</translation>
     </message>
@@ -11586,6 +11627,21 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+3"/>
         <source>One-based E-value column used only for Custom Columns.</source>
         <translation type="unfinished">期望值所在的列（从 1 开始），仅用于“自定义列”。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not read for the EFI alignment score.</source>
+        <translation type="unfinished">EFI 比对得分不读取此项。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>One-based bit score column used only for Custom Columns with the EFI alignment score.</source>
+        <translation type="unfinished">比特得分所在的列（从 1 开始），仅在“自定义列”并使用 EFI 比对得分时使用。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not read for the E-value score.</source>
+        <translation type="unfinished">期望值得分不读取此项。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -12039,14 +12095,14 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+5"/>
         <location line="+94"/>
-        <location line="+253"/>
+        <location line="+272"/>
         <location line="+117"/>
         <location line="+224"/>
         <source>Device:</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-681"/>
+        <location line="-700"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -12062,90 +12118,90 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+195"/>
+        <location line="+214"/>
         <source>Input &amp; Output Settings:</source>
         <translation type="unfinished">输入与输出设置：</translation>
     </message>
     <message>
-        <location line="-186"/>
-        <location line="+209"/>
+        <location line="-205"/>
+        <location line="+228"/>
         <location line="+267"/>
         <location line="+91"/>
         <source>Embedding Set (.h5):</source>
         <translation type="unfinished">Embedding 集（.h5）：</translation>
     </message>
     <message>
-        <location line="-562"/>
+        <location line="-581"/>
         <source>Edge Prefiltering:</source>
         <translation type="unfinished">边预过滤：</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1211"/>
+        <location line="+1230"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1206"/>
-        <location line="+263"/>
+        <location line="-1225"/>
+        <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
     </message>
     <message>
-        <location line="-258"/>
-        <location line="+519"/>
+        <location line="-277"/>
+        <location line="+538"/>
         <location line="+85"/>
         <source>Local Align Gap Penalty:</source>
         <translation type="unfinished">局部比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-599"/>
-        <location line="+519"/>
+        <location line="-618"/>
+        <location line="+538"/>
         <location line="+85"/>
         <source>Global Align Gap Penalty:</source>
         <translation type="unfinished">全局比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-599"/>
+        <location line="-618"/>
         <source>Hardware Settings:</source>
         <translation type="unfinished">硬件设置：</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+71"/>
-        <location line="+187"/>
+        <location line="+78"/>
+        <location line="+199"/>
         <location line="+112"/>
         <location line="+229"/>
         <source>CPU Workers:</source>
         <translation type="unfinished">CPU 工作进程数：</translation>
     </message>
     <message>
-        <location line="-594"/>
-        <location line="+71"/>
-        <location line="+299"/>
+        <location line="-613"/>
+        <location line="+78"/>
+        <location line="+311"/>
         <source>Batch Size:</source>
         <translation type="unfinished">批大小：</translation>
     </message>
     <message>
-        <location line="-351"/>
-        <location line="+594"/>
+        <location line="-370"/>
+        <location line="+613"/>
         <source>Precision:</source>
         <translation type="unfinished">精度：</translation>
     </message>
     <message>
-        <location line="-587"/>
-        <location line="+356"/>
+        <location line="-606"/>
+        <location line="+375"/>
         <source>Execution Mode:</source>
         <translation type="unfinished">执行模式：</translation>
     </message>
     <message>
-        <location line="-351"/>
-        <location line="+356"/>
+        <location line="-370"/>
+        <location line="+375"/>
         <source>Host Cache (GiB):</source>
         <translation type="unfinished">主机缓存（GiB）：</translation>
     </message>
     <message>
-        <location line="-349"/>
+        <location line="-368"/>
         <source>Input Settings:</source>
         <translation type="unfinished">输入设置：</translation>
     </message>
@@ -12160,7 +12216,13 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">替换矩阵：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+7"/>
+        <location line="+54"/>
+        <source>Score:</source>
+        <translation type="unfinished">得分：</translation>
+    </message>
+    <message>
+        <location line="-49"/>
         <source>Hardware &amp; Workspace Settings:</source>
         <translation type="unfinished">硬件与工作区设置：</translation>
     </message>
@@ -12180,7 +12242,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">BLAST 结果（.tabular/.txt/.tab/.tsv）：</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+22"/>
         <source>Standard (outfmt 6)</source>
         <comment>BLAST layout</comment>
         <translation type="unfinished">标准（outfmt 6）</translation>
@@ -12215,6 +12277,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+5"/>
         <source>EValue Column:</source>
         <translation type="unfinished">期望值列：</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Bit Score Column:</source>
+        <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -12926,7 +12993,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5011"/>
+        <location line="-5075"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -13013,6 +13080,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
+        <location line="+7"/>
+        <source>E-value (−log10)</source>
+        <comment>score metric</comment>
+        <translation type="unfinished">期望值（−log10）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>EFI alignment score</source>
+        <comment>score metric</comment>
+        <translation type="unfinished">EFI 比对得分</translation>
+    </message>
+    <message>
         <location line="+17"/>
         <source>Auto</source>
         <comment>execution mode</comment>
@@ -13079,22 +13158,22 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+879"/>
+        <location line="+892"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+152"/>
+        <location line="+160"/>
         <source>Selects whether to weight guide tree branches using global or local network scores.</source>
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+321"/>
         <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>
     <message>
-        <location line="+985"/>
+        <location line="+1004"/>
         <location line="+175"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>

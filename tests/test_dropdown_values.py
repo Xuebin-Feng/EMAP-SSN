@@ -345,6 +345,7 @@ class ToolsOptionLabelTests(unittest.TestCase):
         "outfmt7_fields": "Fields Header (outfmt 7)",
         "custom_columns": "Custom Columns (1-based indexing)",
     }
+    SCORE = {"evalue": "E-value (−log10)", "efi_alignment_score": "EFI alignment score"}
     MODELS = {
         "ankh_base": "Ankh Base",
         "ankh_large": "Ankh Large",
@@ -367,6 +368,8 @@ class ToolsOptionLabelTests(unittest.TestCase):
         ("Embedding_SSEARCH.py", "ACCELERATOR_PRECISION", PRECISION, False),
         ("Generate_Embeddings.py", "SAVING_MODE", SAVING, True),
         ("Parse_BLAST_Output.py", "BLAST_LAYOUT", BLAST, True),
+        ("Parse_BLAST_Output.py", "SCORE_METRIC", SCORE, True),
+        ("Align_Substitution_Matrix.py", "SCORE_METRIC", SCORE, True),
         ("Generate_Embeddings.py", "MODEL_NAME", MODELS, True),
         ("Embedding_PWA.py", "EMBEDDING_MODEL", MODELS, True),
     )
@@ -543,7 +546,7 @@ class ToolsOptionLabelTests(unittest.TestCase):
         saved = {
             "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t12_35m", "SAVING_MODE": "float16"},
             "Embedding_PWA.py": {"EMBEDDING_MODEL": "ankh_large"},
-            "Parse_BLAST_Output.py": {"BLAST_LAYOUT": "outfmt7_fields"},
+            "Parse_BLAST_Output.py": {"BLAST_LAYOUT": "outfmt7_fields", "SCORE_METRIC": "efi_alignment_score"},
             "Align_Similarity_Matrix.py": {"EXECUTION_MODE": "scalar", "ACCELERATOR_PRECISION": "float32"},
             "Network_Injection.py": {"EXECUTION_MODE": "auto"},
         }
@@ -598,6 +601,8 @@ class ToolsOptionLabelTests(unittest.TestCase):
             ("Align_Similarity_Matrix.py", "EXECUTION_MODE", self.EXECUTION, "execution mode"),
             ("Generate_Embeddings.py", "SAVING_MODE", self.SAVING, "saving mode"),
             ("Parse_BLAST_Output.py", "BLAST_LAYOUT", {k: v for k, v in self.BLAST.items() if k != "custom_columns"}, "BLAST layout"),
+            ("Parse_BLAST_Output.py", "SCORE_METRIC", self.SCORE, "score metric"),
+            ("Align_Substitution_Matrix.py", "SCORE_METRIC", self.SCORE, "score metric"),
         )
         for script, setting, labels, comment in wanted:
             combo = self.combo(window, script, setting)

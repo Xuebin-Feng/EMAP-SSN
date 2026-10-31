@@ -138,6 +138,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
         substitution_panel = tools_source[substitution_start:substitution_end]
 
         self.assertIn('"var_name": "INPUT_FASTA"', substitution_panel)
+        self.assertIn('"var_name": "SCORE_METRIC"', substitution_panel)
         self.assertNotIn('"var_name": "SAFE_TEMP_DIR"', substitution_panel)
         self.assertNotIn(
             '("SAFE_TEMP_DIR", "BLASTP_DIR")',

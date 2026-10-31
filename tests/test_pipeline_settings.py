@@ -206,6 +206,46 @@ class PipelineSettingsTests(unittest.TestCase):
         self.assertTrue(self.preview("embedding_ssearch", parameters={
             **search, "ALIGNMENT_MODE": "global", "NORM_MODE": "alignment_length"})["valid"])
 
+    def test_score_metric_and_bit_score_column_are_settings_of_both_blast_tools(self):
+        for tool, script in (("align_substitution_matrix", "Align_Substitution_Matrix.py"),
+                             ("parse_blast_output", "Parse_BLAST_Output.py")):
+            with self.subTest(tool=tool):
+                schema = get_pipeline_schema(tool, ROOT)["parameters_schema"]["properties"]
+                self.assertEqual(schema["SCORE_METRIC"]["enum"], ["evalue", "efi_alignment_score"])
+                self.assertEqual(schema["SCORE_METRIC"]["default"], "evalue")
+                values = get_pipeline_schema(tool, ROOT)["example"]["parameters"]
+                for metric in ("evalue", "efi_alignment_score"):
+                    result = self.preview(tool, parameters={**values, "SCORE_METRIC": metric})
+                    self.assertTrue(result["valid"], result["errors"])
+                    self.assertEqual(result["settings_document"][script]["SCORE_METRIC"], metric)
+                rejected = self.preview(tool, parameters={**values, "SCORE_METRIC": "alignment_score"})
+                self.assertFalse(rejected["valid"])
+                self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.SCORE_METRIC"])
+        self.assertNotIn("BITSCORE_COLUMN", get_pipeline_schema("align_substitution_matrix", ROOT)["parameters_schema"]["properties"])
+        parse = get_pipeline_schema("parse_blast_output", ROOT)
+        self.assertEqual(parse["parameters_schema"]["properties"]["BITSCORE_COLUMN"]["default"], 12)
+        values = parse["example"]["parameters"]
+        for bad in (0, "12"):
+            rejected = self.preview("parse_blast_output", parameters={**values, "BITSCORE_COLUMN": bad})
+            self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.BITSCORE_COLUMN"])
+
+    def test_custom_columns_are_distinct_for_the_score_that_is_read(self):
+        values = get_pipeline_schema("parse_blast_output", ROOT)["example"]["parameters"]
+        custom = {**values, "BLAST_LAYOUT": "custom_columns", "QUERY_COLUMN": 1, "SUBJECT_COLUMN": 2}
+        # E-value scores read EVALUE_COLUMN only, EFI alignment scores BITSCORE_COLUMN only.
+        for metric, column, other, message in (
+            ("evalue", "EVALUE_COLUMN", "BITSCORE_COLUMN", "Query, subject, and E-value columns must be distinct."),
+            ("efi_alignment_score", "BITSCORE_COLUMN", "EVALUE_COLUMN",
+             "Query, subject, and bit score columns must be distinct."),
+        ):
+            with self.subTest(metric=metric):
+                clash = self.preview("parse_blast_output", parameters={**custom, "SCORE_METRIC": metric, column: 2})
+                self.assertFalse(clash["valid"])
+                self.assertEqual(clash["errors"], [{"field": f"parameters.{column}", "message": message}])
+                # The column that is not read may repeat another one.
+                self.assertTrue(self.preview("parse_blast_output", parameters={
+                    **custom, "SCORE_METRIC": metric, column: 3, other: 1})["valid"])
+
     def test_exports_preserve_strings_and_plots_and_allow_incomplete_inputs(self):
         values = {"BATCH_SIZE": "500000", "HOST_CACHE_GB": "2.5"}
         self.assertEqual(serialize_export_settings("align_similarity_matrix", values, ROOT),

@@ -197,6 +197,28 @@ class FileInspectionTests(unittest.TestCase):
         self.path.write_text("# Query: q\ns\t0\n")
         self.assertEqual(self.inspect("blast_tabular", parameters={"BLAST_LAYOUT": "outfmt7_fields"})["structural_validity"], "invalid")
 
+    def test_blast_inspection_checks_the_bit_score_for_the_efi_alignment_score(self):
+        efi = {"SCORE_METRIC": "efi_alignment_score"}
+        # Standard outfmt 6: the bit score is column 12, which may not be empty.
+        row = ["q", "s"] + ["1"] * 9
+        self.path.write_text("\t".join(row + ["50"]) + "\n")
+        self.assertEqual(self.inspect("blast_tabular", parameters=efi)["structural_validity"], "valid")
+        self.path.write_text("\t".join(row + [" "]) + "\n")
+        self.assertEqual(self.inspect("blast_tabular", parameters=efi)["structural_validity"], "invalid")
+        self.assertEqual(self.inspect("blast_tabular")["structural_validity"], "valid")
+        # Custom columns: BITSCORE_COLUMN, not EVALUE_COLUMN.
+        custom = {**efi, "BLAST_LAYOUT": "custom_columns", "QUERY_COLUMN": 1, "SUBJECT_COLUMN": 2, "BITSCORE_COLUMN": 3}
+        self.path.write_text("q\ts\t50\n")
+        self.assertEqual(self.inspect("blast_tabular", parameters=custom)["structural_validity"], "valid")
+        self.assertEqual(self.inspect("blast_tabular", parameters={**custom, "BITSCORE_COLUMN": 4})["structural_validity"], "invalid")
+        # Outfmt 7: the declared bit score field must exist.
+        outfmt7 = {**efi, "BLAST_LAYOUT": "outfmt7_fields"}
+        self.path.write_text("# BLASTP\n# Query: q\n# Fields: subject id, bit score\ns\t50\n")
+        self.assertEqual(self.inspect("blast_tabular", parameters=outfmt7)["structural_validity"], "valid")
+        self.path.write_text("# BLASTP\n# Query: q\n# Fields: subject id, evalue\ns\t1e-5\n")
+        self.assertEqual(self.inspect("blast_tabular", parameters=outfmt7)["structural_validity"], "invalid")
+        self.assertEqual(self.inspect("blast_tabular", parameters={"BLAST_LAYOUT": "outfmt7_fields"})["structural_validity"], "valid")
+
     def test_diamond_verbose_header_is_detected_with_its_target_limit(self):
         def write(options):
             self.path.write_text(

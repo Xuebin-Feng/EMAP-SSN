@@ -173,6 +173,40 @@ class ResponsiveToolsTests(unittest.TestCase):
                 self.assertEqual(inputs[name]["widget"].isEnabled(), checked, name)
         self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
 
+    def test_parse_blast_puts_the_four_column_fields_on_one_row_and_follows_the_score(self):
+        names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN")
+        path = next(path for path in self.window.script_data
+                    if path.endswith("Parse_BLAST_Output.py"))
+        inputs = self.window.script_data[path]["inputs"]
+        row = self.window.findChild(QWidget, "compactRow_" + "_".join(names))
+        self.assertIsNotNone(row)
+        self.assertEqual([control for _, control in row.layout().pairs],
+                         [inputs[name]["widget"] for name in names])
+        tab = next(index for index in range(self.window.tabs.count())
+                   if self.window.tabs.widget(index).isAncestorOf(row))
+        self.window.tabs.setCurrentIndex(tab)
+        for width in (600, 1400):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                self.assert_layout_geometry(self.window.tabs.widget(tab).widget())
+                # The fields stack once the row is too narrow for four of them.
+                self.assertEqual(row.property("stacked"), width == 600)
+        # Only the layout and the score decide which of the columns are read.
+        layout = inputs["BLAST_LAYOUT"]["widget"]
+        score = inputs["SCORE_METRIC"]["widget"]
+        for layout_value, score_value, enabled in (
+            ("standard_outfmt6", "evalue", set()),
+            ("custom_columns", "evalue", {"QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"}),
+            ("custom_columns", "efi_alignment_score",
+             {"QUERY_COLUMN", "SUBJECT_COLUMN", "BITSCORE_COLUMN"}),
+            ("outfmt7_fields", "efi_alignment_score", set()),
+        ):
+            with self.subTest(layout=layout_value, score=score_value):
+                layout.setCurrentIndex(layout.findData(layout_value))
+                score.setCurrentIndex(score.findData(score_value))
+                self.assertEqual({name for name in names if inputs[name]["widget"].isEnabled()},
+                                 enabled)
+
     def test_exit_fills_the_row_under_the_help_and_the_tip_panel_reaches_the_bottom(self):
         window = self.window
 

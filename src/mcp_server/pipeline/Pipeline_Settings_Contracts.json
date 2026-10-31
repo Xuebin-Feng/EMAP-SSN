@@ -226,6 +226,15 @@
           "PAM250"
         ]
       },
+      "SCORE_METRIC": {
+        "type": "string",
+        "default": "evalue",
+        "description": "Score: Edge score the network stores for each pair of sequences.\nevalue is the negative log10 of the BLAST E-value (<set>_[BLAST]_EValue.h5). efi_alignment_score is the EFI-EST alignment score, the bit score times log10(2) minus the log10 of the product of the two full sequence lengths (<set>_[BLAST]_EFIScore.h5). For either, the strongest hit of a pair, in either direction, is kept.",
+        "enum": [
+          "evalue",
+          "efi_alignment_score"
+        ]
+      },
       "NUM_THREADS": {
         "type": "integer",
         "default": 12,
@@ -266,6 +275,15 @@
         "default": null,
         "description": "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."
       },
+      "SCORE_METRIC": {
+        "type": "string",
+        "default": "evalue",
+        "description": "Score: Edge score the imported network stores for each pair of sequences.\nevalue is the negative log10 of the E-value (<name>_[BLAST]_EValue.h5). efi_alignment_score is the EFI-EST alignment score, computed from each hit's bit score and the two sequence lengths in the FASTA (<name>_[BLAST]_EFIScore.h5). The bit score is column 12 of outfmt 6, the 'bit score' field of outfmt 7, or BITSCORE_COLUMN of a custom layout. For either, the strongest hit of a pair, in either direction, is kept.",
+        "enum": [
+          "evalue",
+          "efi_alignment_score"
+        ]
+      },
       "BLAST_LAYOUT": {
         "type": "string",
         "default": "standard_outfmt6",
@@ -291,7 +309,13 @@
       "EVALUE_COLUMN": {
         "type": "integer",
         "default": 11,
-        "description": "E-Value Column: One-based E-value column used only for Custom Columns.",
+        "description": "E-Value Column: One-based E-value column used only for Custom Columns.\nNot read for the EFI alignment score.",
+        "minimum": 1
+      },
+      "BITSCORE_COLUMN": {
+        "type": "integer",
+        "default": 12,
+        "description": "Bit Score Column: One-based bit score column used only for Custom Columns with the EFI alignment score. Not read for the E-value score.",
         "minimum": 1
       }
     },

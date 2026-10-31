@@ -259,10 +259,12 @@ class ToolEntryPointTests(unittest.TestCase):
         expected_order = (
             '"var_name": "INPUT_BLAST_TABULAR"',
             '"var_name": "INPUT_FASTA"',
+            '"var_name": "SCORE_METRIC"',
             '"var_name": "BLAST_LAYOUT"',
             '"var_name": "QUERY_COLUMN"',
             '"var_name": "SUBJECT_COLUMN"',
             '"var_name": "EVALUE_COLUMN"',
+            '"var_name": "BITSCORE_COLUMN"',
         )
         positions = [panel.index(token) for token in expected_order]
         self.assertEqual(positions, sorted(positions))
@@ -271,6 +273,8 @@ class ToolEntryPointTests(unittest.TestCase):
         self.assertIn('"display": translate("Tools", "Query Column:")', panel)
         self.assertIn('"display": translate("Tools", "Subject Column:")', panel)
         self.assertIn('"display": translate("Tools", "EValue Column:")', panel)
+        self.assertIn('"display": translate("Tools", "Bit Score Column:")', panel)
+        self.assertIn('"display": translate("Tools", "Score:")', panel)
         self.assertNotIn('"var_name": "MATRIX"', panel)
         self.assertNotIn('"var_name": "BATCH_SIZE"', panel)
         self.assertIn("bind_custom_blast_column_controls(inputs, row_widgets)", source)
