@@ -249,6 +249,35 @@ class PipelineSettingsTests(unittest.TestCase):
             self.assertFalse(rejected["valid"], bad)
             self.assertEqual({e["field"] for e in rejected["errors"]}, {"parameters.SIMILARITY_MATRIX"})
 
+    def test_similarity_matrix_is_a_database_search_setting_with_the_same_choices(self):
+        from utilities.Similarity_Matrices import SIMILARITY_MATRICES
+
+        discovery = get_pipeline_schema("embedding_ssearch", ROOT)
+        schema = discovery["parameters_schema"]["properties"]["SIMILARITY_MATRIX"]
+        pairwise = get_pipeline_schema("embedding_pwa", ROOT)["parameters_schema"]["properties"]["SIMILARITY_MATRIX"]
+        blast = get_pipeline_schema("align_substitution_matrix", ROOT)["parameters_schema"]["properties"]["MATRIX"]
+        # One list for the BLAST tool and both tools that count similar pairs, the shared module's.
+        self.assertEqual(schema["enum"], list(SIMILARITY_MATRICES))
+        self.assertEqual(pairwise["enum"], list(SIMILARITY_MATRICES))
+        self.assertEqual(blast["enum"], list(SIMILARITY_MATRICES))
+        self.assertEqual(schema, pairwise)
+        self.assertEqual(schema["default"], "BLOSUM62")
+        self.assertIn("similar", schema["description"])
+        self.assertIn("similarity", " ".join(discovery["notes"]))
+        self.assertIn("Percent_Similarity", " ".join(discovery["notes"]))
+        values = discovery["example"]["parameters"]
+        omitted = self.preview("embedding_ssearch", parameters=values)
+        self.assertTrue(omitted["valid"], omitted["errors"])
+        self.assertEqual(omitted["settings_document"]["Embedding_SSEARCH.py"]["SIMILARITY_MATRIX"], "BLOSUM62")
+        for matrix in schema["enum"]:
+            result = self.preview("embedding_ssearch", parameters={**values, "SIMILARITY_MATRIX": matrix})
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(result["settings_document"]["Embedding_SSEARCH.py"]["SIMILARITY_MATRIX"], matrix)
+        for bad in ("blosum62", "BLOSUM100", "", None, 62):
+            rejected = self.preview("embedding_ssearch", parameters={**values, "SIMILARITY_MATRIX": bad})
+            self.assertFalse(rejected["valid"], bad)
+            self.assertEqual({e["field"] for e in rejected["errors"]}, {"parameters.SIMILARITY_MATRIX"})
+
     def test_custom_columns_are_distinct_for_the_score_that_is_read(self):
         values = get_pipeline_schema("parse_blast_output", ROOT)["example"]["parameters"]
         custom = {**values, "BLAST_LAYOUT": "custom_columns", "QUERY_COLUMN": 1, "SUBJECT_COLUMN": 2}

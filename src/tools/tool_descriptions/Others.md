@@ -93,6 +93,7 @@ This script queries a single sequence against an entire database using residue-l
 | Alignment Mode **`ALIGNMENT_MODE`** | The search alignment mode (either 'global (Needleman-Wunsch)' or 'local (Smith-Waterman)'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
+| Similarity Matrix **`SIMILARITY_MATRIX`** | The substitution matrix (`BLOSUM45`, `BLOSUM50`, `BLOSUM62`, `BLOSUM80`, `BLOSUM90`, `PAM30`, `PAM70`, or `PAM250`; default `BLOSUM62`) used only to count similar residue pairs. The search and its alignments come from the embeddings, not from this matrix. An unknown name is refused before any work. |
 | Score Normalization Mode **`NORM_MODE`** | The score normalization method (e.g., Alignment Length, Shorter Sequence, Longer Sequence, Average Sequence). `Alignment Length` is unavailable for local alignments. |
 | CPU Worker Threads **`WORKERS`** | The number of CPU threads allocated for parallel alignment calculations. |
 | Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or a concrete CPU/accelerator device. |
@@ -102,11 +103,12 @@ This script queries a single sequence against an entire database using residue-l
 ### Output
 
 #### Embedding Search Results
-*   **Text Report**: `Report_<name>.txt`, containing parameters, the percent-identity definition, and the full ranked hit table; the console shows at most the first 100 hits.
+*   **Text Report**: `Report_<name>.txt`, containing parameters, the percent identity, similarity and gap definitions, and the full ranked hit table, whose `IDENT%`, `SIM%` and `GAP%` columns give each hit's percent identity, similarity and gaps; the console shows at most the first 100 hits.
 *   **Excel Workbook**: `Report_<name>.xlsx`, with a metadata-viewer-compatible `Search Results` sheet and a `Search Parameters` sheet. The first sheet follows `docs/metadata_template.xlsx`: row 1 contains property names, row 2 contains data types, and column A contains exact sequence headers for strict node matching.
 *   **Optional FASTA**: When `GENERATE_FASTA` is enabled, `Hits_<name>.fasta` contains the query followed by ranked hit sequences.
-*   **Metadata Columns**: `Node ID`, `Rank`, `Norm_Score`, `Raw_Score`, `Sequence_Length`, `Alignment_Length`, and `Percent_Identity`.
+*   **Metadata Columns**: `Node ID`, `Rank`, `Norm_Score`, `Raw_Score`, `Sequence_Length`, `Alignment_Length`, `Percent_Identity`, `Percent_Similarity`, and `Percent_Gaps`.
 *   **Percent Identity**: The number of identical standard amino acids on the reported alignment path as a percentage (0–100) of `Alignment_Length`. Local alignments count internal gaps; global alignments count the full length, end gaps included. X, B, Z, J, U, and O never count as identical.
+*   **Percent Similarity and Percent Gaps**: Percentages (0–100) over the same `Alignment_Length` as identity. A pair of aligned standard amino acids is similar when the two are identical or `SIMILARITY_MATRIX` scores the pair above 0, so every identical pair is also similar; X, B, Z, J, U, and O never count. `Percent_Gaps` counts the gap columns of the path: the internal gaps of a local alignment, and every column of a global alignment that is not an aligned pair, end gaps included.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -137,7 +139,12 @@ This script queries a single sequence against an entire database using residue-l
      $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
      Because the path maximizes embedding similarity rather than residue matches, the identity can differ from that of a substitution-matrix alignment of the same pair.
 
-6. **Sorting & Filtering**:
+6. **Percent Similarity and Gaps**:
+     The same pass counts, on that path, the aligned pairs of standard amino acids that are identical or whose score in `SIMILARITY_MATRIX` is positive, $N_{\text{sim}}$ (so $N_{\text{sim}} \ge N_{\text{id}}$), and the gap columns $N_{\text{gap}}$, over the same length $L_{\text{aln}}$:
+     $$\text{Similarity} = 100 \times \frac{N_{\text{sim}}}{L_{\text{aln}}} \qquad \text{Gaps} = 100 \times \frac{N_{\text{gap}}}{L_{\text{aln}}}$$
+     The matrix only decides which pairs count; the path is the one the embeddings chose.
+
+7. **Sorting & Filtering**:
      Collects results, filters by `NORM_THRESHOLD`, sorts in descending order of $S_{\text{norm}}$, and keeps the top $K$ hits.
 
 </details>

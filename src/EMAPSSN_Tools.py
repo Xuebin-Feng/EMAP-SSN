@@ -220,11 +220,11 @@ INLINE_FIELD_GROUPS = {
     "Embedding_PWA.py": [
         ("REF_HEADER", "MANUAL_REF_SEQ"),
         ("TAR_HEADER", "MANUAL_TAR_SEQ"),
-        ("ALIGNMENT_MODE", "GENERATE_REPORT"),
+        ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT"),
     ],
     "Embedding_SSEARCH.py": [
         ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
-        ("GENERATE_FASTA", "WORKERS"),
+        ("GENERATE_FASTA", "SIMILARITY_MATRIX", "WORKERS"),
     ],
 }
 INLINE_FIELD_RATIOS = {
@@ -240,7 +240,7 @@ INLINE_TRAILING_CONTROL_GROUPS = {
     ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
     ("REF_HEADER", "MANUAL_REF_SEQ"),
     ("TAR_HEADER", "MANUAL_TAR_SEQ"),
-    ("ALIGNMENT_MODE", "GENERATE_REPORT"),
+    ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT"),
     ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
 }
 MATCHED_TRAILING_LABEL_VARS = {
@@ -2129,6 +2129,10 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Gap penalty applied during global (Needleman-Wunsch) database search."),
                     details=(translate("Tools", "More negative values penalize gap insertions across full sequences."),),
                 ),
+                "SIMILARITY_MATRIX": Tip(
+                    translate("Tools", "Substitution matrix (e.g. `BLOSUM62`, `PAM250`) used only to count similar residue pairs."),
+                    details=(translate("Tools", "The alignment itself comes from the embeddings. A pair of standard residues counts as similar when it is identical or the matrix scores it above 0."),),
+                ),
                 "WORKERS": Tip(
                     translate("Tools", "Number of parallel CPU worker processes allocated for database search."),
                     details=(translate("Tools", "Running with more workers speeds up database scanning on multi-core systems."),),
@@ -2952,6 +2956,13 @@ class ToolsGUI(QMainWindow):
                             "var_name": "GLOBAL_GAP_P",
                             "type": "negative_number",
                             "display": translate("Tools", "Global Align Gap Penalty:")
+                        },
+                        {
+                            "var_name": "SIMILARITY_MATRIX",
+                            "type": "dropdown",
+                            "options": ["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90", "PAM30", "PAM70", "PAM250"],
+                            "name_options": True,
+                            "display": translate("Tools", "Similarity Matrix:")
                         },
                         {
                             "var_name": "WORKERS",

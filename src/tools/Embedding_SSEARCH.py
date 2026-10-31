@@ -26,17 +26,18 @@ How it Works:
 3. Inference: The script calculates the structural embedding for your query.
 4. Scanning: Using parallel CPU workers, it scans your query against every sequence in the database using either Local (Smith-Waterman) or Global (Needleman-Wunsch) dynamic programming.
 5. Scoring: The raw alignment scores are normalized (to prevent bias toward excessively long sequences) and ranked.
-6. Identity: Along the same alignment path, identical standard amino acids are counted and divided by the alignment length: internal gaps included for local alignments, and the full length including end gaps for global alignments.
+6. Identity, similarity and gaps: Along the same alignment path, identical standard amino acids are counted and divided by the alignment length: internal gaps included for local alignments, and the full length including end gaps for global alignments. The same length divides the aligned standard residue pairs that are identical or that SIMILARITY_MATRIX scores above 0 (similarity), and the gap columns (gaps). The matrix only counts similar pairs; the alignment itself comes from the embeddings.
 
 Outputs:
 The script generates report files in the configured report directory:
-- Report_<Query>.txt: A human-readable text file showing the ranked hits, their normalized scores, raw scores, alignment lengths, and percent identities.
+- Report_<Query>.txt: A human-readable text file showing the ranked hits, their normalized scores, raw scores, alignment lengths, and percent identities, similarities and gaps.
 - Hits_<Query>.fasta: A clean FASTA file containing the sequences of all your top hits, ordered strictly by rank, with your query sequence pinned to the very top. This file is perfectly formatted to be immediately dropped into an MSA tool!
 
 Key Parameters:
 - Manual Query Seq: When enabled, the script ignores stored-header lookup and sanitizes the supplied Query Sequence in memory.
 - Norm Score Cutoff: Filters out any hits that fall below a specific normalized similarity score.
 - Alignment Mode: Use 'local' if you are searching for a specific structural domain within larger proteins. Use 'global' if you are comparing overall holistic similarity.
+- Similarity Matrix: The substitution matrix (BLOSUM45 to PAM250, default BLOSUM62) that decides which aligned residue pairs count as similar.
 """
 # %%
 import os

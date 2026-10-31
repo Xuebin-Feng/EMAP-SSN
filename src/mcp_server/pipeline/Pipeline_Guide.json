@@ -228,7 +228,10 @@
       "outputs": [
         {"directory": "REPORT_DIR", "name": "report files named after OUTPUT_NAME (else the first 20 characters of the query name): .txt and .xlsx, plus Hits_<name>.fasta when GENERATE_FASTA is true", "existing": "replaced"}
       ],
-      "next": ["embedding_extraction (hit list as a subset)"]
+      "next": ["embedding_extraction (hit list as a subset)"],
+      "notes": [
+        "Each hit's identity, similarity and gaps are percentages of its alignment length (IDENT%, SIM% and GAP% in the text report; Percent_Identity, Percent_Similarity and Percent_Gaps in the Excel report). A standard residue pair is similar when identical or when SIMILARITY_MATRIX (default BLOSUM62) scores it above 0; the ranking and the alignment come from the embeddings alone."
+      ]
     }
   },
   "workflows": [

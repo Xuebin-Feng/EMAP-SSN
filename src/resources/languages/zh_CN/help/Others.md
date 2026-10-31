@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 06faeb4f0ecc80f5e6d50b279bafcc043bc507f298fa11f922bf70d78f84679e -->
+<!-- Translation of Others.md, sha256 1c8c132fdd99091e0c894caefa86caa71e910484817496978a230f6b919091c4 -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -94,6 +94,7 @@
 | 比对模式 **`ALIGNMENT_MODE`** | 搜索所用的比对模式（“全局（Needleman-Wunsch）”或“局部（Smith-Waterman）”）。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对的空位罚分值。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对的空位罚分值。 |
+| 相似度矩阵 **`SIMILARITY_MATRIX`** | 仅用于统计相似残基对的替换矩阵（substitution matrix；`BLOSUM45`、`BLOSUM50`、`BLOSUM62`、`BLOSUM80`、`BLOSUM90`、`PAM30`、`PAM70` 或 `PAM250`，默认 `BLOSUM62`）。搜索及其比对来自 embedding，而不是这个矩阵。未知的名称会在任何计算开始前被拒绝。 |
 | 得分归一化模式 **`NORM_MODE`** | 得分归一化方法（例如比对长度、较短序列长度、较长序列长度、平均序列长度）。局部比对不能使用“比对长度”（`Alignment Length`）。 |
 | CPU 工作线程数 **`WORKERS`** | 分配给并行比对计算的 CPU 线程数。 |
 | 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体的 CPU/加速器设备。 |
@@ -103,11 +104,12 @@
 ### 输出
 
 #### Embedding 搜索结果
-*   **文本报告**：`Report_<name>.txt`，包含参数、一致性百分比的定义以及完整的命中排名表；控制台最多显示前 100 个命中。
+*   **文本报告**：`Report_<name>.txt`，包含参数、一致性、相似度和空位百分比的定义以及完整的命中排名表，表中的 `IDENT%`、`SIM%` 和 `GAP%` 列给出每个命中的一致性、相似度和空位百分比；控制台最多显示前 100 个命中。
 *   **Excel 工作簿**：`Report_<name>.xlsx`，包含一个兼容元数据查看器的 `Search Results` 工作表和一个 `Search Parameters` 工作表。第一个工作表遵循 `docs/metadata_template.xlsx`：第 1 行为属性名称，第 2 行为数据类型，A 列为与节点（node）严格匹配所用的精确序列标题。
 *   **可选 FASTA**：启用 `GENERATE_FASTA` 时，`Hits_<name>.fasta` 包含查询序列，其后是按排名排列的命中序列。
-*   **元数据列**：`Node ID`、`Rank`、`Norm_Score`、`Raw_Score`、`Sequence_Length`、`Alignment_Length` 和 `Percent_Identity`。
+*   **元数据列**：`Node ID`、`Rank`、`Norm_Score`、`Raw_Score`、`Sequence_Length`、`Alignment_Length`、`Percent_Identity`、`Percent_Similarity` 和 `Percent_Gaps`。
 *   **一致性百分比**：报告的比对路径上相同的标准氨基酸数，表示为 `Alignment_Length` 的百分比（0–100）。局部比对计入内部空位；全局比对计入包括末端空位在内的全长。X、B、Z、J、U 和 O 从不计为相同。
+*   **相似度百分比和空位百分比**：与一致性使用相同的 `Alignment_Length`，表示为百分比（0–100）。一对已比对的标准氨基酸，若两者相同，或 `SIMILARITY_MATRIX` 对该残基对的打分大于 0，则视为相似，因此每个相同的残基对同时也是相似残基对；X、B、Z、J、U 和 O 从不计入。`Percent_Gaps` 统计路径上的空位列：局部比对为内部空位，全局比对为不属于已比对残基对的每一列，包括末端空位。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>
@@ -138,7 +140,12 @@
      $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
      由于该路径最大化的是 embedding 相似性而非残基匹配，同一对序列的一致性可能与替换矩阵（substitution matrix）比对得到的不同。
 
-6. **排序与过滤**：
+6. **相似度百分比和空位**：
+     同一次动态规划还会统计该路径上相同或在 `SIMILARITY_MATRIX` 中得分为正的已比对标准氨基酸对 $N_{\text{sim}}$（因此 $N_{\text{sim}} \ge N_{\text{id}}$）以及空位列数 $N_{\text{gap}}$，并除以相同的长度 $L_{\text{aln}}$：
+     $$\text{Similarity} = 100 \times \frac{N_{\text{sim}}}{L_{\text{aln}}} \qquad \text{Gaps} = 100 \times \frac{N_{\text{gap}}}{L_{\text{aln}}}$$
+     矩阵只决定哪些残基对计入；路径仍是 embedding 所选的那一条。
+
+7. **排序与过滤**：
      汇总结果，按 `NORM_THRESHOLD` 过滤，按 $S_{\text{norm}}$ 降序排序，并保留前 $K$ 个命中。
 
 </details>

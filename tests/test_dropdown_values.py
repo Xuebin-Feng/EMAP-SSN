@@ -23,6 +23,7 @@ if str(SRC) not in sys.path:
 
 from tests.config_gui_loader import load_config_namespace, open_config_window
 from tests.tools_gui_fixtures import isolated_tools_project
+from utilities.Similarity_Matrices import SIMILARITY_MATRICES
 
 
 def pseudo_translate(combo):
@@ -443,6 +444,25 @@ class ToolsOptionLabelTests(unittest.TestCase):
         self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "BLOSUM62")
         self.assertTrue(select_combo_value(combo, "PAM250"))
         self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "PAM250")
+
+    def test_database_search_offers_the_same_matrices_as_names_defaulting_to_blosum62(self):
+        from desktop.Desktop_App import NAME_ITEM_ROLE, select_combo_value
+
+        window, _ = self.open_tools()
+        combo = self.combo(window, "Embedding_SSEARCH.py", "SIMILARITY_MATRIX")
+        pairwise = self.combo(window, "Embedding_PWA.py", "SIMILARITY_MATRIX")
+        self.assertEqual(stored_values(combo), stored_values(pairwise))
+        self.assertEqual(stored_values(combo), list(SIMILARITY_MATRICES))
+        self.assertEqual([combo.itemText(index) for index in range(combo.count())], list(SIMILARITY_MATRICES))
+        self.assertTrue(all(combo.itemData(index, NAME_ITEM_ROLE) for index in range(combo.count())))
+        self.assertEqual(combo.currentText(), "BLOSUM62")
+        path = self.script(window, "Embedding_SSEARCH.py")
+        self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "BLOSUM62")
+        self.assertTrue(select_combo_value(combo, "PAM30"))
+        self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "PAM30")
+        # Its tip is the pairwise alignment's, so the catalogs hold one text for both.
+        tips = window.SCRIPT_TIPS
+        self.assertEqual(tips["Embedding_SSEARCH.py"]["SIMILARITY_MATRIX"], tips["Embedding_PWA.py"]["SIMILARITY_MATRIX"])
 
     def test_models_without_separate_terms_are_names_no_language_translates(self):
         from desktop.Desktop_App import NAME_ITEM_ROLE

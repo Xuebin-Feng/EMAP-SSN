@@ -207,6 +207,57 @@ class ResponsiveToolsTests(unittest.TestCase):
                 self.assertEqual({name for name in names if inputs[name]["widget"].isEnabled()},
                                  enabled)
 
+    def test_the_manual_tools_put_the_similarity_matrix_between_its_neighbours(self):
+        # Pairwise alignment: Alignment Mode, Similarity Matrix, Generate Report, above the gap
+        # penalties. Database search: Generate FASTA File, Similarity Matrix, CPU Workers, below
+        # the gap penalties and above the device. Left to right on a wide row, top to bottom
+        # once it stacks (a switch in the first or last place leaves the combo boxes the room).
+        cases = (
+            ("Embedding_PWA.py", ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT"),
+             ("ALIGNMENT_MODE", "GENERATE_REPORT"), [], ["LOCAL_GAP_P_GLOBAL_GAP_P"]),
+            ("Embedding_SSEARCH.py", ("GENERATE_FASTA", "SIMILARITY_MATRIX", "WORKERS"),
+             ("GENERATE_FASTA", "WORKERS"), ["LOCAL_GAP_P_GLOBAL_GAP_P"],
+             ["DEVICE_SELECTION_ACCELERATOR_PRECISION"]),
+        )
+        for script, names, old_pair, above, below in cases:
+            path = next(path for path in self.window.script_data if path.endswith(script))
+            inputs = self.window.script_data[path]["inputs"]
+            row = self.window.findChild(QWidget, "compactRow_" + "_".join(names))
+            self.assertIsNotNone(row, script)
+            self.assertIsNone(self.window.findChild(QWidget, "compactRow_" + "_".join(old_pair)), script)
+            self.assertEqual([control for _, control in row.layout().pairs],
+                             [inputs[name]["widget"] for name in names])
+            self.assertEqual(row.layout().pairs[1][0].text(), "Similarity Matrix:")
+            tab = next(index for index in range(self.window.tabs.count())
+                       if self.window.tabs.widget(index).isAncestorOf(row))
+            self.window.tabs.setCurrentIndex(tab)
+            card = row.parentWidget()
+            # A long item must not widen the combo box's minimum, or the row would stack too soon.
+            combo = inputs["SIMILARITY_MATRIX"]["widget"]
+            minimum = combo.minimumSizeHint().width()
+            combo.addItem("A very long filename or model option " * 12, "layout-test")
+            self.assertEqual(combo.minimumSizeHint().width(), minimum)
+            for width in (600, 1400):
+                self.resize_panel(width)
+                with self.subTest(script=script, width=width):
+                    self.assert_layout_geometry(self.window.tabs.widget(tab).widget())
+                    self.assertEqual(row.property("stacked"), width == 600)
+                    corners = [(label.mapTo(card, QPoint(0, 0)), control.mapTo(card, QPoint(0, 0)))
+                               for label, control in row.layout().pairs]
+                    axis = (lambda point: point.y()) if width == 600 else (lambda point: point.x())
+                    starts = [axis(label) for label, _ in corners]
+                    self.assertEqual(starts, sorted(set(starts)))
+                    self.assertEqual([axis(control) for _, control in corners],
+                                     sorted(axis(control) for _, control in corners))
+                    top = row.mapTo(card, QPoint(0, 0)).y()
+                    for name in above:
+                        self.assertLess(card.findChild(QWidget, "compactRow_" + name).mapTo(
+                            card, QPoint(0, 0)).y(), top, name)
+                    for name in below:
+                        self.assertGreater(card.findChild(QWidget, "compactRow_" + name).mapTo(
+                            card, QPoint(0, 0)).y(), top, name)
+            self.assertEqual(self.window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "BLOSUM62")
+
     def test_the_blast_directory_row_keeps_its_field_and_two_buttons_at_every_width(self):
         path = next(path for path in self.window.script_data
                     if path.endswith("Align_Substitution_Matrix.py"))

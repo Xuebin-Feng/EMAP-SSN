@@ -767,6 +767,21 @@
         "description": "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences.",
         "maximum": 0
       },
+      "SIMILARITY_MATRIX": {
+        "type": "string",
+        "default": "BLOSUM62",
+        "description": "Similarity Matrix: Substitution matrix (e.g. BLOSUM62, PAM250) used only to count similar residue pairs.\nThe alignment itself comes from the embeddings. A pair of standard residues counts as similar when it is identical or the matrix scores it above 0.",
+        "enum": [
+          "BLOSUM45",
+          "BLOSUM50",
+          "BLOSUM62",
+          "BLOSUM80",
+          "BLOSUM90",
+          "PAM30",
+          "PAM70",
+          "PAM250"
+        ]
+      },
       "WORKERS": {
         "type": "integer",
         "default": 8,
