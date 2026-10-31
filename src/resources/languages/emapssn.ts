@@ -7080,6 +7080,83 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
+        <source>No BLAST+ found: download it or browse to its folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Automatic: {place}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Browse…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download BLAST+ {version}…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download BLAST+…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select Directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download BLAST+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN has no BLAST+ download for this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download NCBI BLAST+ {version}?
+
+It comes from NCBI ({host}). The download is about {download} MB, and the two programs EMAP-SSN uses (blastp and makeblastdb) take about {installed} MB once installed. The download is checked against the SHA-256 checksums that EMAP-SSN records before anything is installed.
+
+BLAST+ is a United States government work and is in the public domain.
+
+The window stays usable while it downloads, and you can cancel at any time. You choose the folder to install it in next.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the Folder to Install BLAST+ In</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Starting the download…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Downloading BLAST+ {version}: {done} of {total} MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpacking BLAST+ {version}…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Checking that BLAST+ {version} starts…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST+ Installed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Installed {version} in:
+{folder}
+
+The BLASTP Directory field now names that folder. It is saved with the tool&apos;s settings when you Save &amp; Run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7656,7 +7733,11 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>If left blank, standard system PATH and default platform installation locations are searched.</source>
+        <source>If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A directory that is set must hold both programs. The Download button installs NCBI BLAST+ in a folder you choose and fills this field.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8707,10 +8788,6 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <source>Browse...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Select Directory</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

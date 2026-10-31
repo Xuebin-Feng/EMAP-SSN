@@ -7741,7 +7741,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
     <message>
-        <location filename="../../benchmark/Run_Benchmark.py" line="+114"/>
+        <location filename="../../benchmark/Run_Benchmark.py" line="+115"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
         <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
@@ -7863,7 +7863,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">MSA 至少需要 3 条 {protein} 序列，但本次运行只有 {count} 条。</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+19"/>
+        <location line="+12"/>
         <source>NCBI BLAST+ was not found on the PATH or in {folder} ({error}).</source>
         <translation type="unfinished">在 PATH 和 {folder} 中都找不到 NCBI BLAST+（{error}）。</translation>
     </message>
@@ -10226,7 +10227,7 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="+205"/>
+        <location line="+206"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -10294,19 +10295,19 @@ Fedora / RHEL：
     <message>
         <location line="+544"/>
         <location line="+554"/>
-        <location line="+258"/>
+        <location line="+261"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-812"/>
+        <location line="-815"/>
         <location line="+555"/>
-        <location line="+258"/>
+        <location line="+261"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-811"/>
+        <location line="-814"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -10872,7 +10873,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+837"/>
+        <location line="+840"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -10900,7 +10901,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1844"/>
+        <location line="-1848"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -10924,7 +10925,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message numerus="yes">
-        <location line="+752"/>
+        <location line="+753"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
@@ -11131,23 +11132,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+356"/>
+        <location line="+359"/>
         <source>Gap penalty applied in Smith-Waterman local alignment.</source>
         <translation type="unfinished">Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。</translation>
     </message>
     <message>
-        <location line="-355"/>
+        <location line="-358"/>
         <source>More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished">数值越负，对插入和延伸空位（gap）的惩罚越重，空位越少。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+356"/>
+        <location line="+359"/>
         <source>Gap penalty applied in Needleman-Wunsch global alignment.</source>
         <translation type="unfinished">Needleman-Wunsch 全局比对（global alignment）中使用的空位罚分。</translation>
     </message>
     <message>
-        <location line="-355"/>
+        <location line="-358"/>
         <source>Controls gap insertion penalties across end-to-end full-length alignments.</source>
         <translation type="unfinished">控制端到端全长比对中插入空位的罚分。</translation>
     </message>
@@ -11183,24 +11184,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+255"/>
+        <location line="+258"/>
         <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished">两两得分矩阵的处理方式。</translation>
     </message>
     <message>
-        <location line="-253"/>
-        <location line="+255"/>
+        <location line="-256"/>
+        <location line="+258"/>
         <source>Benchmarks the scalar and tiled plans where they are supported.</source>
         <translation type="unfinished">在支持时对标量和分块（tile）方案进行基准测试。</translation>
     </message>
     <message>
-        <location line="-254"/>
-        <location line="+255"/>
+        <location line="-257"/>
+        <location line="+258"/>
         <source>Processes one pairwise score matrix at a time.</source>
         <translation type="unfinished">一次处理一个两两得分矩阵。</translation>
     </message>
     <message>
-        <location line="-254"/>
+        <location line="-257"/>
         <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
         <translation type="unfinished">在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
@@ -11211,23 +11212,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+258"/>
+        <location line="+261"/>
         <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
         <translation type="unfinished">选择最多 {cap:g} GiB 的安全系统内存预算。</translation>
     </message>
     <message>
-        <location line="-257"/>
+        <location line="-260"/>
         <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
         <translation type="unfinished">可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+398"/>
+        <location line="+401"/>
         <source>Numeric format the accelerator uses for the score matrices.</source>
         <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
     </message>
     <message>
-        <location line="-396"/>
+        <location line="-399"/>
         <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
         <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
     </message>
@@ -11243,12 +11244,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+396"/>
+        <location line="+399"/>
         <source>Low precision; explicit and never automatic.</source>
         <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
     </message>
     <message>
-        <location line="-393"/>
+        <location line="-396"/>
         <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
@@ -11279,12 +11280,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+137"/>
+        <location line="+140"/>
         <source>For either score, the strongest hit of a pair, in either direction, is kept.</source>
         <translation type="unfinished">无论采用哪种得分，每对序列都保留最强的比对（任一方向）。</translation>
     </message>
     <message>
-        <location line="-135"/>
+        <location line="-138"/>
         <source>The negative log10 of the BLAST E-value; saved as `&lt;set&gt;_[BLAST]_EValue.h5`.</source>
         <translation type="unfinished">BLAST 期望值（E-value）的负对数（log10）；保存为 `&lt;set&gt;_[BLAST]_EValue.h5`。</translation>
     </message>
@@ -11319,12 +11320,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">存放本地 `blastp` 和 `makeblastdb` 可执行文件的目录。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>If left blank, standard system PATH and default platform installation locations are searched.</source>
-        <translation type="unfinished">留空时会搜索系统 PATH 和各平台的默认安装位置。</translation>
+        <translation type="obsolete">留空时会搜索系统 PATH 和各平台的默认安装位置。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+9"/>
         <source>Toggle to restrict alignment to sequences in an explicit FASTA file.</source>
         <translation type="unfinished">切换是否只比对指定 FASTA 文件中的序列。</translation>
     </message>
@@ -12145,12 +12145,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1230"/>
+        <location line="+1196"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1225"/>
+        <location line="-1191"/>
         <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -12630,25 +12630,124 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+10"/>
-        <location line="+543"/>
-        <location line="+1067"/>
+        <location line="+509"/>
+        <location line="+1049"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1607"/>
-        <location line="+656"/>
+        <location line="-1555"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
     <message>
-        <location line="-635"/>
-        <location line="+639"/>
+        <location filename="../../../desktop/Blast_Directory_Control.py" line="+46"/>
+        <source>No BLAST+ found: download it or browse to its folder</source>
+        <translation type="unfinished">未找到 BLAST+：请下载，或浏览到它所在的文件夹</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Automatic: {place}</source>
+        <translation type="unfinished">自动：{place}</translation>
+    </message>
+    <message>
+        <location line="+63"/>
+        <source>Browse…</source>
+        <translation type="unfinished">浏览…</translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Download BLAST+ {version}…</source>
+        <translation type="unfinished">下载 BLAST+ {version}…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Download BLAST+…</source>
+        <translation type="unfinished">下载 BLAST+…</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+21"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="-611"/>
+        <location line="+12"/>
+        <location line="+62"/>
+        <location line="+53"/>
+        <source>Download BLAST+</source>
+        <translation type="unfinished">下载 BLAST+</translation>
+    </message>
+    <message>
+        <location line="-106"/>
+        <source>EMAP-SSN has no BLAST+ download for this computer.</source>
+        <translation type="unfinished">EMAP-SSN 没有适用于这台计算机的 BLAST+ 下载。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Download NCBI BLAST+ {version}?
+
+It comes from NCBI ({host}). The download is about {download} MB, and the two programs EMAP-SSN uses (blastp and makeblastdb) take about {installed} MB once installed. The download is checked against the SHA-256 checksums that EMAP-SSN records before anything is installed.
+
+BLAST+ is a United States government work and is in the public domain.
+
+The window stays usable while it downloads, and you can cancel at any time. You choose the folder to install it in next.</source>
+        <translation type="unfinished">下载 NCBI BLAST+ {version}？
+
+它来自 NCBI（{host}）。下载大小约 {download} MB；EMAP-SSN 使用的两个程序（blastp 和 makeblastdb）安装后约占 {installed} MB。在安装任何文件之前，下载内容会先按 EMAP-SSN 记录的 SHA-256 校验和检查。
+
+BLAST+ 是美国政府的作品，属于公有领域（public domain）。
+
+下载期间窗口仍可使用，你随时可以取消。接下来由你选择安装它的文件夹。</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Select the Folder to Install BLAST+ In</source>
+        <translation type="unfinished">选择安装 BLAST+ 的文件夹</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Starting the download…</source>
+        <translation type="unfinished">正在开始下载…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Cancel</source>
+        <translation type="unfinished">取消</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Downloading BLAST+ {version}: {done} of {total} MB</source>
+        <translation type="unfinished">正在下载 BLAST+ {version}：{done} / {total} MB</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Unpacking BLAST+ {version}…</source>
+        <translation type="unfinished">正在解压 BLAST+ {version}…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Checking that BLAST+ {version} starts…</source>
+        <translation type="unfinished">正在检查 BLAST+ {version} 能否启动…</translation>
+    </message>
+    <message>
+        <location line="+37"/>
+        <source>BLAST+ Installed</source>
+        <translation type="unfinished">BLAST+ 已安装</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Installed {version} in:
+{folder}
+
+The BLASTP Directory field now names that folder. It is saved with the tool&apos;s settings when you Save &amp; Run.</source>
+        <translation type="unfinished">已安装 {version}，位置：
+{folder}
+
+BLASTP 目录字段现在填的是该文件夹。你点击“保存并运行”时，它会随工具的设置一起保存。</translation>
+    </message>
+    <message>
+        <location filename="../../../EMAPSSN_Tools.py" line="+28"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
@@ -12669,14 +12768,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1565"/>
-        <location line="+449"/>
+        <location line="+1513"/>
+        <location line="+458"/>
         <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2052"/>
+        <location line="-2009"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -12733,7 +12832,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">启用长度过滤</translation>
     </message>
     <message>
-        <location line="+301"/>
+        <location line="+267"/>
         <source>Unavailable saved model [{model}]</source>
         <translation type="unfinished">不可用的已保存模型 [{model}]</translation>
     </message>
@@ -12752,7 +12851,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">设置：{name}</translation>
     </message>
     <message>
-        <location line="+287"/>
+        <location line="+269"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -12831,7 +12930,7 @@ Start the benchmark?</source>
 是否开始基准测试？</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Enter a name for the exported settings file.</source>
         <translation type="unfinished">请输入导出设置文件的名称。</translation>
     </message>
@@ -12993,15 +13092,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="obsolete">已将配置保存到 JSON 并启动 {tool}。</translation>
     </message>
     <message>
-        <location line="-449"/>
-        <location line="+475"/>
+        <location line="-458"/>
+        <location line="+484"/>
         <source>Failed to run {path}:
 {error}</source>
         <translation type="unfinished">无法运行 {path}：
 {error}</translation>
     </message>
     <message>
-        <location line="-5075"/>
+        <location line="-5036"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -13118,7 +13217,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">分块</translation>
     </message>
     <message>
-        <location line="+413"/>
+        <location line="+414"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -13171,7 +13270,17 @@ Fedora / RHEL：
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+160"/>
+        <location line="+129"/>
+        <source>If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds.</source>
+        <translation type="unfinished">留空时会自动查找 BLAST+：先查系统 PATH，然后是标准安装文件夹（取最新版本）或常见的 Unix 文件夹。字段会显示该查找的结果。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A directory that is set must hold both programs. The Download button installs NCBI BLAST+ in a folder you choose and fills this field.</source>
+        <translation type="unfinished">已设置的目录必须同时包含这两个程序。下载按钮会把 NCBI BLAST+ 安装到你选择的文件夹，并填入此字段。</translation>
+    </message>
+    <message>
+        <location line="+33"/>
         <source>Selects whether to weight guide tree branches using global or local network scores.</source>
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
@@ -13213,12 +13322,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+165"/>
-        <location line="+1431"/>
+        <location line="+1379"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1416"/>
+        <location line="-1364"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -13228,7 +13337,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1987"/>
+        <location line="+1944"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
