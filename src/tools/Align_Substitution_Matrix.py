@@ -82,6 +82,7 @@ from utilities.HDF5_Storage import validate_manifest_records
 from utilities.BLAST_Tabular import (
     EFI_SCORE_TRANSFORM,
     SCORE_METRIC_EFI,
+    SCORE_METRIC_EVALUE,
     SCORE_METRICS,
     efi_alignment_score,
 )
@@ -735,11 +736,16 @@ BATCH_ATTRIBUTE_NAMES = (
     "complete",
     "model_name",
     "matrix",
-    "score_metric",
     "query_chunk_sha256",
     "source_result_filename",
     "source_result_sha256",
 )
+# Recorded in a batch, and in the run metadata that decides whether a workspace
+# resumes, only when the score is not the E-value: the run and batches of an
+# E-value network are exactly what they were before the EFI alignment score
+# existed, so an interrupted E-value workspace still resumes. A batch or
+# workspace of the other score differs by this attribute and is not reused.
+SCORE_METRIC_ATTRIBUTE = "score_metric"
 
 
 def _plain_attr_value(value):
@@ -764,7 +770,11 @@ def _batch_attributes(run_metadata, query_checksum, result_path, result_checksum
         "complete": True,
         "model_name": "BLAST",
         "matrix": run_metadata["matrix"],
-        "score_metric": run_metadata["score_metric"],
+        **(
+            {SCORE_METRIC_ATTRIBUTE: run_metadata[SCORE_METRIC_ATTRIBUTE]}
+            if SCORE_METRIC_ATTRIBUTE in run_metadata
+            else {}
+        ),
         "query_chunk_sha256": query_checksum,
         "source_result_filename": os.path.basename(result_path),
         "source_result_sha256": result_checksum,
@@ -838,6 +848,20 @@ def validate_batch_file(batch_path, expected_attrs, sequence_count, read_size=No
                         f"attribute '{name}' differs ({actual!r} != {expected!r})",
                         0,
                     )
+            # Present on both sides or neither, and equal.
+            actual = (
+                _plain_attr_value(hf.attrs[SCORE_METRIC_ATTRIBUTE])
+                if SCORE_METRIC_ATTRIBUTE in hf.attrs
+                else None
+            )
+            expected = expected_attrs.get(SCORE_METRIC_ATTRIBUTE)
+            if actual != expected:
+                return (
+                    False,
+                    f"attribute '{SCORE_METRIC_ATTRIBUTE}' differs "
+                    f"({actual!r} != {expected!r})",
+                    0,
+                )
             return _validate_edge_datasets(
                 hf,
                 sequence_count,
@@ -991,7 +1015,7 @@ def parse_result_to_batch(
         raise ValueError("BATCH_SIZE must be a positive integer.")
     if not os.path.exists(result_path):
         raise FileNotFoundError(f"BLAST result is missing: {result_path}")
-    efi = run_metadata["score_metric"] == SCORE_METRIC_EFI
+    efi = run_metadata.get(SCORE_METRIC_ATTRIBUTE) == SCORE_METRIC_EFI
     if efi:
         if lengths is None or len(lengths) != int(run_metadata["sequence_count"]):
             raise ValueError(
@@ -1208,7 +1232,7 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
     with h5py.File(partial_path, "w") as output:
         output.attrs["model_name"] = "BLAST"
         output.attrs["matrix"] = run_metadata["matrix"]
-        if run_metadata["score_metric"] == SCORE_METRIC_EFI:
+        if run_metadata.get(SCORE_METRIC_ATTRIBUTE) == SCORE_METRIC_EFI:
             # Without score_kind a network holds E-value scores.
             output.attrs["score_kind"] = SCORE_METRIC_EFI
             output.attrs["score_transform"] = EFI_SCORE_TRANSFORM
@@ -1308,7 +1332,8 @@ def run_workflow():
         "matrix": str(MATRIX),
         "num_threads": int(NUM_THREADS),
         "blastp_version": blastp_version,
-        "score_metric": SCORE_METRIC,
+        # Only for the EFI alignment score: see SCORE_METRIC_ATTRIBUTE.
+        **({SCORE_METRIC_ATTRIBUTE: SCORE_METRIC} if SCORE_METRIC != SCORE_METRIC_EVALUE else {}),
     }
     check_and_initialize_workspace(run_metadata)
     sequence_lengths = (

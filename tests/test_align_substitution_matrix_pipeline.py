@@ -55,7 +55,6 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             "matrix": "BLOSUM62",
             "num_threads": 2,
             "blastp_version": "blastp: 2.17.0+",
-            "score_metric": "evalue",
         }
         metadata.update(overrides)
         return metadata
@@ -886,14 +885,60 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 ):
                     self._parse_efi(temp_dir, lines, lengths, name="short")
 
-    def test_score_metric_is_part_of_the_batch_and_workspace_identity(self):
+    # The attributes and run metadata of an E-value run before the EFI alignment score.
+    OLD_BATCH_ATTRIBUTES = {
+        "complete", "model_name", "matrix", "query_chunk_sha256",
+        "source_result_filename", "source_result_sha256",
+    }
+    OLD_RUN_METADATA = {
+        "input_fasta", "input_fasta_sha256", "sanitized_manifest_sha256",
+        "sequence_count", "matrix", "num_threads", "blastp_version",
+    }
+
+    def _workspace_patches(self, temp_dir):
+        workspace = os.path.join(temp_dir, "networks", "run_temp")
+        return {
+            "NETWORK_DIR": os.path.join(temp_dir, "networks"),
+            "SAFE_TEMP_DIR": workspace,
+            "CHUNKS_DIR": os.path.join(workspace, "chunks"),
+            "RESULTS_DIR": os.path.join(workspace, "results"),
+            "BATCH_DIR": os.path.join(workspace, "batches"),
+            "CONFIG_FILE": os.path.join(workspace, "job_config.json"),
+        }
+
+    def test_evalue_batches_keep_their_attributes_and_an_old_batch_is_reused(self):
+        self.assertEqual(set(substitution_matrix.BATCH_ATTRIBUTE_NAMES), self.OLD_BATCH_ATTRIBUTES)
         with tempfile.TemporaryDirectory() as temp_dir:
             batch_dir = os.path.join(temp_dir, "batches")
             os.makedirs(batch_dir)
             result_path = os.path.join(temp_dir, "result.txt")
             with open(result_path, "w", encoding="utf-8") as result:
                 result.write(self._blast_line(0, 1, "1e-10", bitscore=100.0))
-            lengths = [200, 300, 10, 20]
+            with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
+                first = substitution_matrix.parse_result_to_batch(
+                    result_path, "query-checksum", self._metadata(), batch_size=2
+                )
+                # Exactly what a batch carried before the EFI alignment score.
+                self.assertEqual(set(first["attrs"]), self.OLD_BATCH_ATTRIBUTES)
+                with h5py.File(first["path"], "r") as batch:
+                    self.assertEqual(set(batch.attrs), self.OLD_BATCH_ATTRIBUTES)
+                # A batch an earlier version wrote is valid, and reused, for the E-value run.
+                resumed = substitution_matrix.parse_result_to_batch(
+                    result_path, "query-checksum", self._metadata(), batch_size=2
+                )
+                self.assertTrue(resumed["reused"])
+                self.assertFalse(
+                    os.path.exists(os.path.join(batch_dir, "invalid_batches"))
+                )
+
+    def test_a_batch_of_the_other_score_is_never_reused_in_either_direction(self):
+        lengths = [200, 300, 10, 20]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            batch_dir = os.path.join(temp_dir, "batches")
+            os.makedirs(batch_dir)
+            result_path = os.path.join(temp_dir, "result.txt")
+            with open(result_path, "w", encoding="utf-8") as result:
+                result.write(self._blast_line(0, 1, "1e-10", bitscore=100.0))
 
             with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
                 efi_first = substitution_matrix.parse_result_to_batch(
@@ -901,19 +946,22 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                     batch_size=2, lengths=lengths,
                 )
                 self.assertEqual(
-                    efi_first["attrs"]["score_metric"], "efi_alignment_score"
+                    set(efi_first["attrs"]), self.OLD_BATCH_ATTRIBUTES | {"score_metric"}
                 )
                 with h5py.File(efi_first["path"], "r") as batch:
                     self.assertEqual(batch.attrs["score_metric"], "efi_alignment_score")
 
-                # An EFI batch is not the batch of the same chunk's E-value run.
+                # The EFI batch is not valid for the E-value run of the same chunk ...
+                old_attrs = {
+                    name: value for name, value in efi_first["attrs"].items()
+                    if name != "score_metric"
+                }
                 valid, reason, _ = substitution_matrix.validate_batch_file(
-                    efi_first["path"], dict(efi_first["attrs"], score_metric="evalue"),
-                    sequence_count=4, read_size=2,
+                    efi_first["path"], old_attrs, sequence_count=4, read_size=2,
                 )
                 self.assertFalse(valid)
                 self.assertIn("score_metric", reason)
-
+                # ... and the run rebuilds it from the E-value scores.
                 evalue = substitution_matrix.parse_result_to_batch(
                     result_path, "query-checksum", self._metadata(), batch_size=2
                 )
@@ -921,40 +969,70 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 self.assertEqual(evalue["edges"], 1)
                 with h5py.File(evalue["path"], "r") as batch:
                     self.assertAlmostEqual(float(batch["score"][0]), 10.0, places=4)
+                    self.assertEqual(set(batch.attrs), self.OLD_BATCH_ATTRIBUTES)
                 self.assertTrue(
                     os.path.isdir(os.path.join(batch_dir, "invalid_batches"))
                 )
 
-                # And an E-value batch is not reused for EFI either.
+                # The E-value batch is not valid for the EFI run, which rebuilds it.
+                valid, reason, _ = substitution_matrix.validate_batch_file(
+                    evalue["path"], efi_first["attrs"], sequence_count=4, read_size=2,
+                )
+                self.assertFalse(valid)
+                self.assertIn("score_metric", reason)
                 again = substitution_matrix.parse_result_to_batch(
                     result_path, "query-checksum", self._efi_metadata(),
                     batch_size=2, lengths=lengths,
                 )
                 self.assertFalse(again["reused"])
+                with h5py.File(again["path"], "r") as batch:
+                    np.testing.assert_allclose(batch["score"][:], [25.3248], atol=5e-5)
 
-            # The resume key: one workspace is never resumed under the other metric.
-            workspace = os.path.join(temp_dir, "networks", "run_temp")
-            patches = {
-                "NETWORK_DIR": os.path.join(temp_dir, "networks"),
-                "SAFE_TEMP_DIR": workspace,
-                "CHUNKS_DIR": os.path.join(workspace, "chunks"),
-                "RESULTS_DIR": os.path.join(workspace, "results"),
-                "BATCH_DIR": os.path.join(workspace, "batches"),
-                "CONFIG_FILE": os.path.join(workspace, "job_config.json"),
+    def test_an_old_evalue_workspace_resumes_and_the_other_score_never_does(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            patches = self._workspace_patches(temp_dir)
+            workspace = patches["SAFE_TEMP_DIR"]
+            os.makedirs(workspace)
+            old_config = {
+                key: value for key, value in self._metadata().items()
+                if key in self.OLD_RUN_METADATA
             }
+            self.assertEqual(set(old_config), self.OLD_RUN_METADATA)
+            self.assertEqual(set(self._metadata()), self.OLD_RUN_METADATA)
+            # A job_config.json as the version before the EFI alignment score wrote it.
+            pathlib.Path(workspace, "job_config.json").write_text(
+                json.dumps(old_config, indent=4, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            pathlib.Path(workspace, "marker.txt").write_text("keep", encoding="utf-8")
             with mock.patch.multiple(substitution_matrix, **patches):
-                substitution_matrix.check_and_initialize_workspace(self._efi_metadata())
+                # The E-value run resumes it ...
                 self.assertTrue(
-                    substitution_matrix.check_and_initialize_workspace(
-                        self._efi_metadata()
-                    )
+                    substitution_matrix.check_and_initialize_workspace(self._metadata())
+                )
+                self.assertTrue(os.path.exists(os.path.join(workspace, "marker.txt")))
+                saved = json.loads(pathlib.Path(workspace, "job_config.json").read_text(encoding="utf-8"))
+                self.assertEqual(saved, old_config)
+                # ... the EFI run does not: the E-value workspace is set aside.
+                self.assertFalse(
+                    substitution_matrix.check_and_initialize_workspace(self._efi_metadata())
+                )
+                self.assertFalse(os.path.exists(os.path.join(workspace, "marker.txt")))
+                reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp"
+                          / "resume_mismatch.txt").read_text(encoding="utf-8")
+                self.assertIn("configuration mismatch for score_metric", reason)
+
+                # And the other way round: an EFI workspace is not resumed by an E-value run.
+                pathlib.Path(workspace, "marker.txt").write_text("keep", encoding="utf-8")
+                self.assertTrue(
+                    substitution_matrix.check_and_initialize_workspace(self._efi_metadata())
                 )
                 self.assertFalse(
                     substitution_matrix.check_and_initialize_workspace(self._metadata())
                 )
-            reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp"
-                      / "resume_mismatch.txt").read_text(encoding="utf-8")
-            self.assertIn("configuration mismatch for score_metric", reason)
+                self.assertFalse(os.path.exists(os.path.join(workspace, "marker.txt")))
+                self.assertEqual(
+                    len(list(pathlib.Path(patches["NETWORK_DIR"]).glob("run_temp_BackUp*"))), 2
+                )
 
     def test_names_follow_the_score_metric(self):
         derived = ("SEQUENCE_SET", "FULL_INPUT_FASTA", "OUTPUT_HDF5", "SAFE_TEMP_DIR",
@@ -1046,6 +1124,39 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 "score_transform": "bitscore*log10(2) - log10(len_query*len_subject)",
             },
         )
+
+    def test_mocked_evalue_workflow_writes_the_job_config_it_always_has(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta_dir = os.path.join(temp_dir, "fastas")
+            network_dir = os.path.join(temp_dir, "networks")
+            os.makedirs(fasta_dir)
+            input_path = os.path.join(fasta_dir, "input.fasta")
+            pathlib.Path(input_path).write_text(">a\nACDE\n>b\nACDF\n", encoding="utf-8")
+
+            def fake_subprocess_run(command, **kwargs):
+                if os.path.basename(command[0]).startswith("makeblastdb"):
+                    return mock.Mock(returncode=0, stdout="", stderr="")
+                partial_result = command[command.index("-out") + 1]
+                pathlib.Path(partial_result).write_text(
+                    self._blast_line(0, 1, "1e-25"), encoding="utf-8"
+                )
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            with mock.patch.object(substitution_matrix, "cleanup_workspace"):
+                exit_code, _ = self._run_mocked_workflow(
+                    input_path, network_dir, fake_subprocess_run
+                )
+
+            self.assertEqual(exit_code, 0)
+            workspace = os.path.join(network_dir, "input_[BLAST]_EValue_temp")
+            saved = json.loads(
+                pathlib.Path(workspace, "job_config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(saved), self.OLD_RUN_METADATA)
+            batches = glob.glob(os.path.join(glob.escape(workspace), "batches", "batch_*.h5"))
+            self.assertEqual(len(batches), 1)
+            with h5py.File(batches[0], "r") as batch:
+                self.assertEqual(set(batch.attrs), self.OLD_BATCH_ATTRIBUTES)
 
     def test_mocked_efi_workflow_scores_sanitized_lengths_and_keeps_them_out_of_the_resume_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
