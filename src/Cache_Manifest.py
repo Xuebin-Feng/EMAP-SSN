@@ -37,6 +37,16 @@ LAYOUT_METHODS = ("umap", "pacmap")
 # made by the older method are not reused for the new one.
 PACMAP_REVISION = 1
 
+# What a BLAST-type network's edge scores are, as its score_kind attribute records
+# them (BLAST_Tabular.SCORE_METRIC_*, kept literal so this module imports no tool
+# code). A network without the attribute holds E-value scores, as every network
+# made before the EFI alignment score existed does.
+SCORE_KIND_EVALUE = "evalue"
+SCORE_KIND_EFI = "efi_alignment_score"
+SCORE_KINDS = (SCORE_KIND_EVALUE, SCORE_KIND_EFI)
+# What follows the program in the label of the files derived from an EFI network.
+EFI_LABEL_SUFFIX = "-EFI"
+
 
 class CacheManifestError(ValueError):
     """Raised when cache identity or path data is unsafe or malformed."""
@@ -56,6 +66,8 @@ class NetworkMetadata:
 
     model_name: str
     network_type: str
+    # Only a BLAST-type network can hold anything but E-value scores.
+    score_kind: str = SCORE_KIND_EVALUE
 
 
 @dataclass(frozen=True)
@@ -178,6 +190,21 @@ def _network_source_label(network_source):
         return "<open HDF5 network>"
 
 
+def _read_score_kind(network, source_label):
+    raw_kind = network.attrs.get("score_kind")
+    if raw_kind is None:
+        return SCORE_KIND_EVALUE
+    if isinstance(raw_kind, bytes):
+        raw_kind = raw_kind.decode("utf-8", errors="surrogateescape")
+    kind = str(raw_kind).strip()
+    if kind not in SCORE_KINDS:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' has an unsupported 'score_kind' "
+            f"attribute {kind!r}; expected one of {', '.join(SCORE_KINDS)}."
+        )
+    return kind
+
+
 def _read_open_network_metadata(network, source_label):
     if "model_name" not in network.attrs:
         raise NetworkMetadataError(
@@ -213,7 +240,15 @@ def _read_open_network_metadata(network, source_label):
         )
 
     network_type = "blast" if model_name.casefold() == "blast" else "alignment"
-    return NetworkMetadata(model_name=model_name, network_type=network_type)
+    return NetworkMetadata(
+        model_name=model_name,
+        network_type=network_type,
+        score_kind=(
+            _read_score_kind(network, source_label)
+            if network_type == "blast"
+            else SCORE_KIND_EVALUE
+        ),
+    )
 
 
 def read_network_metadata(network_source):
@@ -289,13 +324,16 @@ def validate_network_schema(network_source, expected_network_type=None):
 DIAMOND_SEARCH_PROGRAM = "DIAMOND"
 
 
-def _derived_name_label(network, metadata):
+def _derived_name_label(network, metadata, score_suffix=True):
     """Bracketed label for names derived from an open network: ``_[label]``.
 
-    DIAMOND imports keep model_name "BLAST", so they load as E-value networks,
+    DIAMOND imports keep model_name "BLAST", so they load as BLAST networks,
     and record search_program "DIAMOND"; like the imported network file, they
     are labelled DIAMOND. A missing or unreadable search_program keeps the
-    model_name label, so naming never fails on it.
+    model_name label, so naming never fails on it. A network of EFI alignment
+    scores adds "-EFI" (BLAST-EFI, DIAMOND-EFI), so what is derived from it
+    never shares a name with what is derived from the E-value network of the
+    same sequences; ``score_suffix=False`` leaves it off.
     """
     label = metadata.model_name
     if metadata.network_type == "blast":
@@ -307,17 +345,24 @@ def _derived_name_label(network, metadata):
                 label = DIAMOND_SEARCH_PROGRAM
         except (OSError, ValueError, TypeError, KeyError):
             pass
-    return re.sub(r'[<>:"/\\|?*]', "_", label)
+    label = re.sub(r'[<>:"/\\|?*]', "_", label)
+    if score_suffix and metadata.score_kind == SCORE_KIND_EFI:
+        label += EFI_LABEL_SUFFIX
+    return label
 
 
-def network_name_label(network_source):
+def network_name_label(network_source, score_suffix=True):
     """The ``_[label]`` that files derived from a network carry in their names."""
     import h5py
 
     if hasattr(network_source, "attrs"):
-        return _derived_name_label(network_source, read_network_metadata(network_source))
+        return _derived_name_label(
+            network_source, read_network_metadata(network_source), score_suffix
+        )
     with h5py.File(os.fspath(network_source), "r") as network:
-        return _derived_name_label(network, read_network_metadata(network))
+        return _derived_name_label(
+            network, read_network_metadata(network), score_suffix
+        )
 
 
 def _optional_float(value):
@@ -350,16 +395,21 @@ def build_compatibility(
     layout_dimensions=2,
     layout_method="umap",
     pacmap_neighbors=10,
+    score_kind=SCORE_KIND_EVALUE,
 ):
     """Build the canonical fields that define one compatible cache folder.
 
     umap_mode is "a manifold layout instead of physics"; layout_method says which one
     ("umap" or "pacmap") and only matters when umap_mode is true. A PaCMAP cache is
-    identified by its neighbour count, as a UMAP cache is by its own.
+    identified by its neighbour count, as a UMAP cache is by its own. score_kind
+    (NetworkMetadata.score_kind) joins the fields only when it is not E-value, so the
+    identity of every cache made from an E-value network is the one it always had.
     """
     network_type = str(network_type).lower()
     if network_type not in {"blast", "alignment"}:
         raise CacheManifestError(f"Unsupported network type: {network_type}")
+    if score_kind not in SCORE_KINDS:
+        raise CacheManifestError(f"Unsupported score kind: {score_kind!r}")
 
     dimensions = int(layout_dimensions)
     if dimensions not in {2, 3}:
@@ -395,6 +445,7 @@ def build_compatibility(
         ),
         **({"umap_knn_revision": 2} if is_umap and not is_pacmap else {}),
         **({"pacmap_revision": PACMAP_REVISION} if is_pacmap else {}),
+        **({"score_kind": score_kind} if score_kind != SCORE_KIND_EVALUE else {}),
         "edge_filter": edge_filter,
     }
 
@@ -428,11 +479,12 @@ def build_manifest_for_files(sequence_path, network_path, **settings):
     """Hash both inputs and construct their current manifest."""
     sequence = fingerprint_file(sequence_path)
     network = fingerprint_file(network_path)
-    network_type = validate_network_schema(network_path).network_type
+    metadata = validate_network_schema(network_path)
     compatibility = build_compatibility(
         sequence["sha256"],
         network["sha256"],
-        network_type,
+        metadata.network_type,
+        score_kind=metadata.score_kind,
         **settings,
     )
     return build_manifest(sequence, network, compatibility)
@@ -545,9 +597,11 @@ def build_canonical_cache_name(
 ):
     """Build a human-readable cache name from authoritative network metadata.
 
-    Folders of DIAMOND imports are labelled [DIAMOND] (see network_name_label).
+    Folders of DIAMOND imports are labelled [DIAMOND], and of EFI networks
+    [BLAST-EFI] or [DIAMOND-EFI] (see network_name_label).
     legacy_model_label=True gives the [model_name] label that earlier versions
     used for every network, so a lookup by name can still find their folders.
+    No earlier version made EFI networks, so theirs keep the "-EFI" label.
     """
     import h5py
 
@@ -557,7 +611,10 @@ def build_canonical_cache_name(
     def label_from(network):
         metadata = validate_network_schema(network, expected_network_type=expected_type)
         if legacy_model_label:
-            return re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+            label = re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+            return label + (
+                EFI_LABEL_SUFFIX if metadata.score_kind == SCORE_KIND_EFI else ""
+            )
         return _derived_name_label(network, metadata)
 
     if hasattr(network_path, "attrs"):

@@ -1936,6 +1936,36 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
         self._finish(self.workers[-1])
         self.assertEqual(self._tracker(), self._shown("b.fasta"))
 
+    def test_discovery_names_the_score_kind_of_an_efi_network_as_its_manifest_does(self):
+        """An EFI network's manifest carries score_kind, so the window must look for it."""
+        efi_network = self.work / "efi.h5"
+        shutil.copyfile(self.work / "network.h5", efi_network)
+        with h5py.File(efi_network, "a") as network:
+            network.attrs["score_kind"] = "efi_alignment_score"
+        sequence = self.cache_manifest.fingerprint_file(self.work / "a.fasta")
+        network = self.cache_manifest.fingerprint_file(efi_network)
+        layouts = pathlib.Path(self.window.inputs["SAVED_LAYOUT_DIR"].text())
+        # One folder was made for the EFI network, one as if it were an E-value network.
+        for kind, folder in (("evalue", "as_evalue"), ("efi_alignment_score", "as_efi")):
+            compatibility = self.cache_manifest.build_compatibility(
+                sequence["sha256"], network["sha256"], "blast", score_kind=kind,
+                **self.window._cache_setting_values(),
+            )
+            self.cache_manifest.write_manifest_atomic(
+                layouts / folder,
+                self.cache_manifest.build_manifest(sequence, network, compatibility),
+            )
+
+        self.window.cb_hdf5.refresh_callback()
+        self._select("b.fasta")
+        self.window.cb_hdf5.setCurrentText("efi.h5")
+        self.assertEqual(self.window.cb_hdf5.currentText(), "efi.h5")
+        self._select("a.fasta")
+        self._finish(self.workers[-1])
+
+        self.assertEqual(self._tracker(), "Compatible Folder: as_efi")
+        self.assertEqual(pathlib.Path(self.window.current_cache_folder), layouts / "as_efi")
+
     def test_giving_up_on_the_selected_inputs_stops_their_hashing(self):
         """However discovery gives up on the selected inputs, it stops the
         worker hashing them and ignores that worker's result."""

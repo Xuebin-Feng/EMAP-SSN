@@ -433,12 +433,14 @@ class CanonicalCacheNameTests(unittest.TestCase):
                 )
 
 
-def write_blast_network(path, search_program=None):
-    """An empty E-value network, with search_program recorded when given."""
+def write_blast_network(path, search_program=None, score_kind=None):
+    """An empty BLAST network, with search_program and score_kind recorded when given."""
     write_network(path, "BLAST", "blast")
-    if search_program is not None:
-        with h5py.File(path, "a") as network:
+    with h5py.File(path, "a") as network:
+        if search_program is not None:
             network.attrs["search_program"] = search_program
+        if score_kind is not None:
+            network.attrs["score_kind"] = score_kind
 
 
 class DiamondCacheLabelTests(unittest.TestCase):
@@ -540,6 +542,28 @@ class DiamondCacheReuseTests(HeadlessSettingsFixture, unittest.TestCase):
         self.assertEqual(second, legacy / "version_01.h5")
         self.assertFalse(first.parent.exists())
 
+    def test_efi_networks_get_their_own_label_and_name_their_kind_in_the_manifest(self):
+        write_inputs(self.root)
+        network = self.root / "network.h5"
+        network.unlink()
+        with h5py.File(network, "w") as handle:
+            handle.attrs["model_name"] = "BLAST"
+            handle.attrs["score_kind"] = "efi_alignment_score"
+            handle.create_dataset("headers", data=np.asarray(["Alpha_Beta", "Gamma_Delta"], dtype=object),
+                                  dtype=h5py.string_dtype("utf-8"))
+            handle.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
+            handle.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
+            handle.create_dataset("score", data=np.asarray([25.3], dtype=np.float32))
+        document = settings_document(self.root)
+        document["output"]["CACHE_NAME_MODE"] = "auto"
+
+        cache = pathlib.Path(self.generate(document).cache_path)
+
+        self.assertEqual(cache.parent.name, "set_[BLAST-EFI]_Score0.1")
+        compatibility = Cache_Manifest.read_manifest(cache.parent)["compatibility"]
+        self.assertEqual(compatibility["score_kind"], "efi_alignment_score")
+        self.assertEqual(compatibility["network_type"], "blast")
+
 
 class NetworkMetadataTests(unittest.TestCase):
     """model_name selects the network type, and the type the required datasets."""
@@ -603,6 +627,186 @@ class NetworkMetadataTests(unittest.TestCase):
             "not the expected type 'blast'",
         ):
             Cache_Manifest.validate_network_schema(self.path, "blast")
+
+
+class EfiScoreKindTests(unittest.TestCase):
+    """A network of EFI alignment scores says so in score_kind; E-value ones need not."""
+
+    EFI = "efi_alignment_score"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.path = self.root / "network.h5"
+
+    def test_metadata_reads_the_score_kind_and_defaults_to_evalue(self):
+        for kind, expected in (
+            (None, "evalue"), ("evalue", "evalue"), (self.EFI, self.EFI),
+            (f" {self.EFI} ", self.EFI), (np.bytes_(self.EFI.encode()), self.EFI),
+        ):
+            with self.subTest(kind=kind):
+                write_blast_network(self.path, score_kind=kind)
+                metadata = Cache_Manifest.read_network_metadata(self.path)
+                self.assertEqual(metadata.score_kind, expected)
+                self.assertEqual(metadata.network_type, "blast")
+        write_blast_network(self.path)
+        with h5py.File(self.path, "r") as network:
+            self.assertEqual(
+                Cache_Manifest.validate_network_schema(network).score_kind, "evalue"
+            )
+        # An embedding network has no score kind, whatever its attributes say.
+        write_network(self.path, "esm2")
+        with h5py.File(self.path, "a") as network:
+            network.attrs["score_kind"] = self.EFI
+        self.assertEqual(Cache_Manifest.read_network_metadata(self.path).score_kind, "evalue")
+
+    def test_an_unsupported_score_kind_is_refused_by_name(self):
+        write_blast_network(self.path, score_kind="bit_score")
+        with self.assertRaisesRegex(
+            Cache_Manifest.NetworkMetadataError,
+            r"unsupported 'score_kind' attribute 'bit_score'; expected one of "
+            r"evalue, efi_alignment_score",
+        ):
+            Cache_Manifest.read_network_metadata(self.path)
+
+    def test_kinds_match_what_the_tools_record(self):
+        from utilities import BLAST_Tabular
+
+        self.assertEqual(Cache_Manifest.SCORE_KIND_EVALUE, BLAST_Tabular.SCORE_METRIC_EVALUE)
+        self.assertEqual(Cache_Manifest.SCORE_KIND_EFI, BLAST_Tabular.SCORE_METRIC_EFI)
+        self.assertEqual(Cache_Manifest.SCORE_KINDS, BLAST_Tabular.SCORE_METRICS)
+
+    def label(self, search_program=None, score_kind=None, **kwargs):
+        write_blast_network(self.path, search_program, score_kind)
+        return Cache_Manifest.network_name_label(self.path, **kwargs)
+
+    def test_efi_networks_add_efi_to_the_label_and_evalue_labels_are_unchanged(self):
+        self.assertEqual(self.label(), "BLAST")
+        self.assertEqual(self.label("DIAMOND"), "DIAMOND")
+        self.assertEqual(self.label("BLASTP", "evalue"), "BLAST")
+        self.assertEqual(self.label(score_kind=self.EFI), "BLAST-EFI")
+        self.assertEqual(self.label("DIAMOND", self.EFI), "DIAMOND-EFI")
+        self.assertEqual(self.label("BLASTP", self.EFI), "BLAST-EFI")
+        # The importer and extraction name files by the program alone.
+        self.assertEqual(self.label("DIAMOND", self.EFI, score_suffix=False), "DIAMOND")
+        self.assertEqual(self.label(score_kind=self.EFI, score_suffix=False), "BLAST")
+        write_blast_network(self.path, "DIAMOND", self.EFI)
+        with h5py.File(self.path, "r") as network:
+            self.assertEqual(Cache_Manifest.network_name_label(network), "DIAMOND-EFI")
+        write_network(self.path, "esm/c:300m")
+        self.assertEqual(Cache_Manifest.network_name_label(self.path), "esm_c_300m")
+
+    def test_canonical_names_follow_the_label_and_efi_has_no_legacy_name(self):
+        def name(*, legacy=False, **kwargs):
+            write_blast_network(self.path, **kwargs)
+            return Cache_Manifest.build_canonical_cache_name(
+                "set.fasta", self.path, "blast", similarity_threshold=10,
+                legacy_model_label=legacy,
+            )
+
+        self.assertEqual(name(), "set_[BLAST]_Score10.0")
+        self.assertEqual(name(search_program="DIAMOND"), "set_[DIAMOND]_Score10.0")
+        self.assertEqual(name(score_kind=self.EFI), "set_[BLAST-EFI]_Score10.0")
+        self.assertEqual(
+            name(search_program="DIAMOND", score_kind=self.EFI), "set_[DIAMOND-EFI]_Score10.0"
+        )
+        # The E-value fallback to the model_name label must never reach an E-value folder.
+        self.assertEqual(name(legacy=True), "set_[BLAST]_Score10.0")
+        self.assertEqual(
+            name(legacy=True, search_program="DIAMOND", score_kind=self.EFI),
+            "set_[BLAST-EFI]_Score10.0",
+        )
+
+    def test_existing_evalue_identities_are_pinned(self):
+        # Ids made before score_kind existed, for fixed hashes. They must never change,
+        # or every cache of an E-value network (and of an embedding network) is orphaned.
+        pinned = (
+            ("blast", {"similarity_threshold": 10},
+             "b73747be4e200c0164be263f5fa7a3551cf173d561e04c06468eca67cb4c7783"),
+            ("blast", {"top_edge_percent": 12.5},
+             "d6fa559f39ac2186321b2261992b31652668fd45e7148d7f99b09f5837fec5b8"),
+            ("blast", {"umap_mode": True, "umap_neighbors": 15},
+             "5fdd54210a0bb77812a04aa5aa4cd40dead56d03ff211cf7665d81be637e3d6a"),
+            ("alignment", {"alignment_score": "global", "normalization": "alignment_length",
+                           "similarity_threshold": 0.4},
+             "de471c23fe72f0b6ae4c4f826e9aec0f61735fa5d8368f0104760307ca128361"),
+        )
+        for network_type, settings, manifest_id in pinned:
+            with self.subTest(network_type=network_type, settings=settings):
+                compatibility = Cache_Manifest.build_compatibility(
+                    "a" * 64, "b" * 64, network_type, **settings
+                )
+                self.assertNotIn("score_kind", compatibility)
+                self.assertEqual(Cache_Manifest.calculate_manifest_id(compatibility), manifest_id)
+                self.assertEqual(
+                    Cache_Manifest.build_compatibility(
+                        "a" * 64, "b" * 64, network_type, score_kind="evalue", **settings
+                    ),
+                    compatibility,
+                )
+
+    def test_efi_compatibility_names_its_kind_and_differs_from_evalue(self):
+        evalue = Cache_Manifest.build_compatibility(
+            "a" * 64, "b" * 64, "blast", similarity_threshold=10
+        )
+        efi = Cache_Manifest.build_compatibility(
+            "a" * 64, "b" * 64, "blast", similarity_threshold=10, score_kind=self.EFI
+        )
+        self.assertEqual(efi, {**evalue, "score_kind": self.EFI})
+        self.assertNotEqual(
+            Cache_Manifest.calculate_manifest_id(efi),
+            Cache_Manifest.calculate_manifest_id(evalue),
+        )
+        # Every layout mode carries it.
+        for settings in ({"umap_mode": True}, {"umap_mode": True, "layout_method": "pacmap"},
+                         {"layout_dimensions": 3}, {"top_edge_percent": 5}):
+            with self.subTest(settings=settings):
+                self.assertEqual(
+                    Cache_Manifest.build_compatibility(
+                        "a" * 64, "b" * 64, "blast", score_kind=self.EFI, **settings
+                    )["score_kind"],
+                    self.EFI,
+                )
+        # A folder made for one score kind is not matched by the other.
+        manifest = make_manifest(efi)
+        self.assertEqual(Cache_Manifest.validate_manifest(manifest, efi), manifest)
+        with self.assertRaises(Cache_Manifest.CacheManifestError):
+            Cache_Manifest.validate_manifest(manifest, evalue)
+        with self.assertRaisesRegex(Cache_Manifest.CacheManifestError, "Unsupported score kind"):
+            Cache_Manifest.build_compatibility("a" * 64, "b" * 64, "blast", score_kind="bits")
+
+    def test_manifest_for_files_takes_the_kind_from_the_network(self):
+        sequence = self.root / "set.fasta"
+        sequence.write_text(">A\nAAAA\n", encoding="utf-8")
+        for kind, present in ((None, False), ("evalue", False), (self.EFI, True)):
+            with self.subTest(kind=kind):
+                write_blast_network(self.path, score_kind=kind)
+                compatibility = Cache_Manifest.build_manifest_for_files(
+                    sequence, self.path, similarity_threshold=10
+                )["compatibility"]
+                self.assertEqual("score_kind" in compatibility, present)
+                if present:
+                    self.assertEqual(compatibility["score_kind"], self.EFI)
+
+    def test_selection_by_name_finds_efi_folders_and_never_an_evalue_one(self):
+        write_blast_network(self.path, "DIAMOND", self.EFI)
+        layouts = self.root / "layouts"
+        settings = SimpleNamespace(
+            SAVED_LAYOUT_DIR=str(layouts), TARGET_CACHE_PATH=None, TARGET_CACHE_FILE=None,
+            NODE_FASTA_FILE=str(self.root / "set.fasta"), SEQUENCES_FILE="", INPUT_HDF5=str(self.path),
+            ALIGNMENT_SCORE="global", NORM_MODE="alignment_length", UMAP_MODE=False, UMAP_NEIGHBORS=15,
+            TOP_EDGE_PERCENT=None, SIMILARITY_THRESHOLD=10.0,
+        )
+
+        def folder():
+            return pathlib.Path(resolve_selected_cache(settings)).parent.name
+
+        self.assertEqual(folder(), "set_[DIAMOND-EFI]_Score10.0")
+        # The folders of the E-value network of the same set are not this network's.
+        (layouts / "set_[BLAST]_Score10.0").mkdir(parents=True)
+        (layouts / "set_[DIAMOND]_Score10.0").mkdir()
+        self.assertEqual(folder(), "set_[DIAMOND-EFI]_Score10.0")
 
 
 class CachePathAndHdf5Tests(unittest.TestCase):

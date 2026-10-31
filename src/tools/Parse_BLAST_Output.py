@@ -24,6 +24,8 @@ except ModuleNotFoundError:
 
 from utilities.BLAST_Tabular import (
     BlastParseError,
+    SCORE_METRIC_EFI,
+    SCORE_METRICS,
     build_blast_network,
     read_search_header,
 )
@@ -36,6 +38,10 @@ BLAST_LAYOUT = "standard_outfmt6"
 QUERY_COLUMN = 1
 SUBJECT_COLUMN = 2
 EVALUE_COLUMN = 11
+# "evalue" scores each edge by its negative log10 E-value; "efi_alignment_score"
+# by the EFI-EST alignment score, which reads the bit score instead.
+SCORE_METRIC = "evalue"
+BITSCORE_COLUMN = 12
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -62,6 +68,11 @@ def configure_runtime_paths():
     """Resolve GUI-selected BLAST and FASTA inputs immediately before parsing."""
     global FULL_INPUT_BLAST_TABULAR, FULL_INPUT_FASTA, OUTPUT_HDF5
 
+    if SCORE_METRIC not in SCORE_METRICS:
+        raise BlastParseError(
+            f"SCORE_METRIC must be one of {list(SCORE_METRICS)}; "
+            f"received {SCORE_METRIC!r}."
+        )
     FULL_INPUT_BLAST_TABULAR = _resolve_selected_path(
         INPUT_BLAST_TABULAR, NETWORK_DIR, "BLAST tabular file"
     )
@@ -70,11 +81,12 @@ def configure_runtime_paths():
     )
     base_name = os.path.splitext(os.path.basename(os.fspath(INPUT_BLAST_TABULAR)))[0]
     # DIAMOND output that declares itself (--header verbose) is named [DIAMOND];
-    # model_name stays BLAST either way, so viewers load it as an E-value network.
+    # model_name stays BLAST either way, so viewers load it as a BLAST network.
     program_tag = read_search_header(FULL_INPUT_BLAST_TABULAR).network_tag
+    suffix = "EFIScore" if SCORE_METRIC == SCORE_METRIC_EFI else "EValue"
     OUTPUT_HDF5 = os.path.join(
         NETWORK_DIR,
-        f"{base_name}_[{program_tag}]_EValue.h5",
+        f"{base_name}_[{program_tag}]_{suffix}.h5",
     )
 
 
@@ -94,6 +106,8 @@ def main(argv=None):
             matrix="Imported",
             batch_size=1000000,
             show_progress=True,
+            score_metric=SCORE_METRIC,
+            bitscore_column=BITSCORE_COLUMN,
         )
     except (BlastParseError, OSError, RuntimeError, ValueError) as error:
         raise SystemExit(f"Error: {error}") from error
@@ -109,6 +123,8 @@ def main(argv=None):
     print(f"Search Program:       {program}")
     if search.invocation != "Unknown":
         print(f"Search Command:       {search.invocation}")
+    if summary.score_metric == SCORE_METRIC_EFI:
+        print("Edge Score:           EFI alignment score")
     print(f"FASTA Headers:        {summary.fasta_header_count}")
     print(f"BLAST Data Rows:      {summary.data_rows}")
     print(f"Self Rows Ignored:    {summary.self_rows}")

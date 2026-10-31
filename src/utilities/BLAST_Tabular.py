@@ -19,7 +19,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from utilities.Sequence_Utils import sanitize_header
+from utilities.Sequence_Utils import sanitize_header, sanitize_sequence
 
 
 SUPPORTED_LAYOUTS = {
@@ -36,7 +36,16 @@ SUBJECT_FIELD_NAMES = (
     "subject accession",
 )
 EVALUE_FIELD_NAMES = ("evalue", "expect value")
+BITSCORE_FIELD_NAMES = ("bit score", "bitscore")
+# The edge score a network carries: the negative log10 of the E-value, or the
+# EFI-EST alignment score, which needs each hit's bit score and the two full
+# sequence lengths. A network that records no score_kind holds E-value scores.
+SCORE_METRIC_EVALUE = "evalue"
+SCORE_METRIC_EFI = "efi_alignment_score"
+SCORE_METRICS = (SCORE_METRIC_EVALUE, SCORE_METRIC_EFI)
 SCORE_TRANSFORM = "-log10(E + 1e-300)"
+EFI_SCORE_TRANSFORM = "bitscore*log10(2) - log10(len_query*len_subject)"
+_LOG10_2 = math.log10(2)
 
 DIAMOND_PROGRAM = "DIAMOND"
 DIAMOND_DEFAULT_MAX_TARGET_SEQS = 25
@@ -68,6 +77,16 @@ FIRST_WORD_ADVICE = (
 
 class BlastParseError(ValueError):
     """Raised when external BLAST or FASTA input violates the import contract."""
+
+
+def efi_alignment_score(bitscore, query_length, subject_length):
+    """The EFI-EST alignment score of one hit, left unrounded.
+
+    ``bitscore * log10(2) - log10(query_length * subject_length)``, with the
+    two sequences' full lengths. EFI-EST floors it to an integer; this keeps
+    the fraction. The lengths are multiplied as exact integers.
+    """
+    return bitscore * _LOG10_2 - math.log10(int(query_length) * int(subject_length))
 
 
 @dataclass(frozen=True)
@@ -119,6 +138,7 @@ class ParseSummary:
     queries_at_max_targets: int = 0
     query_rows_grouped: bool = True
     warnings: tuple[str, ...] = ()
+    score_metric: str = SCORE_METRIC_EVALUE
 
 
 class HeaderSanitizationTracker:
@@ -629,7 +649,7 @@ def _merge_sorted_runs(runs_group, output, batch_size):
     return edge_count
 
 
-def _field_index(fields, supported_names, label, line_number):
+def _field_index(fields, supported_names, label, line_number, advice=""):
     for supported_name in supported_names:
         matches = [
             index for index, field in enumerate(fields) if field == supported_name
@@ -643,7 +663,7 @@ def _field_index(fields, supported_names, label, line_number):
             return matches[0]
     raise BlastParseError(
         f"BLAST line {line_number}: outfmt-7 fields do not contain a supported "
-        f"{label} field."
+        f"{label} field.{advice}"
     )
 
 
@@ -672,34 +692,60 @@ def _parse_numeric_evalue(raw_value, line_number):
     return value
 
 
-def _check_declared_evalue_column(line, evalue_index, line_number):
-    """Reject an E-value column that a # Fields line declares as another field."""
-    fields = [name.strip() for name in line.split(":", 1)[1].split(",")]
-    if evalue_index >= len(fields):
-        problem = (
-            f"declares only {len(fields)} columns, so E-value column "
-            f"{evalue_index + 1} does not exist"
+def _parse_numeric_bitscore(raw_value, line_number):
+    try:
+        value = float(raw_value)
+    except ValueError as error:
+        raise BlastParseError(
+            f"BLAST line {line_number}: invalid bit score {raw_value!r}."
+        ) from error
+    if value < 0 or not math.isfinite(value):
+        raise BlastParseError(
+            f"BLAST line {line_number}: bit score must be finite and "
+            f"non-negative; received {raw_value!r}."
         )
-    elif fields[evalue_index].casefold() not in EVALUE_FIELD_NAMES:
+    return value
+
+
+def _check_declared_score_column(line, score_index, line_number, efi):
+    """Reject a score column that a # Fields line declares as another field.
+
+    The column read is the E-value, or the bit score for the EFI alignment score.
+    """
+    names, noun, article, setting = (
+        (BITSCORE_FIELD_NAMES, "bit score", "a", "BITSCORE_COLUMN")
+        if efi
+        else (EVALUE_FIELD_NAMES, "E-value", "an", "EVALUE_COLUMN")
+    )
+    fields = [name.strip() for name in line.split(":", 1)[1].split(",")]
+    if score_index >= len(fields):
         problem = (
-            f"declares column {evalue_index + 1} as {fields[evalue_index]!r}, "
-            "not an E-value"
+            f"declares only {len(fields)} columns, so {noun} column "
+            f"{score_index + 1} does not exist"
+        )
+    elif fields[score_index].casefold() not in names:
+        problem = (
+            f"declares column {score_index + 1} as {fields[score_index]!r}, "
+            f"not {article} {noun}"
         )
     else:
         return
     raise BlastParseError(
         f"BLAST line {line_number}: # Fields {problem}. Check BLAST_LAYOUT and "
-        "EVALUE_COLUMN."
+        f"{setting}."
     )
 
 
-def _reject_column_name_row(layout, columns, evalue_index, line_number):
-    """Explain a row whose E-value column holds a column name, not a value."""
-    name = columns[evalue_index].strip()
-    if layout != "outfmt7_fields" and name.casefold() in EVALUE_FIELD_NAMES:
+def _reject_column_name_row(layout, columns, score_index, line_number, efi=False):
+    """Explain a row whose score column holds a column name, not a value."""
+    name = columns[score_index].strip()
+    names, noun = (
+        (BITSCORE_FIELD_NAMES, "bit score") if efi else (EVALUE_FIELD_NAMES, "E-value")
+    )
+    if layout != "outfmt7_fields" and name.casefold() in names:
         raise BlastParseError(
             f"BLAST line {line_number}: this row names its columns ({name!r} in "
-            "the E-value column) instead of holding data, as DIAMOND "
+            f"the {noun} column) instead of holding data, as DIAMOND "
             "'--header simple' writes. Rerun DIAMOND with '--header verbose', "
             "whose comment lines are recorded as provenance, or without --header."
         ) from None
@@ -715,7 +761,16 @@ def _parse_blast_to_runs(
     runs_group,
     batch_size,
     show_progress,
+    lengths=None,
 ):
+    """Parse the tabular rows into sorted edge runs.
+
+    ``custom_columns`` holds the query, subject and score column indexes, the
+    score being the E-value or, when ``lengths`` (the sanitized sequence
+    lengths, by manifest index) is given, the bit score of the EFI alignment
+    score.
+    """
+    efi = lengths is not None
     sources: list[int] = []
     targets: list[int] = []
     scores: list[float] = []
@@ -725,16 +780,16 @@ def _parse_blast_to_runs(
     expected_custom_width = None
     outfmt7_fields = None
     outfmt7_subject_index = None
-    outfmt7_evalue_index = None
+    outfmt7_score_index = None
     current_query = None
     current_block_has_fields = False
     blast_program = "Unknown"
     blast_version = "Unknown"
     blast_database = "Unknown"
 
-    query_index, subject_index, evalue_index = custom_columns
+    query_index, subject_index, score_index = custom_columns
     if layout == "standard_outfmt6":
-        query_index, subject_index, evalue_index = 0, 1, 10
+        query_index, subject_index, score_index = 0, 1, (11 if efi else 10)
     add_target = counter.targets.add
 
     file_size = os.path.getsize(blast_path)
@@ -756,8 +811,8 @@ def _parse_blast_to_runs(
                 if line.startswith("#"):
                     if layout != "outfmt7_fields":
                         if line.startswith("# Fields:"):
-                            _check_declared_evalue_column(
-                                line, evalue_index, line_number
+                            _check_declared_score_column(
+                                line, score_index, line_number, efi
                             )
                         continue
                     if line.startswith("# Query:"):
@@ -779,9 +834,19 @@ def _parse_blast_to_runs(
                         outfmt7_subject_index = _field_index(
                             fields, SUBJECT_FIELD_NAMES, "subject", line_number
                         )
-                        outfmt7_evalue_index = _field_index(
-                            fields, EVALUE_FIELD_NAMES, "E-value", line_number
-                        )
+                        if efi:
+                            outfmt7_score_index = _field_index(
+                                fields,
+                                BITSCORE_FIELD_NAMES,
+                                "bit score",
+                                line_number,
+                                " The EFI alignment score needs it: add "
+                                "bitscore to the BLAST+ -outfmt fields.",
+                            )
+                        else:
+                            outfmt7_score_index = _field_index(
+                                fields, EVALUE_FIELD_NAMES, "E-value", line_number
+                            )
                         current_block_has_fields = True
                     elif line.startswith("# BLAST") and blast_program == "Unknown":
                         parts = line[2:].strip().split(maxsplit=1)
@@ -809,7 +874,7 @@ def _parse_blast_to_runs(
                             f"BLAST line {line_number}: custom row has {len(columns)} "
                             f"fields; expected {expected_custom_width}."
                         )
-                    if len(columns) <= max(query_index, subject_index, evalue_index):
+                    if len(columns) <= max(query_index, subject_index, score_index):
                         raise BlastParseError(
                             f"BLAST line {line_number}: custom column mapping exceeds "
                             f"the {len(columns)} available fields."
@@ -834,15 +899,15 @@ def _parse_blast_to_runs(
                         )
                     raw_query = None
                     raw_subject = columns[outfmt7_subject_index]
-                    evalue_index = outfmt7_evalue_index
+                    score_index = outfmt7_score_index
 
                 try:
-                    raw_evalue = _parse_numeric_evalue(
-                        columns[evalue_index], line_number
-                    )
+                    raw_score = (
+                        _parse_numeric_bitscore if efi else _parse_numeric_evalue
+                    )(columns[score_index], line_number)
                 except BlastParseError:
                     _reject_column_name_row(
-                        layout, columns, evalue_index, line_number
+                        layout, columns, score_index, line_number, efi
                     )
                     raise
                 query_header = (
@@ -860,9 +925,23 @@ def _parse_blast_to_runs(
                     self_rows += 1
                     continue
 
+                if efi:
+                    query_length, subject_length = lengths[source], lengths[target]
+                    if not (query_length and subject_length):
+                        empty = source if not query_length else target
+                        raise BlastParseError(
+                            f"BLAST line {line_number}: sequence "
+                            f"{manifest.headers[empty]!r} has no residues after "
+                            "sanitization, so its EFI alignment score is "
+                            "undefined."
+                        )
+                    scores.append(
+                        efi_alignment_score(raw_score, query_length, subject_length)
+                    )
+                else:
+                    scores.append(-math.log10(raw_score + 1e-300))
                 sources.append(min(source, target))
                 targets.append(max(source, target))
-                scores.append(-math.log10(raw_evalue + 1e-300))
                 if len(sources) >= batch_size:
                     _write_sorted_edge_run(
                         runs_group, run_index, sources, targets, scores
@@ -878,6 +957,11 @@ def _parse_blast_to_runs(
     if sources:
         _write_sorted_edge_run(runs_group, run_index, sources, targets, scores)
 
+    resolved_score_column = (
+        (0 if outfmt7_score_index is None else outfmt7_score_index + 1)
+        if layout == "outfmt7_fields"
+        else score_index + 1
+    )
     resolved_columns = {
         "query_column_1based": 0 if layout == "outfmt7_fields" else query_index + 1,
         "subject_column_1based": (
@@ -885,11 +969,10 @@ def _parse_blast_to_runs(
             if layout == "outfmt7_fields"
             else subject_index + 1
         ),
-        "evalue_column_1based": (
-            (0 if outfmt7_evalue_index is None else outfmt7_evalue_index + 1)
-            if layout == "outfmt7_fields"
-            else evalue_index + 1
-        ),
+        # The E-value column is not read for the EFI alignment score: 0, as
+        # for a layout whose fields name none.
+        "evalue_column_1based": 0 if efi else resolved_score_column,
+        **({"bitscore_column_1based": resolved_score_column} if efi else {}),
     }
     provenance = {
         "blast_program": blast_program,
@@ -941,6 +1024,11 @@ def validate_final_output(
             if np.dtype(network["score"].dtype) != np.dtype(np.float32):
                 return False, f"invalid score dtype: {network['score'].dtype}"
 
+            # A network that records no score_kind holds E-value scores.
+            score_kind = network.attrs.get("score_kind")
+            if score_kind is not None and score_kind != SCORE_METRIC_EFI:
+                return False, "score_kind is not supported"
+            efi = score_kind == SCORE_METRIC_EFI
             required_attributes = (
                 "model_name",
                 "matrix",
@@ -973,6 +1061,8 @@ def validate_final_output(
                 "queries_at_max_targets",
                 "import_warnings",
             )
+            if efi:
+                required_attributes += ("bitscore_column_1based",)
             missing_attributes = [
                 name for name in required_attributes if name not in network.attrs
             ]
@@ -982,7 +1072,9 @@ def validate_final_output(
                 )
             if network.attrs["model_name"] != "BLAST":
                 return False, "model_name must be 'BLAST'"
-            if network.attrs["score_transform"] != SCORE_TRANSFORM:
+            if network.attrs["score_transform"] != (
+                EFI_SCORE_TRANSFORM if efi else SCORE_TRANSFORM
+            ):
                 return False, "score_transform does not match the parser transform"
             if network.attrs["blast_layout"] not in SUPPORTED_LAYOUTS:
                 return False, "blast_layout is not supported"
@@ -1013,6 +1105,7 @@ def validate_final_output(
                 "query_column_1based",
                 "subject_column_1based",
                 "evalue_column_1based",
+                *(("bitscore_column_1based",) if efi else ()),
             ):
                 if int(network.attrs[column_name]) < 0:
                     return False, f"{column_name} cannot be negative"
@@ -1056,12 +1149,20 @@ def build_blast_network(
     matrix="Imported",
     batch_size=1000000,
     show_progress=True,
+    score_metric=SCORE_METRIC_EVALUE,
+    bitscore_column=12,
 ):
     """Build, validate, and atomically publish one external BLAST network.
 
     BLAST+ and DIAMOND output are both accepted. Program, version and command
     are read from the file's leading comment lines when present, and the
     per-query hit counts are checked for a truncated all-vs-all search.
+
+    ``score_metric`` picks the edge score: the negative log10 of the E-value
+    (read from ``evalue_column``), or the EFI alignment score, which reads each
+    hit's bit score (``bitscore_column``; the fixed column 12 or the declared
+    field for the other layouts) and takes the two sequences' lengths from the
+    sanitized FASTA.
     """
     blast_path = os.path.abspath(os.path.normpath(os.fspath(blast_path)))
     fasta_path = os.path.abspath(os.path.normpath(os.fspath(fasta_path)))
@@ -1071,6 +1172,12 @@ def build_blast_network(
             f"BLAST_LAYOUT must be one of {sorted(SUPPORTED_LAYOUTS)}; "
             f"received {layout!r}."
         )
+    if score_metric not in SCORE_METRICS:
+        raise BlastParseError(
+            f"SCORE_METRIC must be one of {list(SCORE_METRICS)}; "
+            f"received {score_metric!r}."
+        )
+    efi = score_metric == SCORE_METRIC_EFI
     if not os.path.isfile(blast_path):
         raise BlastParseError(f"BLAST tabular file was not found: {blast_path}")
     if not os.path.isfile(fasta_path):
@@ -1082,9 +1189,11 @@ def build_blast_network(
     if batch_size <= 0:
         raise BlastParseError("BATCH_SIZE must be a positive integer.")
 
+    # The third column is the one the score is read from.
+    score_column = bitscore_column if efi else evalue_column
     try:
         custom_columns = tuple(
-            int(value) - 1 for value in (query_column, subject_column, evalue_column)
+            int(value) - 1 for value in (query_column, subject_column, score_column)
         )
     except (TypeError, ValueError) as error:
         raise BlastParseError(
@@ -1100,6 +1209,12 @@ def build_blast_network(
     manifest = load_header_manifest(fasta_path)
     if len(manifest.headers) > np.iinfo(np.uint32).max:
         raise BlastParseError("The FASTA manifest exceeds uint32 index capacity.")
+    # The lengths of the sanitized sequences, as the BLAST runner measures them.
+    lengths = (
+        [len(sanitize_sequence(sequence)[0]) for sequence in manifest.sequences]
+        if efi
+        else None
+    )
     print_header_sanitization_summary(
         "FASTA", len(manifest.headers), manifest.modifications
     )
@@ -1165,6 +1280,7 @@ def build_blast_network(
                     runs_group,
                     batch_size,
                     show_progress,
+                    lengths,
                 )
             finally:
                 print_header_sanitization_summary(
@@ -1180,7 +1296,8 @@ def build_blast_network(
             attrs = {
                 "model_name": "BLAST",
                 "matrix": str(matrix).strip() or "Unknown",
-                "score_transform": SCORE_TRANSFORM,
+                **({"score_kind": SCORE_METRIC_EFI} if efi else {}),
+                "score_transform": EFI_SCORE_TRANSFORM if efi else SCORE_TRANSFORM,
                 "source_blast_filename": os.path.basename(blast_path),
                 "source_blast_sha256": calculate_file_sha256(blast_path),
                 "source_fasta_filename": os.path.basename(fasta_path),
@@ -1244,4 +1361,5 @@ def build_blast_network(
         queries_at_max_targets=completeness.queries_at_max_targets,
         query_rows_grouped=completeness.query_rows_grouped,
         warnings=completeness.warnings,
+        score_metric=score_metric,
     )

@@ -1357,9 +1357,9 @@ if __name__ == "__main__":
                             path,
                             cancellation_requested=self.isInterruptionRequested,
                         )
-                records["network_type"] = cache_manifest.validate_network_schema(
-                    self.network_path
-                ).network_type
+                metadata = cache_manifest.validate_network_schema(self.network_path)
+                records["network_type"] = metadata.network_type
+                records["score_kind"] = metadata.score_kind
                 self.completed.emit(self.request_id, self.cache_keys, records, "")
             except Exception as error:
                 self.completed.emit(self.request_id, self.cache_keys, {}, str(error))
@@ -3066,6 +3066,7 @@ if __name__ == "__main__":
                     records["sequence"]["sha256"],
                     records["network"]["sha256"],
                     network_type,
+                    score_kind=records.get("score_kind", cache_manifest.SCORE_KIND_EVALUE),
                     **settings,
                 )
                 saved_layout_dir = os.path.abspath(
@@ -3245,9 +3246,9 @@ if __name__ == "__main__":
                 # as current and replace what is shown for these.
                 self._cancel_cache_hashing()
                 try:
-                    cached_records["network_type"] = (
-                        cache_manifest.validate_network_schema(network_path).network_type
-                    )
+                    metadata = cache_manifest.validate_network_schema(network_path)
+                    cached_records["network_type"] = metadata.network_type
+                    cached_records["score_kind"] = metadata.score_kind
                     self._apply_cache_discovery(cached_records, refresh=refresh)
                 except Exception as error:
                     self._set_cache_unavailable(

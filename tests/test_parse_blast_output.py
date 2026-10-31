@@ -36,7 +36,7 @@ DIAMOND_FIELDS = (
 DIAMOND_K0 = "diamond blastp -d db -q input.fasta -o hits.tsv -k 0 --header verbose"
 
 
-def standard_row(query, subject, evalue):
+def standard_row(query, subject, evalue, bitscore="20"):
     return "\t".join(
         [
             query,
@@ -50,7 +50,7 @@ def standard_row(query, subject, evalue):
             "1",
             "10",
             str(evalue),
-            "20",
+            str(bitscore),
         ]
     )
 
@@ -820,6 +820,270 @@ class ParseBlastOutputTests(unittest.TestCase):
                 left.attrs["manifest_sha256"], right.attrs["manifest_sha256"]
             )
             self.assertEqual(left.attrs["score_transform"], "-log10(E + 1e-300)")
+            # An E-value network records no score kind and no bit score column.
+            self.assertNotIn("score_kind", left.attrs)
+            self.assertNotIn("bitscore_column_1based", left.attrs)
+
+    # --- the EFI alignment score (score_metric "efi_alignment_score") ---------
+
+    EFI = {"score_metric": "efi_alignment_score"}
+    EFI_TRANSFORM = "bitscore*log10(2) - log10(len_query*len_subject)"
+
+    def efi_pair(self):
+        """A FASTA of A and B, whose sanitized sequences are 200 and 300 long."""
+        return self.write_fasta(
+            [
+                # Terminal artifacts are trimmed, as every FASTA is sanitized.
+                ("A", "--" + "a" * 200 + "*"),
+                ("B", "C" * 300),
+            ]
+        )
+
+    def test_efi_standard_layout_scores_the_bitscore_with_sanitized_lengths(self):
+        fasta = self.efi_pair()
+        # E-value 0 would score 300 as an E-value network; the bit score is 100.
+        blast = self.write_blast(standard_row("A", "B", "0", bitscore="100") + "\n")
+
+        output, summary, _ = self.build(fasta, blast, **self.EFI)
+
+        self.assertEqual(summary.unique_edges, 1)
+        self.assertEqual(summary.score_metric, "efi_alignment_score")
+        with h5py.File(output, "r") as network:
+            np.testing.assert_array_equal(network["i"][:], [0])
+            np.testing.assert_array_equal(network["j"][:], [1])
+            # 100 log10(2) - log10(200 * 300), unrounded.
+            np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
+            self.assertEqual(network["score"].dtype, np.float32)
+            self.assertEqual(network.attrs["model_name"], "BLAST")
+            self.assertEqual(network.attrs["matrix"], "Imported")
+            self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+            self.assertEqual(network.attrs["score_transform"], self.EFI_TRANSFORM)
+            self.assertEqual(network.attrs["bitscore_column_1based"], 12)
+            # The E-value column is not read: 0, as for fields that name none.
+            self.assertEqual(network.attrs["evalue_column_1based"], 0)
+            self.assertEqual(network.attrs["query_column_1based"], 1)
+            self.assertEqual(network.attrs["subject_column_1based"], 2)
+        # The same file read as E-value scores keeps its own attributes.
+        evalue_output, _, _ = self.build(fasta, blast, name="evalue.h5")
+        with h5py.File(evalue_output, "r") as network:
+            np.testing.assert_allclose(network["score"][:], [300.0])
+            self.assertNotIn("score_kind", network.attrs)
+
+    def test_efi_keeps_the_best_hit_over_repeated_rows_and_both_directions(self):
+        fasta = self.write_fasta(
+            [("A", "A" * 200), ("B", "C" * 300), ("C", "D" * 10)]
+        )
+        blast = self.write_blast(
+            standard_row("A", "B", "1e-5", bitscore="100") + "\n"
+            + standard_row("A", "B", "1e-9", bitscore="150") + "\n"
+            + standard_row("B", "A", "1e-7", bitscore="120") + "\n"
+            + standard_row("A", "C", "1e-5", bitscore="60") + "\n"
+            + standard_row("A", "A", "1e-50", bitscore="900") + "\n"
+        )
+
+        output, summary, _ = self.build(fasta, blast, batch_size=1, **self.EFI)
+
+        self.assertEqual((summary.unique_edges, summary.self_rows), (2, 1))
+        with h5py.File(output, "r") as network:
+            np.testing.assert_array_equal(network["j"][:], [1, 2])
+            np.testing.assert_allclose(
+                network["score"][:],
+                [
+                    150 * np.log10(2) - np.log10(200 * 300),
+                    60 * np.log10(2) - np.log10(200 * 10),
+                ],
+                rtol=1e-6,
+            )
+
+    def test_efi_outfmt7_resolves_the_bitscore_by_its_declared_name(self):
+        fasta = self.efi_pair()
+        for index, fields in enumerate(
+            ("subject title, evalue, % identity, bit score", "Subject title, Bit score")
+        ):
+            blast = self.write_blast(
+                "# BLASTP 2.17.0+\n"
+                "# Query: A\n"
+                f"# Fields: {fields}\n"
+                + ("B\t0.0\t90\t100\n" if "evalue" in fields else "B\t100\n")
+            )
+            with self.subTest(fields=fields):
+                output, _, _ = self.build(
+                    fasta, blast, name=f"outfmt7_{index}.h5",
+                    layout="outfmt7_fields", **self.EFI,
+                )
+                with h5py.File(output, "r") as network:
+                    np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
+                    self.assertEqual(
+                        network.attrs["bitscore_column_1based"], 4 if index == 0 else 2
+                    )
+                    self.assertEqual(network.attrs["evalue_column_1based"], 0)
+                    self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+
+    def test_efi_outfmt7_without_a_declared_bitscore_is_refused(self):
+        fasta = self.efi_pair()
+        blast = self.write_blast(
+            "# Query: A\n# Fields: subject title, evalue\nB\t1e-5\n"
+        )
+        output = self.temp_path / "refused.h5"
+
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            r"line 2: outfmt-7 fields do not contain a supported bit score field\. "
+            r"The EFI alignment score needs it",
+        ):
+            self.build(
+                fasta, blast, name=output.name, layout="outfmt7_fields", **self.EFI
+            )
+
+        self.assertFalse(output.exists())
+        self.assertFalse(pathlib.Path(f"{output}.partial").exists())
+        # The same file is a valid E-value import.
+        self.build(fasta, blast, name="evalue.h5", layout="outfmt7_fields")
+
+    def test_efi_custom_columns_read_the_bitscore_column_not_the_evalue_column(self):
+        fasta = self.efi_pair()
+        # No E-value column at all: the default EVALUE_COLUMN (11) is out of range.
+        blast = self.write_blast("A\tB\textra\t100\n")
+        custom = {"layout": "custom_columns", "query_column": 1, "subject_column": 2}
+
+        output, _, _ = self.build(fasta, blast, bitscore_column=4, **custom, **self.EFI)
+
+        with h5py.File(output, "r") as network:
+            np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
+            self.assertEqual(network.attrs["bitscore_column_1based"], 4)
+            self.assertEqual(network.attrs["blast_layout"], "custom_columns")
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError, "custom column mapping exceeds"
+        ):
+            self.build(fasta, blast, name="past.h5", bitscore_column=5, **custom, **self.EFI)
+
+    def test_efi_bitscore_column_is_checked_only_when_efi_is_asked(self):
+        fasta = self.efi_pair()
+        blast = self.write_blast("A\tB\t1e-5\t100\n")
+        custom = {
+            "layout": "custom_columns",
+            "query_column": 1,
+            "subject_column": 2,
+            "evalue_column": 3,
+        }
+        for column, message in (
+            (1, "Custom BLAST columns must be distinct."),
+            (2, "Custom BLAST columns must be distinct."),
+            (0, "Custom BLAST columns must be positive integers."),
+            ("x", "Custom BLAST columns must be positive integers."),
+        ):
+            with self.subTest(column=column), self.assertRaisesRegex(
+                blast_tabular.BlastParseError, message
+            ):
+                self.build(
+                    fasta, blast, name=f"bad_{column}.h5",
+                    bitscore_column=column, **custom, **self.EFI,
+                )
+        # An E-value import never looks at BITSCORE_COLUMN.
+        output, _, _ = self.build(
+            fasta, blast, name="evalue.h5", bitscore_column=1, **custom
+        )
+        with h5py.File(output, "r") as network:
+            np.testing.assert_allclose(network["score"][:], [5.0])
+        # The E-value column may equal the bit score column when it is not read.
+        self.build(
+            fasta, blast, name="shared.h5", bitscore_column=3, **custom, **self.EFI
+        )
+
+    def test_efi_declared_fields_must_put_a_bitscore_in_the_selected_column(self):
+        fasta = self.efi_pair()
+        fields = "Query Seq - id, Subject Seq - id, Bit score, Expect value"
+        blast = self.write_blast(diamond_header(fields=fields) + "A\tB\t100\t1e-9\n")
+        custom = {"layout": "custom_columns", "query_column": 1, "subject_column": 2}
+
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            r"line 3: # Fields declares column 4 as 'Expect value', not a bit score"
+            r"\. Check BLAST_LAYOUT and BITSCORE_COLUMN\.",
+        ):
+            self.build(fasta, blast, bitscore_column=4, **custom, **self.EFI)
+
+        output, summary, _ = self.build(
+            fasta, blast, name="declared.h5", bitscore_column=3, **custom, **self.EFI
+        )
+        self.assertEqual(summary.unique_edges, 1)
+
+        # Standard outfmt 6 reads column 12, which these fields do not reach.
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            "declares only 4 columns, so bit score column 12 does not exist",
+        ):
+            self.build(fasta, blast, name="standard.h5", **self.EFI)
+
+    def test_efi_invalid_bitscores_and_column_name_rows_fail_strictly(self):
+        fasta = self.efi_pair()
+        for index, (bitscore, message) in enumerate(
+            (
+                ("x", "line 1: invalid bit score 'x'"),
+                ("-1", "line 1: bit score must be finite and non-negative"),
+                ("nan", "line 1: bit score must be finite and non-negative"),
+                ("inf", "line 1: bit score must be finite and non-negative"),
+            )
+        ):
+            blast = self.write_blast(
+                standard_row("A", "B", "1e-5", bitscore=bitscore) + "\n",
+                f"bad_{index}.tabular",
+            )
+            with self.subTest(bitscore=bitscore), self.assertRaisesRegex(
+                blast_tabular.BlastParseError, message
+            ):
+                self.build(fasta, blast, name=f"bad_{index}.h5", **self.EFI)
+
+        header_row = "\t".join(
+            "qseqid sseqid pident length mismatch gapopen qstart qend sstart send "
+            "evalue bitscore".split()
+        )
+        blast = self.write_blast(header_row + "\n", "names.tabular")
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            r"line 1: this row names its columns \('bitscore' in the bit score "
+            r"column\).*'--header simple'",
+        ):
+            self.build(fasta, blast, name="names.h5", **self.EFI)
+
+    def test_efi_refuses_a_hit_of_a_sequence_without_residues(self):
+        fasta = self.write_fasta([("A", "***"), ("B", "CCCC"), ("C", "DDDD")])
+        blast = self.write_blast(
+            standard_row("B", "C", "1e-5", bitscore="40") + "\n"
+            + standard_row("A", "B", "1e-5", bitscore="40") + "\n"
+        )
+
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            "line 2: sequence 'A' has no residues after sanitization",
+        ):
+            self.build(fasta, blast, **self.EFI)
+        # E-value scores do not need the length.
+        _, summary, _ = self.build(fasta, blast, name="evalue.h5")
+        self.assertEqual(summary.unique_edges, 2)
+        # A sequence that never forms an edge is no obstacle.
+        only_others = self.write_blast(
+            standard_row("B", "C", "1e-5", bitscore="40") + "\n"
+            + standard_row("A", "A", "1e-5", bitscore="40") + "\n",
+            "others.tabular",
+        )
+        _, summary, _ = self.build(fasta, only_others, name="others.h5", **self.EFI)
+        self.assertEqual(summary.unique_edges, 1)
+
+    def test_unknown_score_metric_is_refused_before_anything_is_written(self):
+        fasta = self.efi_pair()
+        blast = self.write_blast(standard_row("A", "B", "1e-5") + "\n")
+        output = self.temp_path / "refused.h5"
+
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError, "SCORE_METRIC must be one of"
+        ):
+            self.build(fasta, blast, name=output.name, score_metric="alignment_score")
+
+        self.assertEqual(
+            sorted(path.name for path in self.temp_path.iterdir()),
+            ["input.fasta", "input.tabular"],
+        )
 
 
 def replace_dataset(network, name, data):
@@ -831,6 +1095,11 @@ class FinalOutputValidationTests(unittest.TestCase):
     """validate_final_output refuses a corrupt network before it is published."""
 
     HEADERS = ["A", "B", "C"]
+    # build_blast_network's score settings, the transform it records, and the
+    # other score's transform, which the network must not carry.
+    BUILD = {}
+    TRANSFORM = "-log10(E + 1e-300)"
+    OTHER_TRANSFORM = "bitscore*log10(2) - log10(len_query*len_subject)"
 
     def setUp(self):
         self._temp_dir = tempfile.TemporaryDirectory()
@@ -853,7 +1122,8 @@ class FinalOutputValidationTests(unittest.TestCase):
         self.network = self.temp_path / "network.h5"
         with contextlib.redirect_stdout(io.StringIO()):
             blast_tabular.build_blast_network(
-                blast, fasta, self.network, batch_size=2, show_progress=False
+                blast, fasta, self.network, batch_size=2, show_progress=False,
+                **self.BUILD,
             )
         with h5py.File(self.network, "r") as network:
             # Edges (A, B), (A, C), (B, C) are read two at a time below.
@@ -976,6 +1246,64 @@ class FinalOutputValidationTests(unittest.TestCase):
             (False, "provenance attribute 'matrix' changed"),
         )
 
+    def test_score_transform_must_be_the_one_of_the_score_kind(self):
+        self.assertEqual(self.attributes["score_transform"], self.TRANSFORM)
+        path = self.corrupted(
+            "other_transform",
+            lambda network: network.attrs.__setitem__(
+                "score_transform", self.OTHER_TRANSFORM
+            ),
+        )
+        self.assertEqual(
+            self.validate(path),
+            (False, "score_transform does not match the parser transform"),
+        )
+
+
+class EfiFinalOutputValidationTests(FinalOutputValidationTests):
+    """The same checks, on a network of EFI alignment scores, and the ones it adds."""
+
+    BUILD = {"score_metric": "efi_alignment_score"}
+    TRANSFORM = FinalOutputValidationTests.OTHER_TRANSFORM
+    OTHER_TRANSFORM = FinalOutputValidationTests.TRANSFORM
+
+    def test_efi_network_records_its_kind_and_bitscore_column(self):
+        self.assertEqual(self.attributes["score_kind"], "efi_alignment_score")
+        self.assertEqual(self.attributes["bitscore_column_1based"], 12)
+        self.assertEqual(self.validate(self.network, self.attributes), (True, ""))
+
+    def test_efi_attributes_are_required_and_checked(self):
+        def delete(name):
+            return lambda network: network.attrs.__delitem__(name)
+
+        def set_attribute(name, value):
+            return lambda network: network.attrs.__setitem__(name, value)
+
+        cases = {
+            "missing bit score column": (
+                delete("bitscore_column_1based"),
+                "missing provenance attribute(s): bitscore_column_1based",
+            ),
+            "negative bit score column": (
+                set_attribute("bitscore_column_1based", -1),
+                "bitscore_column_1based cannot be negative",
+            ),
+            "unsupported score kind": (
+                set_attribute("score_kind", "bitscore"),
+                "score_kind is not supported",
+            ),
+            # Without its kind the network would pass for an E-value network,
+            # whose transform it does not carry.
+            "score kind removed": (
+                delete("score_kind"),
+                "score_transform does not match the parser transform",
+            ),
+        }
+        for name, (change, reason) in cases.items():
+            with self.subTest(name):
+                path = self.corrupted(name.replace(" ", "_"), change)
+                self.assertEqual(self.validate(path), (False, reason))
+
     def test_unreadable_output_is_refused(self):
         for path in (
             self.temp_path / "missing.h5",
@@ -1043,6 +1371,118 @@ class ParseBlastToolTests(unittest.TestCase):
                     self.tool.OUTPUT_HDF5,
                     str(self.temp_path / f"{stem}_{tag}_EValue.h5"),
                 )
+
+    def test_output_name_follows_the_score_metric(self):
+        self.write("input.fasta", ">A\nAAAA\n>B\nBBBB\n")
+        self.write("diamond.tsv", diamond_header() + ranked_rows(["A", "B"]))
+        self.write("plain.tsv", ranked_rows(["A", "B"]))
+        self.tool.FASTA_DIR = str(self.temp_path)
+        self.tool.NETWORK_DIR = str(self.temp_path)
+        self.tool.INPUT_FASTA = "input.fasta"
+        cases = (
+            ("diamond", "evalue", "[DIAMOND]_EValue"),
+            ("diamond", "efi_alignment_score", "[DIAMOND]_EFIScore"),
+            ("plain", "evalue", "[BLAST]_EValue"),
+            ("plain", "efi_alignment_score", "[BLAST]_EFIScore"),
+        )
+        for stem, metric, tail in cases:
+            with self.subTest(stem=stem, metric=metric):
+                self.tool.INPUT_BLAST_TABULAR = f"{stem}.tsv"
+                self.tool.SCORE_METRIC = metric
+                self.tool.configure_runtime_paths()
+                self.assertEqual(
+                    self.tool.OUTPUT_HDF5, str(self.temp_path / f"{stem}_{tail}.h5")
+                )
+
+    def test_unknown_score_metric_is_refused_with_the_choices(self):
+        self.write("input.fasta", ">A\nAAAA\n>B\nBBBB\n")
+        self.write("plain.tsv", ranked_rows(["A", "B"]))
+        self.tool.FASTA_DIR = str(self.temp_path)
+        self.tool.NETWORK_DIR = str(self.temp_path)
+        self.tool.INPUT_FASTA = "input.fasta"
+        self.tool.INPUT_BLAST_TABULAR = "plain.tsv"
+        self.tool.SCORE_METRIC = "alignment_score"
+
+        with self.assertRaisesRegex(
+            blast_tabular.BlastParseError,
+            r"SCORE_METRIC must be one of \['evalue', 'efi_alignment_score'\]",
+        ):
+            self.tool.configure_runtime_paths()
+
+    def test_main_imports_the_efi_alignment_score_from_the_settings(self):
+        self.write(
+            "set.fasta", ">A\n" + "A" * 200 + "\n>B\n" + "C" * 300 + "\n"
+        )
+        self.write("hits.tsv", standard_row("A", "B", "1e-30", bitscore="100") + "\n")
+        settings = self.temp_path / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "DIRECTORIES": {
+                        "FASTA_DIR": str(self.temp_path),
+                        "NETWORK_DIR": str(self.temp_path),
+                    },
+                    "Parse_BLAST_Output.py": {
+                        "INPUT_BLAST_TABULAR": "hits.tsv",
+                        "INPUT_FASTA": "set.fasta",
+                        "SCORE_METRIC": "efi_alignment_score",
+                        "BITSCORE_COLUMN": 12,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=False), contextlib.redirect_stdout(
+            stdout
+        ):
+            self.assertEqual(self.tool.main([str(settings)]), 0)
+
+        self.assertIn("Edge Score:           EFI alignment score", stdout.getvalue())
+        with h5py.File(self.temp_path / "hits_[BLAST]_EFIScore.h5", "r") as network:
+            np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
+            self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+        self.assertFalse((self.temp_path / "hits_[BLAST]_EValue.h5").exists())
+
+    def test_main_passes_the_score_settings_to_the_importer(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = pathlib.Path(temp_dir) / "parser.json"
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "DIRECTORIES": {"FASTA_DIR": temp_dir, "NETWORK_DIR": temp_dir},
+                        "Parse_BLAST_Output.py": {
+                            "INPUT_BLAST_TABULAR": "input.tabular",
+                            "INPUT_FASTA": "input.fasta",
+                            "BLAST_LAYOUT": "custom_columns",
+                            "SCORE_METRIC": "efi_alignment_score",
+                            "BITSCORE_COLUMN": 5,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = ParseSummary(
+                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
+                fasta_header_count=2,
+                fasta_headers_sanitized=0,
+                blast_header_count=2,
+                blast_headers_sanitized=0,
+                data_rows=1,
+                self_rows=0,
+                unique_edges=1,
+            )
+            with mock.patch.object(
+                self.tool, "build_blast_network", return_value=summary
+            ) as builder, mock.patch.dict(os.environ, {}, clear=False):
+                self.assertEqual(self.tool.main([str(settings_path)]), 0)
+
+        self.assertEqual(builder.call_args.kwargs["score_metric"], "efi_alignment_score")
+        self.assertEqual(builder.call_args.kwargs["bitscore_column"], 5)
+        # The defaults leave the importer on E-value scores and the standard column.
+        self.assertEqual(load_parse_tool().SCORE_METRIC, "evalue")
+        self.assertEqual(load_parse_tool().BITSCORE_COLUMN, 12)
 
     def test_main_reports_search_provenance_and_warnings(self):
         headers = [f"S{index:02d}" for index in range(30)]
@@ -1213,6 +1653,57 @@ class DiamondIntegrationTests(unittest.TestCase):
         self.assertEqual(complete.warnings, ())
         self.assertEqual(complete.queries_observed, 85)
         self.assertGreater(complete.unique_edges, capped.unique_edges)
+
+    def test_efi_alignment_score_reads_the_bit_score_diamond_declares(self):
+        # DIAMOND's own name for the field, in its --header verbose comment, and
+        # the standard 12 columns, whose last is the bit score.
+        name = "efi.tsv"
+        self.run_diamond(
+            "blastp", "-d", "set", "-q", "set.fasta", "-o", name, "--threads", "1",
+            "--quiet", "--header", "verbose", "-k", "0",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            summary = blast_tabular.build_blast_network(
+                self.temp_path / name,
+                self.temp_path / "set.fasta",
+                self.temp_path / "efi.h5",
+                show_progress=False,
+                score_metric="efi_alignment_score",
+            )
+        self.assertEqual(summary.search.program, "DIAMOND")
+
+        lengths = {}
+        header = None
+        for line in (self.temp_path / "set.fasta").read_text(encoding="utf-8").split("\n"):
+            if line.startswith(">"):
+                header = line[1:]
+                lengths[header] = 0
+            elif header:
+                lengths[header] += len(line)
+        best = {}
+        for line in (self.temp_path / name).read_text(encoding="utf-8").split("\n"):
+            if not line or line.startswith("#"):
+                continue
+            columns = line.split("\t")
+            if columns[0] == columns[1]:
+                continue
+            pair = tuple(sorted(columns[:2]))
+            score = (
+                float(columns[11]) * np.log10(2)
+                - np.log10(lengths[columns[0]] * lengths[columns[1]])
+            )
+            best[pair] = max(best.get(pair, -np.inf), score)
+
+        with h5py.File(self.temp_path / "efi.h5", "r") as network:
+            headers = network["headers"].asstr()[:].tolist()
+            found = {
+                (headers[i], headers[j]): score
+                for i, j, score in zip(network["i"][:], network["j"][:], network["score"][:])
+            }
+            self.assertEqual(network.attrs["bitscore_column_1based"], 12)
+        self.assertEqual(set(found), {tuple(sorted(pair)) for pair in best})
+        for pair, score in best.items():
+            self.assertAlmostEqual(found[tuple(sorted(pair))], score, places=4)
 
     def test_headerless_rows_reveal_the_default_limit(self):
         capped = self.search("plain.tsv")
