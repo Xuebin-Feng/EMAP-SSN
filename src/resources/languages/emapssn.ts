@@ -8205,6 +8205,14 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Substitution matrix (e.g. `BLOSUM62`, `PAM250`) used only to count similar residue pairs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The alignment itself comes from the embeddings. A pair of standard residues counts as similar when it is identical or the matrix scores it above 0.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Toggle to save an interactive, color-coded HTML alignment report.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8662,6 +8670,10 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>Alignment Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Similarity Matrix:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

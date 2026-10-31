@@ -10873,7 +10873,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+840"/>
+        <location line="+844"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -10901,7 +10901,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1848"/>
+        <location line="-1852"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11223,12 +11223,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+401"/>
+        <location line="+405"/>
         <source>Numeric format the accelerator uses for the score matrices.</source>
         <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
     </message>
     <message>
-        <location line="-399"/>
+        <location line="-403"/>
         <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
         <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
     </message>
@@ -11244,12 +11244,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+399"/>
+        <location line="+403"/>
         <source>Low precision; explicit and never automatic.</source>
         <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
     </message>
     <message>
-        <location line="-396"/>
+        <location line="-400"/>
         <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
@@ -11405,30 +11405,30 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+288"/>
+        <location line="+292"/>
         <source>Divides the score by the alignment length.</source>
         <translation type="unfinished">用得分除以比对长度。</translation>
     </message>
     <message>
-        <location line="-287"/>
-        <location line="+288"/>
+        <location line="-291"/>
+        <location line="+292"/>
         <source>Divides the score by the length of the shorter sequence.</source>
         <translation type="unfinished">用得分除以较短序列的长度。</translation>
     </message>
     <message>
-        <location line="-287"/>
-        <location line="+288"/>
+        <location line="-291"/>
+        <location line="+292"/>
         <source>Divides the score by the length of the longer sequence.</source>
         <translation type="unfinished">用得分除以较长序列的长度。</translation>
     </message>
     <message>
-        <location line="-287"/>
-        <location line="+288"/>
+        <location line="-291"/>
+        <location line="+292"/>
         <source>Divides the score by the average length of the two sequences.</source>
         <translation type="unfinished">用得分除以两条序列的平均长度。</translation>
     </message>
     <message>
-        <location line="-284"/>
+        <location line="-288"/>
         <source>Toggle to average guide trees across randomly perturbed distance replicates.</source>
         <translation type="unfinished">切换是否对多组随机扰动的距离重复构建引导树并取平均。</translation>
     </message>
@@ -11873,29 +11873,29 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+50"/>
+        <location line="+54"/>
         <source>Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.</source>
         <translation type="unfinished">选择全局（Needleman-Wunsch）或局部（Smith-Waterman）比对。</translation>
     </message>
     <message>
-        <location line="-49"/>
+        <location line="-53"/>
         <source>Calculates dynamic programming alignment based on residue embedding cosine similarities.</source>
         <translation type="unfinished">基于残基 embedding 的余弦相似度计算动态规划比对。</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+50"/>
+        <location line="+54"/>
         <source>Aligns the sequences end to end.</source>
         <translation type="unfinished">将序列从头到尾比对。</translation>
     </message>
     <message>
-        <location line="-49"/>
-        <location line="+50"/>
+        <location line="-53"/>
+        <location line="+54"/>
         <source>Aligns their best-matching regions.</source>
         <translation type="unfinished">比对序列中最匹配的区域。</translation>
     </message>
     <message>
-        <location line="-45"/>
+        <location line="-49"/>
         <source>More negative values penalize gap insertions within local alignments.</source>
         <translation type="unfinished">数值越负，对局部比对中插入空位的惩罚越重。</translation>
     </message>
@@ -11903,6 +11903,16 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+4"/>
         <source>More negative values penalize gap insertions across full-length alignments.</source>
         <translation type="unfinished">数值越负，对全长比对中插入空位的惩罚越重。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Substitution matrix (e.g. `BLOSUM62`, `PAM250`) used only to count similar residue pairs.</source>
+        <translation type="unfinished">仅用于统计相似残基对的替换矩阵（如 `BLOSUM62`、`PAM250`）。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The alignment itself comes from the embeddings. A pair of standard residues counts as similar when it is identical or the matrix scores it above 0.</source>
+        <translation type="unfinished">比对本身来自 embedding。一对标准残基若相同，或矩阵对其打分大于 0，则计为相似。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -12105,12 +12115,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+94"/>
         <location line="+272"/>
         <location line="+117"/>
-        <location line="+224"/>
+        <location line="+231"/>
         <source>Device:</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-700"/>
+        <location line="-707"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -12134,23 +12144,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="-205"/>
         <location line="+228"/>
         <location line="+267"/>
-        <location line="+91"/>
+        <location line="+98"/>
         <source>Embedding Set (.h5):</source>
         <translation type="unfinished">Embedding 集（.h5）：</translation>
     </message>
     <message>
-        <location line="-581"/>
+        <location line="-588"/>
         <source>Edge Prefiltering:</source>
         <translation type="unfinished">边预过滤：</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1196"/>
+        <location line="+1203"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1191"/>
+        <location line="-1198"/>
         <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -12158,19 +12168,19 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="-277"/>
         <location line="+538"/>
-        <location line="+85"/>
+        <location line="+92"/>
         <source>Local Align Gap Penalty:</source>
         <translation type="unfinished">局部比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-618"/>
+        <location line="-625"/>
         <location line="+538"/>
-        <location line="+85"/>
+        <location line="+92"/>
         <source>Global Align Gap Penalty:</source>
         <translation type="unfinished">全局比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-618"/>
+        <location line="-625"/>
         <source>Hardware Settings:</source>
         <translation type="unfinished">硬件设置：</translation>
     </message>
@@ -12179,12 +12189,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+78"/>
         <location line="+199"/>
         <location line="+112"/>
-        <location line="+229"/>
+        <location line="+236"/>
         <source>CPU Workers:</source>
         <translation type="unfinished">CPU 工作进程数：</translation>
     </message>
     <message>
-        <location line="-613"/>
+        <location line="-620"/>
         <location line="+78"/>
         <location line="+311"/>
         <source>Batch Size:</source>
@@ -12192,12 +12202,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="-370"/>
-        <location line="+613"/>
+        <location line="+620"/>
         <source>Precision:</source>
         <translation type="unfinished">精度：</translation>
     </message>
     <message>
-        <location line="-606"/>
+        <location line="-613"/>
         <location line="+375"/>
         <source>Execution Mode:</source>
         <translation type="unfinished">执行模式：</translation>
@@ -12348,12 +12358,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+351"/>
+        <location line="+358"/>
         <source>Normalization Mode:</source>
         <translation type="unfinished">归一化模式：</translation>
     </message>
     <message>
-        <location line="-346"/>
+        <location line="-353"/>
         <source>Include Imputed Pairs in Final Consensus:</source>
         <translation type="unfinished">在最终一致树中纳入插补的序列对：</translation>
     </message>
@@ -12474,18 +12484,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>Alignment Parameters:</source>
         <translation type="unfinished">比对参数：</translation>
     </message>
     <message>
-        <location line="-71"/>
-        <location line="+78"/>
+        <location line="-78"/>
+        <location line="+85"/>
         <source>Alignment Mode:</source>
         <translation type="unfinished">比对模式：</translation>
     </message>
     <message>
-        <location line="-63"/>
+        <location line="-68"/>
+        <source>Similarity Matrix:</source>
+        <translation type="unfinished">相似度矩阵：</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Generate Report:</source>
         <translation type="unfinished">生成报告：</translation>
     </message>
@@ -13110,7 +13125,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5036"/>
+        <location line="-5047"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -13300,12 +13315,12 @@ Fedora / RHEL：
         <translation type="unfinished">`outfmt 7` 从 `# Query` 读取完整的查询序列，并从 `# Fields` 读取目标序列（target sequence）和得分（期望值或比特得分）所在的列。</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+224"/>
         <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>
     <message>
-        <location line="+1004"/>
+        <location line="+1011"/>
         <location line="+175"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
