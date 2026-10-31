@@ -1,0 +1,147 @@
+{
+  "version": "2.17.0",
+  "source": "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/",
+  "license": {
+    "file": "ncbi-blast-2.17.0+/LICENSE",
+    "summary": "PUBLIC DOMAIN NOTICE, National Center for Biotechnology Information: 'United States Government Work' that cannot be copyrighted; NLM and the U.S. Government have placed no restriction on its use or reproduction; no warranty; 'Please cite the author in any work or product based on this material.'"
+  },
+  "usage_reporting": {
+    "notice_file": "ncbi-blast-2.17.0+/BLAST_PRIVACY",
+    "notice_points_to": "https://www.ncbi.nlm.nih.gov/books/NBK569851/",
+    "opt_out_env": {
+      "BLAST_USAGE_REPORT": "false"
+    },
+    "verified": "The variable name BLAST_USAGE_REPORT is in blastp and makeblastdb of all three platforms (CBlastUsageReport::x_CheckBlastUsageEnv, log text 'Phone home disabled'). In NCBI's toolkit source its value is parsed as a boolean, and DO_NOT_TRACK and NCBI_USAGE_REPORT_ENABLED, when a user has set them, take precedence over it.",
+    "other_names_in_binaries": [
+      "NCBI_USAGE_REPORT_ENABLED",
+      "DO_NOT_TRACK"
+    ]
+  },
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/ncbi-blast-2.17.0%2B-x64-win64.tar.gz",
+      "size": 143400333,
+      "md5": "dcd973097407a2910061ff4fb51b09fb",
+      "sha256": "ccde8788641e8f4137536aaadedfeac2f3599dbbc6166e701b5d89d19fa79038",
+      "strip_prefix": "ncbi-blast-2.17.0+/bin/",
+      "members": [
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/blastp.exe",
+          "install_name": "blastp.exe",
+          "size": 19402240,
+          "sha256": "e787c13e8dce7318a9bb09459f7d98abac64f45feb5197fd463f1898b77eefe2",
+          "mode": "0755"
+        },
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/makeblastdb.exe",
+          "install_name": "makeblastdb.exe",
+          "size": 14923264,
+          "sha256": "7f98495406ff48f1c7e723a067e3d0e682e42df3700fab45494f952e522ca160",
+          "mode": "0755"
+        },
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/nghttp2.dll",
+          "install_name": "nghttp2.dll",
+          "size": 141312,
+          "sha256": "3b4f8fa83d98cbcf7d74c67cddde615950c85dbea0b937ca425b35dd084d596d",
+          "mode": "0755"
+        }
+      ],
+      "installed_size": 34466816,
+      "requires": {
+        "os": "Windows 10 or later, x64 (PE subsystem version 6.0, but the Universal CRT api-ms-win-crt-* imports are inbox only from Windows 10)",
+        "not_in_default_os": [
+          "Microsoft Visual C++ 2015-2022 Redistributable (x64): vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll"
+        ],
+        "shipped_in_archive": [
+          "nghttp2.dll (imported by blastp.exe only; makeblastdb.exe does not import it)"
+        ],
+        "not_needed": [
+          "ncbi-vdb-md.dll",
+          "*.exe.manifest (external manifests that only request asInvoker)"
+        ],
+        "code_signing": "none (no Authenticode certificate in blastp.exe, makeblastdb.exe or nghttp2.dll)"
+      }
+    },
+    "linux-x86_64": {
+      "url": "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/ncbi-blast-2.17.0%2B-x64-linux.tar.gz",
+      "size": 296006458,
+      "md5": "bdec166721de3b55f90a3badc83538e8",
+      "sha256": "3888112d8207831aa47371d93583c601f058f88b5db22dc782438b039a3a411b",
+      "strip_prefix": "ncbi-blast-2.17.0+/bin/",
+      "members": [
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/blastp",
+          "install_name": "blastp",
+          "size": 36053120,
+          "sha256": "5ce267c04e4988c265357bfbedc64e809545b6fcfae7ff6775266fabbee8ba0e",
+          "mode": "0755"
+        },
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/makeblastdb",
+          "install_name": "makeblastdb",
+          "size": 26516464,
+          "sha256": "c1ffdcf6f15d1d8d75377cc9f37afa42bc9fa06678903bad77c2641e60778fce",
+          "mode": "0755"
+        }
+      ],
+      "installed_size": 62569584,
+      "requires": {
+        "os": "glibc >= 2.28 (highest GLIBC_ symbol version), x86-64, interpreter /lib64/ld-linux-x86-64.so.2 (not musl/Alpine)",
+        "needed_libraries": [
+          "libz.so.1 (ZLIB_1.2.9)",
+          "libbz2.so.1",
+          "libgomp.so.1 (GOMP_4.5)",
+          "libgcc_s.so.1",
+          "libc.so.6",
+          "libm.so.6",
+          "libpthread.so.0",
+          "libdl.so.2",
+          "libresolv.so.2",
+          "ld-linux-x86-64.so.2"
+        ],
+        "not_in_default_os": [
+          "libgomp.so.1 (package libgomp1 on Debian/Ubuntu, libgomp on Fedora/RHEL) is the one most often missing on minimal installs"
+        ],
+        "code_signing": "n/a"
+      }
+    },
+    "macos-arm64": {
+      "url": "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/ncbi-blast-2.17.0%2B-aarch64-macosx.tar.gz",
+      "size": 205531226,
+      "md5": "8dc685eb284713db76de41a4dabf96ad",
+      "sha256": "8d6739fa133107bce91dbb6b143ec993c9983416244fe502f9c36d585850dc00",
+      "strip_prefix": "ncbi-blast-2.17.0+/bin/",
+      "members": [
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/blastp",
+          "install_name": "blastp",
+          "size": 27400600,
+          "sha256": "753f0695a39ba19b2d351b0bb851b6051169b8b9e22c095fd634cc2a93cddf55",
+          "mode": "0755"
+        },
+        {
+          "archive_path": "ncbi-blast-2.17.0+/bin/makeblastdb",
+          "install_name": "makeblastdb",
+          "size": 19534728,
+          "sha256": "e60ccf70a6814e7398d68583855f7af9cddbc6c2c30d096b49e944c06a4e9f9e",
+          "mode": "0755"
+        }
+      ],
+      "installed_size": 46935328,
+      "requires": {
+        "os": "macOS 14.0 or later (LC_BUILD_VERSION minos 14.0.0, sdk 15.0.0), arm64 only (thin binary)",
+        "needed_libraries": [
+          "/usr/lib/libz.1.dylib",
+          "/usr/lib/libbz2.1.0.dylib",
+          "/usr/lib/libresolv.9.dylib",
+          "/usr/lib/libSystem.B.dylib",
+          "/System/Library/Frameworks/ApplicationServices.framework/.../ApplicationServices",
+          "/usr/lib/libc++.1.dylib"
+        ],
+        "not_in_default_os": [],
+        "code_signing": "LC_CODE_SIGNATURE present: ad-hoc, linker-signed (CodeDirectory flags 0x20002), no CMS/Developer ID signature, not notarized"
+      }
+    }
+  }
+}

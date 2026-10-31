@@ -234,6 +234,7 @@ modules = [
     "test_align_substitution_matrix_pipeline",
     "test_alignment_engine",
     "test_bf16_precision",
+    "test_blast_download",
     "test_blast_executables",
     "test_embedding_pwa",
     "test_embedding_ssearch",
@@ -426,6 +427,11 @@ sections = ["theme"]
 [[rules]]
 paths = ["src/resources/pLM_models/**"]
 sections = ["embeddings"]
+
+# The pinned BLAST+ release (sizes, hashes, members) that the download helper's tests read.
+[[rules]]
+paths = ["src/resources/blast/**"]
+sections = ["alignment"]
 
 [[rules]]
 paths = ["src/bin/**", "install.bat", "install.sh", "src/requirements.txt", "src/esm_runtime_requirements.txt"]
