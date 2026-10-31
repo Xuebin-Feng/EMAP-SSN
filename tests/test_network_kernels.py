@@ -1,8 +1,8 @@
 """Alignment score kernels shared through utilities.Network_Kernels.
 
-The traceback references below restate the score, path length and identity
-definitions of the global and local kernels. The shared kernels must reproduce
-them, and every tool that aligns embeddings must call those same kernel
+The traceback references below restate the score, path length, identity,
+similar-pair and aligned-pair definitions of the global and local kernels. The
+shared kernels must reproduce them, and every tool that aligns embeddings must call those same kernel
 objects. The batched microbatch kernels are covered in
 test_network_kernels_batch.
 """
@@ -47,6 +47,7 @@ def reference_global_score_length_identity(
     gap_penalty,
     query_codes,
     target_codes,
+    similar_table,
 ):
     num_rows, num_cols = score_matrix.shape
     scores = np.zeros((num_rows + 1, num_cols + 1), dtype=np.float32)
@@ -81,11 +82,15 @@ def reference_global_score_length_identity(
     row, col = num_rows, num_cols
     path_length = 0
     identities = 0
+    similar = 0
+    aligned = 0
     while row > 0 or col > 0:
         pointer = pointers[row, col]
         path_length += 1
         if pointer == 1:
             identities += int(query_codes[row - 1] == target_codes[col - 1])
+            similar += int(similar_table[query_codes[row - 1], target_codes[col - 1]])
+            aligned += 1
             row -= 1
             col -= 1
         elif pointer == 2:
@@ -95,7 +100,7 @@ def reference_global_score_length_identity(
         else:
             break
 
-    return scores[num_rows, num_cols], path_length, identities
+    return scores[num_rows, num_cols], path_length, identities, similar, aligned
 
 
 def reference_local_score_length_identity(
@@ -103,6 +108,7 @@ def reference_local_score_length_identity(
     gap_penalty,
     query_codes,
     target_codes,
+    similar_table,
     score_shift=2.0,
 ):
     shifted_matrix = score_matrix.copy()
@@ -141,6 +147,8 @@ def reference_local_score_length_identity(
     row, col = max_position
     path_length = 0
     identities = 0
+    similar = 0
+    aligned = 0
     while row > 0 and col > 0 and scores[row, col] != 0:
         pointer = pointers[row, col]
         if pointer == 0:
@@ -148,6 +156,8 @@ def reference_local_score_length_identity(
         path_length += 1
         if pointer == 1:
             identities += int(query_codes[row - 1] == target_codes[col - 1])
+            similar += int(similar_table[query_codes[row - 1], target_codes[col - 1]])
+            aligned += 1
             row -= 1
             col -= 1
         elif pointer == 2:
@@ -157,12 +167,20 @@ def reference_local_score_length_identity(
         else:
             break
 
-    return max_score, path_length, identities
+    return max_score, path_length, identities, similar, aligned
 
 
 def residue_codes(rng, length):
     # A three-letter alphabet makes identical pairs common on random paths.
     return rng.integers(0, 3, size=length).astype(np.uint8)
+
+
+def random_similar_table(rng):
+    # Similar pairs among the three small codes, whether or not the codes are
+    # equal, so similarity is independent of identity.
+    table = np.zeros((256, 256), dtype=np.uint8)
+    table[:3, :3] = rng.integers(0, 2, size=(3, 3))
+    return table
 
 
 class AlignmentScoreKernelTests(unittest.TestCase):
@@ -182,18 +200,21 @@ class AlignmentScoreKernelTests(unittest.TestCase):
         for matrix in cases:
             query_codes = residue_codes(rng, matrix.shape[0])
             target_codes = residue_codes(rng, matrix.shape[1])
+            similar_table = random_similar_table(rng)
             for global_gap in (0.0, -1.0):
                 expected_global = reference_global_score_length_identity(
                     matrix,
                     global_gap,
                     query_codes,
                     target_codes,
+                    similar_table,
                 )
                 actual_global = global_score_length_identity(
                     matrix,
                     global_gap,
                     query_codes,
                     target_codes,
+                    similar_table,
                 )
                 self.assertAlmostEqual(
                     float(actual_global[0]),
@@ -211,12 +232,14 @@ class AlignmentScoreKernelTests(unittest.TestCase):
                     local_gap,
                     query_codes,
                     target_codes,
+                    similar_table,
                 )
                 actual_local = local_score_length_identity(
                     matrix,
                     local_gap,
                     query_codes,
                     target_codes,
+                    similar_table,
                 )
                 self.assertAlmostEqual(
                     float(actual_local[0]),
@@ -233,12 +256,13 @@ class AlignmentScoreKernelTests(unittest.TestCase):
         matrix = rng.normal(size=(11, 13)).astype(np.float32)
         query_codes = residue_codes(rng, 11)
         target_codes = residue_codes(rng, 13)
+        similar_table = random_similar_table(rng)
 
         expected_global = global_score_length_identity(
-            matrix, 0.0, query_codes, target_codes
+            matrix, 0.0, query_codes, target_codes, similar_table
         )
         expected_local = local_score_length_identity(
-            matrix, -2.0, query_codes, target_codes
+            matrix, -2.0, query_codes, target_codes, similar_table
         )
         actual = global_local_scores(matrix, 0.0, -2.0)
 

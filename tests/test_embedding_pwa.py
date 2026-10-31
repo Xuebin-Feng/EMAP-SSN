@@ -39,7 +39,7 @@ from utilities.Network_Kernels import (
     local_score_length_identity,
 )
 from utilities.Sequence_Utils import IDENTITY_RESIDUES, similarity_definition
-from utilities.Similarity_Matrices import SIMILARITY_MATRICES
+from utilities.Similarity_Matrices import SIMILARITY_MATRICES, similar_pair_table
 
 BLOSUM62 = embedding_pwa.load_similarity_matrix("BLOSUM62")
 
@@ -53,7 +53,8 @@ def path_score(idx_1, idx_2, score_matrix, gap_penalty, score_shift=0.0):
     )
 
 
-def kernel_length_identities(mode, score_matrix, gap_penalty, seq_ref, seq_tar):
+def kernel_counts(mode, score_matrix, gap_penalty, seq_ref, seq_tar, matrix_name="BLOSUM62"):
+    """The path length, identities, similar pairs and gap columns the SSEARCH kernels count."""
     query_codes = encode_identity_residues(seq_ref, QUERY_UNMATCHED_CODE)
     target_codes = encode_identity_residues(seq_tar, TARGET_UNMATCHED_CODE)
     kernel = (
@@ -61,10 +62,16 @@ def kernel_length_identities(mode, score_matrix, gap_penalty, seq_ref, seq_tar):
         if mode == "global"
         else local_score_length_identity
     )
-    _, length, identities = kernel(
-        score_matrix, gap_penalty, query_codes, target_codes
+    _, length, identities, similar, aligned = kernel(
+        score_matrix, gap_penalty, query_codes, target_codes,
+        similar_pair_table(matrix_name),
     )
-    return int(length), int(identities)
+    return int(length), int(identities), int(similar), int(length) - int(aligned)
+
+
+def pairwise_counts(columns, identities, similar):
+    """The same four counts from the columns the pairwise alignment displays."""
+    return len(columns), identities, similar, sum(column[2] == " " for column in columns)
 
 
 class PairwiseTracebackTests(unittest.TestCase):
@@ -78,17 +85,18 @@ class PairwiseTracebackTests(unittest.TestCase):
         self.assertEqual(idx_2, [0, 1, -1])
         self.assertEqual(float(score), 5000.0)
         self.assertAlmostEqual(path_score(idx_1, idx_2, matrix, 0.0), 5000.0)
-        _, identities, _ = embedding_pwa.build_alignment_columns(
+        columns, identities, similar = embedding_pwa.build_alignment_columns(
             idx_1, idx_2, "AC", "AD", set(), BLOSUM62
         )
         self.assertEqual(
-            (len(idx_1), identities),
-            kernel_length_identities("global", matrix, 0.0, "AC", "AD"),
+            pairwise_counts(columns, identities, similar),
+            kernel_counts("global", matrix, 0.0, "AC", "AD"),
         )
 
     def test_tracebacks_match_ssearch_kernels(self):
         rng = np.random.default_rng(20261002)
-        alphabet = np.array(list("ACDX"))
+        # D/E and K/R are similar pairs in BLOSUM62 and PAM250, X never counts.
+        alphabet = np.array(list("ACDEKRX"))
         for case in range(30):
             rows, cols = (int(value) for value in rng.integers(1, 13, size=2))
             matrix = rng.normal(size=(rows, cols)).astype(np.float32)
@@ -109,14 +117,12 @@ class PairwiseTracebackTests(unittest.TestCase):
                         idx_1, idx_2, score = embedding_pwa.smith_waterman_custom(
                             matrix, gap
                         )
-                    _, identities, _ = embedding_pwa.build_alignment_columns(
+                    columns, identities, similar = embedding_pwa.build_alignment_columns(
                         idx_1, idx_2, seq_ref, seq_tar, set(), BLOSUM62
                     )
                     self.assertEqual(
-                        (len(idx_1), identities),
-                        kernel_length_identities(
-                            mode, matrix, gap, seq_ref, seq_tar
-                        ),
+                        pairwise_counts(columns, identities, similar),
+                        kernel_counts(mode, matrix, gap, seq_ref, seq_tar),
                     )
                     self.assertAlmostEqual(
                         path_score(idx_1, idx_2, matrix, gap, shift),
@@ -198,6 +204,25 @@ class PairwiseSimilarityTests(unittest.TestCase):
                 )
                 self.assertGreater(identities, 0)
                 self.assertGreaterEqual(similar, identities)
+
+    def test_the_kernels_table_makes_the_same_pairs_similar_for_every_matrix(self):
+        rng = np.random.default_rng(20261031)
+        residues = list(IDENTITY_RESIDUES + "XBZJUO")
+        for name in SIMILARITY_MATRICES:
+            with self.subTest(matrix=name):
+                ref = "".join(rng.choice(residues, size=400))
+                tar = "".join(
+                    residue if rng.random() < 0.3 else rng.choice(residues)
+                    for residue in ref
+                )
+                _, identities, similar = embedding_pwa.build_alignment_columns(
+                    list(range(400)), list(range(400)), ref, tar, set(),
+                    embedding_pwa.load_similarity_matrix(name),
+                )
+                table = similar_pair_table(name)
+                codes = lambda text: np.frombuffer(text.encode("ascii"), dtype=np.uint8)  # noqa: E731
+                self.assertEqual(int(table[codes(ref), codes(tar)].sum()), similar)
+                self.assertGreater(similar, identities)
 
     def test_non_standard_residues_never_count_even_where_the_matrix_scores_them(self):
         # B/D (+4), Z/E (+4) and X/X are scored by BLOSUM62; U, J and O are not
