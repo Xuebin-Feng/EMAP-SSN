@@ -6,9 +6,11 @@
 any computation) and the helper-subprocess wrapper with its tool restrictions."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace as NS
 import unittest
 from unittest import mock
@@ -16,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mcp_server.pipeline import Compute_Capabilities as compute
+from utilities import BLAST_Executables as blast
 from utilities import Hardware_Acceleration as hardware
 
 
@@ -37,6 +40,11 @@ def fake_runtime(backend="cuda", count=1):
 
 
 class ComputeCapabilityTests(unittest.TestCase):
+    def setUp(self):
+        # Where BLAST+ is on this machine is not what these tests are about, and its version query
+        # would be one more subprocess.run while they stand in for the helper's.
+        self.enterContext(mock.patch.object(compute, "blast_report", return_value={"status": "not_found"}))
+
     def collect(self, runtime, approved=None):
         with mock.patch.object(hardware, "torch", runtime), \
                 mock.patch.object(hardware, "_validated_device_specs", return_value=approved):
@@ -136,6 +144,84 @@ class ComputeCapabilityTests(unittest.TestCase):
         self.assertEqual(result["status"], "unavailable")
         self.assertEqual(len(children), 1)
         self.assertIsNotNone(children[0].poll())
+
+
+class BlastCapabilityTests(unittest.TestCase):
+    """The report's `blast` entry: the BLAST+ a blank BLASTP_DIR finds, and its version."""
+
+    found = blast.BlastExecutables(
+        os.path.join("ncbi", "bin", "blastp"), os.path.join("ncbi", "bin", "makeblastdb"), "PATH"
+    )
+
+    def test_a_blast_that_is_found_reports_its_version_paths_and_source(self):
+        with mock.patch.object(blast, "find_automatic", return_value=self.found), \
+                mock.patch.object(blast, "cached_version", return_value="blastp: 2.17.0+") as version:
+            report = compute.blast_report()
+        self.assertEqual(report["status"], "found")
+        self.assertEqual(report["version"], "blastp: 2.17.0+")
+        self.assertEqual(report["blastp"], self.found.blastp)
+        self.assertEqual(report["makeblastdb"], self.found.makeblastdb)
+        self.assertEqual(report["source"], "PATH")
+        version.assert_called_once_with(self.found.blastp, compute.VERSION_TIMEOUT)
+        self.assertLessEqual(compute.VERSION_TIMEOUT, 10)
+
+    def test_a_blast_in_a_standard_folder_says_so(self):
+        standard = blast.BlastExecutables("a", "b", "C:\\NCBI\\blast-2.17.0+\\bin (standard install folder)")
+        with mock.patch.object(blast, "find_automatic", return_value=standard), \
+                mock.patch.object(blast, "cached_version", return_value="blastp: 2.17.0+"):
+            self.assertEqual(compute.blast_report()["source"], standard.source)
+
+    def test_no_blast_says_where_the_user_can_set_or_download_one(self):
+        with mock.patch.object(blast, "find_automatic", return_value=None), \
+                mock.patch.object(blast, "cached_version", side_effect=AssertionError("ran")):
+            report = compute.blast_report()
+        self.assertEqual(report["status"], "not_found")
+        self.assertIsNone(report["version"])
+        self.assertIsNone(report["blastp"])
+        for text in ("BLASTP Directory", "Tools window", "Download button", "BLASTP_DIR"):
+            self.assertIn(text, report["reason"])
+
+    def test_a_blast_that_cannot_report_its_version_is_found_but_an_error(self):
+        with mock.patch.object(blast, "find_automatic", return_value=self.found), \
+                mock.patch.object(blast, "cached_version", side_effect=blast.BlastError("it will not start")):
+            report = compute.blast_report()
+        self.assertEqual(report["status"], "error")
+        self.assertIsNone(report["version"])
+        self.assertEqual(report["blastp"], self.found.blastp)
+        self.assertIn("it will not start", report["reason"])
+
+    def test_blast_runs_once_per_file_however_often_the_report_is_asked_for(self):
+        with tempfile.TemporaryDirectory() as folder:
+            blastp = os.path.join(folder, "blastp")
+            with open(blastp, "wb") as handle:
+                handle.write(b"blastp")
+            found = blast.BlastExecutables(blastp, os.path.join(folder, "makeblastdb"), "PATH")
+            completed = NS(returncode=0, stdout="blastp: 2.17.0+\n", stderr="")
+            with mock.patch.object(blast, "find_automatic", return_value=found), \
+                    mock.patch.object(subprocess, "run", return_value=completed) as run:
+                reports = [compute.blast_report() for _ in range(3)]
+        self.assertEqual([report["version"] for report in reports], ["blastp: 2.17.0+"] * 3)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0], [blastp, "-version"])
+        self.assertEqual(run.call_args.kwargs["timeout"], compute.VERSION_TIMEOUT)
+        self.assertEqual(run.call_args.kwargs["env"]["BLAST_USAGE_REPORT"], "false")
+
+    def test_the_capabilities_report_carries_the_blast_entry(self):
+        entry = {"status": "found", "version": "blastp: 2.17.0+"}
+        report = ComputeCapabilityTests().collect(fake_runtime())
+        with mock.patch.object(compute.subprocess, "run", return_value=NS(returncode=0, stdout=json.dumps(report), stderr="")), \
+                mock.patch.object(compute, "blast_report", return_value=entry):
+            result = compute.discover_compute_capabilities(ROOT)
+        self.assertEqual(result["blast"], entry)
+        self.assertTrue(any("blast" in note for note in result["notes"]))
+
+    def test_the_blast_entry_is_there_when_the_helper_fails(self):
+        entry = {"status": "not_found"}
+        with mock.patch.object(compute.subprocess, "run", side_effect=subprocess.TimeoutExpired("helper", 20)), \
+                mock.patch.object(compute, "blast_report", return_value=entry):
+            result = compute.discover_compute_capabilities(ROOT)
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["blast"], entry)
 
 
 if __name__ == "__main__":

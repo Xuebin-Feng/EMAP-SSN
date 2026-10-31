@@ -109,6 +109,31 @@ def collect_metadata(torch, hardware, psutil=None):
     return report
 
 
+VERSION_TIMEOUT = 10  # seconds; the call stays quick even when a first start is slow
+
+
+def blast_report():
+    """Where NCBI BLAST+ is for the BLAST tool, found the way a blank BLASTP_DIR is found.
+
+    blastp -version runs once per file (a replaced file is asked again), and nothing else runs.
+    """
+    from utilities import BLAST_Executables
+    found = BLAST_Executables.find_automatic()
+    if found is None:
+        return dict(status="not_found", version=None, blastp=None, makeblastdb=None, source=None,
+                    reason="NCBI BLAST+ (blastp and makeblastdb) was not found on the PATH or in a standard install "
+                           "folder, so align_substitution_matrix cannot run. Tell the user to set the BLASTP "
+                           "Directory in the Tools window or to use the Download button there; a BLASTP_DIR in the "
+                           "tool's parameters is used instead of this search.")
+    report = dict(status="found", version=None, blastp=found.blastp, makeblastdb=found.makeblastdb,
+                  source=found.source, reason="A BLASTP_DIR in the tool's parameters is used instead of this search.")
+    try:
+        report["version"] = BLAST_Executables.cached_version(found.blastp, VERSION_TIMEOUT)
+    except BLAST_Executables.BlastError as error:
+        report.update(status="error", reason=f"blastp was found but could not report its version: {error}")
+    return report
+
+
 def discover_compute_capabilities(project_root, tool_id=None):
     # Validate identifiers before spawning; settings discovery does not import torch.
     from mcp_server.pipeline.Pipeline_Settings import get_pipeline_schema
@@ -134,9 +159,11 @@ def discover_compute_capabilities(project_root, tool_id=None):
         # subprocess.run kills and waits for its own helper on timeout.
         report = empty_report()
         report["errors"] = [dict(field="collector", reason=str(error))]
+    report["blast"] = blast_report()
     report["notes"] = ["Metadata only; no tensor computation or benchmarking was performed.",
                        "Memory is a timestamped observation, not a reservation.",
-                       "Only devices usable by this Python runtime are enumerated; auto selects at job runtime."]
+                       "Only devices usable by this Python runtime are enumerated; auto selects at job runtime.",
+                       "blast reports the NCBI BLAST+ a blank BLASTP_DIR finds; only its version is queried, once per file."]
     if schema is not None:
         props = schema["parameters_schema"]["properties"]
         report["tool"] = dict(tool_id=tool_id, settings={key: props[key] for key in
