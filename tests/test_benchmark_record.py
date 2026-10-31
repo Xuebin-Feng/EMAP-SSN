@@ -322,7 +322,7 @@ class RecordedDecisionTests(RecordingFixture, unittest.TestCase):
     def test_the_database_search_records_its_final_plan_ranking(self):
         self.start_recording(stage="7")
         tasks = [(index, f"h{index}", f"h{index}", np.ones((3, 4), np.float32), "local", -2.0, "longer_sequence",
-                  "ACD", "ACD") for index in range(40)]
+                  "ACD", "ACD", "BLOSUM62") for index in range(40)]
 
         def execute(plan, selected, *args, timing=None):
             if timing is not None:

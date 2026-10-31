@@ -1055,6 +1055,15 @@ def similarity_definition(mode, matrix):
     return f"Identical or {matrix}-positive standard residue pairs / the same length"
 
 
+def gap_definition(mode):
+    """Describe the numerator of percent gaps; its denominator is identity's.
+
+    The gap columns are the path's columns that are not aligned pairs. As for
+    similarity_definition, the wording is the same for either mode.
+    """
+    return "Gap columns / the same length"
+
+
 __all__ = [
     "POSITION_MAGNITUDE_PATTERN",
     "NONNEGATIVE_POSITION_PATTERN",
@@ -1095,4 +1104,5 @@ __all__ = [
     "IDENTITY_RESIDUES",
     "identity_definition",
     "similarity_definition",
+    "gap_definition",
 ]

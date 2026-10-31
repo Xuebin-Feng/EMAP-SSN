@@ -1,8 +1,8 @@
 """Embedding_SSEARCH search results: scores, hit ranking and reports.
 
-Covers finish_search (raw score, alignment length and percent identity along
-the selected path), score normalization, the ranked-hit filter and the text
-and metadata-viewer workbook reports. Hardware plan selection is covered in
+Covers finish_search (raw score, alignment length and percent identity,
+similarity and gaps along the selected path), score normalization, the
+ranked-hit filter and the text and metadata-viewer workbook reports. Hardware plan selection is covered in
 test_embedding_ssearch_hardware.
 """
 
@@ -48,21 +48,24 @@ class FinishSearchTests(unittest.TestCase):
 
         local_result = Embedding_SSEARCH.finish_search(
             (0, "local", 2, 2, "local", -2.0, "longer_sequence", matrix,
-             "AC", "AD")
+             "AC", "AD", "BLOSUM62")
         )
         np.testing.assert_array_equal(matrix, original)
         self.assertEqual(float(local_result["raw_score"]), 2.0)
         self.assertEqual(int(local_result["aln_len"]), 2)
         self.assertEqual(local_result["identity"], 50.0)
+        # C/D scores -3 in BLOSUM62: aligned, neither identical nor similar.
+        self.assertEqual((local_result["similarity"], local_result["gaps"]), (50.0, 0.0))
 
         global_result = Embedding_SSEARCH.finish_search(
             (1, "global", 2, 2, "global", 0.0, "alignment_length", matrix,
-             "AC", "AD")
+             "AC", "AD", "BLOSUM62")
         )
         np.testing.assert_array_equal(matrix, original)
         self.assertEqual(float(global_result["raw_score"]), 6.0)
         self.assertEqual(int(global_result["aln_len"]), 2)
         self.assertEqual(global_result["identity"], 50.0)
+        self.assertEqual((global_result["similarity"], global_result["gaps"]), (50.0, 0.0))
 
     def test_ssearch_identity_denominators_follow_alignment_mode(self):
         # Only the C/C pair aligns well, so a global path pays two end gaps
@@ -77,16 +80,21 @@ class FinishSearchTests(unittest.TestCase):
                 rows, cols = matrix.shape
                 local_result = Embedding_SSEARCH.finish_search(
                     (0, "t", rows, cols, "local", -2.0, "longer_sequence",
-                     matrix, query, target)
+                     matrix, query, target, "BLOSUM62")
                 )
                 global_result = Embedding_SSEARCH.finish_search(
                     (0, "t", rows, cols, "global", 0.0, "alignment_length",
-                     matrix, query, target)
+                     matrix, query, target, "BLOSUM62")
                 )
                 self.assertEqual(int(local_result["aln_len"]), 1)
                 self.assertEqual(local_result["identity"], 100.0)
+                self.assertEqual(local_result["similarity"], 100.0)
+                self.assertEqual(local_result["gaps"], 0.0)
                 self.assertEqual(int(global_result["aln_len"]), 3)
                 self.assertAlmostEqual(global_result["identity"], 100.0 / 3.0)
+                # The one aligned pair is similar; the two end gaps are the rest of the path.
+                self.assertAlmostEqual(global_result["similarity"], 100.0 / 3.0)
+                self.assertAlmostEqual(global_result["gaps"], 200.0 / 3.0)
 
         # A/A and W/W flank one unpaired residue, so the local path keeps the
         # internal gap in its denominator on either side of the alignment.
@@ -101,10 +109,13 @@ class FinishSearchTests(unittest.TestCase):
                 rows, cols = matrix.shape
                 result = Embedding_SSEARCH.finish_search(
                     (0, "t", rows, cols, "local", -1.0, "longer_sequence",
-                     matrix, query, target)
+                     matrix, query, target, "BLOSUM62")
                 )
                 self.assertEqual(int(result["aln_len"]), 3)
                 self.assertAlmostEqual(result["identity"], 200.0 / 3.0)
+                self.assertAlmostEqual(result["similarity"], 200.0 / 3.0)
+                # The unpaired C is the path's one internal gap column.
+                self.assertAlmostEqual(result["gaps"], 100.0 / 3.0)
 
     def test_ssearch_identity_counts_only_standard_amino_acids(self):
         residues = "AXBZJUOC"
@@ -113,17 +124,41 @@ class FinishSearchTests(unittest.TestCase):
         ).astype(np.float32)
         result = Embedding_SSEARCH.finish_search(
             (0, "t", len(residues), len(residues), "local", -2.0,
-             "longer_sequence", matrix, residues, residues)
+             "longer_sequence", matrix, residues, residues, "BLOSUM62")
         )
         self.assertEqual(int(result["aln_len"]), len(residues))
         self.assertEqual(result["identity"], 25.0)
+        # X, B, Z, J, U and O are never similar either, though BLOSUM62 scores X/X and B/B.
+        self.assertEqual((result["similarity"], result["gaps"]), (25.0, 0.0))
+
+    def test_the_matrix_decides_which_pairs_are_similar(self):
+        # K/R scores +2 in BLOSUM62, +3 in PAM250 and 0 in PAM30; only A/A is identical.
+        matrix = np.full((2, 2), -10.0, dtype=np.float32)
+        matrix[0, 0] = matrix[1, 1] = 4.0
+        for name, similarity in (("BLOSUM62", 100.0), ("PAM250", 100.0), ("PAM30", 50.0)):
+            with self.subTest(matrix=name):
+                result = Embedding_SSEARCH.finish_search(
+                    (0, "t", 2, 2, "local", -2.0, "longer_sequence", matrix, "AK", "AR", name)
+                )
+                self.assertEqual(int(result["aln_len"]), 2)
+                self.assertEqual(result["identity"], 50.0)
+                self.assertEqual(result["similarity"], similarity)
+
+    def test_an_unknown_matrix_is_refused(self):
+        matrix = np.zeros((2, 2), dtype=np.float32)
+        for name in ("BLOSUM63", "blosum62", "", None):
+            with self.subTest(matrix=name):
+                with self.assertRaisesRegex(ValueError, "Unknown SIMILARITY_MATRIX"):
+                    Embedding_SSEARCH.finish_search(
+                        (0, "t", 2, 2, "local", -2.0, "longer_sequence", matrix, "AC", "AC", name)
+                    )
 
     def test_ssearch_rejects_sequences_that_do_not_match_the_matrix(self):
         matrix = np.zeros((2, 3), dtype=np.float32)
         with self.assertRaisesRegex(ValueError, "has shape"):
             Embedding_SSEARCH.finish_search(
                 (0, "t", 2, 3, "local", -2.0, "longer_sequence", matrix,
-                 "AC", "ACDE")
+                 "AC", "ACDE", "BLOSUM62")
             )
 
     def test_reported_length_is_the_normalization_denominator(self):
@@ -140,11 +175,12 @@ class FinishSearchTests(unittest.TestCase):
         for norm_mode, denominator in cases.items():
             with self.subTest(norm_mode=norm_mode):
                 result = Embedding_SSEARCH.finish_search(
-                    (0, "t", 2, 4, "global", 0.0, norm_mode, matrix, "AC", "DAEF")
+                    (0, "t", 2, 4, "global", 0.0, norm_mode, matrix, "AC", "DAEF", "BLOSUM62")
                 )
                 self.assertEqual(float(result["raw_score"]), 4.0)
                 self.assertEqual(int(result["aln_len"]), 5)
                 self.assertEqual(result["identity"], 20.0)
+                self.assertEqual((result["similarity"], result["gaps"]), (20.0, 80.0))
                 self.assertEqual(result["length"], denominator)
                 self.assertAlmostEqual(
                     float(result["norm_score"]), 4.0 / denominator
@@ -152,7 +188,7 @@ class FinishSearchTests(unittest.TestCase):
         # An unknown mode is an error, not alignment-length normalization.
         with self.assertRaisesRegex(ValueError, "Unknown NORM_MODE 'unrecognized_mode'"):
             Embedding_SSEARCH.finish_search(
-                (0, "t", 2, 4, "global", 0.0, "unrecognized_mode", matrix, "AC", "DAEF")
+                (0, "t", 2, 4, "global", 0.0, "unrecognized_mode", matrix, "AC", "DAEF", "BLOSUM62")
             )
 
 
@@ -161,7 +197,7 @@ class FinishSearchBatchTests(unittest.TestCase):
 
     RESIDUES = list("ACDEFGHIKLMNPQRSTVWYXBZ")
 
-    def microbatch(self, seed, mode, gap, norm_mode, count=9, rows=17, dense=False):
+    def microbatch(self, seed, mode, gap, norm_mode, count=9, rows=17, dense=False, matrix="BLOSUM62"):
         rng = np.random.default_rng(seed)
         lengths = [int(n) for n in rng.integers(1, 30, size=count)]
         padded = max(lengths)
@@ -174,7 +210,7 @@ class FinishSearchBatchTests(unittest.TestCase):
         query = "".join(rng.choice(self.RESIDUES, size=rows))
         tasks = [
             (index, f"h{index}", f"h{index}", None, mode, gap, norm_mode, query,
-             "".join(rng.choice(self.RESIDUES, size=length)))
+             "".join(rng.choice(self.RESIDUES, size=length)), matrix)
             for index, length in enumerate(lengths)
         ]
         return tasks, lengths, matrices
@@ -184,7 +220,7 @@ class FinishSearchBatchTests(unittest.TestCase):
         return [
             Embedding_SSEARCH.finish_search((
                 task[0], task[1], matrices.shape[1], length, task[4], task[5], task[6],
-                matrices[offset, :, :length], task[7], task[8],
+                matrices[offset, :, :length], task[7], task[8], task[9],
             ))
             for offset, (task, length) in enumerate(zip(tasks, lengths))
         ]
@@ -211,6 +247,18 @@ class FinishSearchBatchTests(unittest.TestCase):
                             self.per_target(tasks, lengths, matrices),
                         )
 
+    def test_every_matrix_reaches_the_rows_of_its_microbatch(self):
+        counts = {}
+        for name in ("BLOSUM45", "BLOSUM62", "PAM30", "PAM250"):
+            tasks, lengths, matrices = self.microbatch(6, "local", -2.0, "longer_sequence", dense=True, matrix=name)
+            with self.subTest(matrix=name):
+                rows = Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices)
+                self.assert_same_rows(rows, self.per_target(tasks, lengths, matrices))
+                counts[name] = [row["similarity"] for row in rows]
+        # The same alignments, counted against different matrices.
+        self.assertGreater(len({tuple(similarity) for similarity in counts.values()}), 1)
+        self.assertNotEqual(counts["PAM30"], counts["PAM250"])
+
     def test_a_non_finite_matrix_is_refused(self):
         tasks, lengths, matrices = self.microbatch(1, "local", -2.0, "longer_sequence")
         matrices[2, 3, 1] = np.nan
@@ -227,15 +275,17 @@ class FinishSearchBatchTests(unittest.TestCase):
             Embedding_SSEARCH.finish_search((
                 4, tasks[4][1], matrices.shape[1], lengths[4], "global", 0.0, "longer_sequence",
                 np.zeros((matrices.shape[1], lengths[4]), np.float32), tasks[4][7], tasks[4][8],
+                tasks[4][9],
             ))
         self.assertEqual(str(batch.exception), str(single.exception))
 
     def test_searches_that_differ_run_one_at_a_time(self):
         tasks, lengths, matrices = self.microbatch(3, "local", -2.0, "longer_sequence")
-        other_query = tasks[3][:7] + ("A" * matrices.shape[1], tasks[3][8])
-        other_mode = tasks[5][:4] + ("global", 0.0, "alignment_length", tasks[5][7], tasks[5][8])
+        other_query = tasks[3][:7] + ("A" * matrices.shape[1], tasks[3][8], tasks[3][9])
+        other_mode = tasks[5][:4] + ("global", 0.0, "alignment_length", tasks[5][7], tasks[5][8], tasks[5][9])
+        other_matrix = tasks[7][:9] + ("PAM30",)
         mixed = list(tasks)
-        mixed[3], mixed[5] = other_query, other_mode
+        mixed[3], mixed[5], mixed[7] = other_query, other_mode, other_matrix
         self.assert_same_rows(
             Embedding_SSEARCH.finish_search_batch(mixed, lengths, matrices),
             self.per_target(mixed, lengths, matrices),
@@ -275,10 +325,11 @@ class FinishSearchBatchTests(unittest.TestCase):
     def per_target_args(tasks, lengths, matrices, offset):
         task = tasks[offset]
         return (task[0], task[1], matrices.shape[1], lengths[offset], task[4], task[5], task[6],
-                matrices[offset, :, :lengths[offset]], task[7], task[8])
+                matrices[offset, :, :lengths[offset]], task[7], task[8], task[9])
 
     def test_the_results_are_the_reference_kernels_bit_for_bit(self):
         from utilities import Network_Kernels
+        from utilities.Similarity_Matrices import similar_pair_table
 
         for mode, gap in (("local", -2.0), ("global", 0.0)):
             tasks, lengths, matrices = self.microbatch(8, mode, gap, "longer_sequence", dense=True)
@@ -286,14 +337,20 @@ class FinishSearchBatchTests(unittest.TestCase):
             kernel = (Network_Kernels.local_score_length_identity if mode == "local"
                       else Network_Kernels.global_score_length_identity)
             for offset, (task, length, row) in enumerate(zip(tasks, lengths, rows)):
-                raw, path_len, identities = kernel(
+                raw, path_len, identities, similar, aligned = kernel(
                     np.ascontiguousarray(matrices[offset, :, :length]), gap,
                     Embedding_SSEARCH.encode_identity_residues(task[7], Embedding_SSEARCH.QUERY_UNMATCHED_CODE),
                     Embedding_SSEARCH.encode_identity_residues(task[8], Embedding_SSEARCH.TARGET_UNMATCHED_CODE),
+                    similar_pair_table(task[9]),
                 )
                 with self.subTest(mode=mode, target=offset):
                     self.assertEqual((row["raw_score"], row["aln_len"]), (raw, path_len))
                     self.assertEqual(row["identity"], 100.0 * int(identities) / path_len if path_len > 0 else 0.0)
+                    self.assertEqual(row["similarity"], 100.0 * int(similar) / path_len if path_len > 0 else 0.0)
+                    self.assertEqual(
+                        row["gaps"], 100.0 * (path_len - int(aligned)) / path_len if path_len > 0 else 0.0
+                    )
+                    self.assertLessEqual(row["identity"], row["similarity"])
 
 
 class ScoreNormalizationTests(unittest.TestCase):
@@ -346,6 +403,21 @@ class ScoreNormalizationTests(unittest.TestCase):
                 Embedding_SSEARCH.main([])
         prepare.assert_not_called()
 
+    def test_unknown_similarity_matrix_is_rejected(self):
+        # Hand-written settings reach a direct CLI run unchecked; the name picks a
+        # file, so it is refused before the embedding set is opened.
+        for name in ("blosum62", "BLOSUM100", "", " BLOSUM62"):
+            with self.subTest(matrix=name):
+                with mock.patch.object(Embedding_SSEARCH, "load_tool_settings"), mock.patch.multiple(
+                    Embedding_SSEARCH, ALIGNMENT_MODE="local", NORM_MODE="longer_sequence", SIMILARITY_MATRIX=name
+                ), mock.patch.object(Embedding_SSEARCH, "prepare_database_embeddings") as prepare:
+                    with self.assertRaisesRegex(ValueError, f"Unknown SIMILARITY_MATRIX {name!r}"):
+                        Embedding_SSEARCH.main([])
+                prepare.assert_not_called()
+
+    def test_the_default_matrix_is_blosum62(self):
+        self.assertEqual(Embedding_SSEARCH.SIMILARITY_MATRIX, "BLOSUM62")
+
     def test_empty_lengths_normalize_to_zero(self):
         self.assertEqual(
             Embedding_SSEARCH.normalize_score(10.0, 0, 5, 8, "alignment_length"),
@@ -397,6 +469,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "seq_len": 90,
                     "aln_len": 90,
                     "identity": 100.0,
+                    "similarity": 100.0,
+                    "gaps": 0.0,
                 },
                 {
                     "index": 4,
@@ -407,6 +481,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "seq_len": 100,
                     "aln_len": 85,
                     "identity": 100.0 * 36 / 85,
+                    "similarity": 100.0 * 60 / 85,
+                    "gaps": 100.0 * 5 / 85,
                 },
                 {
                     "index": 7,
@@ -417,6 +493,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "seq_len": 120,
                     "aln_len": 90,
                     "identity": 25.0,
+                    "similarity": 40.0,
+                    "gaps": 10.0,
                 },
             ]
         )
@@ -454,9 +532,15 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                 "length incl. internal gaps",
                 report_text,
             )
-            self.assertIn("| ALN-LEN  | IDENT% | HEADER", report_text)
-            self.assertIn("| 85       | 42.4   | node_alpha", report_text)
-            self.assertIn("| 90       | 25.0   | node_beta", report_text)
+            self.assertIn(
+                " Similarity:  Identical or BLOSUM62-positive standard residue "
+                "pairs / the same length",
+                report_text,
+            )
+            self.assertIn(" Gaps:        Gap columns / the same length", report_text)
+            self.assertIn("| ALN-LEN  | IDENT% | SIM%   | GAP%   | HEADER", report_text)
+            self.assertIn("| 85       | 42.4   | 70.6   | 5.9    | node_alpha", report_text)
+            self.assertIn("| 90       | 25.0   | 40.0   | 10.0   | node_beta", report_text)
 
             raw = pd.read_excel(
                 output_path,
@@ -473,11 +557,13 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "Sequence_Length",
                     "Alignment_Length",
                     "Percent_Identity",
+                    "Percent_Similarity",
+                    "Percent_Gaps",
                 ],
             )
             self.assertEqual(
                 raw.iloc[1].tolist(),
-                ["Data Type"] + ["number"] * 6,
+                ["Data Type"] + ["number"] * 8,
             )
             self.assertEqual(raw.iloc[2, 0], "node_alpha")
             self.assertEqual(raw.iloc[3, 0], "node_beta")
@@ -491,7 +577,14 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
             self.assertEqual(worksheet.freeze_panes, "A3")
             self.assertEqual(worksheet["C3"].number_format, "0.000")
             self.assertEqual(worksheet["G3"].number_format, "0.0")
+            self.assertEqual(worksheet["H3"].number_format, "0.0")
+            self.assertEqual(worksheet["I3"].number_format, "0.0")
             self.assertAlmostEqual(worksheet["G3"].value, 100.0 * 36 / 85)
+            self.assertAlmostEqual(worksheet["H3"].value, 100.0 * 60 / 85)
+            self.assertAlmostEqual(worksheet["I3"].value, 100.0 * 5 / 85)
+            self.assertEqual(
+                [worksheet.column_dimensions[column].width for column in "FGHI"], [20] * 4
+            )
             parameters = workbook["Search Parameters"]
             self.assertEqual(parameters["A1"].fill.fgColor.rgb, "002C3E50")
             self.assertEqual(parameters.column_dimensions["B"].width, 80)
@@ -504,6 +597,13 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                 "Identical standard residues / alignment length incl. "
                 "internal gaps",
             )
+            self.assertEqual(parameter_values["Similarity Matrix"], "BLOSUM62")
+            self.assertEqual(
+                parameter_values["Percent Similarity"],
+                "Identical or BLOSUM62-positive standard residue pairs / "
+                "the same length",
+            )
+            self.assertEqual(parameter_values["Percent Gaps"], "Gap columns / the same length")
             workbook.close()
 
             viewer = SimpleNamespace(
@@ -528,6 +628,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "Sequence_Length",
                     "Alignment_Length",
                     "Percent_Identity",
+                    "Percent_Similarity",
+                    "Percent_Gaps",
                 ],
             )
             self.assertTrue(
@@ -541,6 +643,14 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
             np.testing.assert_allclose(
                 viewer.metadata["Percent_Identity"]["values"],
                 [100.0 * 36 / 85, 25.0],
+            )
+            np.testing.assert_allclose(
+                viewer.metadata["Percent_Similarity"]["values"],
+                [100.0 * 60 / 85, 40.0],
+            )
+            np.testing.assert_allclose(
+                viewer.metadata["Percent_Gaps"]["values"],
+                [100.0 * 5 / 85, 10.0],
             )
             print_help.assert_called_once()
 
@@ -556,6 +666,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "seq_len": 120,
                     "aln_len": 120,
                     "identity": 30.0,
+                    "similarity": 45.0,
+                    "gaps": 10.0,
                 },
             ]
         )
@@ -586,7 +698,43 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
             "length incl. end gaps",
             report_text,
         )
-        self.assertIn("| 120      | 30.0   | node_gamma", report_text)
+        self.assertIn("| 120      | 30.0   | 45.0   | 10.0   | node_gamma", report_text)
+
+    def test_the_report_names_the_selected_similarity_matrix(self):
+        results = pd.DataFrame(
+            [
+                {
+                    "index": 2, "header": "node_gamma", "raw_score": 12.0, "norm_score": 0.1,
+                    "length": 120, "seq_len": 120, "aln_len": 120, "identity": 30.0,
+                    "similarity": 45.0, "gaps": 10.0,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                mock.patch.object(Embedding_SSEARCH, "REPORT_DIR", temp_dir),
+                mock.patch.object(Embedding_SSEARCH, "ALIGNMENT_MODE", "global"),
+                mock.patch.object(Embedding_SSEARCH, "SIMILARITY_MATRIX", "PAM250"),
+                mock.patch.object(Embedding_SSEARCH, "GENERATE_FASTA", False),
+                redirect_stdout(StringIO()),
+            ):
+                Embedding_SSEARCH.save_results(
+                    results, ("query_node", 100), 1, {}, "pam_test", "A" * 100, "alignment_length", 0.0
+                )
+            with open(os.path.join(temp_dir, "Report_pam_test.txt"), encoding="utf-8") as handle:
+                report_text = handle.read()
+            parameters = pd.read_excel(
+                os.path.join(temp_dir, "Report_pam_test.xlsx"), sheet_name="Search Parameters"
+            ).set_index("Parameter")["Value"]
+        self.assertIn(
+            " Similarity:  Identical or PAM250-positive standard residue pairs / the same length",
+            report_text,
+        )
+        self.assertEqual(parameters["Similarity Matrix"], "PAM250")
+        self.assertEqual(
+            parameters["Percent Similarity"],
+            "Identical or PAM250-positive standard residue pairs / the same length",
+        )
 
     def test_text_report_and_hit_fasta_are_written_as_utf8(self):
         # Neither header fits cp1252, the default text encoding of a Windows
@@ -609,6 +757,8 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "seq_len": 120,
                     "aln_len": 120,
                     "identity": 30.0,
+                    "similarity": 45.0,
+                    "gaps": 10.0,
                 },
             ]
         )

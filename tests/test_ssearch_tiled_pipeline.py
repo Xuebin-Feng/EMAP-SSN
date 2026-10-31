@@ -304,7 +304,7 @@ class FixedQueryHarness:
         query_sequence = "".join(rng.choice(RESIDUES, size=self.QUERY_ROWS))
         tasks = [
             (index, f"t{index}", f"t{index}", query, mode, gap, norm, query_sequence,
-             "".join(rng.choice(RESIDUES, size=int(length))))
+             "".join(rng.choice(RESIDUES, size=int(length))), "BLOSUM62")
             for index, length in enumerate(lengths)
         ]
         store = engine.EmbeddingTileStore(path, [task[2] for task in tasks], host_cache_setting=0)
@@ -342,7 +342,7 @@ class FixedQueryHarness:
                         task = item[2]
                         results.append(ssearch.finish_search((
                             task[0], task[1], self.QUERY_ROWS, length, task[4], task[5], task[6],
-                            matrices[offset, :, :length], task[7], task[8],
+                            matrices[offset, :, :length], task[7], task[8], task[9],
                         )))
         return sorted(results, key=lambda row: row["index"])
 
@@ -523,7 +523,7 @@ class SearchPlanUsesTheBatchCallbackTests(unittest.TestCase):
         with mock.patch.object(ssearch, "run_fixed_query_cuda_pipeline", return_value=[]) as run:
             ssearch._execute_search_plan(
                 (candidate, "tiled", "float32", 2), [(0, "a", "a", np.ones((3, 4), np.float32), "local", -2.0,
-                                                      "longer_sequence", "ACD", "ACD")],
+                                                      "longer_sequence", "ACD", "ACD", "BLOSUM62")],
                 2, "unused.h5", mock.Mock(), [3], np.ones((3, 4), np.float32), False,
             )
         kwargs = run.call_args.kwargs

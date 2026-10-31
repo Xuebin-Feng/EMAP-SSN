@@ -85,9 +85,15 @@ from tqdm import tqdm
 
 from utilities.Sequence_Utils import (
     IDENTITY_RESIDUES,
+    gap_definition,
     identity_definition,
     sanitize_header,
     sanitize_sequence,
+    similarity_definition,
+)
+from utilities.Similarity_Matrices import (
+    similar_pair_table,
+    validate_similarity_matrix,
 )
 from utilities.HDF5_Storage import (
     dtype_for_saving_mode,
@@ -114,6 +120,7 @@ ALIGNMENT_MODE = "local"
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 NORM_MODE = "longer_sequence"
+SIMILARITY_MATRIX = "BLOSUM62"  # Only counts similar residue pairs; the alignment comes from the embeddings.
 
 # HARDWARE & CACHE
 WORKERS = 8                  
@@ -325,12 +332,16 @@ def init_worker(h5_path):
     worker_device = torch.device("cpu")
 
 
-def _search_row(index, header, len_q, len_t, norm_mode, raw, path_len, identities):
+def _search_row(index, header, len_q, len_t, norm_mode, raw, path_len, identities, similar, aligned):
     """One target's result row from its DP outputs (Python numbers) and lengths."""
     norm = normalize_score(raw, path_len, len_q, len_t, norm_mode)
     # Both kernels report the length of the selected path: internal gaps only
     # for local alignments and every column, end gaps included, for global.
+    # Identity, similarity and gaps share it: the gap columns are the path's
+    # steps that are not aligned pairs.
     identity = 100.0 * int(identities) / path_len if path_len > 0 else 0.0
+    similarity = 100.0 * int(similar) / path_len if path_len > 0 else 0.0
+    gaps = 100.0 * (path_len - int(aligned)) / path_len if path_len > 0 else 0.0
     eff_len = normalization_length(path_len, len_q, len_t, norm_mode)
 
     return {
@@ -342,6 +353,8 @@ def _search_row(index, header, len_q, len_t, norm_mode, raw, path_len, identitie
         "seq_len": len_t,
         "aln_len": path_len,
         "identity": identity,
+        "similarity": similarity,
+        "gaps": gaps,
     }
 
 
@@ -365,6 +378,7 @@ def finish_search(args):
         mat,
         query_seq,
         target_seq,
+        similarity_matrix,
     ) = args
     query_codes = encode_identity_residues(query_seq, QUERY_UNMATCHED_CODE)
     target_codes = encode_identity_residues(target_seq, TARGET_UNMATCHED_CODE)
@@ -372,10 +386,13 @@ def finish_search(args):
         raise _mismatched_matrix_error(
             header, mat.shape, len(query_codes), len(target_codes)
         )
-    raw, path_len, identities = search_pair_scores(
-        "local" if mode == "local" else "global", mat, gap, query_codes, target_codes
+    raw, path_len, identities, similar, aligned = search_pair_scores(
+        "local" if mode == "local" else "global", mat, gap, query_codes, target_codes,
+        similar_pair_table(similarity_matrix),
     )
-    return _search_row(idx, header, len_q, len_t, norm_mode, raw, path_len, identities)
+    return _search_row(
+        idx, header, len_q, len_t, norm_mode, raw, path_len, identities, similar, aligned
+    )
 
 
 def finish_search_batch(tasks, target_lengths, matrices):
@@ -392,15 +409,17 @@ def finish_search_batch(tasks, target_lengths, matrices):
         )
     first = tasks[0]
     mode, gap, norm_mode, query_seq = first[4], first[5], first[6], first[7]
+    similarity_matrix = first[9]
     if any(
-        (task[4], task[5], task[6]) != (mode, gap, norm_mode) or task[7] != query_seq
+        (task[4], task[5], task[6], task[9]) != (mode, gap, norm_mode, similarity_matrix)
+        or task[7] != query_seq
         for task in tasks
     ):
         # A microbatch of searches that differ in query or settings: one at a time.
         return [
             finish_search((
                 task[0], task[1], matrices.shape[1], int(length), task[4], task[5], task[6],
-                matrices[offset, :, :int(length)], task[7], task[8],
+                matrices[offset, :, :int(length)], task[7], task[8], task[9],
             ))
             for offset, (task, length) in enumerate(zip(tasks, target_lengths))
         ]
@@ -413,26 +432,29 @@ def finish_search_batch(tasks, target_lengths, matrices):
                 task[1], (matrices.shape[1], int(length)), len(query_codes), len(codes)
             )
         target_codes[offset, :len(codes)] = codes
-    scores, path_lengths, identities = search_batch_scores(
+    scores, path_lengths, identities, similar, aligned = search_batch_scores(
         "local" if mode == "local" else "global",
         matrices,
         target_lengths,
         gap,
         query_codes,
         target_codes,
+        similar_pair_table(similarity_matrix),
     )
     return [
         _search_row(
-            task[0], task[1], matrices.shape[1], int(length), norm_mode, raw, path_len, identity
+            task[0], task[1], matrices.shape[1], int(length), norm_mode,
+            raw, path_len, identity, similar_pairs, aligned_pairs,
         )
-        for task, length, raw, path_len, identity in zip(
-            tasks, target_lengths, scores.tolist(), path_lengths.tolist(), identities.tolist()
+        for task, length, raw, path_len, identity, similar_pairs, aligned_pairs in zip(
+            tasks, target_lengths, scores.tolist(), path_lengths.tolist(),
+            identities.tolist(), similar.tolist(), aligned.tolist(),
         )
     ]
 
 
 def search_cpu_worker(args):
-    idx, header, safe_h, q_emb, mode, gap, norm_mode, q_seq, t_seq = args
+    idx, header, safe_h, q_emb, mode, gap, norm_mode, q_seq, t_seq, similarity_matrix = args
     global worker_hf, worker_device
     t_emb = worker_hf["embeddings"][safe_h][:]
     mat = compute_score_matrix_torch(q_emb, t_emb, worker_device)
@@ -448,6 +470,7 @@ def search_cpu_worker(args):
             mat,
             q_seq,
             t_seq,
+            similarity_matrix,
         )
     )
 
@@ -562,6 +585,7 @@ def _compute_accelerated_search(args):
         precision,
         q_seq,
         t_seq,
+        similarity_matrix,
     ) = args
     with torch.inference_mode():
         with _stream_context(device):
@@ -579,6 +603,7 @@ def _compute_accelerated_search(args):
         mat,
         q_seq,
         t_seq,
+        similarity_matrix,
     )
 
 
@@ -659,6 +684,7 @@ def _run_accelerated_search(
                         norm_mode,
                         q_seq,
                         t_seq,
+                        similarity_matrix,
                     ) = next(task_iterator)
                 except StopIteration:
                     tasks_exhausted = True
@@ -680,6 +706,7 @@ def _run_accelerated_search(
                             precision,
                             q_seq,
                             t_seq,
+                            similarity_matrix,
                         ),
                     )
                 )
@@ -721,20 +748,20 @@ def _run_accelerated_search(
 
 
 def _cpu_search_with_handle(task, hf):
-    idx, header, safe_h, query, mode, gap, norm_mode, q_seq, t_seq = task
+    idx, header, safe_h, query, mode, gap, norm_mode, q_seq, t_seq, similarity_matrix = task
     target = hf["embeddings"][safe_h][:]
     matrix = compute_score_matrix_torch(query, target, torch.device("cpu"))
     return finish_search((idx, header, query.shape[0], target.shape[0],
-                          mode, gap, norm_mode, matrix, q_seq, t_seq))
+                          mode, gap, norm_mode, matrix, q_seq, t_seq, similarity_matrix))
 
 
 def _warm_search_kernel(task, device, precision="float32"):
-    _idx, _header, _safe_h, query, mode, gap, norm_mode, q_seq, _t_seq = task
+    _idx, _header, _safe_h, query, mode, gap, norm_mode, q_seq, _t_seq, similarity_matrix = task
     small = np.asarray(query[:64])
     residues = q_seq[:len(small)]
     matrix = _shared_score_matrix(small, small, device, precision=precision)
     finish_search((0, "warmup", len(small), len(small), mode, gap, norm_mode,
-                   matrix, residues, residues))
+                   matrix, residues, residues, similarity_matrix))
 
 
 _WARM_ROWS = 64
@@ -751,16 +778,16 @@ def _warm_spec(task):
     seconds per worker. A real run's pool starts in parallel.
     """
     query = np.asarray(task[3])
-    return (int(query.shape[1]), query.dtype.str, task[4], float(task[5]), task[6])
+    return (int(query.shape[1]), query.dtype.str, task[4], float(task[5]), task[6], task[9])
 
 
 def _warm_task(spec):
-    """A small stand-in task with the dtypes, mode, gap and normalization of ``spec``."""
-    features, dtype, mode, gap, norm_mode = spec
+    """A small stand-in task with the dtypes, mode, gap, normalization and matrix of ``spec``."""
+    features, dtype, mode, gap, norm_mode, similarity_matrix = spec
     rng = np.random.default_rng(42)
     query = rng.standard_normal((_WARM_ROWS, features)).astype(np.dtype(dtype))
     residues = ("ACDEFGHIKLMNPQRSTVWY" * _WARM_ROWS)[:_WARM_ROWS]
-    return (0, "warmup", "warmup", query, mode, gap, norm_mode, residues, residues)
+    return (0, "warmup", "warmup", query, mode, gap, norm_mode, residues, residues, similarity_matrix)
 
 
 # The CPU search's worker pool always starts its processes with spawn, as the script itself asks for and as
@@ -1375,9 +1402,13 @@ METADATA_REPORT_COLUMNS = [
     "Sequence_Length",
     "Alignment_Length",
     "Percent_Identity",
+    "Percent_Similarity",
+    "Percent_Gaps",
 ]
 METADATA_REPORT_TYPES = [
     "Data Type",
+    "number",
+    "number",
     "number",
     "number",
     "number",
@@ -1399,6 +1430,8 @@ def build_metadata_report_dataframe(rows):
             row["Sequence_Length"],
             row["Alignment_Length"],
             row["Percent_Identity"],
+            row["Percent_Similarity"],
+            row["Percent_Gaps"],
         ]
         for row in rows
     )
@@ -1448,6 +1481,8 @@ def format_metadata_report_sheet(worksheet):
         "E": 20,
         "F": 20,
         "G": 20,
+        "H": 20,
+        "I": 20,
     }
     for column, width in widths.items():
         worksheet.column_dimensions[column].width = width
@@ -1477,6 +1512,8 @@ def format_metadata_report_sheet(worksheet):
         5: "0",
         6: "0",
         7: "0.0",
+        8: "0.0",
+        9: "0.0",
     }
     for row_index, row in enumerate(
         worksheet.iter_rows(
@@ -1566,6 +1603,8 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     meta_lines.append(f" Parameters:  Gap Penalty = {gap_p}")
     meta_lines.append(f" Metric:      Raw Score / {norm_mode}")
     meta_lines.append(f" Identity:    {identity_definition(ALIGNMENT_MODE)}")
+    meta_lines.append(f" Similarity:  {similarity_definition(ALIGNMENT_MODE, SIMILARITY_MATRIX)}")
+    meta_lines.append(f" Gaps:        {gap_definition(ALIGNMENT_MODE)}")
     meta_lines.append(f" Filters:     Top_K={TOP_K} | Norm_Threshold={NORM_THRESHOLD}")
     hardware_line = (
         f" Hardware:    {active_search_hardware['device']} | "
@@ -1590,8 +1629,8 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         xlsx_data = []
     else:
         table_hdr = [
-            f" {'RANK':<6} | {'NORM-SCR':<9} | {'RAW':<9} | {'SEQ-LEN':<8} | {col_header:<8} | {'IDENT%':<6} | {'HEADER'}",
-            f"{'-'*7}-+-{'-'*9}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*6}-+-{'-'*35}"
+            f" {'RANK':<6} | {'NORM-SCR':<9} | {'RAW':<9} | {'SEQ-LEN':<8} | {col_header:<8} | {'IDENT%':<6} | {'SIM%':<6} | {'GAP%':<6} | {'HEADER'}",
+            f"{'-'*7}-+-{'-'*9}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*6}-+-{'-'*6}-+-{'-'*6}-+-{'-'*35}"
         ]
         report_lines.extend(table_hdr)
         onscreen_lines.extend(table_hdr)
@@ -1607,8 +1646,10 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
             norm_score = row['norm_score']
             raw_score = row['raw_score']
             identity = float(row['identity'])
+            similarity = float(row['similarity'])
+            gaps = float(row['gaps'])
 
-            row_line = f" {rank_counter:<6} | {norm_score:<9.3f} | {raw_score:<9.1f} | {seq_len_val:<8} | {aln_len_val:<8} | {identity:<6.1f} | {head}"
+            row_line = f" {rank_counter:<6} | {norm_score:<9.3f} | {raw_score:<9.1f} | {seq_len_val:<8} | {aln_len_val:<8} | {identity:<6.1f} | {similarity:<6.1f} | {gaps:<6.1f} | {head}"
             report_lines.append(row_line)
             if printed_hits < 100:
                 onscreen_lines.append(row_line)
@@ -1622,6 +1663,8 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
                 "Sequence_Length": int(seq_len_val),
                 "Alignment_Length": int(aln_len_val),
                 "Percent_Identity": identity,
+                "Percent_Similarity": similarity,
+                "Percent_Gaps": gaps,
             })
             
             rank_counter += 1
@@ -1649,7 +1692,10 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         {"Parameter": "Alignment Mode", "Value": ALIGNMENT_MODE},
         {"Parameter": "Gap Penalty", "Value": gap_p},
         {"Parameter": "Normalization Mode", "Value": norm_mode},
+        {"Parameter": "Similarity Matrix", "Value": SIMILARITY_MATRIX},
         {"Parameter": "Percent Identity", "Value": identity_definition(ALIGNMENT_MODE)},
+        {"Parameter": "Percent Similarity", "Value": similarity_definition(ALIGNMENT_MODE, SIMILARITY_MATRIX)},
+        {"Parameter": "Percent Gaps", "Value": gap_definition(ALIGNMENT_MODE)},
         {"Parameter": "Norm Score Cutoff", "Value": NORM_THRESHOLD if NORM_THRESHOLD is not None else "None"},
         {"Parameter": "Top K", "Value": TOP_K if TOP_K is not None else "None"},
         {"Parameter": "Compute Device", "Value": active_search_hardware["device"]},
@@ -1699,6 +1745,7 @@ def main(argv=None):
     global FULL_INPUT_EMBED
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     validate_score_normalization(ALIGNMENT_MODE, NORM_MODE)
+    validate_similarity_matrix(SIMILARITY_MATRIX)
     FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
     database = prepare_database_embeddings()
     db_headers = database.headers
@@ -1765,9 +1812,11 @@ def main(argv=None):
     
     for i, header in enumerate(db_headers):
         # Sequences travel with each task so the alignment DP can count the
-        # identical residues on the same path that yields its score and length.
+        # identical and similar residues, and the gap columns, on the same path
+        # that yields its score and length. So does the matrix that decides
+        # which pairs are similar, by name: each worker builds its own table.
         tasks.append((i, header, header, query_emb, ALIGNMENT_MODE, gap_p,
-                      NORM_MODE, query_seq_str, seq_lookup[header]))
+                      NORM_MODE, query_seq_str, seq_lookup[header], SIMILARITY_MATRIX))
         
     print(
         f"[Search] Scanning {len(tasks)} sequences against "
@@ -1795,7 +1844,7 @@ def main(argv=None):
     )
     
     # Add dummy row for Query (Ensures it appears at the top of the text report)
-    q_row = pd.DataFrame([{"index": -1, "header": f"(Query) {query_name}", "raw_score": 0.0, "norm_score": 99.9, "length": len(query_emb), "seq_len": len(query_emb), "aln_len": len(query_emb), "identity": 100.0}])
+    q_row = pd.DataFrame([{"index": -1, "header": f"(Query) {query_name}", "raw_score": 0.0, "norm_score": 99.9, "length": len(query_emb), "seq_len": len(query_emb), "aln_len": len(query_emb), "identity": 100.0, "similarity": 100.0, "gaps": 0.0}])
     df = pd.concat([q_row, df], ignore_index=True)
     
     # Use custom name if provided, otherwise fallback to sanitized query name

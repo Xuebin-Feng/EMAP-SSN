@@ -49,7 +49,7 @@ def make_tasks(count):
     query = np.ones((3, 4), dtype=np.float32)
     return [
         (index, f"h{index}", f"h{index}", query, "local", -2.0, "longer_sequence",
-         "ACD", "ACD")
+         "ACD", "ACD", "BLOSUM62")
         for index in range(count)
     ]
 
@@ -450,12 +450,16 @@ class RealCpuTests(unittest.TestCase):
                         continue
                     for index in range(3):
                         tasks.append((len(tasks), f"h{index}", f"h{index}", query, mode, -2.0, norm,
-                                      query_seq, target_seqs[index]))
+                                      query_seq, target_seqs[index], "BLOSUM62"))
             serial_timing, pool_timing = SearchTiming(), SearchTiming()
             serial = ssearch._run_serial_search(tasks, path, timing=serial_timing)
             pool = ssearch._run_cpu_search(tasks, 2, path, False, timing=pool_timing)
             self.assertEqual(serial, sorted(pool, key=lambda row: row["index"]))
             self.assertTrue(all(0.0 <= row["identity"] <= 100.0 for row in serial))
+            # Identical pairs are similar pairs, and similar pairs are aligned: not gap columns.
+            self.assertTrue(all(
+                row["identity"] <= row["similarity"] <= 100.0 - row["gaps"] + 1e-9 for row in serial
+            ))
             self.assertGreater(serial_timing.processing, 0)
             self.assertGreater(pool_timing.processing, 0)
             self.assertGreater(pool_timing.setup, 0)
@@ -562,7 +566,7 @@ class PoolStartupTests(unittest.TestCase):
     @staticmethod
     def task(rows=330, features=768):
         query = np.zeros((rows, features), dtype=np.float16)
-        return (0, "h", "h", query, "local", -2.0, "longer_sequence", "A" * rows, "A" * 40)
+        return (0, "h", "h", query, "local", -2.0, "longer_sequence", "A" * rows, "A" * 40, "BLOSUM62")
 
     def test_a_worker_is_sent_a_few_bytes_not_the_query(self):
         spec = ssearch._warm_spec(self.task())
@@ -573,6 +577,10 @@ class PoolStartupTests(unittest.TestCase):
         self.assertEqual(warm[3].shape, (ssearch._WARM_ROWS, 768))
         self.assertEqual((warm[4], warm[5], warm[6]), ("local", -2.0, "longer_sequence"))
         self.assertEqual(len(warm[7]), len(warm[3]))
+        # The similarity matrix goes last in a task, and its name is all a worker is sent of it.
+        self.assertEqual(warm[9], "BLOSUM62")
+        self.assertEqual(len(warm), 10)
+        self.assertEqual(ssearch._warm_spec(self.task())[-1], "BLOSUM62")
         self.assertTrue(np.array_equal(warm[3], ssearch._warm_task(spec)[3]))
 
     def test_the_timing_trial_pool_gets_no_query_in_its_initargs(self):

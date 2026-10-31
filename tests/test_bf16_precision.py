@@ -645,10 +645,11 @@ class Bf16PrecisionTests(unittest.TestCase):
                     "bf16",
                     "AC",
                     "ACD",
+                    "BLOSUM62",
                 )
             )
         self.assertEqual(result[:2], (1, "target"))
-        self.assertEqual(result[-2:], ("AC", "ACD"))
+        self.assertEqual(result[-3:], ("AC", "ACD", "BLOSUM62"))
         self.assertEqual(score.call_args.kwargs["precision"], "bf16")
 
     def test_align_partial_writer_records_canonical_bf16(self):
