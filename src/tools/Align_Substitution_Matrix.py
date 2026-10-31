@@ -25,7 +25,8 @@ Input:
 - A FASTA file containing all sequences to be aligned (`{SEQUENCE_SET}.fasta`).
 
 Output:
-- An HDF5 file containing the list of pairwise edges, their source/target indices, and their negative Log10(E-Value) score (`{SEQUENCE_SET}_BLAST_EValue.h5`).
+- An HDF5 file containing the list of pairwise edges, their source/target indices, and their negative Log10(E-Value) score (`{SEQUENCE_SET}_[BLAST]_EValue.h5`).
+  With SCORE_METRIC "efi_alignment_score" the score is instead the EFI-EST alignment score (`{SEQUENCE_SET}_[BLAST]_EFIScore.h5`).
 
 Settings:
 - SEQUENCE_SET: The base name of the sequence group.
@@ -34,6 +35,8 @@ Settings:
 - E_VALUE_CUTOFF: The maximum statistical E-value threshold to save an alignment. Alignments worse than this are ignored.
 - MAX_TARGET_SEQS: Limits the total number of hits returned per query sequence. Note that BLAST may cut off valid alignments if this is too low.
 - BATCH_SIZE: Maximum number of parsed edges buffered or copied at once.
+- SCORE_METRIC: The edge score. "evalue" (default) is the negative Log10 of the E-value; "efi_alignment_score" is the EFI-EST
+  alignment score, bitscore * log10(2) - log10(L_query * L_subject), from BLAST's bit score and the two sanitized sequence lengths.
 
 Algorithm:
 1. Validates the FASTA inputs and initializes the workspace by clearing out any old run fragments if settings have changed.
@@ -41,7 +44,8 @@ Algorithm:
 3. Prepares the target dataset by spawning an `NCBI makeblastdb` background task.
 4. Concurrently maps the `blastp` binary across all query chunks. Output format is enforced as a tabular 12 column format strings.
 5. Recursively parses the output chunk text files to match sequence IDs back to an integer map.
-6. Converts resulting statistical E-Values into mathematical -Log10(E) variables to provide a linearly comparable edge score.
+6. Converts resulting statistical E-Values into mathematical -Log10(E) variables to provide a linearly comparable edge score
+   (or, for the EFI alignment score, the bit scores and sequence lengths into that score).
 7. Canonicalizes reciprocal hits and retains the strongest score for each unique pair (i < j).
 8. Streams validated HDF5 batches into an atomically written final network.
 """
@@ -75,6 +79,12 @@ from tqdm import tqdm
 
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import validate_manifest_records
+from utilities.BLAST_Tabular import (
+    EFI_SCORE_TRANSFORM,
+    SCORE_METRIC_EFI,
+    SCORE_METRICS,
+    efi_alignment_score,
+)
 
 # %% =======================================
 # CONFIGURATION
@@ -87,6 +97,9 @@ MATRIX = "BLOSUM62"
 NUM_THREADS = 12
 BATCH_SIZE = 500000
 BLASTP_DIR = ""
+# "evalue" scores each edge by its negative log10 E-value; "efi_alignment_score"
+# by the EFI-EST alignment score, from BLAST's bit score and the sequence lengths.
+SCORE_METRIC = "evalue"
 
 # EXECUTABLE PATHS (Will be resolved dynamically after settings load)
 NCBI_BIN_DIR    = r"C:\Program Files\NCBI"
@@ -235,6 +248,15 @@ def configure_runtime_paths():
     global SEQUENCE_SET, FULL_INPUT_FASTA, OUTPUT_HDF5, SAFE_TEMP_DIR
     global CHUNKS_DIR, RESULTS_DIR, BATCH_DIR, CONFIG_FILE
 
+    if SCORE_METRIC not in SCORE_METRICS:
+        raise ValueError(
+            f"SCORE_METRIC must be one of {list(SCORE_METRICS)}; "
+            f"received {SCORE_METRIC!r}."
+        )
+    # The network and its workspace carry the score in their names, so an
+    # E-value network and an EFI alignment score network of one sequence set
+    # never replace or resume each other.
+    score_name = "EFIScore" if SCORE_METRIC == SCORE_METRIC_EFI else "EValue"
     if INPUT_FASTA is None or not str(INPUT_FASTA).strip():
         raise ValueError("No input FASTA file has been selected.")
 
@@ -247,13 +269,13 @@ def configure_runtime_paths():
     SEQUENCE_SET = os.path.splitext(os.path.basename(selected_path))[0]
     OUTPUT_HDF5 = os.path.join(
         NETWORK_DIR,
-        f"{SEQUENCE_SET}_[BLAST]_EValue.h5",
+        f"{SEQUENCE_SET}_[BLAST]_{score_name}.h5",
     )
 
     # Keep resumable BLAST work beside the network it will produce.
     SAFE_TEMP_DIR = os.path.join(
         NETWORK_DIR,
-        f"{SEQUENCE_SET}_[BLAST]_EValue_temp",
+        f"{SEQUENCE_SET}_[BLAST]_{score_name}_temp",
     )
     CHUNKS_DIR = os.path.join(SAFE_TEMP_DIR, "chunks")
     RESULTS_DIR = os.path.join(SAFE_TEMP_DIR, "results")
@@ -264,7 +286,11 @@ def configure_runtime_paths():
 # Preserve the existing module-level path interface when GUI settings contain
 # a real selection, while keeping every derived name neutral when they do not.
 if INPUT_FASTA is not None and str(INPUT_FASTA).strip():
-    configure_runtime_paths()
+    try:
+        configure_runtime_paths()
+    except ValueError:
+        # An unusable setting is reported when the run starts (run_workflow).
+        pass
 
 # %% =======================================
 # HELPER FUNCTIONS
@@ -709,6 +735,7 @@ BATCH_ATTRIBUTE_NAMES = (
     "complete",
     "model_name",
     "matrix",
+    "score_metric",
     "query_chunk_sha256",
     "source_result_filename",
     "source_result_sha256",
@@ -737,6 +764,7 @@ def _batch_attributes(run_metadata, query_checksum, result_path, result_checksum
         "complete": True,
         "model_name": "BLAST",
         "matrix": run_metadata["matrix"],
+        "score_metric": run_metadata["score_metric"],
         "query_chunk_sha256": query_checksum,
         "source_result_filename": os.path.basename(result_path),
         "source_result_sha256": result_checksum,
@@ -948,13 +976,29 @@ def _merge_sorted_edge_iterators(edge_iterators, output, batch_size):
     return edge_count
 
 
-def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=None):
-    """Reuse or atomically create one bounded-memory HDF5 parsing batch."""
+def parse_result_to_batch(
+    result_path, query_checksum, run_metadata, batch_size=None, lengths=None
+):
+    """Reuse or atomically create one bounded-memory HDF5 parsing batch.
+
+    For the EFI alignment score, ``lengths`` holds the sanitized sequence
+    lengths by numeric BLAST identifier. They stay out of ``run_metadata``,
+    which the resume check compares: the manifest checksum there already
+    stands for them.
+    """
     batch_size = BATCH_SIZE if batch_size is None else int(batch_size)
     if batch_size <= 0:
         raise ValueError("BATCH_SIZE must be a positive integer.")
     if not os.path.exists(result_path):
         raise FileNotFoundError(f"BLAST result is missing: {result_path}")
+    efi = run_metadata["score_metric"] == SCORE_METRIC_EFI
+    if efi:
+        if lengths is None or len(lengths) != int(run_metadata["sequence_count"]):
+            raise ValueError(
+                "The EFI alignment score needs one sequence length for each "
+                "of the sequences."
+            )
+        lengths = [int(length) for length in lengths]
 
     result_checksum = calculate_file_sha256(result_path)
     expected_attrs = _batch_attributes(
@@ -1023,7 +1067,8 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
                 try:
                     source = int(columns[0])
                     target = int(columns[1])
-                    raw_evalue = float(columns[10])
+                    # The E-value, or the bit score of the EFI alignment score.
+                    raw_score = float(columns[11] if efi else columns[10])
                 except ValueError:
                     mismatches += 1
                     continue
@@ -1032,8 +1077,8 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
                     or target < 0
                     or source >= sequence_count
                     or target >= sequence_count
-                    or raw_evalue < 0
-                    or not math.isfinite(raw_evalue)
+                    or raw_score < 0
+                    or not math.isfinite(raw_score)
                 ):
                     mismatches += 1
                     continue
@@ -1042,7 +1087,11 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
                 if source != target:
                     source_buffer.append(min(source, target))
                     target_buffer.append(max(source, target))
-                    score_buffer.append(-math.log10(raw_evalue + 1e-300))
+                    score_buffer.append(
+                        efi_alignment_score(raw_score, lengths[source], lengths[target])
+                        if efi
+                        else -math.log10(raw_score + 1e-300)
+                    )
                     if len(source_buffer) >= batch_size:
                         _write_sorted_edge_run(
                             runs_group,
@@ -1159,6 +1208,10 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
     with h5py.File(partial_path, "w") as output:
         output.attrs["model_name"] = "BLAST"
         output.attrs["matrix"] = run_metadata["matrix"]
+        if run_metadata["score_metric"] == SCORE_METRIC_EFI:
+            # Without score_kind a network holds E-value scores.
+            output.attrs["score_kind"] = SCORE_METRIC_EFI
+            output.attrs["score_transform"] = EFI_SCORE_TRANSFORM
         string_dtype = h5py.string_dtype(encoding="utf-8")
         output.create_dataset(
             "headers",
@@ -1213,7 +1266,11 @@ def cleanup_workspace():
 # ==========================================
 
 def run_workflow():
-    print(f"--- BLAST All-vs-All (-Log10 E-Value Mode) ---")
+    print(
+        "--- BLAST All-vs-All (EFI Alignment Score Mode) ---"
+        if SCORE_METRIC == SCORE_METRIC_EFI
+        else "--- BLAST All-vs-All (-Log10 E-Value Mode) ---"
+    )
 
     try:
         configure_runtime_paths()
@@ -1251,8 +1308,14 @@ def run_workflow():
         "matrix": str(MATRIX),
         "num_threads": int(NUM_THREADS),
         "blastp_version": blastp_version,
+        "score_metric": SCORE_METRIC,
     }
     check_and_initialize_workspace(run_metadata)
+    sequence_lengths = (
+        [len(sequence) for sequence in sequences]
+        if SCORE_METRIC == SCORE_METRIC_EFI
+        else None
+    )
 
     # 1. GENERATE NUMERIC-ID FASTA
     # Keep the BLAST-facing filename free of spaces as well as making it
@@ -1363,6 +1426,7 @@ def run_workflow():
             query_checksum,
             run_metadata,
             BATCH_SIZE,
+            sequence_lengths,
         )
         batch_records.append(record)
         batch_edge_count += record["edges"]

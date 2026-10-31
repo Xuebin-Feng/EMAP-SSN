@@ -4,6 +4,7 @@ parsing and validation, streaming compilation and the mocked end-to-end run.
 """
 import glob
 import io
+import json
 import os
 import pathlib
 import sys
@@ -54,15 +55,20 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             "matrix": "BLOSUM62",
             "num_threads": 2,
             "blastp_version": "blastp: 2.17.0+",
+            "score_metric": "evalue",
         }
         metadata.update(overrides)
         return metadata
 
+    @classmethod
+    def _efi_metadata(cls, **overrides):
+        return cls._metadata(score_metric="efi_alignment_score", **overrides)
+
     @staticmethod
-    def _blast_line(source, target, evalue):
+    def _blast_line(source, target, evalue, bitscore=50.0):
         return (
             f"{source} {target} 100.0 10 0 0 1 10 1 10 "
-            f"{evalue} 50.0\n"
+            f"{evalue} {bitscore}\n"
         )
 
     def test_blast_input_uses_canonical_embedding_sanitization(self):
@@ -664,7 +670,9 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 substitution_matrix.cleanup_workspace()
                 self.assertFalse(os.path.exists(workspace))
 
-    def _run_mocked_workflow(self, input_path, network_dir, fake_subprocess_run, **patches):
+    def _run_mocked_workflow(
+        self, input_path, network_dir, fake_subprocess_run, score_name="EValue", **patches
+    ):
         """Run main([]) for input_path with BLAST, the worker pool and settings mocked.
 
         Returns the exit code and the mocked multiprocessing.set_start_method.
@@ -684,13 +692,13 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 for task in tasks:
                     yield function(task)
 
-        workspace = os.path.join(network_dir, "input_[BLAST]_EValue_temp")
+        workspace = os.path.join(network_dir, f"input_[BLAST]_{score_name}_temp")
         settings = {
             "INPUT_FASTA": "input.fasta",
             "FULL_INPUT_FASTA": input_path,
             "SEQUENCE_SET": "input",
             "NETWORK_DIR": network_dir,
-            "OUTPUT_HDF5": os.path.join(network_dir, "input_[BLAST]_EValue.h5"),
+            "OUTPUT_HDF5": os.path.join(network_dir, f"input_[BLAST]_{score_name}.h5"),
             "SAFE_TEMP_DIR": workspace,
             "CHUNKS_DIR": os.path.join(workspace, "chunks"),
             "RESULTS_DIR": os.path.join(workspace, "results"),
@@ -776,6 +784,324 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 np.testing.assert_allclose(network["score"][:], [25.0])
                 self.assertEqual(network.attrs["model_name"], "BLAST")
                 self.assertEqual(network.attrs["matrix"], "BLOSUM62")
+
+    # --- the EFI alignment score (SCORE_METRIC "efi_alignment_score") ---------
+
+    def _parse_efi(self, temp_dir, lines, lengths, batch_size=2, name="efi"):
+        """Parse BLAST lines as the EFI alignment score; return the batch record."""
+        batch_dir = os.path.join(temp_dir, "batches")
+        os.makedirs(batch_dir, exist_ok=True)
+        result_path = os.path.join(temp_dir, f"{name}.txt")
+        with open(result_path, "w", encoding="utf-8") as result:
+            result.writelines(lines)
+        with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
+            return substitution_matrix.parse_result_to_batch(
+                result_path,
+                f"{name}-query",
+                self._efi_metadata(),
+                batch_size=batch_size,
+                lengths=lengths,
+            )
+
+    def test_efi_score_is_the_bitscore_minus_the_log_of_the_length_product(self):
+        # bit score 100, lengths 200 and 300: 100 log10(2) - log10(60000).
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = self._parse_efi(
+                temp_dir,
+                # The E-value of 0 would score 300 as an E-value network.
+                [self._blast_line(0, 1, "0", bitscore=100.0)],
+                [200, 300, 10, 20],
+            )
+            with h5py.File(record["path"], "r") as batch:
+                score = batch["score"][:]
+                self.assertEqual(batch["score"].dtype, np.float32)
+        np.testing.assert_allclose(score, [25.3248], atol=5e-5)
+        # Unrounded, as EFI-EST's integer floor would not be.
+        self.assertNotEqual(float(score[0]), float(np.floor(score[0])))
+
+    def test_efi_score_uses_the_lengths_of_the_two_sequences_of_the_hit(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = self._parse_efi(
+                temp_dir,
+                [
+                    self._blast_line(1, 3, "1e-5", bitscore=80.0),
+                    self._blast_line(2, 2, "1e-5", bitscore=900.0),  # self-hit
+                ],
+                [200, 300, 10, 20],
+            )
+            with h5py.File(record["path"], "r") as batch:
+                np.testing.assert_array_equal(batch["i"][:], [1])
+                np.testing.assert_array_equal(batch["j"][:], [3])
+                np.testing.assert_allclose(
+                    batch["score"][:],
+                    [80 * np.log10(2) - np.log10(300 * 20)],
+                    rtol=1e-6,
+                )
+
+    def test_efi_score_keeps_the_maximum_over_hsps_and_both_directions(self):
+        lengths = [200, 300, 10, 20]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = self._parse_efi(
+                temp_dir,
+                [
+                    self._blast_line(0, 1, "1e-5", bitscore=100.0),
+                    self._blast_line(0, 1, "1e-9", bitscore=150.0),  # another HSP
+                    self._blast_line(1, 0, "1e-7", bitscore=120.0),  # reverse hit
+                    self._blast_line(0, 2, "1e-5", bitscore=60.0),
+                    self._blast_line(2, 0, "1e-4", bitscore=40.0),
+                ],
+                lengths,
+                batch_size=1,  # one sorted run per row, merged afterwards
+            )
+            self.assertEqual(record["edges"], 2)
+            with h5py.File(record["path"], "r") as batch:
+                np.testing.assert_array_equal(batch["j"][:], [1, 2])
+                np.testing.assert_allclose(
+                    batch["score"][:],
+                    [
+                        150 * np.log10(2) - np.log10(200 * 300),
+                        60 * np.log10(2) - np.log10(200 * 10),
+                    ],
+                    rtol=1e-6,
+                )
+
+    def test_efi_parser_rejects_invalid_bitscores_and_needs_the_lengths(self):
+        lines = [
+            self._blast_line(0, 1, "1e-5", bitscore=100.0),
+            self._blast_line(0, 2, "1e-5", bitscore="nan"),
+            self._blast_line(0, 3, "1e-5", bitscore="inf"),
+            self._blast_line(1, 2, "1e-5", bitscore=-5.0),
+            self._blast_line(1, 3, "1e-5", bitscore="x"),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = self._parse_efi(temp_dir, lines, [200, 300, 10, 20])
+            self.assertEqual(
+                (record["edges"], record["valid_lines"], record["mismatches"]),
+                (1, 1, 4),
+            )
+            for lengths in (None, [200, 300]):
+                with self.subTest(lengths=lengths), self.assertRaisesRegex(
+                    ValueError, "one sequence length for each"
+                ):
+                    self._parse_efi(temp_dir, lines, lengths, name="short")
+
+    def test_score_metric_is_part_of_the_batch_and_workspace_identity(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            batch_dir = os.path.join(temp_dir, "batches")
+            os.makedirs(batch_dir)
+            result_path = os.path.join(temp_dir, "result.txt")
+            with open(result_path, "w", encoding="utf-8") as result:
+                result.write(self._blast_line(0, 1, "1e-10", bitscore=100.0))
+            lengths = [200, 300, 10, 20]
+
+            with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
+                efi_first = substitution_matrix.parse_result_to_batch(
+                    result_path, "query-checksum", self._efi_metadata(),
+                    batch_size=2, lengths=lengths,
+                )
+                self.assertEqual(
+                    efi_first["attrs"]["score_metric"], "efi_alignment_score"
+                )
+                with h5py.File(efi_first["path"], "r") as batch:
+                    self.assertEqual(batch.attrs["score_metric"], "efi_alignment_score")
+
+                # An EFI batch is not the batch of the same chunk's E-value run.
+                valid, reason, _ = substitution_matrix.validate_batch_file(
+                    efi_first["path"], dict(efi_first["attrs"], score_metric="evalue"),
+                    sequence_count=4, read_size=2,
+                )
+                self.assertFalse(valid)
+                self.assertIn("score_metric", reason)
+
+                evalue = substitution_matrix.parse_result_to_batch(
+                    result_path, "query-checksum", self._metadata(), batch_size=2
+                )
+                self.assertFalse(evalue["reused"])
+                self.assertEqual(evalue["edges"], 1)
+                with h5py.File(evalue["path"], "r") as batch:
+                    self.assertAlmostEqual(float(batch["score"][0]), 10.0, places=4)
+                self.assertTrue(
+                    os.path.isdir(os.path.join(batch_dir, "invalid_batches"))
+                )
+
+                # And an E-value batch is not reused for EFI either.
+                again = substitution_matrix.parse_result_to_batch(
+                    result_path, "query-checksum", self._efi_metadata(),
+                    batch_size=2, lengths=lengths,
+                )
+                self.assertFalse(again["reused"])
+
+            # The resume key: one workspace is never resumed under the other metric.
+            workspace = os.path.join(temp_dir, "networks", "run_temp")
+            patches = {
+                "NETWORK_DIR": os.path.join(temp_dir, "networks"),
+                "SAFE_TEMP_DIR": workspace,
+                "CHUNKS_DIR": os.path.join(workspace, "chunks"),
+                "RESULTS_DIR": os.path.join(workspace, "results"),
+                "BATCH_DIR": os.path.join(workspace, "batches"),
+                "CONFIG_FILE": os.path.join(workspace, "job_config.json"),
+            }
+            with mock.patch.multiple(substitution_matrix, **patches):
+                substitution_matrix.check_and_initialize_workspace(self._efi_metadata())
+                self.assertTrue(
+                    substitution_matrix.check_and_initialize_workspace(
+                        self._efi_metadata()
+                    )
+                )
+                self.assertFalse(
+                    substitution_matrix.check_and_initialize_workspace(self._metadata())
+                )
+            reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp"
+                      / "resume_mismatch.txt").read_text(encoding="utf-8")
+            self.assertIn("configuration mismatch for score_metric", reason)
+
+    def test_names_follow_the_score_metric(self):
+        derived = ("SEQUENCE_SET", "FULL_INPUT_FASTA", "OUTPUT_HDF5", "SAFE_TEMP_DIR",
+                   "CHUNKS_DIR", "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE")
+        expected = {
+            "evalue": "proteins_[BLAST]_EValue",
+            "efi_alignment_score": "proteins_[BLAST]_EFIScore",
+        }
+        for metric, stem in expected.items():
+            with self.subTest(metric=metric), tempfile.TemporaryDirectory() as network_dir, \
+                    mock.patch.multiple(
+                        substitution_matrix,
+                        INPUT_FASTA="proteins.fasta",
+                        NETWORK_DIR=network_dir,
+                        SCORE_METRIC=metric,
+                        **{name: getattr(substitution_matrix, name) for name in derived},
+                    ):
+                substitution_matrix.configure_runtime_paths()
+                self.assertEqual(
+                    os.path.basename(substitution_matrix.OUTPUT_HDF5), stem + ".h5"
+                )
+                self.assertEqual(
+                    os.path.basename(substitution_matrix.SAFE_TEMP_DIR), stem + "_temp"
+                )
+
+    def test_unknown_score_metric_is_refused_before_the_workspace_is_touched(self):
+        derived = ("SEQUENCE_SET", "FULL_INPUT_FASTA", "OUTPUT_HDF5", "SAFE_TEMP_DIR",
+                   "CHUNKS_DIR", "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta_dir = os.path.join(temp_dir, "fastas")
+            network_dir = os.path.join(temp_dir, "networks")
+            os.makedirs(fasta_dir)
+            pathlib.Path(fasta_dir, "input.fasta").write_text(
+                ">a\nACDE\n>b\nACDF\n", encoding="utf-8"
+            )
+            stdout = io.StringIO()
+            with mock.patch.multiple(
+                substitution_matrix,
+                INPUT_FASTA="input.fasta",
+                FASTA_DIR=fasta_dir,
+                NETWORK_DIR=network_dir,
+                SCORE_METRIC="alignment_score",
+                **{name: getattr(substitution_matrix, name) for name in derived},
+            ), mock.patch.object(
+                substitution_matrix, "load_tool_settings"
+            ), mock.patch.object(
+                substitution_matrix.multiprocessing, "set_start_method"
+            ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "SCORE_METRIC must be one of"):
+                    substitution_matrix.configure_runtime_paths()
+                exit_code = substitution_matrix.main([])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("SCORE_METRIC must be one of", stdout.getvalue())
+            self.assertEqual(os.listdir(temp_dir), ["fastas"])
+
+    def test_final_network_records_the_score_kind_only_for_efi(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            batch_dir = os.path.join(temp_dir, "batches")
+            os.makedirs(batch_dir)
+            result_path = os.path.join(temp_dir, "result.txt")
+            with open(result_path, "w", encoding="utf-8") as result:
+                result.write(self._blast_line(0, 1, "1e-10", bitscore=100.0))
+            attributes = {}
+            with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
+                for metric, metadata, lengths in (
+                    ("evalue", self._metadata(), None),
+                    ("efi_alignment_score", self._efi_metadata(), [200, 300, 10, 20]),
+                ):
+                    record = substitution_matrix.parse_result_to_batch(
+                        result_path, f"query-{metric}", metadata,
+                        batch_size=2, lengths=lengths,
+                    )
+                    output_path = os.path.join(temp_dir, f"{metric}.h5")
+                    substitution_matrix.compile_final_output(
+                        ["a", "b", "c", "d"], [record], metadata, output_path, batch_size=2
+                    )
+                    with h5py.File(output_path, "r") as network:
+                        attributes[metric] = dict(network.attrs)
+
+        # An E-value network keeps the attributes it has always had.
+        self.assertEqual(attributes["evalue"], {"model_name": "BLAST", "matrix": "BLOSUM62"})
+        self.assertEqual(
+            attributes["efi_alignment_score"],
+            {
+                "model_name": "BLAST",
+                "matrix": "BLOSUM62",
+                "score_kind": "efi_alignment_score",
+                "score_transform": "bitscore*log10(2) - log10(len_query*len_subject)",
+            },
+        )
+
+    def test_mocked_efi_workflow_scores_sanitized_lengths_and_keeps_them_out_of_the_resume_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta_dir = os.path.join(temp_dir, "fastas")
+            network_dir = os.path.join(temp_dir, "networks")
+            os.makedirs(fasta_dir)
+            input_path = os.path.join(fasta_dir, "input.fasta")
+            # Sanitization trims the terminal artifacts: the lengths are 200 and 300.
+            pathlib.Path(input_path).write_text(
+                ">a\n--" + "A" * 200 + "*\n>b\n" + "C" * 300 + "\n",
+                encoding="utf-8",
+            )
+            workspace = os.path.join(network_dir, "input_[BLAST]_EFIScore_temp")
+            output_path = os.path.join(network_dir, "input_[BLAST]_EFIScore.h5")
+            self.assertFalse(
+                os.path.exists(os.path.join(network_dir, "input_[BLAST]_EValue.h5"))
+            )
+
+            def fake_subprocess_run(command, **kwargs):
+                if os.path.basename(command[0]).startswith("makeblastdb"):
+                    return mock.Mock(returncode=0, stdout="", stderr="")
+                partial_result = command[command.index("-out") + 1]
+                pathlib.Path(partial_result).write_text(
+                    self._blast_line(0, 1, "1e-25", bitscore=100.0)
+                    + self._blast_line(1, 0, "1e-20", bitscore=90.0),
+                    encoding="utf-8",
+                )
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            with mock.patch.object(substitution_matrix, "cleanup_workspace"):
+                exit_code, _ = self._run_mocked_workflow(
+                    input_path,
+                    network_dir,
+                    fake_subprocess_run,
+                    score_name="EFIScore",
+                    SCORE_METRIC="efi_alignment_score",
+                )
+
+            self.assertEqual(exit_code, 0)
+            with h5py.File(output_path, "r") as network:
+                np.testing.assert_array_equal(network["i"][:], [0])
+                np.testing.assert_array_equal(network["j"][:], [1])
+                np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
+                self.assertEqual(network.attrs["model_name"], "BLAST")
+                self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+                self.assertEqual(
+                    network.attrs["score_transform"],
+                    "bitscore*log10(2) - log10(len_query*len_subject)",
+                )
+            saved = json.loads(
+                pathlib.Path(workspace, "job_config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(saved["score_metric"], "efi_alignment_score")
+            self.assertNotIn("lengths", saved)
+            self.assertFalse(
+                any(isinstance(value, list) for value in saved.values()), saved
+            )
 
     @unittest.skipUnless(
         _long_paths_supported(),
