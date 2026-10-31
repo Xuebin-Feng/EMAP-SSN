@@ -11591,7 +11591,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+3"/>
         <source>The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.</source>
-        <translation type="unfinished">比特得分位于 `outfmt 6` 的第 12 列、`outfmt 7` 的 `bit score` 字段，或自定义布局的“比特得分列”。</translation>
+        <translation type="unfinished">比特得分位于 `outfmt 6` 的第 12 列、名为 `bit score` 的字段（`outfmt 7`），或自定义布局的“比特得分列”。</translation>
     </message>
     <message>
         <location line="+4"/>
