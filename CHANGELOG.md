@@ -4,6 +4,60 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
+## [Unreleased]
+
+### Added
+
+- **The EFI alignment score for BLAST networks.** The BLAST all-vs-all tool and the BLAST
+  and DIAMOND importer can score each edge with the EFI-EST alignment score instead of
+  -log10 of the E-value: Score in the Tools window, `SCORE_METRIC` in the settings and MCP.
+  - **The score** is the bit score × log10(2) − log10(query length × subject length), from
+    the two cleaned sequences' full lengths, as EFI-EST defines it, and is stored unrounded.
+    Unlike -log10(E), it does not change with the size of the sequence set, and it has no
+    cap at 300 (BLAST prints an E-value of 0 for the strongest hits). Weak hits between long
+    sequences can score 0 or below.
+  - **Kept apart from E-value networks:** such a network is saved as
+    `<set>_[BLAST]_EFIScore.h5` (`[DIAMOND]` for DIAMOND imports) and records `score_kind`
+    and `score_transform`. Its layout caches are labelled `[BLAST-EFI]` or `[DIAMOND-EFI]`,
+    and its extracts and exports have names of their own.
+  - **The importer** reads the bit score from column 12 of `outfmt 6`, from the `bit score`
+    field of `outfmt 7`, or from a new Bit Score Column for custom layouts.
+  - **Shown everywhere a score is named:** Config's statistics, the Viewer, MCP's network
+    statistics and the layout settings say which score a network holds. VR Config finds an
+    EFI network's caches, and VR exports it to folders of its own.
+  - The E-value score stays the default. Its files, caches and resumable runs are unchanged.
+- **Download BLAST+ from the Tools window.** The BLASTP Directory row has a Download button.
+  - After asking, it downloads NCBI BLAST+ 2.17.0 for this computer into a folder you
+    choose, checks it against SHA-256 checksums the program records, and keeps only
+    blastp and makeblastdb (and nghttp2.dll on Windows).
+  - It checks that BLAST+ starts before replacing an earlier copy, then fills in the field.
+  - Nothing is downloaded unless you click it, and a cancelled or failed download leaves
+    nothing behind.
+  - Browse is now an icon beside it.
+- **Networks record the BLAST+ version that made them** (`blast_version`), and MCP's
+  `get_compute_capabilities` reports the BLAST+ the program would use.
+
+### Changed
+
+- **A blank BLASTP Directory means "find BLAST+ automatically", and the field shows what
+  that finds.**
+  - The Tools window no longer fills in, and saves, a BLAST+ it found by itself. A value
+    you saved stays as it is.
+  - The search: the field, then PATH, then the newest `C:\Program Files\NCBI\*\bin` by
+    version number (2.17 before 2.9, which used to be sorted as text), then the usual Unix
+    folders.
+  - A field that names a folder without blastp and makeblastdb is now an error, instead of
+    being passed over in silence. The benchmark uses the same search.
+- BLAST+ runs started by the program have NCBI's usage reporting turned off
+  (`BLAST_USAGE_REPORT=false`).
+
+### Fixed
+
+- **The BLASTP Directory setting was ignored** when the BLAST all-vs-all tool ran from the
+  Tools window's Save & Run or as an MCP job. It used whatever BLAST+ it found on PATH or
+  in the standard folders, and failed with "blastp not found" when BLAST+ was only in the
+  chosen folder.
+
 ## [0.5.0] - 2026-10-30
 
 ### Highlights
