@@ -58,6 +58,7 @@ if str(SRC_DIR) not in sys.path:
 
 import psutil  # noqa: E402
 
+from utilities import BLAST_Executables  # noqa: E402
 from utilities.Localization import JoinedMessage, Message, display_text  # noqa: E402
 
 # The protocol: change it whenever a stage, its settings or the data change,
@@ -959,38 +960,33 @@ def msa_problem(state):
     return None
 
 
-def blast_executables():
-    """blastp and makeblastdb where Align_Substitution_Matrix.py finds them without a BLASTP_DIR.
-
-    The benchmark never reads tools_settings.json, so a BLASTP_DIR saved in
-    the Tools window doesn't apply: BLAST+ must be on the PATH or in its
-    default Windows folder.
-    """
-    if shutil.which("blastp") or shutil.which("blastp.exe"):
-        return ["blastp", "makeblastdb"]
-    root = r"C:\Program Files\NCBI"
-    if os.name == "nt" and os.path.isdir(root):
-        folders = sorted(
-            (os.path.join(root, name, "bin") for name in os.listdir(root)
-             if os.path.exists(os.path.join(root, name, "bin", "blastp.exe"))),
-            reverse=True,
-        )
-        if folders:
-            return [os.path.join(folders[0], name) for name in ("blastp.exe", "makeblastdb.exe")]
-    return ["blastp", "makeblastdb"]
-
-
 def blast_problem(state):
-    for executable in blast_executables():
+    """Why BLAST+ cannot run here, or None.
+
+    The benchmark never reads tools_settings.json, so a BLASTP_DIR saved in the
+    Tools window doesn't apply: the tool runs with a blank one, and so does this
+    check, which asks the tool's own lookup (utilities/BLAST_Executables.py).
+    """
+    standard = BLAST_Executables.windows_ncbi_root() if BLAST_Executables.is_windows() \
+        else ", ".join(BLAST_Executables.UNIX_FOLDERS)
+    try:
+        blast = BLAST_Executables.find_executables("")
+    except BLAST_Executables.BlastError:
+        return Message(
+            "NCBI BLAST+ was not found on the PATH or in {folder} ({error}).",
+            folder=standard, error="blastp and makeblastdb not found",
+        )
+    for executable in (blast.blastp, blast.makeblastdb):
         try:
             subprocess.run(
                 [executable, "-version"], check=True, capture_output=True, timeout=30,
+                env=BLAST_Executables.blast_environment(),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except (OSError, subprocess.SubprocessError) as error:
             return Message(
                 "NCBI BLAST+ was not found on the PATH or in {folder} ({error}).",
-                folder=r"C:\Program Files\NCBI", error=f"{executable}: {error}",
+                folder=standard, error=f"{executable}: {error}",
             )
     return None
 

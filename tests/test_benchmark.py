@@ -344,6 +344,46 @@ class BenchmarkStageTableTests(unittest.TestCase):
                 benchmark.select_stages(text)
 
 
+class BenchmarkBlastCheckTests(unittest.TestCase):
+    """The BLAST stage's readiness check asks the lookup the tool itself uses, with a blank BLASTP_DIR."""
+
+    found = benchmark.BLAST_Executables.BlastExecutables("/ncbi/bin/blastp", "/ncbi/bin/makeblastdb", "PATH")
+
+    def test_both_programs_start_so_nothing_is_wrong(self):
+        with mock.patch.object(benchmark.BLAST_Executables, "find_executables", return_value=self.found) as find, \
+                mock.patch.object(benchmark.subprocess, "run") as run:
+            self.assertIsNone(benchmark.blast_problem({}))
+        find.assert_called_once_with("")
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [["/ncbi/bin/blastp", "-version"], ["/ncbi/bin/makeblastdb", "-version"]],
+        )
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs["env"]["BLAST_USAGE_REPORT"], "false")
+
+    def test_no_blast_is_a_message_naming_where_it_looked(self):
+        failure = benchmark.BLAST_Executables.BlastError("not found")
+        with mock.patch.object(benchmark.BLAST_Executables, "find_executables", side_effect=failure), \
+                mock.patch.object(benchmark.subprocess, "run", side_effect=AssertionError("ran")):
+            problem = benchmark.blast_problem({})
+        self.assertIsInstance(problem, Localization.Message)
+        self.assertIn("NCBI BLAST+ was not found on the PATH or in", str(problem))
+        self.assertIn("blastp and makeblastdb not found", str(problem))
+        standard = (benchmark.BLAST_Executables.windows_ncbi_root() if benchmark.BLAST_Executables.is_windows()
+                    else "/usr/local/ncbi/blast/bin, /usr/local/bin, /usr/bin, /opt/homebrew/bin")
+        self.assertIn(standard, str(problem))
+
+    def test_a_program_that_will_not_start_is_a_message_naming_it(self):
+        def run(command, **kwargs):
+            if command[0].endswith("makeblastdb"):
+                raise OSError("a runtime is missing")
+
+        with mock.patch.object(benchmark.BLAST_Executables, "find_executables", return_value=self.found), \
+                mock.patch.object(benchmark.subprocess, "run", side_effect=run):
+            problem = benchmark.blast_problem({})
+        self.assertIn("/ncbi/bin/makeblastdb: a runtime is missing", str(problem))
+
+
 class BenchmarkLayoutStageTests(unittest.TestCase):
     """The PaCMAP stage lays out the network the UMAP stage does, and only the method differs."""
 
