@@ -1,10 +1,11 @@
-"""Embedding_PWA pairwise alignment: tracebacks, percent identity and reports.
+"""Embedding_PWA pairwise alignment: tracebacks, percent identity and similarity, reports.
 
 Covers the global and local tracebacks (checked against the SSEARCH kernels),
-the alignment columns and identity marks, the mapping of highlighted reference
-positions onto the target, the console and HTML report, and the rejection of
-unknown ALIGNMENT_MODE values. Manual-sequence switches are covered in
-test_manual_sequence_controls.
+the alignment columns with their identity and similarity marks, the
+substitution matrices that decide which pairs are similar, the mapping of
+highlighted reference positions onto the target, the console and HTML report,
+and the rejection of unknown ALIGNMENT_MODE and SIMILARITY_MATRIX values.
+Manual-sequence switches are covered in test_manual_sequence_controls.
 """
 
 import os
@@ -37,6 +38,9 @@ from utilities.Network_Kernels import (
     global_score_length_identity,
     local_score_length_identity,
 )
+from utilities.Sequence_Utils import IDENTITY_RESIDUES, similarity_definition
+
+BLOSUM62 = embedding_pwa.load_similarity_matrix("BLOSUM62")
 
 
 def path_score(idx_1, idx_2, score_matrix, gap_penalty, score_shift=0.0):
@@ -73,8 +77,8 @@ class PairwiseTracebackTests(unittest.TestCase):
         self.assertEqual(idx_2, [0, 1, -1])
         self.assertEqual(float(score), 5000.0)
         self.assertAlmostEqual(path_score(idx_1, idx_2, matrix, 0.0), 5000.0)
-        _, identities = embedding_pwa.build_alignment_columns(
-            idx_1, idx_2, "AC", "AD", set()
+        _, identities, _ = embedding_pwa.build_alignment_columns(
+            idx_1, idx_2, "AC", "AD", set(), BLOSUM62
         )
         self.assertEqual(
             (len(idx_1), identities),
@@ -104,8 +108,8 @@ class PairwiseTracebackTests(unittest.TestCase):
                         idx_1, idx_2, score = embedding_pwa.smith_waterman_custom(
                             matrix, gap
                         )
-                    _, identities = embedding_pwa.build_alignment_columns(
-                        idx_1, idx_2, seq_ref, seq_tar, set()
+                    _, identities, _ = embedding_pwa.build_alignment_columns(
+                        idx_1, idx_2, seq_ref, seq_tar, set(), BLOSUM62
                     )
                     self.assertEqual(
                         (len(idx_1), identities),
@@ -120,12 +124,13 @@ class PairwiseTracebackTests(unittest.TestCase):
                     )
 
     def test_columns_mark_only_identical_standard_residues(self):
-        columns, identities = embedding_pwa.build_alignment_columns(
+        columns, identities, similar = embedding_pwa.build_alignment_columns(
             [0, 1, 2, 3, -1],
             [0, 1, 2, -1, 3],
             "AXCK",
             "AXDE",
             {1},
+            BLOSUM62,
         )
         self.assertEqual(
             columns,
@@ -137,7 +142,117 @@ class PairwiseTracebackTests(unittest.TestCase):
                 ("-", "E", " ", False),
             ],
         )
-        self.assertEqual(identities, 1)
+        self.assertEqual((identities, similar), (1, 1))
+
+
+class PairwiseSimilarityTests(unittest.TestCase):
+    """A standard residue pair is similar when identical or scored above 0 by the matrix."""
+
+    @staticmethod
+    def columns(ref, tar, matrix_name="BLOSUM62"):
+        """Mark ref over tar, residue for residue, with the named matrix."""
+        indices = list(range(len(ref)))
+        columns, identities, similar = embedding_pwa.build_alignment_columns(
+            indices, indices, ref, tar, set(),
+            embedding_pwa.load_similarity_matrix(matrix_name),
+        )
+        return "".join(column[2] for column in columns), identities, similar
+
+    def test_worked_example_counts_identical_similar_and_gap_columns(self):
+        # MKV-LLA over MRIAL-A: K/R scores +2 and V/I +3 in BLOSUM62, so
+        # three identities, five similar pairs and two gap columns of seven.
+        columns, identities, similar = embedding_pwa.build_alignment_columns(
+            [0, 1, 2, -1, 3, 4, 5],
+            [0, 1, 2, 3, 4, -1, 5],
+            "MKVLLA",
+            "MRIALA",
+            set(),
+            BLOSUM62,
+        )
+        self.assertEqual(BLOSUM62["K", "R"], 2)
+        self.assertEqual(BLOSUM62["V", "I"], 3)
+        self.assertEqual("".join(column[2] for column in columns), "|:: | |")
+        self.assertEqual(len(columns), 7)
+        self.assertEqual((identities, similar), (3, 5))
+        self.assertEqual(sum(column[2] == " " for column in columns), 2)
+
+    def test_similar_pairs_include_every_identity_for_every_matrix(self):
+        rng = np.random.default_rng(20261031)
+        standard = list(IDENTITY_RESIDUES)
+        for name in embedding_pwa.SIMILARITY_MATRICES:
+            with self.subTest(matrix=name):
+                matrix = embedding_pwa.load_similarity_matrix(name)
+                ref = "".join(rng.choice(standard, size=300))
+                tar = "".join(
+                    residue if rng.random() < 0.3 else rng.choice(standard)
+                    for residue in ref
+                )
+                _, identities, similar = embedding_pwa.build_alignment_columns(
+                    list(range(300)), list(range(300)), ref, tar, set(), matrix
+                )
+                self.assertEqual(identities, sum(a == b for a, b in zip(ref, tar)))
+                self.assertEqual(
+                    similar,
+                    sum(a == b or matrix[a, b] > 0 for a, b in zip(ref, tar)),
+                )
+                self.assertGreater(identities, 0)
+                self.assertGreaterEqual(similar, identities)
+
+    def test_non_standard_residues_never_count_even_where_the_matrix_scores_them(self):
+        # B/D (+4), Z/E (+4) and X/X are scored by BLOSUM62; U, J and O are not
+        # in it at all. None of them is a standard residue, so none counts.
+        self.assertEqual(BLOSUM62["B", "D"], 4)
+        self.assertEqual(BLOSUM62["Z", "E"], 4)
+        marks, identities, similar = self.columns("BZXUJOAD", "DEXUJOAB")
+        self.assertEqual(marks, "......|.")
+        self.assertEqual((identities, similar), (1, 1))
+
+    def test_a_pair_scoring_zero_or_below_is_not_similar(self):
+        # A/G scores 0, A/R -1 and C/D -3: aligned, but marked "." only.
+        self.assertEqual(BLOSUM62["A", "G"], 0)
+        self.assertEqual(BLOSUM62["A", "R"], -1)
+        self.assertEqual(BLOSUM62["C", "D"], -3)
+        self.assertEqual(self.columns("AAC", "GRD"), ("...", 0, 0))
+        # S/T scores +1, the lowest positive score, and is similar.
+        self.assertEqual(self.columns("S", "T"), (":", 0, 1))
+
+    def test_the_matrix_decides_which_pairs_are_similar(self):
+        # K/R scores 0 in PAM30 and +3 in PAM250.
+        self.assertEqual(self.columns("KK", "RR", "PAM30"), ("..", 0, 0))
+        self.assertEqual(self.columns("KK", "RR", "PAM250"), ("::", 0, 2))
+
+    def test_every_listed_matrix_loads_and_scores_the_standard_residues(self):
+        self.assertEqual(
+            embedding_pwa.SIMILARITY_MATRICES,
+            ("BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90",
+             "PAM30", "PAM70", "PAM250"),
+        )
+        for name in embedding_pwa.SIMILARITY_MATRICES:
+            with self.subTest(matrix=name):
+                matrix = embedding_pwa.load_similarity_matrix(name)
+                for a in IDENTITY_RESIDUES:
+                    self.assertGreater(matrix[a, a], 0)
+                    for b in IDENTITY_RESIDUES:
+                        self.assertEqual(matrix[a, b], matrix[b, a])
+
+    def test_an_unknown_matrix_is_refused_naming_the_choices(self):
+        for name in ("BLOSUM", "blosum62", " BLOSUM62", "BLOSUM62.txt", "../BLOSUM62", "", None):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    re.escape(f"Unknown SIMILARITY_MATRIX {name!r}; choose BLOSUM45, "),
+                ):
+                    embedding_pwa.load_similarity_matrix(name)
+
+    def test_definition_names_the_matrix_and_the_identity_length(self):
+        for mode in ("global", "local"):
+            for name in ("BLOSUM62", "PAM250"):
+                with self.subTest(mode=mode, matrix=name):
+                    self.assertEqual(
+                        similarity_definition(mode, name),
+                        f"Identical or {name}-positive standard residue pairs"
+                        " / the same length",
+                    )
 
 
 class HighlightMappingTests(unittest.TestCase):
@@ -168,7 +283,7 @@ class HighlightMappingTests(unittest.TestCase):
 
 
 class PairwiseIdentityReportTests(unittest.TestCase):
-    def run_pairwise(self, directory, mode, highlight="", stream=None):
+    def run_pairwise(self, directory, mode, highlight="", stream=None, matrix="BLOSUM62"):
         rng = np.random.default_rng(7)
         database_path = os.path.join(directory, "database.h5")
         headers = ["reference", "target"]
@@ -214,6 +329,7 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 0.0,
                 highlight,
                 database.model_name,
+                similarity_matrix=matrix,
             )
         get_device.assert_called_once_with()
         reports = [name for name in os.listdir(directory) if name.endswith(".html")]
@@ -261,6 +377,46 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 ]
                 self.assertEqual(sum(line.count("|") for line in marks), identities)
                 self.assertIn(match.group(0), html)
+
+    @staticmethod
+    def mark_lines(text):
+        lines = text.splitlines()
+        return [
+            lines[index + 1]
+            for index, line in enumerate(lines)
+            if line.startswith("Ref: ")
+        ]
+
+    def test_console_and_html_report_similarity_and_gaps_over_the_same_length(self):
+        # T/S and K/R are the aligned mismatches. BLOSUM62 scores them +1 and
+        # +2 and PAM250 +1 and +3, so both are similar; PAM30 scores each 0.
+        # Global's two gap columns are the reference's unpaired "RX".
+        cases = (
+            ("global", "BLOSUM62", 8, 10, 2, 12),
+            ("local", "BLOSUM62", 7, 9, 0, 9),
+            ("global", "PAM250", 8, 10, 2, 12),
+            ("global", "PAM30", 8, 8, 2, 12),
+            ("local", "PAM30", 7, 7, 0, 9),
+        )
+        for mode, matrix, identities, similar, gaps, length in cases:
+            with self.subTest(mode=mode, matrix=matrix), tempfile.TemporaryDirectory() as directory:
+                console, html = self.run_pairwise(directory, mode, matrix=matrix)
+                block = (
+                    f"Identity  : {identities}/{length} ({100.0 * identities / length:.1f}%)\n"
+                    f"{' ' * 12}Identical standard residues / "
+                    f"{'full alignment length incl. end gaps' if mode == 'global' else 'alignment length incl. internal gaps'}\n"
+                    f"Similarity: {similar}/{length} ({100.0 * similar / length:.1f}%)\n"
+                    f"{' ' * 12}Identical or {matrix}-positive standard residue pairs / the same length\n"
+                    f"Gaps      : {gaps}/{length} ({100.0 * gaps / length:.1f}%)\n"
+                    f"{'-' * 80}"
+                )
+                self.assertIn(block, console)
+                self.assertIn(block, html)
+                marks = self.mark_lines(console)
+                self.assertEqual(marks, self.mark_lines(html))
+                self.assertEqual(sum(line.count("|") for line in marks), identities)
+                self.assertEqual(sum(line.count(":") for line in marks), similar - identities)
+                self.assertEqual(sum(line.count(" ") - 5 for line in marks), gaps)
 
 
 class HighlightColourTests(unittest.TestCase):
@@ -389,7 +545,96 @@ class AlignmentModeTests(unittest.TestCase):
                             0.0,
                             "",
                             "test_model",
+                            similarity_matrix="BLOSUM62",
                         )
+        fetch.assert_not_called()
+        load_model.assert_not_called()
+
+
+class SimilarityMatrixSettingTests(unittest.TestCase):
+    """SIMILARITY_MATRIX is refused before any work and reaches the alignment."""
+
+    def run_main(self, matrix_name, **overrides):
+        settings = dict(
+            ALIGNMENT_MODE="global",
+            SIMILARITY_MATRIX=matrix_name,
+            MANUAL_REF_SEQ=False,
+            MANUAL_TAR_SEQ=False,
+            FULL_INPUT_EMBED="",
+        )
+        settings.update(overrides)
+        with (
+            mock.patch.object(embedding_pwa, "load_tool_settings"),
+            mock.patch.multiple(embedding_pwa, **settings),
+            mock.patch.object(
+                embedding_pwa,
+                "prepare_embedding_database",
+                side_effect=FileNotFoundError("database opened"),
+            ) as prepare,
+            mock.patch.object(embedding_pwa, "run_alignment") as run,
+            mock.patch.object(embedding_pwa, "load_model_integrated") as load_model,
+            redirect_stdout(StringIO()) as output,
+        ):
+            status = embedding_pwa.main([])
+        return status, output.getvalue(), prepare, run, load_model
+
+    def test_the_default_is_blosum62(self):
+        self.assertEqual(embedding_pwa.SIMILARITY_MATRIX, "BLOSUM62")
+
+    def test_main_rejects_an_unknown_matrix_before_opening_the_database(self):
+        status, output, prepare, run, load_model = self.run_main("BLOSUM63")
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "❌ Unknown SIMILARITY_MATRIX 'BLOSUM63'; choose BLOSUM45, BLOSUM50, "
+            "BLOSUM62, BLOSUM80, BLOSUM90, PAM30, PAM70, PAM250.",
+            output,
+        )
+        prepare.assert_not_called()
+        run.assert_not_called()
+        load_model.assert_not_called()
+
+        # Under the same stubs a listed matrix goes on to open the database.
+        status, output, prepare, _, _ = self.run_main("PAM30")
+        self.assertEqual(status, 1)
+        self.assertIn("❌ database opened", output)
+        prepare.assert_called_once()
+
+    def test_main_hands_the_matrix_to_the_alignment(self):
+        status, _, _, run, _ = self.run_main(
+            "PAM250",
+            MANUAL_REF_SEQ=True,
+            MANUAL_TAR_SEQ=True,
+            REF_SEQUENCE="ACDE",
+            TAR_SEQUENCE="ACDF",
+        )
+        self.assertEqual(status, 0)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.kwargs["similarity_matrix"], "PAM250")
+
+    def test_run_alignment_rejects_an_unknown_matrix_before_reading_embeddings(self):
+        # Direct callers skip main(), so run_alignment checks the matrix too.
+        with (
+            mock.patch.object(embedding_pwa, "fetch_embedding", return_value=None) as fetch,
+            mock.patch.object(embedding_pwa, "load_model_integrated") as load_model,
+            redirect_stdout(StringIO()),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, re.escape("Unknown SIMILARITY_MATRIX 'blosum62'")
+            ):
+                embedding_pwa.run_alignment(
+                    "reference",
+                    "target",
+                    "",
+                    "",
+                    "database.h5",
+                    {"reference": "ACDE", "target": "ACDF"},
+                    "global",
+                    -2.0,
+                    0.0,
+                    "",
+                    "test_model",
+                    similarity_matrix="blosum62",
+                )
         fetch.assert_not_called()
         load_model.assert_not_called()
 

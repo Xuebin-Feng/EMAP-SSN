@@ -1032,7 +1032,8 @@ def print_msa_sanitization_result(
 # =====================================================================
 
 # Only identical standard amino acids count toward pairwise identity, as in
-# the logo command's identity weights; X, B, Z, J, U and O never count.
+# the logo command's identity weights; X, B, Z, J, U and O never count, nor do
+# they count toward pairwise similarity (Embedding_PWA).
 IDENTITY_RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
 
 
@@ -1043,6 +1044,15 @@ def identity_definition(mode):
     else:
         denominator = "full alignment length incl. end gaps"
     return f"Identical standard residues / {denominator}"
+
+
+def similarity_definition(mode, matrix):
+    """Describe the numerator of percent similarity; its denominator is identity's.
+
+    Both modes divide by the length identity_definition(mode) names, so the
+    wording is the same for either; mode is accepted to sit beside it.
+    """
+    return f"Identical or {matrix}-positive standard residue pairs / the same length"
 
 
 __all__ = [
@@ -1084,4 +1094,5 @@ __all__ = [
     "print_msa_sanitization_result",
     "IDENTITY_RESIDUES",
     "identity_definition",
+    "similarity_definition",
 ]

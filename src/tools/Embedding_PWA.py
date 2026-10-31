@@ -29,6 +29,7 @@ Input:
 Output:
 - Prints a text-based visual alignment of the two sequences directly to the terminal, highlighting matching vs mismatched residues along with the final similarity score.
 - Reports percent identity: identical standard amino acids divided by the alignment length, with internal gaps included for local alignments and the full length including end gaps for global alignments. The '|' marks show exactly the residues counted.
+- Reports percent similarity over the same length: standard residue pairs that are identical or that SIMILARITY_MATRIX scores above 0 (the ':' marks count with the '|' marks), and the gap columns. The matrix only counts similar pairs; the alignment itself comes from the embeddings.
 """
 # %% Import
 import os
@@ -41,6 +42,7 @@ except ModuleNotFoundError:
 import numpy as np
 import torch
 import h5py
+from Bio.Align import substitution_matrices
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Terminal_Colors import colours_enabled
 from utilities.Sequence_Utils import (
@@ -48,6 +50,7 @@ from utilities.Sequence_Utils import (
     identity_definition,
     sanitize_header,
     sanitize_sequence,
+    similarity_definition,
 )
 from utilities.HDF5_Storage import (
     read_embedding_manifest,
@@ -74,6 +77,7 @@ EMBEDDING_MODEL = "esmc_300m"
 ALIGNMENT_MODE = "global"
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
+SIMILARITY_MATRIX = "BLOSUM62"
 
 from tools.tool_helpers.Tool_Pipeline import (
     inherited_settings_path,
@@ -190,6 +194,23 @@ def validate_alignment_mode(alignment_mode):
         raise ValueError(
             f"Unknown ALIGNMENT_MODE {alignment_mode!r}; choose global or local."
         )
+
+
+# The Align_Substitution_Matrix tool's choices, in its order.
+SIMILARITY_MATRICES = (
+    "BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90",
+    "PAM30", "PAM70", "PAM250",
+)
+
+
+def load_similarity_matrix(matrix_name):
+    """Load a listed substitution matrix; the name picks a file, so refuse others."""
+    if matrix_name not in SIMILARITY_MATRICES:
+        raise ValueError(
+            f"Unknown SIMILARITY_MATRIX {matrix_name!r}; "
+            f"choose {', '.join(SIMILARITY_MATRICES)}."
+        )
+    return substitution_matrices.load(matrix_name)
 
 # ==========================================
 # 1. HELPER FUNCTIONS (Data Loading & Gen)
@@ -382,23 +403,35 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
         device="cpu",
     ).numpy()
 
-def build_alignment_columns(idx_1, idx_2, seq_ref, seq_tar, highlight_set):
-    """Return display columns and the identical standard residues they mark."""
+def build_alignment_columns(idx_1, idx_2, seq_ref, seq_tar, highlight_set, matrix):
+    """Return display columns, and the identical and similar standard pairs they mark.
+
+    A pair of standard residues is similar when identical or when the matrix
+    scores it above 0, so every identity is also a similar pair. The marks are
+    "|" identical, ":" similar only, "." any other aligned pair, " " a gap.
+    """
     columns = []
     identities = 0
+    similar = 0
     for i, j in zip(idx_1, idx_2):
         c1 = seq_ref[i] if i != -1 else "-"
         c2 = seq_tar[j] if j != -1 else "-"
         if i == -1 or j == -1:
             marker = " "
-        elif c1 == c2 and c1 in IDENTITY_RESIDUES:
+        elif c1 not in IDENTITY_RESIDUES or c2 not in IDENTITY_RESIDUES:
+            marker = "."
+        elif c1 == c2:
             marker = "|"
             identities += 1
+            similar += 1
+        elif matrix[c1, c2] > 0:
+            marker = ":"
+            similar += 1
         else:
             marker = "."
         is_hl = (i != -1 and (i + 1) in highlight_set)
         columns.append((c1, c2, marker, is_hl))
-    return columns, identities
+    return columns, identities, similar
 
 def run_alignment(
     header_ref,
@@ -413,10 +446,12 @@ def run_alignment(
     highlight_str,
     model_name=None,
     *,
+    similarity_matrix,
     manual_ref_enabled=None,
     manual_tar_enabled=None,
 ):
     validate_alignment_mode(mode)
+    matrix = load_similarity_matrix(similarity_matrix)
     if manual_ref_enabled is None:
         manual_ref_enabled = bool(seq_ref_manual)
     else:
@@ -561,15 +596,23 @@ def run_alignment(
     len_ref = len(seq_ref)
     len_tar = len(seq_tar)
     align_len = len(idx_1)
-    alignment_data, identities = build_alignment_columns(
-        idx_1, idx_2, seq_ref, seq_tar, highlight_set
+    alignment_data, identities, similar = build_alignment_columns(
+        idx_1, idx_2, seq_ref, seq_tar, highlight_set, matrix
     )
+    gaps = sum(1 for _, _, marker, _ in alignment_data if marker == " ")
     # The traceback spans internal gaps only for local alignments and every
-    # column, end gaps included, for global alignments.
-    identity = 100.0 * identities / align_len if align_len else 0.0
-    identity_lines = [
-        f"Identity  : {identities}/{align_len} ({identity:.1f}%)",
-        "            " + identity_definition("global" if mode == "global" else "local"),
+    # column, end gaps included, for global alignments; similarity and gaps
+    # are counted over that same length.
+    def percent(count):
+        return 100.0 * count / align_len if align_len else 0.0
+
+    count_mode = "global" if mode == "global" else "local"
+    count_lines = [
+        f"Identity  : {identities}/{align_len} ({percent(identities):.1f}%)",
+        "            " + identity_definition(count_mode),
+        f"Similarity: {similar}/{align_len} ({percent(similar):.1f}%)",
+        "            " + similarity_definition(count_mode, similarity_matrix),
+        f"Gaps      : {gaps}/{align_len} ({percent(gaps):.1f}%)",
     ]
 
     print("\n" + "="*80)
@@ -578,7 +621,7 @@ def run_alignment(
     print(f"Reference : {header_ref if not manual_ref_enabled else 'Manual Input'} (Length: {len_ref})")
     print(f"Target    : {header_tar if not manual_tar_enabled else 'Manual Input'} (Length: {len_tar})")
     print(f"Align Len : {align_len}")
-    for line in identity_lines:
+    for line in count_lines:
         print(line)
     print("-" * 80)
 
@@ -649,7 +692,7 @@ def run_alignment(
         html_lines.append(f"Reference : <span class='header'>{header_ref if not manual_ref_enabled else 'Manual Input'}</span> (Length: {len_ref})")
         html_lines.append(f"Target    : <span class='header'>{header_tar if not manual_tar_enabled else 'Manual Input'}</span> (Length: {len_tar})")
         html_lines.append(f"Align Len : {align_len}")
-        html_lines.extend(identity_lines)
+        html_lines.extend(count_lines)
         html_lines.append("-" * 80)
         
         if mapped_positions_lines:
@@ -699,6 +742,7 @@ def main(argv=None):
     print(f"--- 🧬 Embedding Pairwise Alignment ---")
     try:
         validate_alignment_mode(ALIGNMENT_MODE)
+        load_similarity_matrix(SIMILARITY_MATRIX)
         database = None
         if not MANUAL_REF_SEQ or not MANUAL_TAR_SEQ:
             database = prepare_embedding_database(FULL_INPUT_EMBED)
@@ -720,6 +764,7 @@ def main(argv=None):
                       FULL_INPUT_EMBED, seq_database, ALIGNMENT_MODE, 
                       LOCAL_GAP_P, GLOBAL_GAP_P, HIGHLIGHT_POSITIONS,
                       runtime_model_name,
+                      similarity_matrix=SIMILARITY_MATRIX,
                       manual_ref_enabled=MANUAL_REF_SEQ,
                       manual_tar_enabled=MANUAL_TAR_SEQ)
         

@@ -147,6 +147,7 @@ class ManualSequenceControlTests(unittest.TestCase):
                         0.0,
                         "",
                         database.model_name,
+                        similarity_matrix="BLOSUM62",
                     )
             get_device.assert_called_once_with()
             self.assertIn("reference(1)_A", output.getvalue())
