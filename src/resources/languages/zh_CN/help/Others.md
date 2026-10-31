@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 0df617d2c84ed8fba82c0f4f76ff26244fd865b418c02fb3d300e7f52ea036bc -->
+<!-- Translation of Others.md, sha256 06faeb4f0ecc80f5e6d50b279bafcc043bc507f298fa11f922bf70d78f84679e -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -24,13 +24,16 @@
 | 比对模式 **`ALIGNMENT_MODE`** | 要运行的比对模式（“全局（Needleman-Wunsch）”或“局部（Smith-Waterman）”）。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）的空位罚分（gap penalty）值。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对（global alignment）的空位罚分值。 |
+| 相似度矩阵 **`SIMILARITY_MATRIX`** | 仅用于统计相似残基对的替换矩阵（substitution matrix；`BLOSUM45`、`BLOSUM50`、`BLOSUM62`、`BLOSUM80`、`BLOSUM90`、`PAM30`、`PAM70` 或 `PAM250`，默认 `BLOSUM62`）。比对本身来自 embedding，而不是这个矩阵。未知的名称会在任何计算开始前被拒绝。 |
 | 生成报告 **`GENERATE_REPORT`** | 切换是否编制并保存一份完整的 HTML 比对报告，展示残基高亮和得分。 |
 
 ### 输出
 
 #### 比对结果和可选的 HTML 报告
-*   **控制台输出**：总是打印比对模式和得分、输入长度、比对长度、一致性百分比（percent identity）、已比对的残基字符串、匹配标记，以及所请求的参考序列到目标序列的位置映射。
-*   **一致性百分比**：以 `identical/alignment length (percent)` 的形式打印，并附上定义：相同的标准氨基酸数除以比对长度；局部比对的比对长度包括内部空位（gap），全局比对则为包括末端空位在内的全长。`|` 标记每个计入的残基对，`.` 标记其他已比对的残基对，空白表示空位；X、B、Z、J、U 和 O 从不计为相同。
+*   **控制台输出**：总是打印比对模式和得分、输入长度、比对长度、一致性百分比（percent identity）、相似度百分比（percent similarity）、空位数、已比对的残基字符串、匹配标记，以及所请求的参考序列到目标序列的位置映射。
+*   **一致性百分比**：以 `identical/alignment length (percent)` 的形式打印，并附上定义：相同的标准氨基酸数除以比对长度；局部比对的比对长度包括内部空位（gap），全局比对则为包括末端空位在内的全长。`|` 标记每个计入的残基对；X、B、Z、J、U 和 O 从不计为相同。
+*   **相似度百分比和空位**：显示在 `Similarity` 和 `Gaps` 两行，形式为 `count/alignment length (percent)`，与一致性使用相同的长度。一对已比对的标准氨基酸，若两者相同，或 `SIMILARITY_MATRIX` 对该残基对的打分大于 0，则视为相似，因此每个相同的残基对同时也是相似残基对；X、B、Z、J、U 和 O 从不计入。`Gaps` 一行统计该长度内的空位列数。`Similarity` 一行的下方像 `Identity` 一行一样给出其定义。
+*   **标记行**：每组已比对残基的下方，`|` 表示相同的标准残基对，`:` 表示相似但不相同的残基对，`.` 表示其他已比对的残基对，空白表示空位。HTML 报告使用相同的标记。
 *   **可选文件**：启用 **生成报告**（`GENERATE_REPORT`）时，会在设置的报告目录中写入一个带时间戳的 `PWA_Report_*.html` 文档，内容为相同的比对和高亮映射。关闭此开关时不写入文件。
 
 <details markdown="1">
@@ -54,7 +57,11 @@
      统计回溯路径上相同的标准氨基酸数 $N_{\text{id}}$，并除以路径长度 $L_{\text{aln}}$：
      $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
 
-5. **残基位置映射**：
+5. **相似度百分比和空位**：
+     统计相同或在 `SIMILARITY_MATRIX` 中得分为正的已比对标准氨基酸对 $N_{\text{sim}}$（因此 $N_{\text{sim}} \ge N_{\text{id}}$）以及空位列数 $N_{\text{gap}}$，并除以相同的长度 $L_{\text{aln}}$：
+     $$\text{Similarity} = 100 \times \frac{N_{\text{sim}}}{L_{\text{aln}}} \qquad \text{Gaps} = 100 \times \frac{N_{\text{gap}}}{L_{\text{aln}}}$$
+
+6. **残基位置映射**：
      对每个（从 1 开始编号的）参考序列高亮位置 $p_{\text{ref}}$，追踪其比对后的索引：
      $$p_{\text{ref}} \to p_{\text{aligned}} \to p_{\text{tar}}$$
      

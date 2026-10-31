@@ -23,13 +23,16 @@ This script aligns two sequences using their residue-level language model embedd
 | Alignment Metric **`ALIGNMENT_MODE`** | The alignment mode to run (either 'global (Needleman-Wunsch)' or 'local (Smith-Waterman)'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
+| Similarity Matrix **`SIMILARITY_MATRIX`** | The substitution matrix (`BLOSUM45`, `BLOSUM50`, `BLOSUM62`, `BLOSUM80`, `BLOSUM90`, `PAM30`, `PAM70`, or `PAM250`; default `BLOSUM62`) used only to count similar residue pairs. The alignment itself comes from the embeddings, not from this matrix. An unknown name is refused before any work. |
 | Generate Report **`GENERATE_REPORT`** | Toggle to compile and save a comprehensive HTML alignment report showing residue highlights and scores. |
 
 ### Output
 
 #### Alignment Result and Optional HTML Report
-*   **Console Output**: Always prints the alignment mode and score, input lengths, alignment length, percent identity, aligned residue strings, match marks, and any requested reference-to-target position mappings.
-*   **Percent Identity**: Printed as `identical/alignment length (percent)` with its definition: identical standard amino acids divided by the alignment length, which includes internal gaps for local alignments and the full length, end gaps included, for global alignments. A `|` mark shows each counted pair, `.` any other aligned pair, and a blank a gap; X, B, Z, J, U, and O never count as identical.
+*   **Console Output**: Always prints the alignment mode and score, input lengths, alignment length, percent identity, percent similarity, the gap count, aligned residue strings, match marks, and any requested reference-to-target position mappings.
+*   **Percent Identity**: Printed as `identical/alignment length (percent)` with its definition: identical standard amino acids divided by the alignment length, which includes internal gaps for local alignments and the full length, end gaps included, for global alignments. A `|` mark shows each counted pair; X, B, Z, J, U, and O never count as identical.
+*   **Percent Similarity and Gaps**: Printed on the `Similarity` and `Gaps` lines as `count/alignment length (percent)`, over the same length as identity. A pair of aligned standard amino acids is similar when the two are identical or `SIMILARITY_MATRIX` scores the pair above 0, so every identity is also a similar pair; X, B, Z, J, U, and O never count. The `Gaps` line counts the gap columns of that length. The `Similarity` line states its definition under the line, as the `Identity` line does.
+*   **Marker Line**: Under each block of aligned residues, `|` marks an identical standard pair, `:` a pair that is similar but not identical, `.` any other aligned pair, and a blank a gap. The HTML report uses the same marks.
 *   **Optional File**: When **Generate Report** (`GENERATE_REPORT`) is enabled, writes a timestamped `PWA_Report_*.html` document to the configured report directory with the same alignment and highlighted mappings. No file is written when the toggle is disabled.
 
 <details markdown="1">
@@ -53,7 +56,11 @@ This script aligns two sequences using their residue-level language model embedd
      Counts the identical standard amino acids $N_{\text{id}}$ on the traced path and divides by its length $L_{\text{aln}}$:
      $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
 
-5. **Residue Position Mapping**:
+5. **Percent Similarity and Gaps**:
+     Counts the aligned pairs of standard amino acids that are identical or whose score in `SIMILARITY_MATRIX` is positive, $N_{\text{sim}}$ (so $N_{\text{sim}} \ge N_{\text{id}}$), and the gap columns $N_{\text{gap}}$, over the same length $L_{\text{aln}}$:
+     $$\text{Similarity} = 100 \times \frac{N_{\text{sim}}}{L_{\text{aln}}} \qquad \text{Gaps} = 100 \times \frac{N_{\text{gap}}}{L_{\text{aln}}}$$
+
+6. **Residue Position Mapping**:
      For each 1-indexed reference highlight position $p_{\text{ref}}$, it tracks the aligned index:
      $$p_{\text{ref}} \to p_{\text{aligned}} \to p_{\text{tar}}$$
      
