@@ -77,6 +77,7 @@ import h5py
 from Bio import SeqIO
 from tqdm import tqdm
 
+from utilities import BLAST_Executables
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import validate_manifest_records
 from utilities.BLAST_Tabular import (
@@ -97,15 +98,10 @@ INPUT_FASTA = None
 MATRIX = "BLOSUM62"
 NUM_THREADS = 12
 BATCH_SIZE = 500000
-BLASTP_DIR = ""
+BLASTP_DIR = ""  # blank: search the PATH and the standard install folders (utilities/BLAST_Executables.py)
 # "evalue" scores each edge by its negative log10 E-value; "efi_alignment_score"
 # by the EFI-EST alignment score, from BLAST's bit score and the sequence lengths.
 SCORE_METRIC = "evalue"
-
-# EXECUTABLE PATHS (Will be resolved dynamically after settings load)
-NCBI_BIN_DIR    = r"C:\Program Files\NCBI"
-MAKEBLASTDB_CMD = "makeblastdb"
-BLASTP_CMD      = "blastp"
 
 # ADVANCED
 E_VALUE_CUTOFF = 1e300 # Maximum E-value threshold; sequence hit pairs evaluated above this cutoff are entirely discarded.
@@ -176,63 +172,6 @@ if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
                         globals()[k] = v
     except Exception as e:
         print(f"Failed to load user settings: {e}")
-
-# Resolve BLAST commands after config overrides
-
-# Resolve BLASTP and MAKEBLASTDB paths
-if BLASTP_DIR and os.path.exists(BLASTP_DIR):
-    MAKEBLASTDB_CMD = os.path.join(BLASTP_DIR, "makeblastdb.exe" if os.name == "nt" else "makeblastdb")
-    BLASTP_CMD = os.path.join(BLASTP_DIR, "blastp.exe" if os.name == "nt" else "blastp")
-else:
-    # Fallback search if not specified or empty
-    if shutil.which("blastp") or shutil.which("blastp.exe"):
-        MAKEBLASTDB_CMD = "makeblastdb"
-        BLASTP_CMD = "blastp"
-    else:
-        # Check standard default installation folders depending on OS
-        if os.name == "nt":
-            # Search C:\Program Files\NCBI dynamically for any version of BLAST
-            ncbi_dir = r"C:\Program Files\NCBI"
-            found_dir = None
-            if os.path.exists(ncbi_dir):
-                try:
-                    valid_dirs = []
-                    for d in os.listdir(ncbi_dir):
-                        bin_path = os.path.join(ncbi_dir, d, "bin")
-                        if os.path.exists(os.path.join(bin_path, "blastp.exe")):
-                            valid_dirs.append(bin_path)
-                    if valid_dirs:
-                        valid_dirs.sort(reverse=True)
-                        found_dir = valid_dirs[0]
-                except:
-                    pass
-            
-            if found_dir:
-                MAKEBLASTDB_CMD = os.path.join(found_dir, "makeblastdb.exe")
-                BLASTP_CMD = os.path.join(found_dir, "blastp.exe")
-            else:
-                MAKEBLASTDB_CMD = "makeblastdb"
-                BLASTP_CMD = "blastp"
-        else:
-            # Unix fallback search
-            unix_fallbacks = [
-                "/usr/local/ncbi/blast/bin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/opt/homebrew/bin"
-            ]
-            found_dir = None
-            for path in unix_fallbacks:
-                if os.path.exists(os.path.join(path, "blastp")):
-                    found_dir = path
-                    break
-            
-            if found_dir:
-                MAKEBLASTDB_CMD = os.path.join(found_dir, "makeblastdb")
-                BLASTP_CMD = os.path.join(found_dir, "blastp")
-            else:
-                MAKEBLASTDB_CMD = "makeblastdb"
-                BLASTP_CMD = "blastp"
 
 SEQUENCE_SET = ""
 FULL_INPUT_FASTA = None
@@ -317,26 +256,9 @@ def calculate_manifest_sha256(headers, sequences):
     return hasher.hexdigest()
 
 
-def get_blastp_version(executable=BLASTP_CMD):
+def get_blastp_version(executable):
     """Return the first non-empty line reported by ``blastp -version``."""
-    try:
-        completed = subprocess.run(
-            [executable, "-version"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise RuntimeError(
-            f"Unable to query BLASTP version using '{executable}': {error}"
-        ) from error
-
-    output = completed.stdout or completed.stderr or ""
-    version = next((line.strip() for line in output.splitlines() if line.strip()), "")
-    if not version:
-        raise RuntimeError(f"BLASTP at '{executable}' returned no version information.")
-    return version
+    return BLAST_Executables.query_version(executable)
 
 
 def load_sanitized_records(input_fasta):
@@ -723,6 +645,7 @@ def run_alignment_worker(args):
             stderr=subprocess.PIPE,
             text=True,
             cwd=blast_workspace,
+            env=BLAST_Executables.blast_environment(),
         )
         os.replace(partial_out, out_file)
         return "Done"
@@ -1232,6 +1155,7 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
     with h5py.File(partial_path, "w") as output:
         output.attrs["model_name"] = "BLAST"
         output.attrs["matrix"] = run_metadata["matrix"]
+        output.attrs["blast_version"] = run_metadata["blastp_version"]
         if run_metadata.get(SCORE_METRIC_ATTRIBUTE) == SCORE_METRIC_EFI:
             # Without score_kind a network holds E-value scores.
             output.attrs["score_kind"] = SCORE_METRIC_EFI
@@ -1302,6 +1226,17 @@ def run_workflow():
         print(f"❌ Error: {error}")
         return 1
 
+    # Settings are loaded by now, so a BLASTP Directory chosen in the Tools
+    # window or given to an MCP job counts. A wrong one stops the run here,
+    # before the input is read or the workspace touched.
+    try:
+        blast = BLAST_Executables.find_executables(BLASTP_DIR)
+        blastp_version = get_blastp_version(blast.blastp)
+    except BLAST_Executables.BlastError as error:
+        print(f"❌ Error: {error}")
+        return 1
+    print(f"Using {blastp_version} at {blast.blastp} (found through: {blast.source})")
+
     # Linux defaults to fork, which is unsafe here: the pool below is created
     # after HDF5 handles are open and each worker spawns a BLAST subprocess.
     # Windows and macOS already default to spawn, so this only changes Linux.
@@ -1323,7 +1258,6 @@ def run_workflow():
     headers, sequences = load_sanitized_records(clean_fasta_path)
     input_checksum = calculate_file_sha256(clean_fasta_path)
     manifest_checksum = calculate_manifest_sha256(headers, sequences)
-    blastp_version = get_blastp_version()
     run_metadata = {
         "input_fasta": str(INPUT_FASTA),
         "input_fasta_sha256": input_checksum,
@@ -1372,7 +1306,7 @@ def run_workflow():
         )
         database_argument = blast_path(db_name, workspace_root, blast_workspace)
         cmd_db = [
-            MAKEBLASTDB_CMD,
+            blast.makeblastdb,
             "-in", safe_fasta_argument,
             "-dbtype", "prot",
             "-out", database_argument,
@@ -1384,6 +1318,7 @@ def run_workflow():
                 capture_output=True,
                 text=True,
                 cwd=blast_workspace,
+                env=BLAST_Executables.blast_environment(),
             )
         except subprocess.CalledProcessError as error:
             print(
@@ -1409,7 +1344,7 @@ def run_workflow():
                 (
                     chunk_path,
                     target_reference,
-                    BLASTP_CMD,
+                    blast.blastp,
                     MATRIX,
                     E_VALUE_CUTOFF,
                     result_path,

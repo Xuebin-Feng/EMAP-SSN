@@ -29,6 +29,7 @@ if str(TOOLS_DIR) not in sys.path:
 # project-root tools_settings.json (a developer's own selections) is not read.
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Substitution_Matrix as substitution_matrix
+import Cache_Manifest  # noqa: E402  (src is on the path once the tool has been imported)
 
 
 def _long_paths_supported():
@@ -42,6 +43,24 @@ def _long_paths_supported():
         return False
     enabled.restype = ctypes.c_ubyte
     return bool(enabled())
+
+
+class _ImmediatePool:
+    """multiprocessing.Pool stand-in that runs each task in this process."""
+
+    def __init__(self, processes):
+        self.processes = processes
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    @staticmethod
+    def imap(function, tasks):
+        for task in tasks:
+            yield function(task)
 
 
 class SubstitutionMatrixPipelineTests(unittest.TestCase):
@@ -677,21 +696,6 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
 
         Returns the exit code and the mocked multiprocessing.set_start_method.
         """
-        class ImmediatePool:
-            def __init__(self, processes):
-                self.processes = processes
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                return False
-
-            @staticmethod
-            def imap(function, tasks):
-                for task in tasks:
-                    yield function(task)
-
         workspace = os.path.join(network_dir, f"input_[BLAST]_{score_name}_temp")
         settings = {
             "INPUT_FASTA": "input.fasta",
@@ -707,13 +711,18 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             "NUM_THREADS": 1,
             "BATCH_SIZE": 1,
             "MATRIX": "BLOSUM62",
-            "MAKEBLASTDB_CMD": "makeblastdb",
-            "BLASTP_CMD": "blastp",
         }
         settings.update(patches)
         with mock.patch.multiple(
             substitution_matrix,
             **settings,
+        ), mock.patch.object(
+            # The lookup has its own tests; here BLAST+ is wherever the PATH says.
+            substitution_matrix.BLAST_Executables,
+            "find_executables",
+            return_value=substitution_matrix.BLAST_Executables.BlastExecutables(
+                "blastp", "makeblastdb", "PATH"
+            ),
         ), mock.patch.object(
             substitution_matrix,
             "get_blastp_version",
@@ -725,7 +734,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
         ), mock.patch.object(
             substitution_matrix.multiprocessing,
             "Pool",
-            ImmediatePool,
+            _ImmediatePool,
         ), mock.patch.object(
             substitution_matrix,
             "configure_runtime_paths",
@@ -755,7 +764,10 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             workspace = os.path.join(network_dir, "input_[BLAST]_EValue_temp")
             output_path = os.path.join(network_dir, "input_[BLAST]_EValue.h5")
 
+            environments = []
+
             def fake_subprocess_run(command, **kwargs):
+                environments.append(kwargs.get("env"))
                 if os.path.basename(command[0]).startswith("makeblastdb"):
                     return mock.Mock(returncode=0, stdout="", stderr="")
                 partial_result = command[command.index("-out") + 1]
@@ -771,6 +783,11 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 fake_subprocess_run,
             )
 
+            # makeblastdb and blastp both ran with BLAST+'s usage reporting off.
+            self.assertEqual(len(environments), 2)
+            for environment in environments:
+                self.assertEqual(environment["BLAST_USAGE_REPORT"], "false")
+
             # main()'s return value is the process exit code, and the MCP job
             # runner reports a job as succeeded only for exit code 0.
             self.assertEqual(exit_code, 0)
@@ -784,6 +801,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 np.testing.assert_allclose(network["score"][:], [25.0])
                 self.assertEqual(network.attrs["model_name"], "BLAST")
                 self.assertEqual(network.attrs["matrix"], "BLOSUM62")
+                self.assertEqual(network.attrs["blast_version"], "blastp: test")
 
     # --- the EFI alignment score (SCORE_METRIC "efi_alignment_score") ---------
 
@@ -1097,6 +1115,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             with open(result_path, "w", encoding="utf-8") as result:
                 result.write(self._blast_line(0, 1, "1e-10", bitscore=100.0))
             attributes = {}
+            kinds = {}
             with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
                 for metric, metadata, lengths in (
                     ("evalue", self._metadata(), None),
@@ -1112,14 +1131,23 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                     )
                     with h5py.File(output_path, "r") as network:
                         attributes[metric] = dict(network.attrs)
+                        # The extra attribute is no obstacle to reading the network back.
+                        found = Cache_Manifest.read_network_metadata(network)
+                        kinds[metric] = (found.model_name, found.network_type, found.score_kind)
 
-        # An E-value network keeps the attributes it has always had.
-        self.assertEqual(attributes["evalue"], {"model_name": "BLAST", "matrix": "BLOSUM62"})
+        self.assertEqual(kinds["evalue"], ("BLAST", "blast", "evalue"))
+        self.assertEqual(kinds["efi_alignment_score"], ("BLAST", "blast", "efi_alignment_score"))
+        # Both kinds record the BLAST+ version that made them; only the EFI one says its score kind.
+        self.assertEqual(
+            attributes["evalue"],
+            {"model_name": "BLAST", "matrix": "BLOSUM62", "blast_version": "blastp: 2.17.0+"},
+        )
         self.assertEqual(
             attributes["efi_alignment_score"],
             {
                 "model_name": "BLAST",
                 "matrix": "BLOSUM62",
+                "blast_version": "blastp: 2.17.0+",
                 "score_kind": "efi_alignment_score",
                 "score_transform": "bitscore*log10(2) - log10(len_query*len_subject)",
             },
@@ -1202,6 +1230,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
                 self.assertEqual(network.attrs["model_name"], "BLAST")
                 self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+                self.assertEqual(network.attrs["blast_version"], "blastp: test")
                 self.assertEqual(
                     network.attrs["score_transform"],
                     "bitscore*log10(2) - log10(len_query*len_subject)",
@@ -1332,6 +1361,159 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 stdout.getvalue(),
             )
             self.assertEqual(os.listdir(temp_dir), [])
+
+
+class BlastDirectoryInScriptModeTests(unittest.TestCase):
+    """Save & Run in the Tools window and MCP jobs run the tool as a script: its settings, the
+    BLASTP Directory among them, are read by main(), after everything it imported. The BLAST+ it
+    runs must be the one they name, and a wrong name must stop the run before anything is touched."""
+
+    TRACKED = (
+        "INPUT_FASTA", "FASTA_DIR", "NETWORK_DIR", "BLASTP_DIR", "NUM_THREADS", "BATCH_SIZE", "MATRIX",
+        "SCORE_METRIC", "SEQUENCE_SET", "FULL_INPUT_FASTA", "OUTPUT_HDF5", "SAFE_TEMP_DIR", "CHUNKS_DIR",
+        "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE",
+    )
+
+    def setUp(self):
+        self.folder = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.fasta_dir = self.folder / "fastas"
+        self.network_dir = self.folder / "networks"
+        self.fasta_dir.mkdir()
+        (self.fasta_dir / "input.fasta").write_text(">a\nACDE\n>b\nACDF\n", encoding="utf-8")
+        self.blast_dir = self.folder / "ncbi" / "bin"
+        self.blastp, self.makeblastdb = self.install_blast(self.blast_dir)
+        self.commands = []  # (command, environment) of every BLAST+ process the run started
+        self.version_failure = None
+
+        def fake_run(command, **kwargs):
+            self.commands.append((list(command), kwargs.get("env")))
+            if command[-1] == "-version":
+                if self.version_failure:
+                    raise self.version_failure
+                return mock.Mock(returncode=0, stdout="blastp: 2.17.0+\n Package: blast 2.17.0\n", stderr="")
+            if os.path.basename(command[0]).startswith("makeblastdb"):
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            partial_result = command[command.index("-out") + 1]
+            pathlib.Path(partial_result).write_text(
+                SubstitutionMatrixPipelineTests._blast_line(0, 1, "1e-25"), encoding="utf-8"
+            )
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        # main() changes these module globals and the SSN_TOOL_SETTINGS_* variables for good.
+        self.enterContext(mock.patch.multiple(
+            substitution_matrix, **{name: getattr(substitution_matrix, name) for name in self.TRACKED}
+        ))
+        self.enterContext(mock.patch.dict(os.environ))
+        self.enterContext(mock.patch.object(substitution_matrix.subprocess, "run", side_effect=fake_run))
+        self.enterContext(mock.patch.object(substitution_matrix.multiprocessing, "Pool", _ImmediatePool))
+        # On Linux this would switch the whole test process to spawn.
+        self.enterContext(mock.patch.object(substitution_matrix.multiprocessing, "set_start_method"))
+
+    @staticmethod
+    def install_blast(folder):
+        folder.mkdir(parents=True)
+        paths = []
+        for name in ("blastp", "makeblastdb"):
+            program = folder / (name + (".exe" if os.name == "nt" else ""))
+            program.write_bytes(b"")
+            program.chmod(0o755)
+            paths.append(str(program))
+        return paths
+
+    def run_main(self, blastp_dir):
+        """main() on a settings file, as a tool script is run; its exit code and what it printed."""
+        settings_path = self.folder / "settings.json"
+        tool = {"INPUT_FASTA": "input.fasta", "NUM_THREADS": 1, "BATCH_SIZE": 1}
+        if blastp_dir is not None:
+            tool["BLASTP_DIR"] = str(blastp_dir)
+        settings_path.write_text(json.dumps({
+            "DIRECTORIES": {"FASTA_DIR": str(self.fasta_dir), "NETWORK_DIR": str(self.network_dir)},
+            "Align_Substitution_Matrix.py": tool,
+        }), encoding="utf-8")
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            return substitution_matrix.main([str(settings_path)]), stdout.getvalue()
+
+    def assertUntouched(self):
+        self.assertFalse(self.network_dir.exists())
+        self.assertEqual(os.listdir(self.folder), ["fastas", "ncbi", "settings.json"])
+
+    def test_the_blastp_directory_of_the_settings_file_is_the_one_every_blast_process_runs(self):
+        exit_code, output = self.run_main(self.blast_dir)
+
+        self.assertEqual(exit_code, 0, output)
+        started = [os.path.normcase(command[0]) for command, _ in self.commands]
+        self.assertEqual(
+            started,
+            [os.path.normcase(path) for path in (self.blastp, self.makeblastdb, self.blastp)],
+        )
+        self.assertEqual(self.commands[0][0][1:], ["-version"])
+        for _, environment in self.commands:
+            self.assertEqual(environment["BLAST_USAGE_REPORT"], "false")
+        self.assertIn(
+            f"Using blastp: 2.17.0+ at {self.blastp} (found through: BLASTP Directory)", output
+        )
+        with h5py.File(self.network_dir / "input_[BLAST]_EValue.h5", "r") as network:
+            self.assertEqual(network.attrs["blast_version"], "blastp: 2.17.0+")
+
+    def test_a_blastp_directory_that_does_not_exist_stops_the_run_before_anything_is_touched(self):
+        missing = self.folder / "no_such_blast"
+        exit_code, output = self.run_main(missing)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(f"❌ Error: The BLASTP Directory '{missing}' is not a folder that exists", output)
+        self.assertEqual(self.commands, [])
+        self.assertUntouched()
+
+    def test_a_blastp_directory_without_the_programs_names_what_is_missing(self):
+        empty = self.folder / "empty"
+        empty.mkdir()
+        exit_code, output = self.run_main(empty)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(f"❌ Error: The BLASTP Directory '{empty}' does not contain", output)
+        self.assertIn("blastp", output)
+        self.assertIn("makeblastdb", output)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(os.listdir(self.folder), ["empty", "fastas", "ncbi", "settings.json"])
+        self.assertFalse(self.network_dir.exists())
+
+    def test_a_relative_blastp_directory_is_read_against_the_project_root(self):
+        exit_code, output = self.run_main("no_such_blast_relative")
+
+        expected = os.path.normpath(os.path.join(substitution_matrix.PROJECT_ROOT, "no_such_blast_relative"))
+        self.assertEqual(exit_code, 1)
+        self.assertIn(f"The BLASTP Directory '{expected}' is not a folder that exists", output)
+
+    def test_a_blank_blastp_directory_searches_when_the_run_starts(self):
+        automatic = substitution_matrix.BLAST_Executables.BlastExecutables(
+            self.blastp, self.makeblastdb, "PATH"
+        )
+        with mock.patch.object(substitution_matrix.BLAST_Executables, "find_automatic", return_value=automatic):
+            exit_code, output = self.run_main(None)
+
+        self.assertEqual(exit_code, 0, output)
+        self.assertEqual(os.path.normcase(self.commands[0][0][0]), os.path.normcase(self.blastp))
+        self.assertIn("(found through: PATH)", output)
+
+    def test_a_blank_blastp_directory_with_no_blast_anywhere_stops_before_anything_is_touched(self):
+        with mock.patch.object(substitution_matrix.BLAST_Executables, "find_automatic", return_value=None):
+            exit_code, output = self.run_main(None)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("❌ Error: NCBI BLAST+ (blastp and makeblastdb) was not found", output)
+        self.assertEqual(self.commands, [])
+        self.assertUntouched()
+
+    def test_a_blast_that_cannot_report_its_version_stops_before_anything_is_touched(self):
+        self.version_failure = OSError("the Visual C++ runtime is missing")
+        exit_code, output = self.run_main(self.blast_dir)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("❌ Error: Unable to query BLASTP version", output)
+        self.assertIn("the Visual C++ runtime is missing", output)
+        self.assertEqual(len(self.commands), 1)
+        self.assertUntouched()
 
 
 if __name__ == "__main__":

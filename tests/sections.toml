@@ -234,6 +234,7 @@ modules = [
     "test_align_substitution_matrix_pipeline",
     "test_alignment_engine",
     "test_bf16_precision",
+    "test_blast_executables",
     "test_embedding_pwa",
     "test_embedding_ssearch",
     "test_embedding_ssearch_hardware",
