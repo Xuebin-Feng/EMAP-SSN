@@ -36,6 +36,14 @@ still change before version 1.0.0.
   - Browse is now an icon beside it.
 - **Networks record the BLAST+ version that made them** (`blast_version`), and MCP's
   `get_compute_capabilities` reports the BLAST+ the program would use.
+- **Sequence similarity in the pairwise embedding alignment.** Beside percent identity, the
+  Manual Tools' Pairwise Embedding Alignment now reports similarity and gaps, on the console
+  and in its HTML report.
+  - A pair of standard residues is similar when it is identical or the chosen matrix scores
+    it above 0. Similarity Matrix offers BLOSUM45 to BLOSUM90 and PAM30 to PAM250, BLOSUM62
+    by default. It only counts pairs: the alignment still comes from the embeddings.
+  - Similarity and gaps are counted over identity's own length, and the marker line shows
+    similar pairs with `:`.
 
 ### Changed
 
