@@ -119,6 +119,19 @@ class PipelineGuideTests(unittest.TestCase):
         self.assertIn("SCORE_METRIC picks -log10(E-value) or the EFI alignment score", steps)
         self.assertIn("SCORE_METRIC efi_alignment_score", steps)
 
+    def test_the_blast_runner_says_where_blast_plus_is_reported_and_that_an_agent_cannot_download_it(self):
+        guide = Pipeline_Guide.tool_guide("align_substitution_matrix")
+        requirements = guide["requirements"]
+        # The capabilities report is the place to look, and what it reports is what a blank BLASTP_DIR finds.
+        self.assertIn("get_compute_capabilities", requirements)
+        self.assertIn("blank BLASTP_DIR", requirements)
+        # A missing BLAST+ is the user's to fix: the Tools window's Download button, or BLASTP_DIR.
+        self.assertIn("cannot download BLAST+", requirements)
+        self.assertIn("Download button beside BLASTP Directory in the Tools window", requirements)
+        self.assertIn("set BLASTP_DIR", requirements)
+        steps = " ".join(step for workflow in Pipeline_Guide.workflows() for step in workflow["steps"])
+        self.assertIn("needs BLAST+, which get_compute_capabilities reports", steps)
+
     def test_layout_call_examples_match_the_action_arguments(self):
         from mcp_server.core.Workflow_Dispatch import REGISTRY
         from mcp_server.pipeline.Pipeline_Operations import LAYOUT_CALL_EXAMPLES, list_pipeline_tools

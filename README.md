@@ -305,8 +305,11 @@ network. The desktop workflow is:
    with `-k 0`, since it otherwise keeps only 25 hits per query. Both BLAST tools
    score each pair by its E-value or, with Score set to EFI alignment score, by the
    EFI-EST alignment score, which also needs each hit's bit score. The BLAST
-   calculation requires separate `blastp` and `makeblastdb` executables; the
-   importer reads saved results without running BLAST or DIAMOND.
+   calculation runs NCBI BLAST+ (`blastp` and `makeblastdb`). Leave the BLASTP
+   Directory blank and it finds an installed BLAST+ on the `PATH` or in the
+   standard install folder; the Tools window's Download button installs BLAST+
+   2.17.0 from NCBI, checked against pinned SHA-256 checksums, in a folder you
+   choose. The importer reads saved results without running BLAST or DIAMOND.
 3. **Add an alignment when needed.** Generate an embedding-guided MSA with
    `Embedding_MSA.py`, or select an existing compatible full or sparse alignment.
    An MSA is optional for network viewing and required for residue-level analysis.
@@ -798,7 +801,8 @@ Tools window's **Manual Tools** tab, or run it from the project root:
 A run took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF, and takes
 longer without a GPU. It needs about 1 GB of free disk space, and the first run
 downloads ESM-2 8M (about 30 MB). A stage the computer can't run, such as BLAST
-without NCBI BLAST+, is skipped with the reason. The report,
+without NCBI BLAST+ on the `PATH` or in its standard install folder (the benchmark
+never reads a BLASTP Directory saved in Tools), is skipped with the reason. The report,
 `Benchmark_Report_<date>_<time>.txt`, is written to `src/resources/benchmark/` in
 the language the windows show, with an English `.json` beside it, and is never
 deleted. The benchmark keeps its working files in its own `temp/` folder, which it

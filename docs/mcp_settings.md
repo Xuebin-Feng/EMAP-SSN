@@ -273,6 +273,12 @@ the PyTorch `cuda:N` device identifier.
 The result includes a timestamp, Python/PyTorch/runtime versions, CPU counts,
 system memory, device memory, and capability evidence. Status is `ok`, `partial`,
 or `unavailable`; failed collection must not be interpreted as CPU-only success.
+
+Its `blast` entry reports the NCBI BLAST+ that a blank `BLASTP_DIR` finds (`found`,
+`not_found` or `error`, with the version and where it was found); it runs nothing but
+`blastp -version`, once per file. An agent cannot download BLAST+: when it is missing, the user can click the
+Download button beside the BLASTP Directory in the Tools window, or `BLASTP_DIR` can
+be set to a folder that holds `blastp` and `makeblastdb`.
 Unavailable measurements are null and explained by the associated `errors` or
 memory reason. Apple unified working-set values are not dedicated VRAM/free memory.
 Memory values are observations in bytes, not reservations for future jobs.
@@ -621,8 +627,9 @@ sequences, with every device setting on Auto: sanitizing, ESM-2 8M embeddings, t
 all-against-all embedding alignment, the SSN, UMAP and PaCMAP layouts, clustering, an
 embedding database search, injection of 92 more sequences, an embedding MSA and BLAST.
 A run takes about 6 minutes on a recent GPU workstation and longer without a GPU. A
-stage the computer cannot run, such as BLAST without NCBI BLAST+, is skipped with the
-reason. It writes only its own `temp/` folder, which it clears, and a new report; it
+stage the computer cannot run, such as BLAST without an NCBI BLAST+ that the automatic
+search finds (on the PATH or in the standard install folder; the benchmark never reads
+a saved BLASTP Directory), is skipped with the reason. It writes only its own `temp/` folder, which it clears, and a new report; it
 never reads or changes saved settings or the user's data.
 
 When the job ends, its `result` is the benchmark's English summary: `status`,

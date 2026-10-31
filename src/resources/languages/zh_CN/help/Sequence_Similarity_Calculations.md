@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 29acbc8f3b9af17986976e432e9ae8620a615173e05f21e179fdb26d4a511117 -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 308e94142c1acd26bbe8f56dc88032df5e6e4b233f6efa1cba4bc525f7b42e57 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -110,7 +110,27 @@
 | 得分 **`SCORE_METRIC`** | 网络为每个序列对存储的边得分。`evalue`（默认）是期望值的负 Log10；`efi_alignment_score` 是 EFI-EST 比对得分，由每个命中的比特得分和两条序列的长度计算。无论哪种，都保留一个序列对（任一方向）中最强的命中。 |
 | BLAST 线程数 **`NUM_THREADS`** | 分配给 BLASTP 执行和结果解析的 CPU 线程数。 |
 | 处理批大小 **`BATCH_SIZE`** | 在写入中间 HDF5 文件和汇总最终网络时，一次缓冲或复制的已解析边的最大数量。 |
-| BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空时，工具会在 `PATH` 和受支持平台的安装位置中查找。 |
+| BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空（默认）表示由工具自行查找 NCBI BLAST+，空字段会显示查找的结果。字段旁的**下载**（Download）按钮会从 NCBI 安装 BLAST+。见下文《查找或安装 BLAST+》。 |
+
+#### 查找或安装 BLAST+
+
+已设置的 `BLASTP_DIR` 会按所写内容原样使用，不会再尝试其他位置：它不是文件夹，或缺少 `blastp` 或 `makeblastdb` 时，运行会停止，并给出指明所缺内容的错误。相对路径按项目文件夹解析。字段留空时，工具每次运行都会依次查找：`PATH`；然后在 Windows 上查找 `Program Files` 下 NCBI 文件夹中版本最新的文件夹（按版本号比较，所以 2.17 比 2.9 新），在 Linux 和 macOS 上查找 `/usr/local/ncbi/blast/bin`、`/usr/local/bin`、`/usr/bin` 和 `/opt/homebrew/bin`。空字段中的灰色文字显示此刻的查找结果，或说明未找到 BLAST+。工具从不会把找到的文件夹写入该字段或保存的设置。
+
+**下载**按钮（字段后两个图标按钮中的第一个，第二个是**浏览**）从 NCBI 安装 BLAST+ 2.17.0：
+
+*   它先请你确认，并写明版本、本机的下载大小（Windows 约 143 MB，Linux 约 296 MB，macOS 约 206 MB）和安装后的大小（分别约 34、63 和 47 MB），以及 BLAST+ 是美国政府作品、属于公有领域（public domain）。然后让你选择文件夹（从项目文件夹开始），并安装到 `<所选文件夹>/blast-2.17.0+`。
+*   压缩包会按 EMAP-SSN 中记录的大小和 SHA-256 校验和检查，只安装 `blastp` 和 `makeblastdb`（Windows 上还有 `blastp.exe` 所需的 `nghttp2.dll`），每个文件再按各自的 SHA-256 检查。`blastp -version` 必须能够启动，已有的安装才会被替换。下载失败或取消后不会留下临时文件。
+*   下载在后台进行：窗口仍可使用，进度对话框显示当前阶段，其取消按钮可停止下载。关闭窗口也会取消下载。取消或失败时字段保持原样，失败时会说明原因。
+*   成功后，字段显示新文件夹（位于项目文件夹内时为相对路径）。与其他修改一样，它会在你 Save & Run 时随工具的设置一起保存。
+*   在下载不支持的计算机上，下载按钮被禁用，提示文字说明原因；请在那里自行安装 BLAST+ 并设置 `BLASTP_DIR`。
+
+BLAST+ 需要以下组件，下载无法提供：
+
+*   **Windows 10 或更高版本（x64）**：Microsoft Visual C++ 2015–2022 Redistributable (x64)。
+*   **Linux（x86-64）**：glibc 2.28 或更高版本以及 `libgomp1` 软件包（Fedora 和 RHEL 上为 `libgomp`）；它不能在 Alpine 等基于 musl 的系统上运行。
+*   **macOS**：14 或更高版本，Apple silicon。
+
+BLAST+ 默认会向 NCBI 报告使用统计。本工具运行的每个 BLAST+ 程序启动时都带有 `BLAST_USAGE_REPORT=false`，从而关闭报告。（若你设置了 BLAST+ 自己的 `DO_NOT_TRACK` 和 `NCBI_USAGE_REPORT_ENABLED`，则它们优先。）
 
 BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `1,000,000` 条目标序列，每个目标只保留一个 HSP，并使用条件性组成统计（`-comp_based_stats 2`）。这些是实现中的常量，而不是界面中的字段。
 

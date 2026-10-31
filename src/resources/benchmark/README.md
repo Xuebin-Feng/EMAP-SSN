@@ -46,8 +46,10 @@ sequences, with the same seed, as stage 5 does, with PaCMAP's own default neighb
 count, and needs only stage 3.
 
 A stage this machine can't run, such as BLAST without NCBI BLAST+ on the PATH or
-in `C:\Program Files\NCBI`, is skipped with the reason, and so are the stages
-that need it. The first run downloads ESM-2 8M (about 30 MB) into the Hugging
+in its standard install folder (`C:\Program Files\NCBI` on Windows), is skipped
+with the reason, and so are the stages that need it. The benchmark never reads
+tools_settings.json, so a BLAST+ that the Tools window's Download button put in
+another folder is not used: install BLAST+ where the automatic search finds it. The first run downloads ESM-2 8M (about 30 MB) into the Hugging
 Face cache; that download is not timed.
 
 The report is named by the time the run started, as

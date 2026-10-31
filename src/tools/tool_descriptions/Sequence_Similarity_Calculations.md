@@ -109,7 +109,27 @@ This script runs all-vs-all local sequence alignments using traditional amino ac
 | Score **`SCORE_METRIC`** | The edge score the network stores for each pair of sequences. `evalue` (the default) is the negative Log10 of the E-value; `efi_alignment_score` is the EFI-EST alignment score, computed from each hit's bit score and the two sequences' lengths. For either, the strongest hit of a pair, in either direction, is kept. |
 | BLAST Threads **`NUM_THREADS`** | The number of CPU threads allocated for BLASTP execution and parsing. |
 | Processing Batch Size **`BATCH_SIZE`** | The maximum number of parsed edges buffered or copied at once during both intermediate HDF5 writing and final network compilation. |
-| BLASTP Directory **`BLASTP_DIR`** | Optional directory containing `blastp` and `makeblastdb`. When blank, the tool searches `PATH` and supported platform installation locations. |
+| BLASTP Directory **`BLASTP_DIR`** | Optional directory containing `blastp` and `makeblastdb`. Blank (the default) means that the tool searches for NCBI BLAST+ itself, and the empty field shows what that search finds. The **Download** button beside the field installs BLAST+ from NCBI. See *Finding or Installing BLAST+* below. |
+
+#### Finding or Installing BLAST+
+
+A set `BLASTP_DIR` is used exactly as written, and nothing else is tried: when it is not a folder, or lacks `blastp` or `makeblastdb`, the run stops with an error that names what is missing. A relative folder is read against the project folder. Leave the field blank and the tool searches, each time it runs, in this order: the `PATH`; then, on Windows, the newest version folder (by version number, so 2.17 is newer than 2.9) under the NCBI folder in `Program Files`, or, on Linux and macOS, `/usr/local/ncbi/blast/bin`, `/usr/local/bin`, `/usr/bin` and `/opt/homebrew/bin`. The grey text in the empty field shows what that search finds now, or says that no BLAST+ was found. The tool never writes a discovered folder into the field or into the saved settings.
+
+The **Download** button (the first of the two icon buttons after the field; **Browse** is the second) installs BLAST+ 2.17.0 from NCBI:
+
+*   It first asks you to confirm, naming the version, this computer's download size (about 143 MB on Windows, 296 MB on Linux, 206 MB on macOS) and installed size (about 34, 63 and 47 MB), and that BLAST+ is a United States government work in the public domain. It then asks for a folder, starting at the project folder, and installs into `<chosen folder>/blast-2.17.0+`.
+*   The archive is checked against the size and SHA-256 checksum recorded in EMAP-SSN, and only `blastp` and `makeblastdb` (plus `nghttp2.dll` on Windows, which `blastp.exe` needs) are installed, each checked against its own SHA-256. `blastp -version` must start before anything replaces an existing install. A failed or cancelled download leaves no partial files.
+*   The download runs in the background: the window stays usable, a progress dialog shows the stage, and its Cancel button stops it. Closing the window cancels it. Cancelling or a failure leaves the field as it was, and a failure says why.
+*   On success the field names the new folder (a path relative to the project folder when it lies inside it). Like any edit, it is saved with the tool's settings when you Save & Run.
+*   The download button is disabled, with the reason as its tooltip, on a computer the download does not cover; install BLAST+ yourself there and set `BLASTP_DIR`.
+
+BLAST+ needs, and the download cannot supply:
+
+*   **Windows 10 or later (x64)**: the Microsoft Visual C++ 2015–2022 Redistributable (x64).
+*   **Linux (x86-64)**: glibc 2.28 or newer and the `libgomp1` package (`libgomp` on Fedora and RHEL); it does not run on musl-based systems such as Alpine.
+*   **macOS**: version 14 or newer, on Apple silicon.
+
+BLAST+ reports usage statistics to NCBI unless told not to. Every BLAST+ program this tool runs is started with `BLAST_USAGE_REPORT=false`, which turns that off. (BLAST+'s own `DO_NOT_TRACK` and `NCBI_USAGE_REPORT_ENABLED` settings, if you have set them, take precedence.)
 
 BLASTP is currently run with a permissive fixed E-value cutoff of `1e300`, at most `1,000,000` target sequences per query, one HSP per target, and conditional composition-based statistics (`-comp_based_stats 2`). These are implementation constants rather than GUI fields.
 

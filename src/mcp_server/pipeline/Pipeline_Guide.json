@@ -78,7 +78,7 @@
         {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue_temp/ or _EFIScore_temp/ (workspace)", "existing": "resumed when its configuration matches; removed after success"}
       ],
       "next": ["network_statistics", "start_layout_job"],
-      "requirements": "blastp and makeblastdb from NCBI BLAST+ (BLASTP_DIR, the PATH or a standard install location). CPU only.",
+      "requirements": "blastp and makeblastdb from NCBI BLAST+. get_compute_capabilities reports (blast) the BLAST+ that a blank BLASTP_DIR finds: the PATH, then a standard install folder; a BLASTP_DIR in the parameters is used instead and must hold both programs. An agent cannot download BLAST+: when it is missing, tell the user to click the Download button beside BLASTP Directory in the Tools window (or to set BLASTP_DIR). CPU only.",
       "notes": [
         "Scores are -log10(E-value); larger means more similar. An E-value of 0 (near-identical pairs) is stored as the cap 300.",
         "With SCORE_METRIC efi_alignment_score the score is the EFI-EST alignment score, bit score * log10(2) - log10(query length * subject length): larger means more similar, it has no cap and does not depend on the size of the set, and weak hits of long sequences can be 0 or below. The network records score_kind efi_alignment_score.",
@@ -243,7 +243,7 @@
       "goal": "BLAST-based SSN and layout from a raw FASTA",
       "steps": [
         "sanitize_sequences (optional)",
-        "align_substitution_matrix (needs BLAST+; SCORE_METRIC picks -log10(E-value) or the EFI alignment score)",
+        "align_substitution_matrix (needs BLAST+, which get_compute_capabilities reports; SCORE_METRIC picks -log10(E-value) or the EFI alignment score)",
         "network_statistics, then export_layout_settings and start_layout_job"
       ]
     },

@@ -163,7 +163,7 @@ This script queries a single sequence against an entire database using residue-l
 | 10. BLAST all-against-all alignment | `Align_Substitution_Matrix.py`, with NCBI BLAST+. |
 | 11. PaCMAP layout | The same network laid out with PaCMAP. |
 
-Every device setting stays on **Auto**, so each tool runs its own hardware trials, and the report records what each one chose. A stage this computer can't run, such as BLAST without NCBI BLAST+, is skipped with the reason, and so are the stages that need it.
+Every device setting stays on **Auto**, so each tool runs its own hardware trials, and the report records what each one chose. A stage this computer can't run, such as BLAST without an NCBI BLAST+ on the `PATH` or in its standard install folder, is skipped with the reason, and so are the stages that need it. The benchmark does not read the BLASTP Directory saved in the Tools window, so a BLAST+ the Download button installed in another folder is not used.
 
 ### Output
 
