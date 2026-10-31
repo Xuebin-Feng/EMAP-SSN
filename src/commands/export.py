@@ -252,6 +252,9 @@ def run(viewer, args):
     model_label = re.sub(
         r'[<>:"/\\|?*]', "_", metadata.model_name
     )
+    if metadata.score_kind == cache_manifest.SCORE_KIND_EFI:
+        # Not the folder of the E-value exports of the same sequences.
+        model_label += cache_manifest.EFI_LABEL_SUFFIX
     lvl1_name = f"{fasta_base}_[{model_label}]"
     is_blast = metadata.network_type == "blast"
     if not is_blast:

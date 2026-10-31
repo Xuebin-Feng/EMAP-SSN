@@ -1073,7 +1073,7 @@ class ViewerCanvasTextTests(WindowTestCase):
 
         folder = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, folder, True)
-        network = SimpleNamespace(model_name="1", network_type="blast")
+        network = SimpleNamespace(model_name="1", network_type="blast", score_kind="evalue")
         with mock.patch.object(EMAPSSN_Config, "NODE_FASTA_FILE", os.path.join(folder, "1.fasta")), \
                 mock.patch.object(EMAPSSN_Config, "INPUT_HDF5", "1.h5"), \
                 mock.patch.object(EMAPSSN_Config, "TOP_EDGE_PERCENT", None), \

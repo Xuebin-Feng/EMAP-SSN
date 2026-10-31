@@ -268,7 +268,7 @@ class ExportCacheNameTests(unittest.TestCase):
         self.outside = self.root / "outside"
         self.outside.mkdir()
         cfg = export_command.cfg
-        metadata = SimpleNamespace(model_name="test", network_type="blast")
+        metadata = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
         for patcher in (
             mock.patch.object(cfg, "NODE_FASTA_FILE", str(self.root / "source.fasta")),
             mock.patch.object(cfg, "INPUT_HDF5", "network.h5"),

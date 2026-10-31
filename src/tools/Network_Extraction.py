@@ -52,7 +52,7 @@ except ModuleNotFoundError:
 import sys
 import h5py
 import numpy as np
-from Cache_Manifest import network_name_label, validate_network_schema
+from Cache_Manifest import SCORE_KIND_EFI, network_name_label, validate_network_schema
 from utilities.Sequence_Utils import read_fasta, sanitize_header
 
 # ==========================================
@@ -158,13 +158,15 @@ def configure_runtime_paths():
 
     network_metadata = validate_network_schema(FULL_INPUT_NET)
     # The model, or DIAMOND for an imported DIAMOND network, as in its own name.
-    model_name = network_name_label(FULL_INPUT_NET)
+    model_name = network_name_label(FULL_INPUT_NET, score_suffix=False)
     fasta_base = os.path.splitext(os.path.basename(FULL_INPUT_FASTA))[0]
 
     if network_metadata.network_type == "blast":
+        # An extract keeps its network's score, and names it as the network does.
+        score_name = "EFIScore" if network_metadata.score_kind == SCORE_KIND_EFI else "EValue"
         OUTPUT_NET = os.path.join(
             NETWORK_DIR,
-            f"{fasta_base}_[{model_name}]_EValue.h5",
+            f"{fasta_base}_[{model_name}]_{score_name}.h5",
         )
     else:
         OUTPUT_NET = os.path.join(
@@ -207,7 +209,9 @@ def filter_network(input_net, input_fasta, output_net):
             hf_in,
         )
         is_blast_network = network_metadata.network_type == "blast"
-        if is_blast_network:
+        if is_blast_network and network_metadata.score_kind == SCORE_KIND_EFI:
+            print("-> Format Detected: BLAST EFI Alignment Score Network")
+        elif is_blast_network:
             print("-> Format Detected: BLAST/SSEARCH E-Value Network")
         else:
             print("-> Format Detected: Embedding Similarity Network")

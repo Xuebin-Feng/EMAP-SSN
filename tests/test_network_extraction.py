@@ -187,6 +187,46 @@ class NetworkExtractionTests(unittest.TestCase):
                         os.path.join(temp_dir, expected_name),
                     )
 
+    def test_efi_network_extract_is_named_by_its_score_and_keeps_its_kind(self):
+        transform = "bitscore*log10(2) - log10(len_query*len_subject)"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            whitelist = root / "selected.fasta"
+            whitelist.write_text(">A\nAAAA\n>C\nCCCC\n", encoding="utf-8")
+
+            for search_program, expected_name in (
+                (None, "selected_[blast]_EFIScore.h5"),
+                ("DIAMOND", "selected_[DIAMOND]_EFIScore.h5"),
+            ):
+                with self.subTest(search_program=search_program):
+                    input_network = root / f"efi_{search_program}.h5"
+                    self._write_blast_network(input_network)
+                    with h5py.File(input_network, "a") as handle:
+                        handle.attrs["score_kind"] = "efi_alignment_score"
+                        handle.attrs["score_transform"] = transform
+                        if search_program is not None:
+                            handle.attrs["search_program"] = search_program
+
+                    network_extraction.INPUT_NET = str(input_network)
+                    network_extraction.INPUT_FASTA = str(whitelist)
+                    network_extraction.NETWORK_DIR = str(root)
+                    network_extraction.FASTA_DIR = str(root)
+                    network_extraction.configure_runtime_paths()
+                    self.assertEqual(
+                        network_extraction.OUTPUT_NET, os.path.join(temp_dir, expected_name)
+                    )
+
+                    report = self._filter(
+                        input_network, whitelist, network_extraction.OUTPUT_NET
+                    )
+                    self.assertIn("EFI Alignment Score Network", report)
+                    self.assertNotIn("E-Value", report)
+                    with h5py.File(network_extraction.OUTPUT_NET, "r") as output:
+                        self.assertEqual(output.attrs["score_kind"], "efi_alignment_score")
+                        self.assertEqual(output.attrs["score_transform"], transform)
+                        self.assertEqual(output["headers"].asstr()[:].tolist(), ["A", "C"])
+                        np.testing.assert_array_equal(output["score"][:], [1e-4, 1e-8])
+
     def test_whitelist_saved_with_a_byte_order_mark_keeps_its_first_record(self):
         # Windows Notepad can save UTF-8 with a BOM. Decoded as plain UTF-8 it
         # stayed on the first line, so the first header was never read.

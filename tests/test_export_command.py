@@ -41,7 +41,7 @@ class ExportCommandTests(unittest.TestCase):
                 handle.write(">node\nAAAA\n")
 
             export_root = os.path.join(temp_dir, "exports")
-            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            metadata = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
             patches = (
                 mock.patch.object(cfg, "NODE_FASTA_FILE", fasta_path),
                 mock.patch.object(cfg, "INPUT_HDF5", "network.h5"),
@@ -92,7 +92,7 @@ class ExportCommandTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            metadata = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
             with mock.patch.object(cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")), mock.patch.object(
                 cfg, "INPUT_HDF5", "network.h5"
             ), mock.patch.object(
@@ -136,7 +136,7 @@ class ExportCommandTests(unittest.TestCase):
         viewer._selected_fasta_records = [("node", "AAAA")]
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            metadata = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
             with mock.patch.object(cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")), mock.patch.object(
                 cfg, "INPUT_HDF5", "network.h5"
             ), mock.patch.object(cfg, "TOP_EDGE_PERCENT", None), mock.patch.object(
@@ -203,7 +203,7 @@ class ExportBareLabelTests(unittest.TestCase):
     def export(self, args, viewer=None):
         """Run export on a temporary folder; return (files written by folder, the viewer, the outcomes, the writer)."""
         viewer = viewer or self.make_viewer()
-        metadata = SimpleNamespace(model_name="test", network_type="blast")
+        metadata = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")
         ), mock.patch.object(cfg, "INPUT_HDF5", "network.h5"), mock.patch.object(
@@ -350,7 +350,7 @@ class ExportBranchTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = directory.name
-        self.network = SimpleNamespace(model_name="test", network_type="blast")
+        self.network = SimpleNamespace(model_name="test", network_type="blast", score_kind="evalue")
         for patcher in (
             mock.patch.object(cfg, "NODE_FASTA_FILE", os.path.join(self.root, "source.fasta")),
             mock.patch.object(cfg, "INPUT_HDF5", "network.h5"),
@@ -426,6 +426,22 @@ class ExportBranchTests(unittest.TestCase):
                 succeeded, failed = self.export(self.make_viewer(), "clusters")
                 failed.assert_not_called()
                 self.assertIn(f"{folder}/Score0.5/Cluster_1.fasta", self.written())
+
+    def test_efi_networks_export_to_a_folder_of_their_own(self):
+        # E-value and EFI alignment score exports of one set never share a folder.
+        for score_kind, folder in (
+            ("evalue", "source_[test]"),
+            ("efi_alignment_score", "source_[test-EFI]"),
+        ):
+            with self.subTest(score_kind=score_kind):
+                self.network.score_kind = score_kind
+                succeeded, failed = self.export(self.make_viewer(), "clusters")
+                failed.assert_not_called()
+                self.assertIn(f"{folder}/Score0.5/Cluster_1.fasta", self.written())
+        self.assertEqual(
+            sorted({name.split("/")[0] for name in self.written()}),
+            ["source_[test-EFI]", "source_[test]"],
+        )
 
     def test_all_noise_clustering_exports_nothing(self):
         viewer = self.make_viewer(cluster_id=-1)
