@@ -371,6 +371,26 @@ class PrepareNetworkThresholdTests(unittest.TestCase):
         self.assertEqual(lines[0], "Top 10.0% Edges Requested (based on max possible 190 edges).")
         self.assertEqual(lines[1], f"Calculated E-Value Cutoff: {threshold:.5f}")
 
+    def test_the_cutoff_is_named_for_the_score_the_network_holds(self):
+        # An E-value network, with or without the attribute, says E-Value; an EFI alignment
+        # score network says so. Only the label differs: the edges and the cutoff are the same.
+        names = [f"N{index}" for index in range(20)]
+        settings = self.settings(TOP_EDGE_PERCENT=10.0)
+        results = {}
+        for kind in (None, "evalue", "efi_alignment_score"):
+            with tempfile.TemporaryDirectory() as folder:
+                path = pathlib.Path(folder) / "network.h5"
+                write_network(path, 20, np.random.default_rng(6), blast=True, ties=True)
+                if kind is not None:
+                    with h5py.File(path, "a") as network:
+                        network.attrs["score_kind"] = kind
+                (_, edges, scores), threshold, lines = self.prepared(path, settings, names)
+            results[kind] = (edges.tolist(), scores.tolist(), threshold, lines[0])
+            label = "EFI Alignment Score" if kind == "efi_alignment_score" else "E-Value"
+            self.assertEqual(lines[1], f"Calculated {label} Cutoff: {threshold:.5f}")
+        self.assertEqual(results[None], results["evalue"])
+        self.assertEqual(results[None], results["efi_alignment_score"])
+
     def test_a_network_without_pairs_or_with_none_left_has_a_zero_cutoff(self):
         with tempfile.TemporaryDirectory() as folder:
             empty = pathlib.Path(folder) / "empty.h5"

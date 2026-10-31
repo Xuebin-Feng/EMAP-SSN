@@ -866,7 +866,11 @@ if __name__ == "__main__":
         so a window redrawn in another language shows the same report in it.
         """
         if report["blast"]:
-            metric = translate("Config", "Metric: Log10(E-Value)")
+            # A report with no score_kind is an E-value one, as a network with none is.
+            if report.get("score_kind") == cache_manifest.SCORE_KIND_EFI:
+                metric = translate("Config", "Metric: EFI alignment score")
+            else:
+                metric = translate("Config", "Metric: Log10(E-Value)")
         else:
             score_mode, norm_mode = report["score_mode"], report["normalization"]
             score_names = {
@@ -1429,6 +1433,7 @@ if __name__ == "__main__":
                 result, model_name=metadata.model_name,
                 fasta_name=os.path.basename(self.fasta_path), node_count=node_count,
                 is_blast=is_blast, score_mode=self.score_mode, norm_mode=self.norm_mode,
+                score_kind=metadata.score_kind,
             )
 
     class ConfigGUI(QMainWindow):
@@ -2490,7 +2495,7 @@ if __name__ == "__main__":
                     ),
                 ),
                 "SIMILARITY_THRESHOLD": Tip(
-                    translate("Config", "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge."),
+                    translate("Config", "Minimum similarity score threshold (identity fraction, normalized score, -Log10 E-Value or EFI alignment score) to retain an edge."),
                     details=(translate("Config", "Edges below this cutoff are filtered out and excluded from physics simulation and rendering."),),
                 ),
                 "TOP_EDGE_PERCENT": Tip(

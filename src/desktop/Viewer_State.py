@@ -1087,7 +1087,13 @@ def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=
             source, lambda _valid_pairs: int(theoretical_max_edges * (top_percent / 100.0))
         )
 
-        mode_label = "E-Value" if settings.INPUT_IS_EVALUE else "Similarity"
+        # A BLAST network's scores are -log10(E-value) or the EFI alignment score (score_kind).
+        if not settings.INPUT_IS_EVALUE:
+            mode_label = "Similarity"
+        elif metadata.score_kind == cache_manifest.SCORE_KIND_EFI:
+            mode_label = "EFI Alignment Score"
+        else:
+            mode_label = "E-Value"
         print(
             f"Top {top_percent}% Edges Requested (based on max possible "
             f"{int(theoretical_max_edges)} edges)."

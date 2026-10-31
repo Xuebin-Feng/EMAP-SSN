@@ -598,6 +598,9 @@ class MCLEdgeScoreTests(unittest.TestCase):
                 reported = failed.call_args.args[1]
                 self.assertEqual(reported.splitlines()[0], first_line)
                 self.assertIn("MCL cannot use a score of 0 or below", reported)
+                # The two ways a score gets there: a weak E-value, and a weak hit of long sequences.
+                self.assertIn("-log10 of an E-value of 1 or more", reported)
+                self.assertIn("the EFI alignment score of a weak hit between long sequences", reported)
                 succeeded.assert_not_called()
                 # The console line shows the first line; the terminal all of it.
                 self.assertEqual(viewer.console_text.text, first_line)

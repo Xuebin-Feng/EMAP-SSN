@@ -219,7 +219,8 @@ def mcl_edge_score_error(scores):
 
     MCL needs every score finite and above 0; scores is None for an
     unweighted network. A score of 0 or below (-log10 of an E-value of 1 or
-    more is 0 or negative) or a non-finite one makes MCL fail with a NaN error.
+    more is 0 or negative, and so is the EFI alignment score of a weak hit
+    between long sequences) or a non-finite one makes MCL fail with a NaN error.
     """
     if scores is None:
         return None
@@ -233,7 +234,7 @@ def mcl_edge_score_error(scores):
             "Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.",
             n=unusable,
         ),
-        "MCL cannot use a score of 0 or below, such as -log10 of an E-value of 1 or more, or a score that is not finite.",
+        "MCL cannot use a score of 0 or below, such as -log10 of an E-value of 1 or more or the EFI alignment score of a weak hit between long sequences, or a score that is not finite.",
     ], separator="\n")
 
 

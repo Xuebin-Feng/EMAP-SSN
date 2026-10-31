@@ -304,7 +304,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 window.cb_hdf5.addItem(network_path.name)
                 settle_cache_discovery()
 
-                manifest = SimpleNamespace(network_type="blast", model_name="BLAST")
+                manifest = SimpleNamespace(network_type="blast", model_name="BLAST", score_kind="evalue")
                 method_globals = window.run_statistics.__globals__
                 cache_manifest = method_globals["cache_manifest"]
 

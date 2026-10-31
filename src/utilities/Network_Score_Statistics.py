@@ -354,11 +354,12 @@ def run_pass(function, ranges, *, workers=None, cancelled=None, progress=None):
 
 
 # The most rows the report's threshold table has. A table is made for people to choose a cutoff
-# from; the steps it has always used (0.1, or 1 then 5 for E-value scores) give some 10 to 150
-# rows for real networks, and they are kept up to this many rows (scores up to 20 above the
-# lowest, or -log10(E) up to about 595). Scores that range further, from a network with lengths
-# of zero or with huge scores, would have hundreds of millions of rows, so the table takes the
-# smallest step of 1, 2 or 5 times a power of ten that fits.
+# from; the steps it has always used (0.1, or 1 then 5 for BLAST scores, -log10(E) or the EFI
+# alignment score) give some 10 to 150 rows for real networks, and they are kept up to this many
+# rows (scores up to 20 above the lowest, or BLAST scores up to about 595). Scores that range
+# further, from a network with lengths of zero or with huge scores, would have hundreds of
+# millions of rows, so the table takes the smallest step of 1, 2 or 5 times a power of ten that
+# fits.
 MAX_REPORT_ROWS = 200
 
 
@@ -387,7 +388,7 @@ def _coarse_thresholds(is_blast, min_score, max_score, limit):
     """Evenly spaced thresholds from just below the minimum to just above the maximum, in at most ``limit`` rows.
 
     The step is 1, 2 or 5 times a power of ten; each threshold is the float64 nearest to its
-    decimal value (E-value scores take whole numbers, as the usual steps do).
+    decimal value (BLAST scores take whole numbers, as the usual steps do).
     """
     low, high = float(min_score), float(max_score)
     for digit, exponent in _nice_steps(1.0 if is_blast else 0.1):
@@ -494,8 +495,13 @@ def compute_score_statistics(source, *, workers=None, chunk_edges=None, progress
     )
 
 
-def statistics_report(stats, *, model_name, fasta_name, node_count, is_blast, score_mode, norm_mode):
-    """The dict ConfigGUI.show_statistics takes, in no language, from ScoreStatistics."""
+def statistics_report(stats, *, model_name, fasta_name, node_count, is_blast, score_mode, norm_mode,
+                      score_kind="evalue"):
+    """The dict ConfigGUI.show_statistics takes, in no language, from ScoreStatistics.
+
+    score_kind is what a BLAST network's scores are (NetworkMetadata.score_kind): "evalue",
+    or "efi_alignment_score". The report names it for a BLAST network only.
+    """
     node_count = int(node_count)
     theoretical_max_edges = (node_count * (node_count - 1)) / 2.0
     rows = []
@@ -508,6 +514,7 @@ def statistics_report(stats, *, model_name, fasta_name, node_count, is_blast, sc
         "fasta": fasta_name,
         "nodes": node_count,
         "blast": is_blast,
+        "score_kind": score_kind if is_blast else None,
         "score_mode": score_mode,
         "normalization": norm_mode,
         "stored_edges": int(stats.stored_edges),

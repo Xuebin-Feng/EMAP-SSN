@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4009"/>
+        <location line="+4014"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4008"/>
+        <location line="-4013"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4643"/>
+        <location line="+4648"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4635"/>
+        <location line="-4640"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -763,7 +763,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+721"/>
+        <location line="+725"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -796,7 +796,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+411"/>
+        <location line="+412"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -941,14 +941,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1180"/>
+        <location line="-1181"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1221"/>
+        <location line="+1222"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1611,7 +1611,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2415"/>
+        <location line="-2416"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1622,12 +1622,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2641"/>
+        <location line="+2642"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3181"/>
+        <location line="-3182"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1648,7 +1648,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">局部</translation>
     </message>
     <message>
-        <location line="-42"/>
+        <location line="-46"/>
         <source>Alignment Length</source>
         <comment>normalization</comment>
         <translation type="unfinished">比对长度</translation>
@@ -1709,7 +1709,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">PaCMAP</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Metric: {score} Alignment Score with {normalization} Normalization</source>
         <translation type="unfinished">指标：{score}比对得分，按{normalization}归一化</translation>
     </message>
@@ -1773,7 +1773,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2545"/>
+        <location line="+2546"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1885,12 +1885,17 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4011"/>
+        <location line="-4016"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
     <message>
-        <location line="+707"/>
+        <location line="+660"/>
+        <source>Metric: EFI alignment score</source>
+        <translation type="unfinished">指标：EFI 比对得分</translation>
+    </message>
+    <message>
+        <location line="+51"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1983,7 +1988,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1270"/>
+        <location line="+1271"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2128,12 +2133,11 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">仅当“比对参考 ID”在比对中成功解析时才生效。</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.</source>
-        <translation type="unfinished">保留一条边所需的最低相似性得分阈值（一致性比例、归一化得分或 -Log10 期望值）。</translation>
+        <translation type="obsolete">保留一条边所需的最低相似性得分阈值（一致性比例、归一化得分或 -Log10 期望值）。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+5"/>
         <source>Edges below this cutoff are filtered out and excluded from physics simulation and rendering.</source>
         <translation type="unfinished">低于此阈值的边会被过滤掉，不参与物理模拟和绘制。</translation>
     </message>
@@ -2793,7 +2797,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">自动</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-2034"/>
+        <source>Minimum similarity score threshold (identity fraction, normalized score, -Log10 E-Value or EFI alignment score) to retain an edge.</source>
+        <translation type="unfinished">保留一条边所需的最低相似性得分阈值（一致性比例、归一化得分、-Log10 期望值或 EFI 比对得分）。</translation>
+    </message>
+    <message>
+        <location line="+1775"/>
         <location line="+259"/>
         <source>Auto OFF</source>
         <translation type="unfinished">自动</translation>
@@ -4820,7 +4829,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
-        <location filename="../../../commands/cluster.py" line="+389"/>
+        <location filename="../../../commands/cluster.py" line="+390"/>
         <location filename="../../../commands/color.py" line="+504"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/embedding.py" line="+79"/>
@@ -4898,7 +4907,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-228"/>
+        <location filename="../../../commands/cluster.py" line="-229"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -4923,7 +4932,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法识别的 cluster 参数“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
         <translation type="unfinished">
             <numerusform>错误：MCL 要求每条边的得分都是大于 0 的有限值，但有 %n 条边的得分不符合要求。</numerusform>
@@ -5613,7 +5622,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-455"/>
+        <location filename="../../../commands/cluster.py" line="-456"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
         <location filename="../../../commands/hide.py" line="+58"/>
@@ -6879,7 +6888,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4973"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4978"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6921,7 +6930,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1501"/>
+        <location line="+1506"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -11604,12 +11613,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">标准 `outfmt 6` 要求正好 12 列。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>`outfmt 7` reads the full query from `# Query` and subject/E-value positions from `# Fields`.</source>
-        <translation type="unfinished">`outfmt 7` 从 `# Query` 读取完整的查询序列，并从 `# Fields` 读取目标序列（target sequence）和期望值（E-value）所在的列。</translation>
+        <translation type="obsolete">`outfmt 7` 从 `# Query` 读取完整的查询序列，并从 `# Fields` 读取目标序列（target sequence）和期望值（E-value）所在的列。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Uses the three one-based column settings below.</source>
         <translation type="unfinished">使用下面三项从 1 开始编号的列设置。</translation>
     </message>
@@ -13168,7 +13176,12 @@ Fedora / RHEL：
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
     <message>
-        <location line="+321"/>
+        <location line="+101"/>
+        <source>`outfmt 7` reads the full query from `# Query` and the subject and score (E-value or bit score) positions from `# Fields`.</source>
+        <translation type="unfinished">`outfmt 7` 从 `# Query` 读取完整的查询序列，并从 `# Fields` 读取目标序列（target sequence）和得分（期望值或比特得分）所在的列。</translation>
+    </message>
+    <message>
+        <location line="+220"/>
         <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>

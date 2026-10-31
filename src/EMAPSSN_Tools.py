@@ -1913,7 +1913,7 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "How the columns of the BLAST tabular file are read."),
                     options=(
                         TipOption("standard_outfmt6", translate("Tools", "Standard `outfmt 6` requires exactly 12 columns.")),
-                        TipOption("outfmt7_fields", translate("Tools", "`outfmt 7` reads the full query from `# Query` and subject/E-value positions from `# Fields`.")),
+                        TipOption("outfmt7_fields", translate("Tools", "`outfmt 7` reads the full query from `# Query` and the subject and score (E-value or bit score) positions from `# Fields`.")),
                         TipOption("custom_columns", translate("Tools", "Uses the three one-based column settings below.")),
                     ),
                 ),

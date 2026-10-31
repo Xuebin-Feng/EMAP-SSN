@@ -390,20 +390,21 @@ class ConfigRunTimeTextTests(WindowTestCase):
         self.assert_translated(report)
 
     def test_the_statistics_report(self):
-        from types import SimpleNamespace
-
         self.write_inputs(["WP_1_alpha", "WP_2_beta", "Other"])
         cache_manifest = self.window.run_statistics.__globals__["cache_manifest"]
-        blast = SimpleNamespace(network_type="blast", model_name="BLAST")
         from tests.config_gui_loader import finish_statistics
 
-        with mock.patch.object(cache_manifest, "validate_network_schema", return_value=blast):
-            self.window.run_statistics()
-            finish_statistics(self.window)
-        report = self.window.stat_display.toPlainText()
-        self.assertGreater(len(report.splitlines()), 10, report)
-        self.assert_translated(report)
-        self.assert_translated(QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText())
+        # A BLAST network's metric line names its scores: E-values, or the EFI alignment score.
+        for kind in (cache_manifest.SCORE_KIND_EVALUE, cache_manifest.SCORE_KIND_EFI):
+            with self.subTest(score_kind=kind):
+                blast = cache_manifest.NetworkMetadata("BLAST", "blast", kind)
+                with mock.patch.object(cache_manifest, "validate_network_schema", return_value=blast):
+                    self.window.run_statistics()
+                    finish_statistics(self.window)
+                report = self.window.stat_display.toPlainText()
+                self.assertGreater(len(report.splitlines()), 10, report)
+                self.assert_translated(report)
+                self.assert_translated(QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText())
 
 
 class ToolsRunTimeTextTests(WindowTestCase):

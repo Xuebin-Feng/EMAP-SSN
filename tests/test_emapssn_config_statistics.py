@@ -174,6 +174,46 @@ class StatisticsWindowTests(unittest.TestCase):
                         self.assertEqual(expected[key], got[key], key)
                 self.assertAlmostEqual(expected["mean"], got["mean"], places=5)
 
+    def test_the_report_names_what_a_blast_networks_scores_are(self):
+        # The network has no score_kind attribute: its scores are E-values.
+        self.finish(self.start_run())
+        self.assertEqual(self.window._statistics["score_kind"], "evalue")
+        self.assertIn("Metric: Log10(E-Value)", self.report())
+        # The same pairs as EFI alignment scores.
+        with h5py.File(self.work / "network.h5", "a") as network:
+            network.attrs["score_kind"] = "efi_alignment_score"
+        self.started.clear()
+        self.select("half.fasta", "network.h5")
+        self.finish(self.start_run())
+        self.assertEqual(self.window._statistics["score_kind"], "efi_alignment_score")
+        self.assertIn("Metric: EFI alignment score", self.report())
+        self.assertNotIn("E-Value", self.report())
+
+    def test_the_metric_line_follows_the_score_kind_in_each_language(self):
+        from desktop.Desktop_App import install_translations
+
+        base = {
+            "blast": True, "score_mode": "global", "normalization": "alignment_length",
+            "model": "BLAST", "fasta": "a.fasta", "nodes": 3, "stored_edges": 3,
+            "possible_edges": 3, "maximum": 1.0, "minimum": 0.0, "mean": 0.5,
+        }
+        metric = self.namespace["statistics_report_text"]
+
+        def metric_line(report):
+            return next(line for line in metric(report)[0] if line.startswith(("Metric", "指标")))
+
+        # A report without the key, or with "evalue", is an E-value one.
+        for report in (base, {**base, "score_kind": "evalue"}):
+            self.assertEqual(metric_line(report), "Metric: Log10(E-Value)")
+        efi = {**base, "score_kind": "efi_alignment_score"}
+        self.assertEqual(metric_line(efi), "Metric: EFI alignment score")
+        # Not the dropdown's Global/Local alignment score.
+        self.assertNotIn("Global", metric_line(efi))
+        installed = install_translations(self.app, "zh_CN")
+        self.addCleanup(installed.remove)
+        self.assertEqual(metric_line(efi), "指标：EFI 比对得分")
+        self.assertEqual(metric_line(base), "指标：Log10(期望值)")
+
     def test_a_network_with_no_edge_left_warns_and_keeps_the_report(self):
         self.finish(self.start_run())
         before = self.report()

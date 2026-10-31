@@ -573,6 +573,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Metric: EFI alignment score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -921,7 +925,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.</source>
+        <source>Minimum similarity score threshold (identity fraction, normalized score, -Log10 E-Value or EFI alignment score) to retain an edge.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7888,7 +7892,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>`outfmt 7` reads the full query from `# Query` and subject/E-value positions from `# Fields`.</source>
+        <source>`outfmt 7` reads the full query from `# Query` and the subject and score (E-value or bit score) positions from `# Fields`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
