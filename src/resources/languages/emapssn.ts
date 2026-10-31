@@ -7150,7 +7150,7 @@ The window stays usable while it downloads, and you can cancel at any time. You 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Installed {version} in:
+        <source>BLAST+ is installed ({version}) in:
 {folder}
 
 The BLASTP Directory field now names that folder. It is saved with the tool&apos;s settings when you Save &amp; Run.</source>

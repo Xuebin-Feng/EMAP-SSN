@@ -282,7 +282,7 @@ class BlastDirectoryControl(QWidget):
             translate("Tools", "BLAST+ Installed"),
             translate(
                 "Tools",
-                "Installed {version} in:\n{folder}\n\n"
+                "BLAST+ is installed ({version}) in:\n{folder}\n\n"
                 "The BLASTP Directory field now names that folder. It is saved with the tool's "
                 "settings when you Save & Run.",
             ).format(version=installed.version, folder=installed.folder),

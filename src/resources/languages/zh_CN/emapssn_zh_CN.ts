@@ -12737,11 +12737,21 @@ BLAST+ 是美国政府的作品，属于公有领域（public domain）。
     </message>
     <message>
         <location line="+1"/>
+        <source>BLAST+ is installed ({version}) in:
+{folder}
+
+The BLASTP Directory field now names that folder. It is saved with the tool&apos;s settings when you Save &amp; Run.</source>
+        <translation type="unfinished">BLAST+ 已安装（{version}），位置：
+{folder}
+
+BLASTP 目录字段现在填的是该文件夹。你点击“保存并运行”时，它会随工具的设置一起保存。</translation>
+    </message>
+    <message>
         <source>Installed {version} in:
 {folder}
 
 The BLASTP Directory field now names that folder. It is saved with the tool&apos;s settings when you Save &amp; Run.</source>
-        <translation type="unfinished">已安装 {version}，位置：
+        <translation type="obsolete">已安装 {version}，位置：
 {folder}
 
 BLASTP 目录字段现在填的是该文件夹。你点击“保存并运行”时，它会随工具的设置一起保存。</translation>
