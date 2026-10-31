@@ -68,10 +68,11 @@ _DIAMOND_COMMANDS = {
 FIRST_WORD_ADVICE = (
     "BLAST+ qseqid/sseqid and DIAMOND report only the first word of each FASTA "
     "header, while the manifest uses complete headers. Remove descriptions from "
-    "the FASTA headers before searching, or report complete titles: BLAST+ "
-    '-outfmt "7 qseqid stitle evalue" with BLAST_LAYOUT outfmt7_fields, or '
-    "DIAMOND --outfmt 6 qtitle stitle evalue with BLAST_LAYOUT custom_columns "
-    "(columns 1, 2 and 3)."
+    "the FASTA headers before searching, or report complete titles and the bit "
+    'score: BLAST+ -outfmt "7 qseqid stitle evalue bitscore" with BLAST_LAYOUT '
+    "outfmt7_fields, or DIAMOND --outfmt 6 qtitle stitle evalue bitscore with "
+    "BLAST_LAYOUT custom_columns (columns 1, 2 and 3, and BITSCORE_COLUMN 4 for "
+    "the EFI alignment score)."
 )
 
 

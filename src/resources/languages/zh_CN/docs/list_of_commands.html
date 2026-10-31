@@ -682,7 +682,7 @@
 
 <div class="section-divider" id="sec-analysis" data-source-sha256="11d08bd3b5ae42526bc455b04a25f732b753f4911885a431f6328f71cd362068">分析</div>
 
-            <section class="command-card" id="cmd-cluster" data-source-sha256="5f21bee3364a244329ac0b40c86f2041af8631edf8c844bf7a9270f80d887c97">
+            <section class="command-card" id="cmd-cluster" data-source-sha256="8779ffba6bd80f04c2cbc772a9ae2d78858206af533e38fcf321f95c47a9dc8f">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">cluster</span>
@@ -719,7 +719,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header">MCL（马尔可夫聚类）</div>
                     <div class="collapsible-content">
-                        <p><strong>机制：</strong>模拟网络中的随机游走，假定随机游走者会停留在稠密的簇内，而不会穿过稀疏的边界。把相似性得分用作转移概率。每个节点还会获得一条自环，其权重与它最强的边相同（没有边的节点为 1），因此簇不依赖于得分的尺度：从 0 到 1 的一致性（identity）和 &minus;log<sub>10</sub> 期望值（E-value）的聚类效果相同。需要 <code>markov_clustering</code> 和 <code>networkx</code>。</p>
+                        <p><strong>机制：</strong>模拟网络中的随机游走，假定随机游走者会停留在稠密的簇内，而不会穿过稀疏的边界。把相似性得分用作转移概率。每个节点还会获得一条自环，其权重与它最强的边相同（没有边的节点为 1），因此簇不依赖于得分的尺度：从 0 到 1 的一致性（identity）和 &minus;log<sub>10</sub> 期望值（E-value）的聚类效果相同。每条边的得分都必须大于 0，网络中只要有得分不满足此条件，该命令就会拒绝运行：长序列之间较弱的 EFI 比对得分（EFI alignment score）可能为 0 或更小，期望值为 1 或更大时的 &minus;log<sub>10</sub> 也是如此。需要 <code>markov_clustering</code> 和 <code>networkx</code>。</p>
                         <p><strong>参数：</strong><em>Inflation</em>（默认：2.0），取值范围为 1.1 到 10.0（含）；超出此范围的值会在做任何更改之前被拒绝。控制边界的粒度。较高的值（如 4.0、6.0）通常会产生更紧密、更多的簇。</p>
                         <p><strong>用法：</strong> <code>cluster mcl 2.0 10</code></p>
                     </div>

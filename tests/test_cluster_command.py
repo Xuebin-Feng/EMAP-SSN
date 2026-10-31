@@ -4,6 +4,7 @@ numbered in."""
 import importlib
 import io
 import os
+import re
 import sys
 import unittest
 import warnings
@@ -630,6 +631,35 @@ class MCLEdgeScoreTests(unittest.TestCase):
             _succeeded, failed, _output = run_command(cluster, viewer, ["leiden", "1", "1"])
         failed.assert_not_called()
         partition.assert_called_once()
+
+
+class MCLScoreDocumentationTests(unittest.TestCase):
+    """The command reference says what the command above does with scores of 0 or below."""
+
+    def mcl_paragraph(self, folder):
+        with open(os.path.join(folder, "list_of_commands.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        card = page.split('id="cmd-cluster"', 1)[1].split("</section>", 1)[0]
+        header = "MCL (Markov Clustering)" if "MCL (Markov Clustering)" in card else "MCL（马尔可夫聚类）"
+        # The paragraph after the algorithm's header is its Mechanism.
+        paragraph = card.split(header, 1)[1].split("</p>", 1)[0]
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", paragraph.replace("&minus;", "-")))
+
+    def test_both_pages_say_mcl_needs_scores_above_0_and_when_they_come_out_so_low(self):
+        english = self.mcl_paragraph(os.path.join(PROJECT_ROOT, "docs"))
+        chinese = self.mcl_paragraph(
+            os.path.join(SRC_DIR, "resources", "languages", "zh_CN", "docs")
+        )
+        self.assertIn("Every edge score must be above 0", english)
+        self.assertIn("refuses a network with a score that is not", english)
+        self.assertIn("a weak EFI alignment score between long sequences can be 0 or below", english)
+        self.assertIn("-log10 of an E-value of 1 or more can", english)
+        for text in ("大于 0", "拒绝", "EFI 比对得分", "为 0 或更小", "期望值为 1 或更大"):
+            self.assertIn(text, chinese)
+        # It is what the command does: the same two causes are in its refusal.
+        refusal = str(cluster.mcl_edge_score_error(np.array([0.0, 1.0])))
+        self.assertIn("-log10 of an E-value of 1 or more", refusal)
+        self.assertIn("EFI alignment score of a weak hit between long sequences", refusal)
 
 
 class OverlappingMCLClusterTests(unittest.TestCase):

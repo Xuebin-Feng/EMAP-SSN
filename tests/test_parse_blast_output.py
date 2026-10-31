@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import math
 import os
 import pathlib
 import random
@@ -242,6 +243,39 @@ class ParseBlastOutputTests(unittest.TestCase):
             message,
         )
         self.assertIn("DIAMOND --outfmt 6 qtitle stitle evalue", message)
+
+    def test_the_first_word_advice_asks_for_the_bit_score_beside_the_titles_and_the_e_value(self):
+        advice = " ".join(blast_tabular.FIRST_WORD_ADVICE.split())
+        # Both programs report the titles, the E-value and the bit score, so one file serves either score.
+        self.assertIn('BLAST+ -outfmt "7 qseqid stitle evalue bitscore" with BLAST_LAYOUT outfmt7_fields', advice)
+        self.assertIn(
+            "DIAMOND --outfmt 6 qtitle stitle evalue bitscore with BLAST_LAYOUT custom_columns "
+            "(columns 1, 2 and 3, and BITSCORE_COLUMN 4 for the EFI alignment score)",
+            advice,
+        )
+        # The advice reaches the user inside the error for both ways a header can fail to match.
+        fasta = self.write_fasta([("A protein description", "AAAA"), ("B", "BBBB")])
+        for rows in (standard_row("A", "B", "1e-5"), standard_row("Z", "B", "1e-5")):
+            with self.subTest(rows=rows[:6]), self.assertRaises(blast_tabular.BlastParseError) as raised:
+                self.build(fasta, self.write_blast(rows + "\n"))
+            self.assertIn(blast_tabular.FIRST_WORD_ADVICE, str(raised.exception))
+
+    def test_the_advised_diamond_columns_import_for_either_score(self):
+        # Columns 1, 2, 3 and 4 as the advice says: the titles, the E-value and the bit score.
+        fasta = self.write_fasta([("A protein description", "AAAA"), ("B other protein", "BBBB")])
+        blast = self.write_blast(
+            diamond_header(fields="Query title, Subject title, Expect value, Bit score")
+            + "A protein description\tB other protein\t1e-5\t40.0\n"
+        )
+        expected = {"evalue": 5.0, "efi_alignment_score": 40.0 * math.log10(2) - math.log10(4 * 4)}
+        for metric, score in expected.items():
+            with self.subTest(metric=metric):
+                output, _summary, _ = self.build(
+                    fasta, blast, name=f"{metric}.h5", layout="custom_columns", score_metric=metric,
+                    query_column=1, subject_column=2, evalue_column=3, bitscore_column=4,
+                )
+                with h5py.File(output, "r") as network:
+                    np.testing.assert_allclose(network["score"][:], [score])
 
     def test_unmatched_header_mentions_fasta_headers_with_spaces(self):
         fasta = self.write_fasta([("A protein description", "AAAA"), ("B", "BBBB")])
