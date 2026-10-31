@@ -338,7 +338,9 @@ Ambiguous plain tabular files require an explicit format:
 
 `parameters` requires a `tool_id`, uses that tool's strict keys/types, and does not
 require unrelated job inputs. BLAST defaults to `standard_outfmt6`; specify
-`outfmt7_fields` to validate Query/Fields comment context. Supplying a tool ID
+`outfmt7_fields` to validate Query/Fields comment context. The score is read from the
+E-value column, or, with `SCORE_METRIC` set to `efi_alignment_score`, from the bit score
+column (`BITSCORE_COLUMN` for a custom layout). Supplying a tool ID
 does not establish cross-file compatibility or guarantee that all job inputs exist.
 
 The report separates:
@@ -353,7 +355,8 @@ header/sequence manifests, and each embedding's presence, shape, and dtype. It
 does not read embedding arrays. Network inspection checks type-specific datasets,
 ranks, dtypes, and counts without reading edges or scores. A network imported by
 `parse_blast_output` also reports its recorded search program and version, and each
-warning recorded at import, such as a search truncated per query, as a finding. Sparse MSA inspection
+warning recorded at import, such as a search truncated per query, as a finding. A BLAST network also
+reports its `score_kind`: `evalue`, or `efi_alignment_score` for the EFI alignment score. Sparse MSA inspection
 checks CSR dimensions and mapping metadata without scanning CSR arrays or
 reconstructing the alignment.
 
@@ -418,7 +421,9 @@ source code:
   thresholds, the equivalent `SIMILARITY_THRESHOLD`, kept edges, clusters, isolated
   nodes and largest cluster. It runs in a child process with a 50 s limit (about
   20 s for an 83.5-million-pair network); larger networks get an error suggesting
-  `TOP_EDGE_PERCENT`.
+  `TOP_EDGE_PERCENT`. A BLAST network's report names its `score_kind` and `metric`:
+  thresholds are -log10 of the E-value, or the EFI alignment score, which has no
+  universal cutoff, so the report advises starting low.
 - `get_layout_schema` returns every layout document field with its meaning, type,
   built-in default, accepted range and Config GUI range, the rules
   `start_layout_job` enforces, and edge-filter guidance. Its defaults are the

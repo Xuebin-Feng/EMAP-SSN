@@ -287,7 +287,7 @@
       "BLAST_LAYOUT": {
         "type": "string",
         "default": "standard_outfmt6",
-        "description": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
+        "description": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and the subject and score (E-value or bit score) positions from # Fields. Custom Columns uses the three one-based column settings below.",
         "enum": [
           "standard_outfmt6",
           "outfmt7_fields",

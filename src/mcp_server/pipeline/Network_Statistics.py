@@ -105,7 +105,7 @@ def summarize_network(network_path, fasta_path=None, alignment_score="global",
     import numpy as np
 
     started = time.monotonic()
-    from Cache_Manifest import validate_network_schema
+    from Cache_Manifest import SCORE_KIND_EFI, validate_network_schema
     from desktop.Viewer_State import _normalize_score
     from utilities import Network_Score_Statistics as scan
     from utilities.Sequence_Utils import load_sanitized_fasta
@@ -157,12 +157,21 @@ def summarize_network(network_path, fasta_path=None, alignment_score="global",
                 if header not in kept_set and (not header.split() or header.split()[0] not in kept_ids)
             )
         possible = node_count * (node_count - 1) // 2
-        metric = ("-log10(E-value); larger is more similar, capped at 300" if is_blast else
-                  f"{alignment_score} alignment score / {norm_mode.replace('_', ' ')}; larger is more similar")
+        efi = is_blast and metadata.score_kind == SCORE_KIND_EFI
+        if efi:
+            # Not capped, and not tied to the size of the set; weak hits of long sequences fall to 0 or below.
+            metric = ("EFI alignment score = bit score * log10(2) - log10(query length * subject length); "
+                      "larger is more similar, not capped, and 0 or below for weak hits of long sequences")
+        elif is_blast:
+            metric = "-log10(E-value); larger is more similar, capped at 300"
+        else:
+            metric = f"{alignment_score} alignment score / {norm_mode.replace('_', ' ')}; larger is more similar"
         report = {
             "input_hdf5": network_path,
             "node_fasta_file": fasta_path,
             "network_type": metadata.network_type,
+            # What a BLAST network's scores are; the other networks' scores are named by their metric.
+            "score_kind": metadata.score_kind if is_blast else None,
             "model_name": metadata.model_name,
             "metric": metric,
             "alignment_score": None if is_blast else alignment_score,
@@ -194,6 +203,12 @@ def summarize_network(network_path, fasta_path=None, alignment_score="global",
             ],
             "complete": True,
         }
+        if efi:
+            report["notes"].append(
+                "An EFI alignment score has no universal threshold: EFI-EST advises starting low and raising "
+                "SIMILARITY_THRESHOLD until sequences of known function separate. A score of 0 or below, from a "
+                "weak hit of long sequences, is stored as it is; MCL clustering cannot use such edges."
+            )
         percents = list(DEFAULT_TOP_EDGE_PERCENTS if top_edge_percents is None else top_edge_percents)
         percents = [float(percent) for percent in percents[:len(DEFAULT_TOP_EDGE_PERCENTS) + MAX_EXTRA_ROWS]]
         extra_thresholds = [float(threshold) for threshold in list(thresholds)[:MAX_EXTRA_ROWS]]

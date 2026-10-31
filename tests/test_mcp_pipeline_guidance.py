@@ -77,6 +77,48 @@ class PipelineGuideTests(unittest.TestCase):
         for workflow in Pipeline_Guide.workflows():
             self.assertTrue(workflow["goal"] and workflow["steps"])
 
+    def test_the_blast_tools_offer_the_efi_alignment_score_beside_the_e_value(self):
+        from mcp_server.pipeline.Pipeline_Settings import _CONTRACTS
+
+        def text(tool_id, field):
+            return json.dumps(Pipeline_Guide.tool_guide(tool_id)[field])
+
+        for tool_id, script in (("align_substitution_matrix", "Align_Substitution_Matrix.py"),
+                                ("parse_blast_output", "Parse_BLAST_Output.py")):
+            with self.subTest(tool=tool_id):
+                # The guide names the setting the tool really has, and both file names.
+                self.assertEqual(_CONTRACTS[script]["properties"]["SCORE_METRIC"]["enum"],
+                                 ["evalue", "efi_alignment_score"])
+                self.assertIn("SCORE_METRIC", text(tool_id, "purpose"))
+                names = {output["name"]: output.get("when") for output in Pipeline_Guide.tool_guide(tool_id)["outputs"]}
+                self.assertEqual(sum("_EValue.h5" in name for name in names), 1)
+                efi = [name for name in names if "_EFIScore.h5" in name]
+                self.assertEqual(len(efi), 1)
+                self.assertIn("efi_alignment_score", names[efi[0]])
+                notes = " ".join(Pipeline_Guide.tool_guide(tool_id)["notes"])
+                self.assertIn("-log10(E-value)", notes)
+                self.assertIn("cap 300", notes)
+                self.assertIn("score_kind efi_alignment_score", notes)
+                self.assertIn("0 or below", notes)
+        # The import needs the bit score, and says how to get it from either program.
+        notes = " ".join(Pipeline_Guide.tool_guide("parse_blast_output")["notes"])
+        self.assertIn("bit score", notes)
+        self.assertIn('-outfmt "7 qseqid stitle evalue bitscore"', notes)
+        self.assertIn("column 12", notes)
+        self.assertIn("BITSCORE_COLUMN", notes)
+        # The runner has its own notes: no cap, no dependence on the set's size, no universal threshold.
+        runner = " ".join(Pipeline_Guide.tool_guide("align_substitution_matrix")["notes"])
+        self.assertIn("no cap", runner)
+        self.assertIn("no universal threshold", runner)
+        # An extract keeps its network's score and says so in its name.
+        extraction = Pipeline_Guide.tool_guide("network_extraction")
+        self.assertIn("EFI alignment score", extraction["inputs"]["INPUT_NET"]["content"])
+        self.assertIn("_EFIScore.h5", extraction["outputs"][0]["name"])
+        # Neither BLAST workflow claims an E-value network.
+        steps = " ".join(step for workflow in Pipeline_Guide.workflows() for step in workflow["steps"])
+        self.assertIn("SCORE_METRIC picks -log10(E-value) or the EFI alignment score", steps)
+        self.assertIn("SCORE_METRIC efi_alignment_score", steps)
+
     def test_layout_call_examples_match_the_action_arguments(self):
         from mcp_server.core.Workflow_Dispatch import REGISTRY
         from mcp_server.pipeline.Pipeline_Operations import LAYOUT_CALL_EXAMPLES, list_pipeline_tools
@@ -333,6 +375,17 @@ class NetworkStatisticsTests(unittest.TestCase):
         self.assertEqual(report["score_summary"]["max"], 9.0)
         self.assertEqual(sum(report["histogram"]["counts"]), 4)
 
+    def test_the_threshold_argument_names_the_unit_of_each_kind_of_blast_network(self):
+        from mcp_server.core.Workflow_Dispatch import REGISTRY
+
+        schema = REGISTRY["emapssn_pipeline"]["network_statistics"].model.model_json_schema()["properties"]
+        thresholds = schema["thresholds"]["description"]
+        self.assertIn("-log10(E), so 1e-40 is 40", thresholds)
+        self.assertIn("EFI alignment scores", thresholds)
+        self.assertIn("score_kind efi_alignment_score", thresholds)
+        # The scores a layout reads are the BLAST network's, whichever they are.
+        self.assertIn("ignored for BLAST networks", schema["alignment_score"]["description"])
+
     def test_cutoffs_agree_with_prepare_network(self):
         from desktop.Viewer_State import prepare_network
         report = self.summarize(top_edge_percents=[30.0])
@@ -387,6 +440,21 @@ class LayoutContractTests(unittest.TestCase):
         for key, value in layout_defaults().items():
             if key != "SIMILARITY_THRESHOLD":
                 self.assertEqual(getattr(engine, key), value, key)
+
+    def test_the_threshold_guidance_covers_both_kinds_of_blast_network(self):
+        from mcp_server.pipeline.Pipeline_Operations import get_layout_schema
+
+        schema = get_layout_schema()
+        threshold = schema["fields"]["SIMILARITY_THRESHOLD"]["description"]
+        self.assertIn("-log10(E-value) when score_kind is evalue (or absent)", threshold)
+        self.assertIn("the EFI alignment score when it is efi_alignment_score", threshold)
+        self.assertIn("score_kind", schema["fields"]["SIMILARITY_THRESHOLD"]["description"])
+        self.assertIn("ignored for BLAST networks", schema["fields"]["ALIGNMENT_SCORE"]["description"])
+        guidance = " ".join(schema["choosing_an_edge_filter"])
+        # An E-value cutoff converts only for E-value scores; the EFI alignment score has no such conversion.
+        self.assertIn("on a BLAST network of E-value scores an E-value cutoff converts as SIMILARITY_THRESHOLD = -log10(E)", guidance)
+        self.assertIn("score_kind efi_alignment_score) has no universal cutoff", guidance)
+        self.assertNotIn("on an E-value network", guidance)
 
     def test_individual_arguments_fall_back_to_the_documented_defaults(self):
         from mcp.server.mcpserver.exceptions import ToolError

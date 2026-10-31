@@ -732,6 +732,10 @@ class McpSummaryIsUnchanged(unittest.TestCase):
             old = legacy_summarize_network(str(path), fasta_path=fasta, alignment_score=score, norm_mode=norm, **options)
         with contextlib.redirect_stdout(io.StringIO()):
             new = mcp_statistics.summarize_network(str(path), fasta_path=fasta, alignment_score=score, norm_mode=norm, **options)
+        # The one field the report gained: what a BLAST network's scores are (every network
+        # here holds E-values, as one without the attribute does), and None for the others.
+        blast = cache_manifest.validate_network_schema(str(path)).network_type == "blast"
+        self.assertEqual(new.pop("score_kind"), "evalue" if blast else None)
         self.assertEqual(old, new)
 
     WIDE = ("random", "spaced headers", "long sequences", "zero lengths", "blast", "blast negative")
@@ -787,6 +791,61 @@ class McpSummaryIsUnchanged(unittest.TestCase):
                 mcp_statistics.summarize_network(str(path))
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(IndexError, "exceed the header count"):
                 legacy_summarize_network(str(path))
+
+
+class McpReportNamesTheScore(unittest.TestCase):
+    """The report's metric text and notes follow what a BLAST network's scores are."""
+
+    EFI = "efi_alignment_score"
+
+    def report(self, score_kind=None, scores=(-3.5, 12.25, 80.0)):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "network.h5"
+            write_network(path, ["A", "B", "C"], ([0, 0, 1], [1, 2, 2]), {"score": scores}, blast=True)
+            if score_kind is not None:
+                with h5py.File(path, "a") as hf:
+                    hf.attrs["score_kind"] = score_kind
+            with contextlib.redirect_stdout(io.StringIO()):
+                return mcp_statistics.summarize_network(str(path))
+
+    def test_an_e_value_network_keeps_its_text_and_says_so(self):
+        for kind in (None, "evalue"):
+            with self.subTest(score_kind=kind):
+                report = self.report(kind, scores=(1.0, 12.25, 80.0))
+                self.assertEqual(report["score_kind"], "evalue")
+                self.assertEqual(report["metric"], "-log10(E-value); larger is more similar, capped at 300")
+                self.assertEqual([note for note in report["notes"] if "EFI" in note], [])
+
+    def test_an_efi_alignment_score_network_names_its_formula_and_has_no_cap(self):
+        report = self.report(self.EFI)
+        self.assertEqual(report["network_type"], "blast")
+        self.assertEqual(report["score_kind"], self.EFI)
+        metric = report["metric"]
+        self.assertTrue(metric.startswith(
+            "EFI alignment score = bit score * log10(2) - log10(query length * subject length)"))
+        self.assertIn("not capped", metric)
+        self.assertNotIn("300", metric)
+        self.assertNotIn("E-value", metric)
+        # One note says there is no universal threshold, and that a score of 0 or below is kept.
+        notes = [note for note in report["notes"] if "EFI alignment score" in note]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("no universal threshold", notes[0])
+        self.assertIn("0 or below", notes[0])
+        # The scores are read as stored: the negative one is the minimum, not clipped.
+        self.assertEqual(report["score_summary"]["min"], -3.5)
+        self.assertEqual(report["score_summary"]["max"], 80.0)
+
+    def test_an_embedding_network_has_no_score_kind(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "embedding.h5"
+            write_network(path, ["A", "B", "C"], ([0, 0, 1], [1, 2, 2]),
+                          {"l_score": [1, 2, 3], "l_len": [4, 4, 4], "g_score": [1, 2, 3], "g_len": [4, 4, 4]},
+                          seq_lens=[10, 10, 10])
+            with contextlib.redirect_stdout(io.StringIO()):
+                report = mcp_statistics.summarize_network(str(path))
+        self.assertIsNone(report["score_kind"])
+        self.assertIn("alignment score", report["metric"])
+        self.assertEqual([note for note in report["notes"] if "EFI" in note], [])
 
 
 def legacy_thresholds(is_blast, min_score, max_score):

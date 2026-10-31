@@ -257,6 +257,20 @@ class FileInspectionTests(unittest.TestCase):
             hf.attrs["import_warnings"] = "not json"
         self.assertEqual(self.inspect()["structural_validity"], "invalid")
 
+    def test_a_blast_network_reports_what_its_scores_are(self):
+        # No attribute: E-values, as for every network made before the EFI alignment score.
+        self.network()
+        self.assertEqual(self.inspect()["metadata"]["score_kind"], "evalue")
+        with h5py.File(self.path, "a") as hf:
+            hf.attrs["score_kind"] = "efi_alignment_score"
+        result = self.inspect()
+        self.assertEqual(result["structural_validity"], "valid")
+        self.assertEqual(result["metadata"]["network_type"], "blast")
+        self.assertEqual(result["metadata"]["score_kind"], "efi_alignment_score")
+        # An embedding-alignment network has no score_kind to report.
+        self.network(1, True)
+        self.assertNotIn("score_kind", self.inspect()["metadata"])
+
     def test_settings_sections_and_strict_validation(self):
         self.path.write_text(json.dumps({"DIRECTORIES": {}, "Sanitize_Sequences.py": {"INPUT_FASTA": "future.fasta"}}))
         self.assertEqual(self.inspect()["structural_validity"], "valid")

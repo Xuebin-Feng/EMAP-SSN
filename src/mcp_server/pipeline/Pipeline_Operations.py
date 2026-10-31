@@ -790,14 +790,15 @@ async def network_statistics(
     node_fasta_file: Annotated[str | None, Field(description=(
         "Node FASTA the layout will use; only its nodes are counted. Omit to use every network node"))] = None,
     alignment_score: Annotated[Literal["global", "local"], Field(description=(
-        "Embedding-alignment networks: score the layout will use (ignored for E-value networks)"))] = "global",
+        "Embedding-alignment networks: score the layout will use (ignored for BLAST networks)"))] = "global",
     norm_mode: Annotated[
         Literal["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
         Field(description="Embedding-alignment networks: normalization the layout will use"),
     ] = "alignment_length",
     thresholds: Annotated[list[float] | None, Field(max_length=10, description=(
-        "SIMILARITY_THRESHOLD values to evaluate as well, such as the user's own cutoff; an E-value "
-        "cutoff on an E-value network is -log10(E), so 1e-40 is 40"))] = None,
+        "SIMILARITY_THRESHOLD values to evaluate as well, such as the user's own cutoff. On a BLAST network "
+        "of E-value scores an E-value cutoff is -log10(E), so 1e-40 is 40; on one of EFI alignment scores "
+        "(score_kind efi_alignment_score) the value is an alignment score"))] = None,
     top_edge_percents: Annotated[list[float] | None, Field(max_length=19, description=(
         "TOP_EDGE_PERCENT values to evaluate instead of the default series (0.1 to 50)"))] = None,
 ) -> dict[str, Any]:

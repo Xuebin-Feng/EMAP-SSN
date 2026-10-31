@@ -164,6 +164,9 @@ class Inspector:
                                                     observed=edges, expected=expected)
         self.report["metadata"].update(sequence_count=n, edge_count=edges, network_type=metadata.network_type,
                                          model_name=metadata.model_name[:256])
+        if metadata.network_type == "blast":
+            # What the scores are: evalue (-log10 of the E-value) or efi_alignment_score; a network without the attribute holds E-values.
+            self.report["metadata"]["score_kind"] = metadata.score_kind
         for name in ("search_program", "search_version", "search_invocation", "matrix", "matmul_precision"):
             if name in hf.attrs:
                 value = hf.attrs[name]
