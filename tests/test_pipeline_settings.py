@@ -229,6 +229,26 @@ class PipelineSettingsTests(unittest.TestCase):
             rejected = self.preview("parse_blast_output", parameters={**values, "BITSCORE_COLUMN": bad})
             self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.BITSCORE_COLUMN"])
 
+    def test_similarity_matrix_is_a_pairwise_alignment_setting_with_the_blast_choices(self):
+        discovery = get_pipeline_schema("embedding_pwa", ROOT)
+        schema = discovery["parameters_schema"]["properties"]["SIMILARITY_MATRIX"]
+        blast = get_pipeline_schema("align_substitution_matrix", ROOT)["parameters_schema"]["properties"]["MATRIX"]
+        self.assertEqual(schema["default"], "BLOSUM62")
+        self.assertEqual(schema["enum"], blast["enum"])
+        self.assertEqual(schema["enum"], ["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90",
+                                          "PAM30", "PAM70", "PAM250"])
+        self.assertIn("similar", schema["description"])
+        self.assertIn("similarity", " ".join(discovery["notes"]))
+        values = discovery["example"]["parameters"]
+        for matrix in schema["enum"]:
+            result = self.preview("embedding_pwa", parameters={**values, "SIMILARITY_MATRIX": matrix})
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(result["settings_document"]["Embedding_PWA.py"]["SIMILARITY_MATRIX"], matrix)
+        for bad in ("blosum62", "BLOSUM100", "", None, 62):
+            rejected = self.preview("embedding_pwa", parameters={**values, "SIMILARITY_MATRIX": bad})
+            self.assertFalse(rejected["valid"], bad)
+            self.assertEqual({e["field"] for e in rejected["errors"]}, {"parameters.SIMILARITY_MATRIX"})
+
     def test_custom_columns_are_distinct_for_the_score_that_is_read(self):
         values = get_pipeline_schema("parse_blast_output", ROOT)["example"]["parameters"]
         custom = {**values, "BLAST_LAYOUT": "custom_columns", "QUERY_COLUMN": 1, "SUBJECT_COLUMN": 2}

@@ -2065,6 +2065,10 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Gap penalty applied in Needleman-Wunsch global alignment."),
                     details=(translate("Tools", "More negative values penalize gap insertions across full-length alignments."),),
                 ),
+                "SIMILARITY_MATRIX": Tip(
+                    translate("Tools", "Substitution matrix (e.g. `BLOSUM62`, `PAM250`) used only to count similar residue pairs."),
+                    details=(translate("Tools", "The alignment itself comes from the embeddings. A pair of standard residues counts as similar when it is identical or the matrix scores it above 0."),),
+                ),
                 "GENERATE_REPORT": Tip(
                     translate("Tools", "Toggle to save an interactive, color-coded HTML alignment report."),
                     details=(translate("Tools", "Outputs a formatted report with highlighted residue mappings to the report directory."),),
@@ -2856,6 +2860,13 @@ class ToolsGUI(QMainWindow):
                             "var_name": "GLOBAL_GAP_P",
                             "type": "negative_number",
                             "display": translate("Tools", "Global Align Gap Penalty:")
+                        },
+                        {
+                            "var_name": "SIMILARITY_MATRIX",
+                            "type": "dropdown",
+                            "options": ["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90", "PAM30", "PAM70", "PAM250"],
+                            "name_options": True,
+                            "display": translate("Tools", "Similarity Matrix:")
                         },
                         {
                             "var_name": "GENERATE_REPORT",

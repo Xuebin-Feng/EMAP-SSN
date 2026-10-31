@@ -214,7 +214,10 @@
       "outputs": [
         {"directory": "REPORT_DIR", "name": "PWA_Report_<timestamp>.html", "when": "GENERATE_REPORT is true", "existing": "a new file per run"}
       ],
-      "next": []
+      "next": [],
+      "notes": [
+        "The console result, and the report, give identity, similarity and gap counts over the alignment length. A standard residue pair is similar when identical or when SIMILARITY_MATRIX (default BLOSUM62) scores it above 0; the alignment itself comes from the embeddings."
+      ]
     },
     "embedding_ssearch": {
       "stage": "analysis",

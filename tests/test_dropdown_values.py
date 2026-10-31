@@ -426,6 +426,24 @@ class ToolsOptionLabelTests(unittest.TestCase):
                         self.assertFalse(combo.itemData(index, NAME_ITEM_ROLE), text)
                 self.assertIn(values[0], labels)
 
+    def test_pairwise_alignment_offers_the_blast_matrices_as_names_defaulting_to_blosum62(self):
+        from desktop.Desktop_App import NAME_ITEM_ROLE, select_combo_value
+
+        window, _ = self.open_tools()
+        names = ["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90", "PAM30", "PAM70", "PAM250"]
+        combo = self.combo(window, "Embedding_PWA.py", "SIMILARITY_MATRIX")
+        blast = self.combo(window, "Align_Substitution_Matrix.py", "MATRIX")
+        self.assertEqual(stored_values(combo), names)
+        self.assertEqual(stored_values(blast), names)
+        self.assertEqual([combo.itemText(index) for index in range(combo.count())], names)
+        # Names such as BLOSUM62 show as they are in every language.
+        self.assertTrue(all(combo.itemData(index, NAME_ITEM_ROLE) for index in range(combo.count())))
+        self.assertEqual(combo.currentText(), "BLOSUM62")
+        path = self.script(window, "Embedding_PWA.py")
+        self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "BLOSUM62")
+        self.assertTrue(select_combo_value(combo, "PAM250"))
+        self.assertEqual(window._collect_tool_settings(path)["SIMILARITY_MATRIX"], "PAM250")
+
     def test_models_without_separate_terms_are_names_no_language_translates(self):
         from desktop.Desktop_App import NAME_ITEM_ROLE
 
