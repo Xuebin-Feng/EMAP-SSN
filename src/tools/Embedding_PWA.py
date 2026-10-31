@@ -42,7 +42,6 @@ except ModuleNotFoundError:
 import numpy as np
 import torch
 import h5py
-from Bio.Align import substitution_matrices
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Terminal_Colors import colours_enabled
 from utilities.Sequence_Utils import (
@@ -52,6 +51,7 @@ from utilities.Sequence_Utils import (
     sanitize_sequence,
     similarity_definition,
 )
+from utilities.Similarity_Matrices import load_similarity_matrix
 from utilities.HDF5_Storage import (
     read_embedding_manifest,
     validate_embedding_array,
@@ -195,22 +195,6 @@ def validate_alignment_mode(alignment_mode):
             f"Unknown ALIGNMENT_MODE {alignment_mode!r}; choose global or local."
         )
 
-
-# The Align_Substitution_Matrix tool's choices, in its order.
-SIMILARITY_MATRICES = (
-    "BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90",
-    "PAM30", "PAM70", "PAM250",
-)
-
-
-def load_similarity_matrix(matrix_name):
-    """Load a listed substitution matrix; the name picks a file, so refuse others."""
-    if matrix_name not in SIMILARITY_MATRICES:
-        raise ValueError(
-            f"Unknown SIMILARITY_MATRIX {matrix_name!r}; "
-            f"choose {', '.join(SIMILARITY_MATRICES)}."
-        )
-    return substitution_matrices.load(matrix_name)
 
 # ==========================================
 # 1. HELPER FUNCTIONS (Data Loading & Gen)

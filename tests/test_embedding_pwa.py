@@ -39,6 +39,7 @@ from utilities.Network_Kernels import (
     local_score_length_identity,
 )
 from utilities.Sequence_Utils import IDENTITY_RESIDUES, similarity_definition
+from utilities.Similarity_Matrices import SIMILARITY_MATRICES
 
 BLOSUM62 = embedding_pwa.load_similarity_matrix("BLOSUM62")
 
@@ -179,7 +180,7 @@ class PairwiseSimilarityTests(unittest.TestCase):
     def test_similar_pairs_include_every_identity_for_every_matrix(self):
         rng = np.random.default_rng(20261031)
         standard = list(IDENTITY_RESIDUES)
-        for name in embedding_pwa.SIMILARITY_MATRICES:
+        for name in SIMILARITY_MATRICES:
             with self.subTest(matrix=name):
                 matrix = embedding_pwa.load_similarity_matrix(name)
                 ref = "".join(rng.choice(standard, size=300))
@@ -220,29 +221,6 @@ class PairwiseSimilarityTests(unittest.TestCase):
         # K/R scores 0 in PAM30 and +3 in PAM250.
         self.assertEqual(self.columns("KK", "RR", "PAM30"), ("..", 0, 0))
         self.assertEqual(self.columns("KK", "RR", "PAM250"), ("::", 0, 2))
-
-    def test_every_listed_matrix_loads_and_scores_the_standard_residues(self):
-        self.assertEqual(
-            embedding_pwa.SIMILARITY_MATRICES,
-            ("BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90",
-             "PAM30", "PAM70", "PAM250"),
-        )
-        for name in embedding_pwa.SIMILARITY_MATRICES:
-            with self.subTest(matrix=name):
-                matrix = embedding_pwa.load_similarity_matrix(name)
-                for a in IDENTITY_RESIDUES:
-                    self.assertGreater(matrix[a, a], 0)
-                    for b in IDENTITY_RESIDUES:
-                        self.assertEqual(matrix[a, b], matrix[b, a])
-
-    def test_an_unknown_matrix_is_refused_naming_the_choices(self):
-        for name in ("BLOSUM", "blosum62", " BLOSUM62", "BLOSUM62.txt", "../BLOSUM62", "", None):
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(
-                    ValueError,
-                    re.escape(f"Unknown SIMILARITY_MATRIX {name!r}; choose BLOSUM45, "),
-                ):
-                    embedding_pwa.load_similarity_matrix(name)
 
     def test_definition_names_the_matrix_and_the_identity_length(self):
         for mode in ("global", "local"):
