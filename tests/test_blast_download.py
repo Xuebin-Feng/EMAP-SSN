@@ -541,6 +541,39 @@ class PinFileTests(unittest.TestCase):
             names = {member["install_name"] for member in self.pin["platforms"][key]["members"]}
             self.assertEqual(names, {"blastp", "makeblastdb"})
 
+    def test_the_licence_inventory_describes_this_pin(self):
+        licences = (ROOT / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
+        self.assertIn(self.pin["source"], licences)
+        self.assertIn("src/resources/blast/blast_pin.json", licences)
+        self.assertIn("BLAST+ 2.17.0", licences)
+        self.assertIn("only when the user clicks the Download", licences)
+        # NCBI's notice, its key sentences, and the MIT-licensed DLL that Windows adds.
+        self.assertIn('This software/database is a "United States Government Work" under the terms of the '
+                      'United States Copyright Act.', " ".join(licences.split()))
+        self.assertIn("have not placed any restriction on its use or reproduction", " ".join(licences.split()))
+        self.assertIn("nghttp2.dll", licences)
+        self.assertIn("https://github.com/nghttp2/nghttp2/blob/master/COPYING", licences)
+        self.assertIn("BLAST_USAGE_REPORT=false", licences)
+
+    def test_the_help_page_gives_each_platforms_sizes_and_requirements(self):
+        page = " ".join((ROOT / "src" / "tools" / "tool_descriptions" / "Sequence_Similarity_Calculations.md")
+                        .read_text(encoding="utf-8").split())
+
+        def says(text):
+            self.assertTrue(text in page, f"the help page does not say: {text}")
+
+        says(f"installs BLAST+ {self.pin['version']} from NCBI")
+        says(f"`<chosen folder>/{download.install_folder_name(self.pin)}`")
+        windows, linux, macos = (self.pin["platforms"][key] for key in (download.WINDOWS, download.LINUX, download.MACOS))
+        says(
+            f"(about {round(windows['size'] / 1e6)} MB on Windows, {round(linux['size'] / 1e6)} MB on Linux, "
+            f"{round(macos['size'] / 1e6)} MB on macOS) and installed size "
+            f"(about {round(windows['installed_size'] / 1e6)}, {round(linux['installed_size'] / 1e6)} and "
+            f"{round(macos['installed_size'] / 1e6)} MB)"
+        )
+        for requirement in ("Visual C++ 2015", "glibc 2.28", "libgomp1", "version 14 or newer"):
+            says(requirement)
+
     def test_each_platform_says_what_it_needs_to_run(self):
         for key, entry in self.pin["platforms"].items():
             with self.subTest(key=key):

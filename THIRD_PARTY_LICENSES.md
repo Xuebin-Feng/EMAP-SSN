@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-10-31
 
 ---
 
@@ -363,16 +363,43 @@ Linux x86_64 are deliberately not installed.
 ## 4. External programs invoked as subprocesses
 
 These are **not** bundled or redistributed. They are located on the user's system
-and executed as separate processes, exchanging data through files and standard
-streams. They are independent works and do not form a combined work with this
-program.
+(NCBI BLAST+ can also be downloaded from NCBI when the user asks, as described
+below) and executed as separate processes, exchanging data through files and
+standard streams. They are independent works and do not form a combined work with
+this program.
 
 | Program | License | Used by |
 |---|---|---|
 | NCBI BLAST+ (`makeblastdb`, `blastp`) | Public domain (US Government work) | `src/tools/Align_Substitution_Matrix.py` |
+| nghttp2 (`nghttp2.dll`, Windows only, from NCBI's BLAST+ archive) | MIT | installed beside `blastp.exe` with BLAST+, which imports it |
 | uv (Astral) | MIT OR Apache-2.0 | the launchers and `src/Install_Dependencies.py`, which create the managed environment and install packages; the launchers install `uv` from `astral.sh` when it is missing |
 
-Users must obtain BLAST+ separately and comply with its terms.
+Users may install BLAST+ themselves and set the BLASTP Directory to it, or leave the
+BLASTP Directory blank to use one the program finds on the `PATH` or in a standard
+install folder. This program downloads BLAST+ **only when the user clicks the Download
+button** beside the BLASTP Directory in the Tools window, and then only BLAST+ 2.17.0,
+from NCBI (`https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/`). It checks
+the archive and each installed file against the SHA-256 checksums pinned in
+`src/resources/blast/blast_pin.json`, and installs only `blastp` and `makeblastdb`
+(and `nghttp2.dll` on Windows) into the folder the user chose. This project does not
+host or redistribute BLAST+, and no run or tool downloads it on its own.
+
+NCBI's PUBLIC DOMAIN NOTICE, in the `LICENSE` file of the BLAST+ archive, reads in
+part: "This software/database is a "United States Government Work" under the terms of
+the United States Copyright Act. […] The National Library of Medicine and the U.S.
+Government have not placed any restriction on its use or reproduction." The notice
+also disclaims any warranty and asks that the author be cited in any work or product
+based on the material. Users remain bound by that notice.
+
+`nghttp2.dll` is the nghttp2 HTTP/2 library, which NCBI ships in its Windows archive
+and `blastp.exe` imports. nghttp2 is licensed under the MIT License
+(<https://github.com/nghttp2/nghttp2/blob/master/COPYING>). The download installs the
+file as NCBI built it and does not modify it.
+
+BLAST+ reports usage statistics to NCBI unless told not to. Every BLAST+ process this
+program starts, for a downloaded or an installed BLAST+, gets `BLAST_USAGE_REPORT=false`
+in its environment to turn that reporting off; BLAST+'s own `DO_NOT_TRACK` and
+`NCBI_USAGE_REPORT_ENABLED` settings, when a user has set them, take precedence.
 
 DIAMOND (GPL-3.0) is likewise only an external program whose tabular output
 `Parse_BLAST_Output.py` reads; this project does not run, bundle or link it.
