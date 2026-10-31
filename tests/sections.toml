@@ -299,6 +299,7 @@ modules = [
     "test_background_job_scheduler",
     "test_benchmark",
     "test_benchmark_record",
+    "test_blast_directory_control",
     "test_emapssn_tools_responsive_layout",
     "test_emapssn_tools_window",
     "test_tool_charts",

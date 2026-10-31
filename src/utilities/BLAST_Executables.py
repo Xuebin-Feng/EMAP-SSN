@@ -50,6 +50,7 @@ USAGE_REPORT_VARIABLE = "BLAST_USAGE_REPORT"
 SOURCE_SETTING = "BLASTP Directory"
 SOURCE_PATH = "PATH"
 STANDARD_FOLDER = "standard install folder"
+NOT_FOUND = "BLAST+ not found"  # describe_automatic() when the search finds nothing
 
 
 class BlastError(RuntimeError):
@@ -183,7 +184,7 @@ def describe_automatic():
     """One line for a placeholder: where the automatic search would look right now, or that it found nothing."""
     found = find_automatic()
     if found is None:
-        return "BLAST+ not found"
+        return NOT_FOUND
     if found.source == SOURCE_PATH:
         return f"{found.directory} ({SOURCE_PATH})"
     return found.source

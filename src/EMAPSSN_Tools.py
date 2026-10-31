@@ -584,6 +584,7 @@ from desktop.Desktop_App import (
     ThemeColorButton,
     TOOLS_THEME_SETTING,
 )
+from desktop.Blast_Directory_Control import BlastDirectoryControl
 from desktop.Tip_Panel import (
     MISSING,
     Code,
@@ -1780,7 +1781,10 @@ class ToolsGUI(QMainWindow):
                 ),
                 "BLASTP_DIR": Tip(
                     translate("Tools", "Directory containing local `blastp` and `makeblastdb` executable binaries."),
-                    details=(translate("Tools", "If left blank, standard system PATH and default platform installation locations are searched."),),
+                    details=(
+                        translate("Tools", "If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds."),
+                        translate("Tools", "A directory that is set must hold both programs. The Download button installs NCBI BLAST+ in a folder you choose and fills this field."),
+                    ),
                 ),
             },
             "Embedding_MSA.py": {
@@ -2412,7 +2416,7 @@ class ToolsGUI(QMainWindow):
                         },
                         {
                             "var_name": "BLASTP_DIR",
-                            "type": "folder_browser",
+                            "type": "blast_directory",
                             "display": translate("Tools", "BLASTP Directory:")
                         }
                     ],
@@ -3418,40 +3422,6 @@ class ToolsGUI(QMainWindow):
                         if target.id == "SAFE_TEMP_DIR" and (actual_val is None or str(actual_val).strip() == "" or "os.path" in str(actual_val)):
                             actual_val = os.path.normpath(os.path.join(os.path.expanduser("~"), "Alignment_TEMP"))
                             
-                        if target.id == "BLASTP_DIR" and (actual_val is None or str(actual_val).strip() == ""):
-                            import shutil
-                            default_blastp_dir = ""
-                            blastp_path = shutil.which("blastp")
-                            if blastp_path:
-                                default_blastp_dir = os.path.dirname(os.path.abspath(blastp_path))
-                            else:
-                                if os.name == 'nt':
-                                    ncbi_dir = r"C:\Program Files\NCBI"
-                                    if os.path.exists(ncbi_dir):
-                                        try:
-                                            valid_dirs = []
-                                            for d in os.listdir(ncbi_dir):
-                                                bin_path = os.path.join(ncbi_dir, d, "bin")
-                                                if os.path.exists(os.path.join(bin_path, "blastp.exe")):
-                                                    valid_dirs.append(bin_path)
-                                            if valid_dirs:
-                                                valid_dirs.sort(reverse=True)
-                                                default_blastp_dir = valid_dirs[0]
-                                        except:
-                                            pass
-                                else:
-                                    unix_fallbacks = [
-                                        "/usr/local/ncbi/blast/bin",
-                                        "/usr/local/bin",
-                                        "/usr/bin",
-                                        "/opt/homebrew/bin"
-                                    ]
-                                    for path in unix_fallbacks:
-                                        if os.path.exists(os.path.join(path, "blastp")):
-                                            default_blastp_dir = path
-                                            break
-                            actual_val = default_blastp_dir
-                            
                         settings.append({
                             'name': target.id, 'value': val_str, 'actual_val': actual_val,
                             'default': shown_default,
@@ -3850,30 +3820,12 @@ class ToolsGUI(QMainWindow):
                 try: ui_element.setValue(int(actual_val))
                 except: pass
 
-            elif s_def['type'] == "folder_browser":
-                ui_element = QWidget()
-                h_lay = QHBoxLayout(ui_element)
-                h_lay.setContentsMargins(0, 0, 0, 0)
-                
-                clean_val_str = str(actual_val).replace('r"', '"').replace("r'", "'").strip("\"'")
-                
-                le = QLineEdit(clean_val_str)
-                btn = set_role(QPushButton(translate("Tools", "Browse...")), "compact")
-                
-                def open_folder_dialog(checked=False, line_edit=le):
-                    folder = QFileDialog.getExistingDirectory(
-                        self, translate("Tools", "Select Directory"), line_edit.text() if line_edit.text() else ""
-                    )
-                    if folder:
-                        import os
-                        folder = os.path.normpath(folder)
-                        line_edit.setText(folder)
-                        
-                btn.clicked.connect(open_folder_dialog)
-                h_lay.addWidget(le)
-                h_lay.addWidget(btn)
-                ui_element.line_edit = le
-                
+            elif s_def['type'] == "blast_directory":
+                # A blank value stays blank, which means "search automatically": the field's
+                # placeholder says what the search finds, and nothing is filled in for the user.
+                clean_val_str = "" if actual_val is None else str(actual_val).replace('r"', '"').replace("r'", "'").strip("\"'")
+                ui_element = BlastDirectoryControl(clean_val_str, _PROJECT_ROOT)
+
             else:
                 ui_element = QLineEdit(str(actual_val))
             
@@ -4864,6 +4816,15 @@ class ToolsGUI(QMainWindow):
     def open_benchmark_folder(self):
         Desktop_Open.open_path(BENCHMARK_DIR)
 
+    def closeEvent(self, event):
+        # A BLAST+ download in progress is cancelled, and its thread ends before the window goes.
+        controls = [c for c in self.findChildren(BlastDirectoryControl) if c.is_downloading()]
+        if controls:
+            self.hide()
+            for control in controls:
+                control.stop_download()
+        super().closeEvent(event)
+
     def switch_language(self, language, **options):
         """Redraw this window in language (None for English), keeping all it shows.
 
@@ -4966,7 +4927,7 @@ class ToolsGUI(QMainWindow):
                 new_settings[var_name] = float(widget.value())
             elif w_type == "number":
                 new_settings[var_name] = int(widget.value())
-            elif w_type == "folder_browser":
+            elif w_type == "blast_directory":
                 raw_path = widget.line_edit.text().strip()
                 new_settings[var_name] = os.path.normpath(raw_path) if raw_path else ""
             else:

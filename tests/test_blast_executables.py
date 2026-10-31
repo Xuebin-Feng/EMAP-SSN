@@ -213,7 +213,8 @@ class AutomaticSearchTests(unittest.TestCase):
         usr = self.folder / "usr"
         with mock.patch.object(blast, "is_windows", return_value=False):
             self.assertIsNone(blast.find_automatic())
-            self.assertEqual(blast.describe_automatic(), "BLAST+ not found")
+            self.assertEqual(blast.describe_automatic(), blast.NOT_FOUND)
+            self.assertEqual(blast.NOT_FOUND, "BLAST+ not found")
             install(usr, windows=False)
             with mock.patch.object(blast, "UNIX_FOLDERS", (str(usr),)):
                 self.assertEqual(blast.describe_automatic(), f"{usr} (standard install folder)")

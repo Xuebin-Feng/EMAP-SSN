@@ -207,6 +207,29 @@ class ResponsiveToolsTests(unittest.TestCase):
                 self.assertEqual({name for name in names if inputs[name]["widget"].isEnabled()},
                                  enabled)
 
+    def test_the_blast_directory_row_keeps_its_field_and_two_buttons_at_every_width(self):
+        path = next(path for path in self.window.script_data
+                    if path.endswith("Align_Substitution_Matrix.py"))
+        control = self.window.script_data[path]["inputs"]["BLASTP_DIR"]["widget"]
+        control.line_edit.setText("C:/a-very-long-folder/" * 20)
+        tab = next(index for index in range(self.window.tabs.count())
+                   if self.window.tabs.widget(index).isAncestorOf(control))
+        self.window.tabs.setCurrentIndex(tab)
+        for width in (600, 1400, 600):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                scroll = self.window.tabs.widget(tab)
+                self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+                self.assert_layout_geometry(scroll.widget())
+                download, browse = control.download_button, control.browse_button
+                self.assertTrue(download.isVisibleTo(scroll) and browse.isVisibleTo(scroll))
+                self.assertGreater(control.line_edit.width(), 100)
+                # Field, then Download, then Browse, left to right on one line.
+                self.assertLess(control.line_edit.geometry().right(), download.geometry().left())
+                self.assertLess(download.geometry().right(), browse.geometry().left())
+                self.assertEqual(download.y(), browse.y())
+                self.assertLessEqual(browse.geometry().right(), control.rect().right())
+
     def test_exit_fills_the_row_under_the_help_and_the_tip_panel_reaches_the_bottom(self):
         window = self.window
 
