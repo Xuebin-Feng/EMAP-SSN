@@ -795,7 +795,7 @@
             </div>
 
             <!-- SECTION 7: BEST PRACTICES -->
-            <div id="best-practices" class="section-divider" data-source-sha256="c240321ccc5e472fe1a0ceecf2525c2c04fed0d1052af58d4eaeaecf4bbe3ab3">
+            <div id="best-practices" class="section-divider" data-source-sha256="265983fead5f872a9b32485d86b356adc16268432b4bbd0af7aa02d1dbeb35a9">
                 <span>7. 最佳实践、硬件加速与故障排除</span>
             </div>
 
@@ -812,7 +812,7 @@
                 </p>
                 <ul>
                     <li><strong>NVIDIA GPU：</strong>强烈推荐。支持 CUDA 13.2 和 CUDA 12.6 配置，为 embedding 生成和物理布局求解器均提供完整的 PyTorch 加速。</li>
-                    <li><strong>AMD GPU：</strong>在 Windows 11 25H2（内部版本 26200 或更新）和 Ubuntu Linux 上通过 ROCm 7.14 提供支持。物理布局的 GPU 内核在运行时针对 ROCm 编译，但尚未在 AMD 硬件上测试；首次使用时会对其进行检查，如果检查失败，布局会自动回退到较慢的 PyTorch 实现（<code>SSN_LAYOUT_GPU_KERNELS=0</code> 会强制回退）。</li>
+                    <li><strong>AMD GPU：</strong>在 Windows 11 25H2（内部版本 26200 或更新）和 Ubuntu Linux 上通过 ROCm 10.1 提供支持。物理布局的 GPU 内核在运行时针对 ROCm 编译，但尚未在 AMD 硬件上测试；首次使用时会对其进行检查，如果检查失败，布局会自动回退到较慢的 PyTorch 实现（<code>SSN_LAYOUT_GPU_KERNELS=0</code> 会强制回退）。</li>
                     <li><strong>Intel Arc / Core Ultra：</strong>在 Windows 11 和 Ubuntu 24.04、25.10 或 26.04 上通过 Intel XPU 提供支持（Core Ultra Series 3 需要 Ubuntu 25.10 或 26.04；Core Ultra Series 1 U 处理器（Meteor Lake-U）仅在 Windows 11 上可用；Core Ultra Series 2 U 和台式机处理器（Arrow Lake-U 和 -S）不在支持范围内）。Intel Data Center GPU Max 在 Ubuntu 22.04、RHEL 9.2 或 SLES 15 上受支持。Intel HD、UHD、Iris 及其他非 Arc 集成显卡不在支持范围内。</li>
                     <li><strong>Apple Silicon（所有世代）：</strong>在 macOS 14 及更高版本上，通过 Metal Performance Shaders（MPS）原生支持。</li>
                     <li><strong>CPU 回退：</strong>如果没有加速器通过张量验证，应用程序会自动安全地回退到多线程 CPU 执行。</li>

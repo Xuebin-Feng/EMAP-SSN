@@ -263,7 +263,7 @@ options are fully local). Setting up the environment also downloads software:
 the launchers install `uv` from `astral.sh` when it is not already present, `uv`
 provides a managed CPython 3.13 when no suitable interpreter is found, and the
 installer fetches Python packages from PyPI and the selected PyTorch build from
-`download.pytorch.org` or AMD's `repo.amd.com` index.
+`download.pytorch.org` or AMD's `stable.repo.amd.com` index.
 
 ## 3. Python dependencies
 
@@ -292,8 +292,8 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | esm 3.4.1.post1 | MIT (Chan Zuckerberg Biohub) — installed from PyPI, not redistributed |
 | transformers 5.17.0 | Apache-2.0 (Hugging Face, upstream) — installed from PyPI, not redistributed |
 | huggingface-hub, tokenizers (installed with Transformers; imported directly) | Apache-2.0 |
-| torch 2.12.0 | BSD-3-Clause — one build selected at installation: CPU, CUDA 12.6, CUDA 13.2, or Intel XPU from `download.pytorch.org`; ROCm 7.14 for Windows or Linux from AMD's multi-arch index; or Apple MPS from PyPI |
-| AMD ROCm 7.14 runtime wheels (`rocm`, `rocm-sdk-core`, and the per-GPU `rocm-sdk-device-*` and `amd-torch-device-*` packages) | AMD's packaging code is MIT: every source file of the `rocm` 7.14.1 meta-package carries `SPDX-License-Identifier: MIT` (Copyright Advanced Micro Devices, Inc.), although its package metadata declares no license. The runtime binaries in the other wheels remain under the terms AMD ships inside them and were not reviewed here. Downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Ubuntu 22.04, 24.04, 25.10 or 26.04 |
+| torch 2.14.0 | BSD-3-Clause — one build selected at installation: CPU, CUDA 12.6, CUDA 13.2, or Intel XPU from `download.pytorch.org`; ROCm 10.1 for Windows or Linux from AMD's whl-next index; or Apple MPS from PyPI |
+| AMD ROCm 10.1 runtime wheels (`rocm`, `rocm-sdk-core`, and the per-GPU `rocm-sdk-device-*` and `amd-torch-device-*` packages) | AMD's packaging code is MIT: every source file of the `rocm` 10.1.0 meta-package carries `SPDX-License-Identifier: MIT` (Copyright Advanced Micro Devices, Inc.), although its package metadata declares no license. The runtime binaries in the other wheels remain under the terms AMD ships inside them and were not reviewed here. Downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Ubuntu 22.04, 24.04, 25.10 or 26.04 |
 | mcp 2.2.0 (official Model Context Protocol Python SDK) | MIT |
 | pydantic (installed with mcp; imported directly by the MCP server) | MIT |
 | sentencepiece 0.2.2 | Apache-2.0 |
@@ -328,7 +328,7 @@ and are not redistributed by this project.
   runtimes, oneMKL, and TBB, mostly under Intel's proprietary terms such as the
   Intel Simplified Software License and the Intel End User License Agreement for
   Developer Tools.
-- **ROCm 7.14:** the AMD runtime wheel components listed in the table above.
+- **ROCm 10.1:** the AMD runtime wheel components listed in the table above.
 
 ### Notable transitive dependencies with copyleft terms
 

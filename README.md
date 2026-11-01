@@ -386,14 +386,14 @@ The status terms used below are:
 
 | Platform | Status | Requirements and limits |
 | --- | --- | --- |
-| Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA's current CUDA drivers support Windows 10 22H2 and Windows 11; EMAP-SSN does not check the build for CUDA. Intel XPU requires Windows 11. Native AMD ROCm requires Windows 11 25H2 build 26200+, the only Windows build covered by the ROCm 7.14 profile. Windows 11 is recommended. |
+| Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA's current CUDA drivers support Windows 10 22H2 and Windows 11; EMAP-SSN does not check the build for CUDA. Intel XPU requires Windows 11. Native AMD ROCm requires Windows 11 25H2 build 26200+, the only Windows build covered by the ROCm 10.1 profile. Windows 11 is recommended. |
 | Windows x86 (32-bit) | Unsupported | The pinned binary dependencies do not provide Win32 wheels. |
-| Windows ARM64 | Unsupported | Python 3.13, `uv`, and the PyTorch 2.12.0 CPU wheel exist for Windows ARM64, but other pinned packages have no Windows ARM64 wheel for Python 3.13: biopython 1.88 publishes none, numba 0.67.0 publishes one only for Python 3.14, and the PyTorch package index has none for MarkupSafe, which PyTorch requires. The CUDA, XPU, and ROCm builds are x64-only. Running the x64 environment under Windows emulation is not project-supported. |
+| Windows ARM64 | Unsupported | Python 3.13, `uv`, and the PyTorch 2.14.0 CPU wheel exist for Windows ARM64, but other pinned packages have no Windows ARM64 wheel for Python 3.13: biopython 1.88 publishes none, numba 0.67.0 publishes one only for Python 3.14, and the PyTorch package index has none for MarkupSafe, which PyTorch requires. The CUDA, XPU, and ROCm builds are x64-only. Running the x64 environment under Windows emulation is not project-supported. |
 | Linux x86_64 | Tested on Ubuntu and Debian | Exact tested release numbers were not recorded. The pinned Qt wheel requires glibc 2.34 or newer; Ubuntu 22.04+ and Debian 12+ satisfy that baseline. The installer automates GUI system dependencies only on Debian-family systems. |
 | Other x86_64 Linux distributions | Provisional | Modern glibc-based distributions may work after their Qt/XCB/QtWebEngine packages are installed manually. Fedora, RHEL, SUSE, Arch, and other distributions have not been project-tested. Accelerator support remains subject to the narrower vendor tables below. |
 | Linux ARM64 and other Linux architectures | Unsupported | Some individual upstream packages publish ARM wheels, but the complete pinned application environment has not been resolved or project-tested on these architectures. |
 | macOS ARM64 | Supported | Apple Silicon only, macOS 14 or newer, using MPS or CPU. |
-| macOS x86_64 | Unsupported | PyTorch 2.12.0 used by this project does not provide the required Intel macOS runtime. |
+| macOS x86_64 | Unsupported | PyTorch 2.14.0 used by this project does not provide the required Intel macOS runtime. |
 
 The operating-system baseline follows the pinned [Qt 6.11 platform
 matrix](https://doc.qt.io/qt-6.11/supported-platforms.html), the [official PyTorch
@@ -414,7 +414,7 @@ experiments; such systems remain unsupported.
 | --- | --- | --- | --- |
 | CPU | Supported on Windows 10 version 1809+ and Windows 11 | Supported on the tested Ubuntu/Debian families; other distributions are provisional | Supported on macOS 14+ |
 | NVIDIA CUDA | CUDA 13.2 or CUDA 12.6; NVIDIA's current drivers support Windows 10 22H2+ and Windows 11 | CUDA 13.2 or CUDA 12.6; distribution and driver must support the selected runtime | Not supported |
-| AMD ROCm | Windows 11 25H2 build 26200+ only: ROCm 7.14 | Ubuntu and distributions built on it; Instinct MI300/MI350 also on the RHEL, Rocky Linux, Oracle Linux, Debian and SLES releases AMD lists: ROCm 7.14 | Not supported |
+| AMD ROCm | Windows 11 25H2 build 26200+ only: ROCm 10.1 | Ubuntu and distributions built on it; Instinct MI300/MI350 also on the RHEL, Rocky Linux, Oracle Linux, Debian and SLES releases AMD lists: ROCm 10.1 | Not supported |
 | Intel XPU | Windows 11 only, for the Intel GPUs below | Supported only for the device/OS combinations below | Not supported |
 | Apple MPS | Not applicable | Not applicable | Supported on Apple Silicon with macOS 14+ |
 
@@ -422,7 +422,7 @@ experiments; such systems remain unsupported.
 
 | Installer profile | Eligibility | Upstream binary coverage |
 | --- | --- | --- |
-| CUDA 13.2 | Every selected NVIDIA GPU must report compute capability 7.5 or newer and every driver must be version 580 or newer. | PyTorch 2.12 classifies CUDA 13.2 as experimental and publishes binaries for its listed Turing-and-newer architectures. Unlisted capability values remain provisional until runtime validation succeeds. |
+| CUDA 13.2 | Every selected NVIDIA GPU must report compute capability 7.5 or newer and every driver must be version 580 or newer. | PyTorch 2.14 lists CUDA 13.2 as a stable build and publishes binaries for its listed Turing-and-newer architectures. Unlisted capability values remain provisional until runtime validation succeeds. |
 | CUDA 12.6 | Used when the CUDA 13.2 conditions are not met. The effective PyTorch binary floor is compute capability 5.0. | Covers the listed Maxwell, Pascal, Volta, Turing, Ampere, Ada, and Hopper capability generations. Setup leaves a GPU below capability 5.0 out, with a message, and uses the CPU without downloading a CUDA build. |
 
 A GPU newer than Hopper (compute capability above 9.0, such as Blackwell) runs
@@ -439,7 +439,7 @@ CUDA 12.x minor compatibility requires at least NVIDIA driver 525.60.13 on
 Linux or 528.33 on Windows. With an older driver, setup leaves the GPU out and
 prints a warning to update the driver; a current vendor driver is recommended.
 See the
-[PyTorch 2.12 support matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md),
+[PyTorch 2.14 support matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md),
 [current NVIDIA compute-capability table](https://developer.nvidia.com/cuda/gpus),
 [legacy capability table](https://developer.nvidia.com/cuda/gpus/legacy), and
 [CUDA 12.6 release notes](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-toolkit-release-notes/index.html).
@@ -452,13 +452,13 @@ not a promise that every product with the same architecture will pass its
 driver and tensor validation:
 
 A single ROCm profile now covers both operating systems. Windows and Linux
-install the same PyTorch 2.12.0 build from AMD's multi-architecture channel,
+install the same PyTorch 2.14.0 build from AMD's ROCm 10.1 channel,
 selected per GFX target:
 
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
-| Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1153`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, or a distribution built on one of them (Linux Mint, Pop!_OS and others, recognized by `ID_LIKE=ubuntu` and their `UBUNTU_CODENAME`); readable and writable `/dev/kfd`; and a target the kernel's ROCm driver reports for the GPU in `/sys/class/kfd`, or else one reported by `rocm_agent_enumerator` or `rocminfo`. A card matched only by name, with neither, is only provisionally eligible. AMD's ROCm 7.14.1 matrix lists Ubuntu 22.04, 24.04 and 26.04, and for Ryzen processors' graphics only 24.04 and 26.04; Ubuntu 25.10 and Ubuntu-based distributions are accepted but not listed by AMD. Instinct `gfx942` (MI300A, MI300X, MI325X) and `gfx950` (MI350X, MI355X) are also accepted on the other releases AMD lists for any model of the target: RHEL 8.10, 9.4, 9.6, 9.8, 10.0 and 10.2; Oracle Linux 9 and 10 (and 8 for `gfx942`); Rocky Linux 9 (`gfx942` only); Debian 12 and 13; SLES 15.7 and 16.0. These are upstream-listed but project-untested; the installer's tensor validation decides. |
+| Windows ROCm 10.1 / PyTorch 2.14.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1153`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
+| Linux ROCm 10.1 / PyTorch 2.14.0 | The Windows set, plus every other target the channel ships a PyTorch 2.14.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, or a distribution built on one of them (Linux Mint, Pop!_OS and others, recognized by `ID_LIKE=ubuntu` and their `UBUNTU_CODENAME`); readable and writable `/dev/kfd`; and a target the kernel's ROCm driver reports for the GPU in `/sys/class/kfd`, or else one reported by `rocm_agent_enumerator` or `rocminfo`. A card matched only by name, with neither, is only provisionally eligible. AMD's ROCm 10.1.0 matrix lists Ubuntu 22.04, 24.04 and 26.04, and for Ryzen processors' graphics only 24.04 and 26.04; Ubuntu 25.10 and Ubuntu-based distributions are accepted but not listed by AMD. Instinct `gfx942` (MI300A, MI300X, MI325X) and `gfx950` (MI350X, MI355X) are also accepted on the other releases AMD lists for any model of the target: RHEL 8.10, 9.4, 9.6, 9.8, 10.0 and 10.2; Oracle Linux 9 and 10 (and 8 for `gfx942`); Rocky Linux 9 (`gfx942` only); Debian 12 and 13; SLES 15.7 and 16.0. These are upstream-listed but project-untested; the installer's tensor validation decides. |
 
 The two platforms differ because of how the GFX target is identified. Windows
 exposes no way to query it, so the target is inferred from the product name
@@ -466,7 +466,7 @@ against a pinned snapshot, and only models in that snapshot are eligible. On
 Linux the kernel's ROCm driver (amdgpu's KFD) reports each GPU's target in
 `/sys/class/kfd`, by PCI address and without any ROCm software installed, and
 that target is used whatever the product name suggests, provided the ROCm
-channel publishes a PyTorch 2.12.0 device package for it. That covers AMD
+channel publishes a PyTorch 2.14.0 device package for it. That covers AMD
 Instinct parts and RDNA1/RDNA2 consumer cards the snapshot never named, and
 gives each GPU in a computer with several its own target; a GPU the KFD lists
 no node for cannot run ROCm. Where the kernel reports no targets, a target
@@ -476,7 +476,7 @@ target is reported: with several, none can be attributed to a single adapter,
 and name matching remains the only source.
 
 Earlier releases offered four ROCm profiles (Windows 7.14 and 7.2.1, Linux 7.2
-and 6.4). ROCm 7.14 covers every GFX target the retired profiles did, so no
+and 6.4), then a single ROCm 7.14 profile. ROCm 10.1 covers every GFX target they did, so no
 previously eligible GPU loses support. The retired Windows ROCm 7.2.1 profile
 was limited by AMD to Python 3.12, which is why it could not move to the
 managed Python 3.13 environment.
@@ -488,7 +488,7 @@ one AMD published for earlier Windows 11 builds. A Windows 11 machine below
 CPU.
 
 The installer does not install the Linux kernel driver or system ROCm stack.
-Consult the [ROCm 7.14.1 compatibility matrix](https://rocm.docs.amd.com/en/docs-7.14.1/compatibility/compatibility-matrix.html)
+Consult the [ROCm 10.1.0 compatibility matrix](https://rocm.docs.amd.com/en/docs-10.1.0/compatibility/compatibility-matrix.html)
 for the matching operating system, driver, and hardware requirements.
 
 SSN physics layouts on a GPU use two small kernels that EMAP-SSN compiles when a
@@ -514,12 +514,12 @@ forces that fallback on any GPU.
 | Data Center GPU Max 1100, 1100C, 1350, 1450 and 1550 | 0B69, 0B6E, 0BD5–0BDB | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
 | Any other Intel graphics, such as Core Ultra Series 2 U and desktop processors (Arrow Lake-U and -S), Wildcat Lake, Data Center GPU Flex, the Max 1550VG, and Iris Xe, UHD and HD graphics | — | Not eligible for XPU; another accelerator or CPU is used. |
 
-Ubuntu 26.04 is accepted but project-untested. An Intel GPU is identified by
+Ubuntu 26.04 is accepted but project-untested, and Ubuntu 25.10 is accepted although PyTorch 2.14's Intel GPU page no longer lists it. An Intel GPU is identified by
 its PCI device ID (`lspci -nn` on Linux, the adapter's device instance path on
 Windows), not by its name, which follows branding: the same Meteor Lake-H GPU
 is "Intel Arc Graphics" or "Intel Graphics" depending on the memory fitted, and
 older PCI ID lists name many of these GPUs only "Intel Graphics" or not at all.
-The table follows the kernels the pinned PyTorch 2.12.0 XPU builds carry:
+The table follows the kernels the pinned PyTorch 2.14.0 XPU builds carry:
 compiled ahead of time for these GPUs, per operating system (Meteor Lake-U on
 Windows only, Data Center GPU Max on Linux only). The GPUs in the last row could
 only compile kernels when first used, and PyTorch lists none of them; the older
@@ -532,7 +532,7 @@ CPU; integrated graphics are not excluded based on assumed performance.
 
 The Intel driver must already be installed; on Windows, a GPU shown as
 Microsoft Basic Display Adapter has none and is not eligible. See the [PyTorch
-Intel XPU matrix](https://docs.pytorch.org/docs/2.12/notes/get_start_xpu.html)
+Intel XPU matrix](https://docs.pytorch.org/docs/2.14/notes/get_start_xpu.html)
 for the validated hardware and operating-system combinations.
 
 #### Apple MPS
