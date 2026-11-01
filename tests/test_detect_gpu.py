@@ -426,7 +426,7 @@ class DetectionCompatibilityTests(unittest.TestCase):
     def test_linux_rocm_releases(self):
         # Every target: the pinned Ubuntu releases and distributions built on
         # them, by their UBUNTU_CODENAME. Instinct MI300 (gfx942) and MI350
-        # (gfx950) also: the enterprise releases AMD's 7.14.1 matrix lists.
+        # (gfx950) also: the enterprise releases AMD's 10.1.0 matrix lists.
         mint = {"id": "linuxmint", "id_like": "ubuntu debian", "version_id": "22", "ubuntu_codename": "noble"}
         pop = {"id": "pop", "id_like": "ubuntu debian", "version_id": "24.04", "ubuntu_codename": "noble"}
         cases = [
@@ -467,9 +467,9 @@ class DetectionCompatibilityTests(unittest.TestCase):
 
     def test_linux_rocm_accepts_every_channel_target_as_one_profile(self):
         # The per-release Linux profiles are gone. Eligibility is now a single
-        # question: does the pinned torch wheel on the ROCm 7.14 multi-arch
-        # channel ship a device package for this target? A target outside that
-        # set stays ineligible.
+        # question: does the pinned torch wheel on AMD's ROCm 10.1 channel
+        # ship a device package for this target? A target outside that set
+        # stays ineligible.
         supported = gpu(
             "AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100"
         )
@@ -491,7 +491,7 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertEqual(supported["eligible_profiles"], ["rocm"])
         self.assertEqual(integrated["eligible_profiles"], ["rocm"])
         self.assertEqual(off_channel["eligible_profiles"], [])
-        self.assertIn("ROCm 7.14 channel", off_channel["reasons"][0])
+        self.assertIn("ROCm 10.1 channel", off_channel["reasons"][0])
 
         candidates, _ignored = Detect_GPU._candidate_ladder([supported])
         self.assertEqual(
@@ -499,10 +499,12 @@ class DetectionCompatibilityTests(unittest.TestCase):
             ["rocm", "cpu"],
         )
 
-    def test_linux_rocm_rejects_a_target_the_pinned_torch_has_no_extra_for(self):
-        # AMD's channel ships gfx1250 kernels only for torch 2.11.0, so the pinned
-        # 2.12.0 wheel declares no `device-gfx1250` extra. uv would only warn about
-        # the unknown extra and install torch without gfx1250 kernels.
+    def test_linux_rocm_leaves_out_the_gfx1250_technology_preview(self):
+        # The pinned torch 2.14.0+rocm10.1.0 wheel declares a `device-gfx1250`
+        # extra, but this release calls gfx1250 a technology preview, so it is
+        # not in ROCM_CHANNEL_TARGETS and stays ineligible (by name and as a
+        # runtime-reported target alike).
+        self.assertNotIn("gfx1250", Detect_GPU.ROCM_CHANNEL_TARGETS)
         named = gpu("AMD Test GPU", "AMD", identifier="amd0", architecture="gfx1250")
         reported = gpu("AMD Test GPU", "AMD", identifier="amd1")
         with mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
@@ -545,7 +547,7 @@ class GPUDetectionTests(unittest.TestCase):
             return Detect_GPU.detect_hardware()
 
     def test_windows_amd_models_map_to_official_gfx_targets(self):
-        # ROCm 7.14 is the single AMD profile, so every supported model now
+        # ROCm 10.1 is the single AMD profile, so every supported model now
         # resolves to the same backend and differs only in its GFX target.
         examples = {
             "AMD Radeon RX 9070 XT": "gfx1201",
@@ -568,7 +570,7 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon PRO W7500": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
-            # AMD's 7.14.1 list has the Ryzen 200 series with these, and the
+            # AMD's 10.1.0 list has the Ryzen 200 series with these, and the
             # Ryzen AI 5 330 with a Radeon 820M.
             "AMD Radeon 760M Graphics": "gfx1103",
             "AMD Radeon 740M Graphics": "gfx1103",

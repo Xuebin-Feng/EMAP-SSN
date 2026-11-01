@@ -203,15 +203,17 @@ class RuntimeSelectionTests(unittest.TestCase):
                                           hip=None, cuda="13.2", platform="linux")[0], "libcuda.so.1")
 
     def test_rocm_prefers_the_rocm_sdk_wheels_then_standard_names(self):
-        rtc = self._candidates(kernels_module.rtc_library_candidates, hip="7.14.1", cuda=None,
+        # 7.16.26385 is torch.version.hip of torch 2.14.0+rocm10.1.0, whose Windows
+        # wheel ships hiprtc0716.dll and amdhip64_7.dll.
+        rtc = self._candidates(kernels_module.rtc_library_candidates, hip="7.16.26385", cuda=None,
                                platform="win32", sdk_path="C:/sdk")
-        driver = self._candidates(kernels_module.driver_library_candidates, hip="7.14.1",
+        driver = self._candidates(kernels_module.driver_library_candidates, hip="7.16.26385",
                                   cuda=None, platform="win32", sdk_path="C:/sdk")
-        self.assertEqual(rtc[:2], ["C:/sdk/hiprtc", "hiprtc0714.dll"])
+        self.assertEqual(rtc[:2], ["C:/sdk/hiprtc", "hiprtc0716.dll"])
         self.assertEqual(driver[:3], ["C:/sdk/amdhip64", "amdhip64_7.dll", "amdhip64.dll"])
-        linux_rtc = self._candidates(kernels_module.rtc_library_candidates, hip="7.14.1",
+        linux_rtc = self._candidates(kernels_module.rtc_library_candidates, hip="7.16.26385",
                                      cuda=None, platform="linux")
-        linux_driver = self._candidates(kernels_module.driver_library_candidates, hip="7.14.1",
+        linux_driver = self._candidates(kernels_module.driver_library_candidates, hip="7.16.26385",
                                         cuda=None, platform="linux")
         self.assertEqual(linux_rtc[0], "libhiprtc.so")
         self.assertEqual(linux_driver[0], "libamdhip64.so")

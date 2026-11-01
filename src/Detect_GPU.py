@@ -52,7 +52,7 @@ AMD_GFX_PATTERNS = (
     ("gfx1100", (r"rx\s*7900\s*(?:xtx|xt|gre)", r"w7900", r"w7800")),
     # The trailing \b keeps the laptop RX 7700S, a gfx1102 part, out of gfx1101.
     ("gfx1101", (r"rx\s*7800\s*xt", r"rx\s*7700(?:\s*xt)?\b", r"w7700", r"v710")),
-    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT and RX 7650
+    # AMD's ROCm 10.1 list names only the RX 7600; the RX 7600 XT and RX 7650
     # GRE, the laptop RX 7600S, RX 7600M, RX 7600M XT and RX 7700S, and the
     # Radeon PRO W7600 and W7500 are the same gfx1102 silicon (Navi 33), and
     # the installer validates the backend before use. lspci names a PCI ID, not
@@ -68,11 +68,15 @@ AMD_GFX_PATTERNS = (
     # AMD's 7.14.1 list has the Radeon 840M under two targets: the Ryzen AI 5
     # 430, 435 and PRO 435 and the AI 7 445 are gfx1153, the AI 7 345 and AI 5
     # 340, PRO 340 and PRO 440 are gfx1152. Only the processor name tells them
-    # apart, so this row names processors and comes before gfx1152's 840M.
+    # apart, so this row names processors and comes before gfx1152's 840M. The
+    # 10.1.0 page lists the 840M for the same processors but no longer ties a
+    # target to each model.
     ("gfx1153", (r"ryzen\s*ai\s*[57]\s*(?:pro\s*)?4(?:3[05]|45)\b",)),
     ("gfx1152", (r"radeon\s*(?:860m|840m|820m)", r"ryzen\s*ai\s*[57]\s*3[45]0")),
 )
-ROCM_714_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
+# The targets native Windows can name: Windows exposes no way to query the GFX
+# target, so only a product in AMD_GFX_PATTERNS is eligible for ROCm there.
+ROCM_WINDOWS_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
 # Integrated GPU names AMD gives to more than one target (see gfx1153): for
 # these the processor name decides whenever it names a target.
 AMD_SHARED_IGPU_PATTERNS = (r"radeon\s*840m",)
@@ -80,18 +84,24 @@ AMD_SHARED_IGPU_PATTERNS = (r"radeon\s*840m",)
 # Every GFX target the pinned ROCm PyTorch wheel (ROCM_TORCH_VERSION in
 # Install_Dependencies) declares a `device-<target>` extra for; the extra pulls
 # in that target's `amd-torch-device-*` kernels. Verified against the metadata
-# of the Linux torch 2.12.0+rocm7.14.1 wheel from
-# https://repo.amd.com/rocm/whl-multi-arch/ on 2026-09-29. The Windows wheel
+# of the Linux torch 2.14.0+rocm10.1.0 wheel from
+# https://stable.repo.amd.com/rocm/whl-next/ on 2026-10-31. The Windows wheel
 # declares every AMD_GFX_PATTERNS target.
 #
 # Check the pinned wheel, not the channel's package list: the channel publishes
-# device packages for other torch versions too (`gfx1250` for 2.11.0 only), and
-# uv, like pip, merely warns about an extra the wheel does not declare and then
-# installs torch without kernels for that GPU.
+# device packages for other torch versions too, and uv, like pip, merely warns
+# about an extra the wheel does not declare and then installs torch without
+# kernels for that GPU.
 #
-# The channel also carries `gfx11`, `gfx110x`, `gfx115x` and `gfx12`. Those are
-# multi-architecture bundles, not device identities, so they are excluded: a
-# device must resolve to exactly one target for `torch[device-<target>]`.
+# The wheel also declares `device-gfx1250`, which is left out on purpose: this
+# release calls gfx1250 a technology preview (PyTorch 2.14 release notes: CK
+# SDPA and GEMM, FP8 grouped GEMM and int4 matrix multiplication unsupported).
+# Add it here when AMD drops that label.
+#
+# The channel also carries the `gfx110x`, `gfx115x` and `gfx12-0` device
+# packages. Those are multi-architecture bundles, not device identities, so
+# they are excluded: a device must resolve to exactly one target for
+# `torch[device-<target>]`.
 #
 # This set is wider than AMD_GFX_PATTERNS on purpose. The pattern table maps a
 # product NAME to a target and is the only option on Windows, where nothing
@@ -112,8 +122,9 @@ ROCM_CHANNEL_TARGETS = frozenset({
 # Ubuntu base in UBUNTU_CODENAME; their own VERSION_ID numbers differ.
 LINUX_ROCM_UBUNTU_RELEASES = ("22.04", "24.04", "25.10", "26.04")
 UBUNTU_CODENAME_RELEASES = {"jammy": "22.04", "noble": "24.04", "questing": "25.10", "resolute": "26.04"}
-# AMD's ROCm 7.14.1 compatibility matrix also lists the Instinct MI300 (gfx942)
-# and MI350 (gfx950) series on these releases, by os-release ID. Each target
+# AMD's ROCm 10.1.0 compatibility matrix also lists the Instinct MI300 (gfx942)
+# and MI350 (gfx950) series on these releases, by os-release ID (the 10.1.0 page
+# was checked cell by cell against this table; it matches). Each target
 # takes every release AMD lists for any of its models (MI300A, MI300X and
 # MI325X differ a little); validation after installing catches the rest. A
 # release given as "9" covers every 9.x; "9.4" only 9.4.
@@ -161,15 +172,21 @@ class IntelPlatform(NamedTuple):
     device_ids: tuple[str, ...] = ()
 
 
+# PyTorch 2.14's Intel GPU page lists Ubuntu 24.04 and 26.04 (and WSL2 on both),
+# no longer 25.10 (2.12's page listed Panther Lake on 25.10). 25.10 stays
+# accepted on purpose: the same wheels run there and the installer validates
+# the device before use.
 INTEL_UBUNTU = {"ubuntu": ("24.04", "25.10", "26.04")}
-# PyTorch lists Panther Lake for Ubuntu 25.10, whose Linux 6.17 xe driver it needs.
+# Panther Lake needs Linux 6.17's xe driver, which Ubuntu 25.10 and 26.04 ship;
+# PyTorch 2.14 lists it for 26.04 only.
 INTEL_UBUNTU_6_17 = {"ubuntu": ("25.10", "26.04")}
 INTEL_MAX_LINUX = {"ubuntu": ("22.04",), "rhel": ("9.2",), "redhat": ("9.2",), "sles": ("15",), "suse": ("15",)}
-# The Intel GPUs the pinned PyTorch 2.12.0 XPU wheels carry compiled kernels
-# for, by PCI device ID. torch-xpu-ops 62b793f (PyTorch v2.12.0's
+# The Intel GPUs the pinned PyTorch 2.14.0 XPU wheels carry compiled kernels
+# for, by PCI device ID. torch-xpu-ops 9022a83 (PyTorch v2.14.0's
 # third_party/xpu.txt) compiles ahead of time for Windows
 # "mtl,mtl-h,bmg,dg2,arl-h,lnl-m,ptl" and Linux
-# "pvc,bmg,dg2,arl-h,mtl-h,lnl-m,ptl-h,ptl-u" (cmake/BuildFlags.cmake), and
+# "pvc,bmg,dg2,arl-h,mtl-h,lnl-m,ptl-h,ptl-u" (cmake/BuildFlags.cmake; the same
+# lists as torch-xpu-ops 62b793f in PyTorch 2.12.0), and
 # Intel's compute runtime also runs dg2's kernels on ACM-G11 and G12, bmg's on
 # BMG-G31 and ptl's on Panther Lake-U. Device IDs from compute-runtime
 # 26.35.39758.10 (shared/source/*/device_ids_configs_*.h), less pre-production
@@ -892,7 +909,7 @@ def _evaluate_devices(
             elif not target:
                 reasons.append("AMD model is not in the pinned GFX compatibility table.")
             elif system == "windows":
-                # ROCm 7.14 is the only Windows profile. AMD publishes it for
+                # ROCm 10.1 is the only Windows profile. AMD publishes it for
                 # Windows 11 25H2 only, so an older Windows 11 build is not
                 # eligible for ROCm at all and falls through to the next
                 # accelerator or CPU.
@@ -901,7 +918,7 @@ def _evaluate_devices(
                         "Native Windows ROCm requires Windows 11 25H2 build "
                         f"{WINDOWS_11_25H2_MIN_BUILD} or newer."
                     )
-                elif target in ROCM_714_TARGETS:
+                elif target in ROCM_WINDOWS_TARGETS:
                     profiles.append("rocm")
                     status = "eligible" if device.get("driver_version") else "provisional"
                     device.setdefault("profile_eligibility", {})["rocm"] = status
@@ -943,8 +960,8 @@ def _evaluate_devices(
                     )
                 else:
                     reasons.append(
-                        f"{target} has no device package for the pinned PyTorch "
-                        "on the ROCm 7.14 channel."
+                        f"{target} is not enabled for the pinned PyTorch "
+                        "on the ROCm 10.1 channel."
                     )
             else:
                 reasons.append("ROCm is not configured for this operating system.")

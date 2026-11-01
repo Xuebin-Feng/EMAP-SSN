@@ -34,14 +34,17 @@ from typing import Any, Iterable
 import Detect_GPU
 
 
-# torch 2.12.0 rather than 2.12.1 because it is the one build published for
-# every backend below, including both ROCm platforms on the AMD multi-arch
-# channel. A single torch version across all backends keeps the candidate
-# ladder and the saved state directly comparable.
-TORCH_VERSION = "2.12.0"
-# ROCm ships as a PEP 440 local version from AMD's own channel. 7.14.1 is the
-# newest ROCm tag carrying torch 2.12.0 for BOTH linux_x86_64 and win_amd64.
-ROCM_TORCH_VERSION = "2.12.0+rocm7.14.1"
+# torch 2.14.0 rather than 2.14.1 because it is the one 2.14 build published on
+# every index below: AMD's stable whl-next channel has no 2.14.1 for either
+# platform. 2.14 is also the last PyTorch release with CUDA 12.6 builds (the
+# cu126 index ends at 2.14.1 and 2.15 drops it), and cu126 is the fallback for
+# NVIDIA GPUs older than Turing. A single torch version across all backends
+# keeps the candidate ladder and the saved state directly comparable.
+TORCH_VERSION = "2.14.0"
+# ROCm ships as a PEP 440 local version from AMD's own channel. ROCm 10.1.0 is
+# the tag carrying torch 2.14.0 for BOTH linux_x86_64 and win_amd64:
+# 2.14.0+rocm10.0.0 exists for Linux only.
+ROCM_TORCH_VERSION = "2.14.0+rocm10.1.0"
 # esm and transformers now come from PyPI. esm 3.4.x implements ESMC and
 # ESMFold2 inside the esm package, so the forked Transformers build that
 # carried transformers/models/esmc is no longer required and is not bundled.
@@ -73,7 +76,7 @@ ESM_STACK_RECORD_SCHEMA = 1
 STATE_SCHEMA = 6
 SETUP_REQUIRED_EXIT = 10
 # The oldest hosts the pinned binaries run on: Qt 6.11 needs Windows 10 version
-# 1809 and glibc 2.34, and the PyTorch 2.12.0 macOS wheel needs macOS 14 on Apple
+# 1809 and glibc 2.34, and the PyTorch 2.14.0 macOS wheel needs macOS 14 on Apple
 # Silicon. Below these floors, or on another architecture, the base install
 # fails late with a generic uv resolution error, so the installer says why first.
 # Setting UNSUPPORTED_HOST_OVERRIDE to 1 skips the check, for experiments.
@@ -91,7 +94,7 @@ PYTORCH_INDEXES = {
     "cuda126": "https://download.pytorch.org/whl/cu126",
     "cuda132": "https://download.pytorch.org/whl/cu132",
     "xpu": "https://download.pytorch.org/whl/xpu",
-    ROCM_BACKEND: "https://repo.amd.com/rocm/whl-multi-arch/",
+    ROCM_BACKEND: "https://stable.repo.amd.com/rocm/whl-next/",
 }
 
 
@@ -130,7 +133,7 @@ def _standard_spec(candidate: dict[str, Any]) -> BackendSpec:
         # validator compares against torch.__version__ with the local segment
         # stripped, so the recorded version must be the bare base version.
         torch_version = TORCH_VERSION
-        description = f"ROCm 7.14 ({gfx_target})"
+        description = f"ROCm 10.1 ({gfx_target})"
     else:
         descriptions = {
             "cuda132": "NVIDIA CUDA 13.2",
@@ -876,7 +879,7 @@ def _validate_esm_stack_and_record(venv: Path, python: Path) -> bool:
     return False
 
 
-# "The package `esm` requires `torch>=2.11.0,<2.12.0`, but `2.12.0+cu132` is installed"
+# "The package `esm` requires `torch>=2.11.0,<2.12.0`, but `2.14.0+cu132` is installed"
 _PIP_CHECK_PROBLEM = re.compile(
     r"The package `(?P<package>[^`]+)` requires `(?P<requirement>[^`]+)`, "
     r"but `(?P<installed>[^`]+)` is installed"
@@ -911,7 +914,7 @@ def _is_sanctioned_incompatibility(
         return name in ESM_OMITTED_REQUIREMENTS
     if name == "torch":
         # Every backend installs the same base version; the local segment
-        # (+cu132, +rocm7.14.1, ...) identifies the accelerator build.
+        # (+cu132, +rocm10.1.0, ...) identifies the accelerator build.
         return installed.split("+", 1)[0] == TORCH_VERSION
     if name == "transformers":
         return installed == TRANSFORMERS_VERSION

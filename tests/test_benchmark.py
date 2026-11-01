@@ -504,7 +504,7 @@ class BenchmarkStageProcessTests(unittest.TestCase):
 MACHINE = {
     "hardware": {"cpu": "Test CPU", "logical_cpus": 8, "physical_cores": 4, "ram_bytes": 16 << 30,
                  "devices": [{"spec": "cpu", "name": "CPU", "backend": "cpu"}], "gpus": [], "os": "TestOS"},
-    "software": {"python": "3.13", "pytorch": "2.12", "packages": {"numpy": "2.5.3", "esm": None}},
+    "software": {"python": "3.13", "pytorch": "2.14", "packages": {"numpy": "2.5.3", "esm": None}},
     "conditions": {"cpu_load_percent": 3.0, "available_ram_bytes": 8 << 30, "on_battery": None,
                    "other_emapssn_processes": [], "caches": {"numba_cache_files": 4, "gpu_kernel_cache_files": 0}},
 }
@@ -777,7 +777,7 @@ def every_kind_of_stage():
         "hardware": {"cpu": "-", "logical_cpus": 8, "physical_cores": 4, "ram_bytes": 1 << 34, "gpus": [
             {"name": "#2", "driver": "1.0", "compute_capability": "8.9"}],
             "devices": [{"spec": "1", "name": "#2", "backend": "cuda", "memory_bytes": 1 << 33}], "os": "-"},
-        "software": {"python": "3.13", "pytorch": "2.12", "packages": {}, "numba": {"threads": 6, "usable_cpus": 8}},
+        "software": {"python": "3.13", "pytorch": "2.14", "packages": {}, "numba": {"threads": 6, "usable_cpus": 8}},
         "conditions": {"cpu_load_percent": 50.0, "available_ram_bytes": 1 << 33, "on_battery": True,
                        "other_emapssn_processes": ["1"], "caches": {"numba_cache_files": 1, "gpu_kernel_cache_files": 2}},
     }

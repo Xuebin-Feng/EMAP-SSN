@@ -188,7 +188,7 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_rocm_is_one_architecture_specific_profile(self):
         # The per-ROCm-release profiles are gone: a single `rocm` backend
-        # installs from AMD's multi-arch channel and selects the device
+        # installs from AMD's whl-next channel and selects the device
         # package with the validated GFX target.
         self.assertEqual(
             sorted(
@@ -204,7 +204,7 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn(
             f"torch[device-gfx1100]=={Install_Dependencies.ROCM_TORCH_VERSION}", command
         )
-        self.assertEqual(command[-1], "https://repo.amd.com/rocm/whl-multi-arch/")
+        self.assertEqual(command[-1], "https://stable.repo.amd.com/rocm/whl-next/")
         # One step on every platform: torch with its device extra is the whole install.
         self.assertEqual(len(spec.install_steps), 1)
         # The recorded version drops the +rocm local segment so it stays
@@ -248,7 +248,7 @@ class DependencyInstallerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             rejected = Path(temp_dir) / "rejected.txt"
-            for line in ("torch==2.12.0", "Transformers >= 5.17.0", "torch"):
+            for line in ("torch==2.14.0", "Transformers >= 5.17.0", "torch"):
                 with self.subTest(line=line):
                     rejected.write_text(f"# comment\neinops\n{line}\n", encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, "must not pin"):
@@ -1388,7 +1388,7 @@ class InstallerProfileTests(unittest.TestCase):
             result = Install_Dependencies.install(project_root=ROOT, venv=Path(folder), uv_executable="uv", dry_run=True)
         output = "\n".join(" ".join(str(value) for value in call.args) for call in printer.call_args_list)
         self.assertEqual(result, 0)
-        self.assertIn("Dry run candidate 1: ROCm 7.14 (gfx1100)", output)
+        self.assertIn("Dry run candidate 1: ROCm 10.1 (gfx1100)", output)
         self.assertIn("torch[device-gfx1100]", output)
         self.assertIn("Dry run candidate 2: CPU", output)
 
@@ -1600,7 +1600,7 @@ class ValidatorProgramTests(unittest.TestCase):
             ({"backend": "cuda132"}, {"cuda": "13.2", "cuda_devices": [self.GPU]}, [("cuda:0", "sm_89")]),
             (
                 {"backend": "rocm", "gfx_target": "gfx1100"},
-                {"hip": "7.14", "cuda_devices": [rocm_gpu]},
+                {"hip": "7.16", "cuda_devices": [rocm_gpu]},
                 [("cuda:0", "gfx1100:sramecc+:xnack-")],
             ),
             ({"backend": "xpu"}, {"xpu_devices": [{"name": "Arc", "properties": {}}]}, [("xpu:0", None)]),
@@ -1624,7 +1624,7 @@ class ValidatorProgramTests(unittest.TestCase):
             ({"backend": "cpu"}, {"cuda": "12.6"}, "CPU profile loaded an accelerator build"),
             ({"backend": "cuda126"}, {"version": "2.11.0+cu126", "cuda": "12.6", "cuda_devices": [self.GPU]},
              "unexpected torch version: 2.11.0+cu126"),
-            ({"backend": "cuda126"}, {"cuda": "12.6", "hip": "7.14", "cuda_devices": [self.GPU]},
+            ({"backend": "cuda126"}, {"cuda": "12.6", "hip": "7.16", "cuda_devices": [self.GPU]},
              "CUDA profile loaded a ROCm build"),
             ({"backend": "rocm", "gfx_target": "gfx1100"}, {"cuda_devices": [self.GPU]},
              "ROCm/HIP build metadata is missing"),
@@ -1822,7 +1822,7 @@ def _fake_venv(root, *, layout="windows", packages=None):
         f"home = {base}\nimplementation = CPython\nversion_info = 3.13.14\n", encoding="utf-8"
     )
     for name, version in (packages or {
-        "esm": "3.4.1.post1", "transformers": "5.17.0", "torch": "2.12.0+cu132", "scipy": "1.17.0",
+        "esm": "3.4.1.post1", "transformers": "5.17.0", "torch": "2.14.0+cu132", "scipy": "1.17.0",
     }).items():
         dist = site / f"{name}-{version}.dist-info"
         dist.mkdir()
@@ -1997,12 +1997,12 @@ class EsmStackRecordTests(unittest.TestCase):
             old.rmdir()
 
         def rewrite_record(venv, python):
-            (site(venv) / "torch-2.12.0+cu132.dist-info" / "RECORD").write_text(
+            (site(venv) / "torch-2.14.0+cu132.dist-info" / "RECORD").write_text(
                 "a much longer RECORD than before\n" * 5, encoding="utf-8"
             )
 
         def touch_record(venv, python):
-            record = site(venv) / "torch-2.12.0+cu132.dist-info" / "RECORD"
+            record = site(venv) / "torch-2.14.0+cu132.dist-info" / "RECORD"
             status = record.stat()
             os.utime(record, ns=(status.st_atime_ns, status.st_mtime_ns + 5_000_000_000))
 
