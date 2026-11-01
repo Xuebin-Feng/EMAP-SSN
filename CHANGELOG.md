@@ -6,6 +6,12 @@ still change before version 1.0.0.
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- The first launch after updating reinstalls PyTorch, whichever backend this computer
+  uses, because the pinned version moves from 2.12.0 to 2.14.0. For CUDA that downloads
+  several GB.
+
 ### Added
 
 - **The EFI alignment score for BLAST networks.** The BLAST all-vs-all tool and the BLAST
@@ -52,6 +58,20 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
+  - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
+    2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
+    PyTorch release with CUDA 12.6 builds, which NVIDIA GPUs older than Turing need.
+  - AMD GPUs get `torch 2.14.0+rocm10.1.0` from AMD's new index,
+    `stable.repo.amd.com/rocm/whl-next`, on Windows and Linux. The old multi-arch index
+    has no ROCm 10. The GFX targets are the same as before. gfx1250 is left out: this
+    release calls it a technology preview.
+  - The minimum Python, macOS, glibc and Windows versions are unchanged, and so are the
+    NVIDIA and Intel GPUs the builds carry kernels for.
+  - Embeddings barely move. ESM C 300M gave bit-identical embeddings on the CPU and on an
+    NVIDIA GPU. ESM-2 8M was bit-identical on the CPU and differed by at most 1e-5 on the
+    GPU, less than CPU and GPU differ from each other. ROCm 10.1 has not been tested on
+    AMD hardware.
 - **A blank BLASTP Directory means "find BLAST+ automatically", and the field shows what
   that finds.**
   - The Tools window no longer fills in, and saves, a BLAST+ it found by itself. A value
