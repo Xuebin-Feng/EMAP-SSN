@@ -33,6 +33,8 @@ Input:
 
 Output:
 - A completed Multiple Sequence Alignment FASTA file padded with '-' gap characters (`OUTPUT_FASTA`).
+- The guide tree as Newick beside it (`<set>_[<model>]_guide_tree.nwk`), saved before the alignment starts. Internal
+  nodes carry the percentage of noise-perturbed replicates that hold their split when those replicates run.
 
 Settings:
 - TARGET_SET: A prefix for the output MSA file name.
@@ -291,6 +293,11 @@ def resolve_msa_configuration(
 def build_msa_output_path(msa_dir, sequence_set, model_name):
     """Build the final MSA filename from resolved, validated metadata."""
     return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_alignment.fasta")
+
+
+def build_guide_tree_path(msa_dir, sequence_set, model_name):
+    """Build the guide-tree Newick filename written beside the alignment."""
+    return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_guide_tree.nwk")
 
 
 def build_memmap_cache_dir(temp_dir, msa_dir, sequence_set, model_name):
@@ -967,7 +974,15 @@ def neighbor_joining_row_minima(D, active_list, r_list, k, row_min, row_arg):
 
 @jit(nopython=True, fastmath=True)
 def neighbor_joining_kernel(D, N):
+    """Return the linkage matrix and each join's two branch lengths.
+
+    Z's height column only keeps merge heights monotone for the linkage
+    format; branch_lengths[step] holds the Saitou-Nei lengths to Z[step, 0]
+    and Z[step, 1]. The last join splits its edge evenly, and lengths are
+    raw estimates that may be negative.
+    """
     Z = np.zeros((N - 1, 4), dtype=np.float64)
+    branch_lengths = np.zeros((N - 1, 2), dtype=np.float64)
 
     # Track active node indices contiguous in memory (sorted)
     active_list = np.arange(N, dtype=np.int32)
@@ -1021,6 +1036,13 @@ def neighbor_joining_kernel(D, N):
         dist_uv = D[u, v]
         child_max = max(node_height[u], node_height[v])
         node_height[w] = max(dist_uv, child_max)
+
+        # r_list still holds this step's R / (k - 2) by active position.
+        if k > 2:
+            length_u = 0.5 * (dist_uv + r_list[idx_u] - r_list[idx_v])
+        else:
+            length_u = 0.5 * dist_uv
+        length_v = dist_uv - length_u
         
         # Update distances from w to other active nodes and calculate R[w]
         sum_d_wm = 0.0
@@ -1043,7 +1065,13 @@ def neighbor_joining_kernel(D, N):
         Z[step, 1] = float(c2)
         Z[step, 2] = node_height[w]
         Z[step, 3] = num_leaves[u] + num_leaves[v]
-        
+        if u < v:
+            branch_lengths[step, 0] = length_u
+            branch_lengths[step, 1] = length_v
+        else:
+            branch_lengths[step, 0] = length_v
+            branch_lengths[step, 1] = length_u
+
         num_leaves[w] = num_leaves[u] + num_leaves[v]
         
         # Update active list keeping it sorted:
@@ -1054,17 +1082,284 @@ def neighbor_joining_kernel(D, N):
                 write_idx += 1
         active_list[write_idx] = w
         k -= 1
-        
-    return Z
 
-def neighbor_joining_condensed(D_condensed, num_seqs, threads=None):
+    return Z, branch_lengths
+
+def neighbor_joining_condensed(
+    D_condensed, num_seqs, threads=None, return_branch_lengths=False
+):
+    """Return the neighbor-joining linkage matrix, and its branch lengths
+    when ``return_branch_lengths`` is set."""
     D_square = squareform(D_condensed)
     D_allocated = np.zeros((2 * num_seqs - 1, 2 * num_seqs - 1), dtype=np.float64)
     D_allocated[:num_seqs, :num_seqs] = D_square
     if threads is None:
         threads = Numba_Threads.default_thread_count()
     with Numba_Threads.limited_threads(threads):
-        return neighbor_joining_kernel(D_allocated, num_seqs)
+        Z, branch_lengths = neighbor_joining_kernel(D_allocated, num_seqs)
+    if return_branch_lengths:
+        return Z, branch_lengths
+    return Z
+
+# ==========================================
+# GUIDE TREE EXPORT
+# ==========================================
+def guide_tree_leaf_keys(num_seqs, seed):
+    """Return one random 64-bit key per leaf for naming splits."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, np.iinfo(np.uint64).max, size=num_seqs, dtype=np.uint64, endpoint=True)
+
+
+@jit(nopython=True)
+def linkage_split_keys(Z, num_seqs, leaf_keys):
+    """Return a 64-bit key for each non-trivial split of a linkage tree.
+
+    A clade's key XORs its leaves' keys, so a clade and its complement differ
+    by the key of all leaves. The smaller of the two names the split wherever
+    the tree's root sits. Clades of all leaves but one split off one leaf and
+    are skipped. The root's two children name the same split twice.
+    """
+    total = np.uint64(0)
+    for leaf in range(num_seqs):
+        total ^= leaf_keys[leaf]
+    node_keys = np.zeros(2 * num_seqs - 1, dtype=np.uint64)
+    node_keys[:num_seqs] = leaf_keys
+    keys = np.empty(max(num_seqs - 1, 0), dtype=np.uint64)
+    count = 0
+    for step in range(num_seqs - 1):
+        key = node_keys[int(Z[step, 0])] ^ node_keys[int(Z[step, 1])]
+        node_keys[num_seqs + step] = key
+        if Z[step, 3] < num_seqs - 1:
+            keys[count] = min(key, key ^ total)
+            count += 1
+    return keys[:count]
+
+
+def replicate_split_keys(Z, num_seqs, leaf_keys):
+    """Return the sorted, distinct split keys of one replicate tree."""
+    return np.unique(linkage_split_keys(Z, num_seqs, leaf_keys))
+
+
+def guide_tree_branches(linkage_matrix, num_seqs, nj_branch_lengths=None):
+    """Return each node's parent (-1 at the root) and branch length.
+
+    UPGMA lengths halve the height differences, so a path between two
+    leaves is as long as their merge height. A negative neighbor-joining
+    length becomes zero and its sibling takes the join's whole distance.
+    """
+    node_count = 2 * num_seqs - 1
+    parent = np.full(node_count, -1, dtype=np.int64)
+    length = np.zeros(node_count, dtype=np.float64)
+    children = linkage_matrix[:, :2].astype(np.int64)
+    parents = np.arange(num_seqs, node_count, dtype=np.int64)
+    parent[children[:, 0]] = parents
+    parent[children[:, 1]] = parents
+    if nj_branch_lengths is None:
+        height = np.zeros(node_count, dtype=np.float64)
+        height[num_seqs:] = linkage_matrix[:, 2]
+        for side in range(2):
+            child = children[:, side]
+            length[child] = np.maximum(0.0, 0.5 * (linkage_matrix[:, 2] - height[child]))
+    else:
+        total = np.maximum(nj_branch_lengths.sum(axis=1), 0.0)
+        first = np.clip(nj_branch_lengths[:, 0], 0.0, total)
+        length[children[:, 0]] = first
+        length[children[:, 1]] = total - first
+    return parent, length
+
+
+def rooted_children(parent):
+    """Return each node's children and the root of a parent array."""
+    children = [[] for _ in range(len(parent))]
+    root = -1
+    for node, up in enumerate(parent):
+        if up < 0:
+            root = node
+        else:
+            children[up].append(node)
+    return children, root
+
+
+def midpoint_rooted_children(parent, length, num_seqs):
+    """Re-root a tree at the midpoint of its longest leaf-to-leaf path.
+
+    Returns each node's children, branch lengths and the root. The new root
+    is appended as the last node; a node left with one child (the old root)
+    is folded into its branch.
+    """
+    node_count = len(parent)
+    neighbours = [[] for _ in range(node_count)]
+    for node, up in enumerate(parent):
+        if up >= 0:
+            neighbours[node].append((up, length[node]))
+            neighbours[up].append((node, length[node]))
+
+    def distances_from(start):
+        distance = np.full(node_count, -1.0)
+        previous = np.full(node_count, -1, dtype=np.int64)
+        distance[start] = 0.0
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            for neighbour, weight in neighbours[node]:
+                if distance[neighbour] < 0.0:
+                    distance[neighbour] = distance[node] + weight
+                    previous[neighbour] = node
+                    stack.append(neighbour)
+        return distance, previous
+
+    start = int(np.argmax(distances_from(0)[0][:num_seqs]))
+    distance, previous = distances_from(start)
+    end = int(np.argmax(distance[:num_seqs]))
+    half = 0.5 * distance[end]
+    if half <= 0.0:
+        children, root = rooted_children(parent)
+        return children, np.append(length, 0.0), root
+
+    # Walk back from the far end to the edge that holds the midpoint.
+    lower = end
+    while distance[previous[lower]] > half:
+        lower = previous[lower]
+    upper = int(previous[lower])
+    to_upper = half - distance[upper]
+    edge = distance[lower] - distance[upper]
+
+    root = node_count
+    children = [[] for _ in range(node_count + 1)]
+    branch = np.zeros(node_count + 1, dtype=np.float64)
+    stack = []
+
+    def attach(up, node, came_from, weight):
+        while node >= num_seqs:
+            onward = [pair for pair in neighbours[node] if pair[0] != came_from]
+            if len(onward) != 1:
+                break
+            came_from, (node, extra) = node, onward[0]
+            weight += extra
+        children[up].append(node)
+        branch[node] = weight
+        stack.append((node, came_from))
+
+    attach(root, upper, lower, to_upper)
+    attach(root, lower, upper, edge - to_upper)
+    while stack:
+        node, came_from = stack.pop()
+        for neighbour, weight in neighbours[node]:
+            if neighbour != came_from:
+                attach(node, neighbour, node, weight)
+    return children, branch, root
+
+
+def split_support(children, root, num_seqs, leaf_keys, replicate_keys, num_trees):
+    """Return the percentage of replicate trees holding each node's split.
+
+    replicate_keys is the sorted concatenation of every replicate's distinct
+    split keys. Leaves, the root and clades of all leaves but one get -1.
+    """
+    node_count = len(children)
+    order = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        order.append(node)
+        stack.extend(children[node])
+
+    keys = np.zeros(node_count, dtype=np.uint64)
+    sizes = np.zeros(node_count, dtype=np.int64)
+    keys[:num_seqs] = leaf_keys
+    sizes[:num_seqs] = 1
+    for node in reversed(order):
+        for child in children[node]:
+            keys[node] ^= keys[child]
+            sizes[node] += sizes[child]
+
+    total = np.bitwise_xor.reduce(leaf_keys)
+    support = np.full(node_count, -1, dtype=np.int64)
+    named = [
+        node for node in order
+        if node != root and 2 <= sizes[node] <= num_seqs - 2
+    ]
+    if named:
+        named = np.asarray(named, dtype=np.int64)
+        split = np.minimum(keys[named], keys[named] ^ total)
+        found = (
+            np.searchsorted(replicate_keys, split, side="right")
+            - np.searchsorted(replicate_keys, split, side="left")
+        )
+        support[named] = np.rint(100.0 * found / num_trees).astype(np.int64)
+    return support
+
+
+_NEWICK_PLAIN_LABEL = re.compile(r"[^\s()\[\]':;,]+\Z")
+
+
+def newick_label(text):
+    """Quote a Newick label that holds whitespace or Newick punctuation."""
+    if _NEWICK_PLAIN_LABEL.match(text):
+        return text
+    return "'" + text.replace("'", "''") + "'"
+
+
+def newick_text(children, branch, root, headers, support=None):
+    """Write a rooted tree as one Newick line, without recursion.
+
+    Internal nodes carry their support percentage as a label when one is
+    given; every node except the root carries its branch length.
+    """
+    def length_of(node):
+        return "" if node == root else f":{float(branch[node]) + 0.0:.6g}"
+
+    parts = []
+    stack = [(False, root)]
+    while stack:
+        closing, node = stack.pop()
+        if node is None:
+            parts.append(",")
+        elif closing:
+            label = "" if support is None or support[node] < 0 else str(int(support[node]))
+            parts.append(f"){label}{length_of(node)}")
+        elif not children[node]:
+            parts.append(newick_label(headers[node]) + length_of(node))
+        else:
+            parts.append("(")
+            stack.append((True, node))
+            for position, child in enumerate(reversed(children[node])):
+                if position:
+                    stack.append((False, None))
+                stack.append((False, child))
+    parts.append(";")
+    return "".join(parts)
+
+
+def write_guide_tree(
+    path,
+    linkage_matrix,
+    headers,
+    nj_branch_lengths=None,
+    leaf_keys=None,
+    replicate_keys=None,
+    num_trees=0,
+):
+    """Save the guide tree as Newick: UPGMA keeps its root, neighbor-joining
+    is midpoint-rooted, and perturbed replicates label each split."""
+    num_seqs = len(headers)
+    if num_seqs < 2:
+        text = newick_label(headers[0]) + ";" if num_seqs else ";"
+    else:
+        parent, length = guide_tree_branches(linkage_matrix, num_seqs, nj_branch_lengths)
+        if nj_branch_lengths is None:
+            children, root = rooted_children(parent)
+            branch = length
+        else:
+            children, branch, root = midpoint_rooted_children(parent, length, num_seqs)
+        support = None
+        if replicate_keys is not None and num_trees > 0:
+            support = split_support(
+                children, root, num_seqs, leaf_keys, replicate_keys, num_trees
+            )
+        text = newick_text(children, branch, root, headers, support)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text + "\n")
 
 @jit(nopython=True, fastmath=True)
 def calculate_normalized_scores_kernel(edge_i, edge_j, raw_scores, align_lens, seq_lens, is_evalue, mode_int):
@@ -1747,6 +2042,10 @@ def run_msa_builder():
     populate_condensed_matrix(D_final_cond, num_seqs, edge_i, edge_j, edge_dists)
     np.clip(D_final_cond, 0.0, MAX_DISTANCE, out=D_final_cond)
 
+    # Replicate splits label the saved guide tree with how often each recurs.
+    leaf_keys = guide_tree_leaf_keys(num_seqs, RANDOM_SEED)
+    replicate_keys = None
+
     if BOOTSTRAP_TREE:
         full_consensus = use_full_cophenetic_consensus(
             is_sparse,
@@ -1832,9 +2131,11 @@ def run_msa_builder():
                               tree_method=TREE_METHOD,
                               kernel_threads=worker_threads)
         
+        split_keys = []
         with mp.Pool(processes=WORKERS) as pool:
             iterator = pool.imap_unordered(worker_func, seeds)
             for Z in tqdm(iterator, total=NUM_TREES, desc="Bootstrapping Trees"):
+                split_keys.append(replicate_split_keys(Z, num_seqs, leaf_keys))
                 if full_consensus:
                     accumulate_full_cophenetic(Z, num_seqs, D_final_cond)
                 else:
@@ -1845,6 +2146,8 @@ def run_msa_builder():
                         mm_j_main,
                     )
                     C_accum_sparse += sparse_coph
+        replicate_keys = np.sort(np.concatenate(split_keys))
+        del split_keys
 
         print("Building final master tree...")
         finalize_cophenetic_consensus(
@@ -1876,8 +2179,11 @@ def run_msa_builder():
         del edge_dists
         gc.collect()
 
+    nj_branch_lengths = None
     if TREE_METHOD == "Neighbor-joining (Slow)":
-        linkage_matrix = neighbor_joining_condensed(D_final_cond, num_seqs)
+        linkage_matrix, nj_branch_lengths = neighbor_joining_condensed(
+            D_final_cond, num_seqs, return_branch_lengths=True
+        )
     else:
         # SciPy converts to float64 and then copies its input. Converting
         # first lets the float32 matrix go before that copy is made; the
@@ -1886,9 +2192,23 @@ def run_msa_builder():
         linkage_matrix = sch.linkage(D_final_cond, method='average')
     
     # --- CLEANUP ---
-    del D_final_cond 
+    del D_final_cond
     gc.collect()
     tree_building_seconds = time.perf_counter() - tree_building_started
+
+    # Saved before the hours-long merge so a failed alignment keeps the tree.
+    guide_tree_path = build_guide_tree_path(MSA_DIR, _seq_set, _model_name)
+    print(f"Saving guide tree to {guide_tree_path}...")
+    write_guide_tree(
+        guide_tree_path,
+        linkage_matrix,
+        valid_headers,
+        nj_branch_lengths,
+        leaf_keys,
+        replicate_keys,
+        NUM_TREES if BOOTSTRAP_TREE else 0,
+    )
+    del leaf_keys, replicate_keys
 
     ranked_devices = benchmark_msa_devices(
         linkage_matrix,

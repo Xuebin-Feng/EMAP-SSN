@@ -42,6 +42,12 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 *   **Format**: Aligned FASTA (`.fasta`).
 *   **Structure**: Standard FASTA, containing aligned sequence strings padded with gaps (`-`) to match the final alignment length.
 
+#### Guide Tree Newick File
+*   **Format**: Newick tree (`.nwk`) named `<set>_[<model>]_guide_tree.nwk`, saved in `MSA_DIR` as soon as the guide tree is built, before the progressive alignment starts. An existing file is replaced.
+*   **Structure**: One line whose leaves are the aligned sequence headers, quoted when they contain spaces or Newick punctuation. Branch lengths are guide-tree distances. A `UPGMA (Fast)` tree keeps its root; a `Neighbor-joining (Slow)` tree is rooted at the midpoint of its longest path.
+*   **Split Labels**: When `BOOTSTRAP_TREE` is enabled, each internal node is labelled with the percentage of noise-perturbed replicate trees that contain its split. These measure stability under distance noise, not classical bootstrap support.
+*   **Use**: Tree viewers such as iTOL or FigTree open it. It records the order in which the alignment was built, not a phylogeny: its distances are inverted alignment scores, and on a sparse network many of them are regression-imputed.
+
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
@@ -91,7 +97,15 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
      These replicates measure sensitivity to randomized distance perturbations; they are not classical bootstrap resamples and do not provide classical bootstrap support values.
 
-6. **Progressive Profile Alignment**:
+6. **Guide Tree Export**:
+     Saves the final guide tree as Newick before the progressive alignment, so a failed alignment keeps it.
+     * **UPGMA**: each branch is half the height difference between a node and its parent, so the path between two leaves equals the height at which they merge.
+     * **Neighbor-Joining**: each join gives its two branches the Saitou–Nei lengths
+       $$b_u = \frac{1}{2}\left(D(u,v) + \frac{R_u - R_v}{k - 2}\right), \qquad b_v = D(u,v) - b_u$$
+       where $R_u$ is node $u$'s row sum over the $k$ active nodes; the last join splits its distance evenly. A negative length becomes zero and its sibling takes the join's whole distance. The tree is then rooted at the midpoint of its longest leaf-to-leaf path.
+     * **Split Labels**: a split is counted in every replicate tree that contains it, wherever that replicate is rooted. Splits that separate a single sequence are not labelled.
+
+7. **Progressive Profile Alignment**:
      Traverses the guide tree from leaves to the root. At each internal node, it merges the two child clusters (which could be single sequences or alignment profiles) by:
      - Resolving a manual compute device or, in Auto mode, benchmarking representative real leaf merges after guide-tree construction. The benchmark includes score-matrix host/device transfers but excludes HDF5 loading and CPU traceback.
      - Unit-normalizing each leaf residue embedding before it enters a profile.

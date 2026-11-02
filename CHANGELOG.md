@@ -55,6 +55,19 @@ still change before version 1.0.0.
     the alignment still comes from the embeddings.
   - Similarity and gaps are counted over identity's own length, which in global mode
     includes end gaps.
+- **The embedding MSA saves its guide tree.** Embedding Multiple Alignment writes
+  `<set>_[<model>]_guide_tree.nwk` beside the alignment as soon as the tree is built, so
+  iTOL, FigTree and other tree viewers can open it, and a failed alignment keeps it.
+  - **UPGMA trees** keep their root, with each branch half the height step, so the path
+    between two sequences equals their merge height.
+  - **Neighbor-joining trees** carry the neighbor-joining branch lengths, which the tree
+    stage now computes, and are rooted at the midpoint of their longest path. A negative
+    length becomes zero and its sibling takes the rest.
+  - **With noise-perturbed trees on**, each internal node is labelled with the percentage of
+    replicates that contain its split. This measures stability under distance noise; it is
+    not bootstrap support.
+  - It is a guide tree, not a phylogeny: its distances are inverted alignment scores, partly
+    imputed on sparse networks. The alignment itself is unchanged.
 
 ### Changed
 
