@@ -190,7 +190,8 @@
       "notes": [
         "An MSA is optional for viewing a network and required for residue-level analysis in the Viewer.",
         "GAP_OPEN and GAP_EXTEND score the profile alignment only; they are independent of the gap penalties stored in the network.",
-        "ALIGNMENT_SCORE and NORMALIZATION_MODE choose which network scores build the guide tree, like the layout's ALIGNMENT_SCORE and NORM_MODE."
+        "ALIGNMENT_SCORE and NORMALIZATION_MODE choose which network scores build the guide tree, like the layout's ALIGNMENT_SCORE and NORM_MODE.",
+        "With TREE_METHOD Neighbor-joining (Slow) a job builds one guide tree: validation overrides BOOTSTRAP_TREE to false, as the Tools window does, because every perturbed replicate would be another full neighbor-joining tree."
       ]
     },
     "sparse_msa_converter": {

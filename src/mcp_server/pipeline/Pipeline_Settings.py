@@ -30,7 +30,9 @@ from tools.tool_helpers.Tool_Pipeline import (
 
 
 SCHEMA_VERSION = 1
-_CONTRACTS = json.loads(Path(__file__).with_name("Pipeline_Settings_Contracts.json").read_text(encoding="utf-8"))
+# The TREE_METHOD value for which jobs build one guide tree (EMAPSSN_Tools.NEIGHBOR_JOINING_TREE_METHOD).
+_NEIGHBOR_JOINING = "Neighbor-joining (Slow)"
+_CONTRACTS =json.loads(Path(__file__).with_name("Pipeline_Settings_Contracts.json").read_text(encoding="utf-8"))
 DESCRIPTIONS = {
     "sanitize_sequences": "Clean, deduplicate, and optionally filter FASTA sequences.",
     "generate_embeddings": "Generate residue embeddings from FASTA sequences.",
@@ -193,6 +195,7 @@ def get_pipeline_schema(tool_id, project_root):
                 "Enabled minimum/maximum length bounds must be ordered; custom BLAST columns must be distinct.",
                 "Tiled execution cannot select CPU; explicit TF32 cannot select a non-CUDA device.",
                 "Local alignment scores cannot use alignment_length normalization.",
+                "Neighbor-joining (Slow) builds one guide tree: BOOTSTRAP_TREE true is overridden to false.",
                 "Configuration validation does not check file existence, credentials, or hardware readiness.",
                 "Relative directories resolve against the project root. A relative input filename resolves inside "
                 "the directory named in inputs.<field>.directory; an absolute path is used as given."],
@@ -339,6 +342,12 @@ def normalize_pipeline_settings(tool_id, project_root, *, parameters=None, direc
     if tool_id == "embedding_msa" and values["SHOW_REGRESSION_PLOT"]:
         result["overrides"].append({"field": "parameters.SHOW_REGRESSION_PLOT", "supplied": True, "effective": False, "reason": "Headless execution disables figures."})
         values["SHOW_REGRESSION_PLOT"] = False
+    if tool_id == "embedding_msa" and values["TREE_METHOD"] == _NEIGHBOR_JOINING and values["BOOTSTRAP_TREE"]:
+        # As in the Tools window: each replicate is a whole neighbor-joining tree.
+        result["overrides"].append({"field": "parameters.BOOTSTRAP_TREE", "supplied": True, "effective": False, "reason": (
+            "Neighbor-joining builds one guide tree, as in the Tools window; every perturbed replicate "
+            "would be another full neighbor-joining tree, which takes hours for large networks.")})
+        values["BOOTSTRAP_TREE"] = False
     result.update(valid=True, effective_directories=resolved,
                   settings_document={"DIRECTORIES": resolved, spec.settings_section: values})
     return result

@@ -104,6 +104,12 @@ still change before version 1.0.0.
   built from clock-like distances and sister sequences came out with equal branch lengths.
   - Neighbor-joining guide trees, and so their alignments, change. UPGMA guide trees and
     alignments are unchanged, bit for bit.
+- **MCP embedding MSA jobs with Neighbor-joining build one guide tree.** Validation
+  overrides `BOOTSTRAP_TREE` to false and says why, as the Tools window already turns
+  the switch off. `BOOTSTRAP_TREE` defaults to true, so an agent that only picked
+  Neighbor-joining used to get 100 perturbed replicates. Each replicate is a full
+  neighbor-joining tree: about 30 s at 8,000 sequences, or hours for the whole set.
+  A settings file run from the command line keeps the setting.
 
 ### Fixed
 

@@ -319,6 +319,36 @@ class PipelineSettingsTests(unittest.TestCase):
         msa["SHOW_REGRESSION_PLOT"] = "true"
         self.assertFalse(self.preview("embedding_msa", parameters=msa)["valid"])
 
+    def test_neighbor_joining_jobs_build_one_guide_tree(self):
+        # As in the Tools window, so an agent choosing Neighbor-joining does not
+        # also get the default 100 perturbed replicates, each a full tree.
+        base = {"INPUT_EMBED": "x", "INPUT_NETWORK": "y", "TREE_METHOD": "Neighbor-joining (Slow)"}
+        for parameters in (base, {**base, "BOOTSTRAP_TREE": True}):
+            with self.subTest(parameters=parameters):
+                result = self.preview("embedding_msa", parameters=parameters)
+                self.assertTrue(result["valid"])
+                self.assertIs(result["settings_document"]["Embedding_MSA.py"]["BOOTSTRAP_TREE"], False)
+                self.assertEqual([(o["field"], o["supplied"], o["effective"]) for o in result["overrides"]],
+                                 [("parameters.BOOTSTRAP_TREE", True, False)])
+                self.assertIn("Neighbor-joining builds one guide tree", result["overrides"][0]["reason"])
+                # The validated document a job is started from needs no second override.
+                again = self.preview("embedding_msa", settings_document=result["settings_document"])
+                self.assertEqual(again["overrides"], [])
+                self.assertEqual(again["settings_document"], result["settings_document"])
+        # A settings file, such as an edited export, is overridden the same way.
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "nj.json"
+            path.write_text(json.dumps({"DIRECTORIES": {}, "Embedding_MSA.py": {**base, "BOOTSTRAP_TREE": True}}),
+                            encoding="utf-8")
+            result = self.preview("embedding_msa", settings_path=str(path))
+            self.assertIs(result["settings_document"]["Embedding_MSA.py"]["BOOTSTRAP_TREE"], False)
+        for parameters, perturbed in (({**base, "BOOTSTRAP_TREE": False}, False),
+                                      ({**base, "TREE_METHOD": "UPGMA (Fast)"}, True)):
+            with self.subTest(parameters=parameters):
+                result = self.preview("embedding_msa", parameters=parameters)
+                self.assertEqual(result["overrides"], [])
+                self.assertIs(result["settings_document"]["Embedding_MSA.py"]["BOOTSTRAP_TREE"], perturbed)
+
     def test_the_length_histogram_switch_defaults_on_and_is_kept_headless(self):
         discovery = get_pipeline_schema("sanitize_sequences", ROOT)
         field = discovery["parameters_schema"]["properties"]["SHOW_LENGTH_HISTOGRAM"]
