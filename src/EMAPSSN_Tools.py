@@ -142,6 +142,9 @@ BF16_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "BF16 (Low Precision)")
 AUTOMATIC_32BIT_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "Automatic 32-bit")
 # The stored TREE_METHOD value that tools/Embedding_MSA.py checks for.
 NEIGHBOR_JOINING_TREE_METHOD = "Neighbor-joining (Slow)"
+# A switch another setting turns off keeps the user's own choice under this
+# property; it comes back when that setting changes back, and through a redraw.
+KEPT_SWITCH_CHOICE = "keptSwitchChoice"
 HOST_CACHE_SLIDER_SCALE = 10
 HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
@@ -4155,15 +4158,27 @@ class ToolsGUI(QMainWindow):
             if tree_method_input and bootstrap_input:
                 tree_method_combo = tree_method_input['widget']
                 bootstrap_switch = bootstrap_input['widget']
-                
+                # Neighbor-joining turns perturbed trees off; UPGMA gets back
+                # the state the switch had. Save & Run still collects OFF.
+                bootstrap_switch.setProperty(KEPT_SWITCH_CHOICE, bootstrap_switch.isChecked())
+
+                def is_neighbor_joining():
+                    return combo_value(tree_method_combo) == NEIGHBOR_JOINING_TREE_METHOD
+
                 def update_tree_method_toggles(*_):
-                    is_nj = combo_value(tree_method_combo) == NEIGHBOR_JOINING_TREE_METHOD
-                    if is_nj:
+                    if is_neighbor_joining():
                         bootstrap_switch.setChecked(False)
                         bootstrap_switch.setEnabled(False)
                     else:
+                        # Enabled first: the toggle's listeners read both states.
                         bootstrap_switch.setEnabled(True)
-                        
+                        bootstrap_switch.setChecked(bool(bootstrap_switch.property(KEPT_SWITCH_CHOICE)))
+
+                def remember_bootstrap_choice(checked):
+                    if not is_neighbor_joining():
+                        bootstrap_switch.setProperty(KEPT_SWITCH_CHOICE, checked)
+
+                bootstrap_switch.toggled.connect(remember_bootstrap_choice)
                 tree_method_combo.currentIndexChanged.connect(update_tree_method_toggles)
                 update_tree_method_toggles() # Trigger once on load
 
@@ -4876,7 +4891,14 @@ class ToolsGUI(QMainWindow):
         document = {"DIRECTORIES": self._current_directory_settings()}
         for script_path, data in self.script_data.items():
             if data.get("settings"):
-                document[os.path.basename(script_path)] = self._collect_tool_settings(script_path)
+                settings = self._collect_tool_settings(script_path)
+                for var_name, input_data in data["inputs"].items():
+                    if input_data["type"] != "switch" or var_name not in settings:
+                        continue
+                    kept = input_data["widget"].property(KEPT_SWITCH_CHOICE)
+                    if kept is not None:
+                        settings[var_name] = bool(kept)
+                document[os.path.basename(script_path)] = settings
         return {
             "document": document,
             "settings_load_error": self.settings_load_error,

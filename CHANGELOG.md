@@ -111,6 +111,10 @@ still change before version 1.0.0.
   Tools window's Save & Run or as an MCP job. It used whatever BLAST+ it found on PATH or
   in the standard folders, and failed with "blastp not found" when BLAST+ was only in the
   chosen folder.
+- **Choosing UPGMA again left Noise-Perturbed Trees off.** In the Tools window's embedding
+  MSA, Neighbor-joining turns the switch off, and switching back to UPGMA now restores
+  the state it had. This also survives a language or theme change. Save & Run still saves
+  OFF while Neighbor-joining is selected.
 
 ## [0.5.0] - 2026-10-30
 

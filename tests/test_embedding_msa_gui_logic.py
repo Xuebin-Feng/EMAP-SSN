@@ -176,5 +176,118 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
         self.assertIn("Enable Noise-Perturbed Trees with UPGMA", tip)
 
 
+class PerturbedTreeSwitchTests(unittest.TestCase):
+    """Neighbor-joining turns Noise-Perturbed Trees off; UPGMA brings back its state.
+
+    Save & Run collects OFF while Neighbor-joining shows it off, since the
+    tool would run perturbed Neighbor-joining trees for ON.
+    """
+
+    UPGMA = "UPGMA (Fast)"
+    NEIGHBOR_JOINING = "Neighbor-joining (Slow)"
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def open_tools(self, tree_method=None, perturbed=None, carried=None):
+        """Open the Tools window, saving the tree settings first if they are given."""
+        from PySide6.QtWidgets import QTextBrowser
+        from EMAPSSN_Tools import ToolsGUI
+
+        if carried is None:
+            section = {}
+            if tree_method is not None:
+                section["TREE_METHOD"] = tree_method
+            if perturbed is not None:
+                section["BOOTSTRAP_TREE"] = perturbed
+            isolated_tools_project(self, sections={"Embedding_MSA.py": section})
+        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
+            window = ToolsGUI(carried=carried)
+
+        def close():
+            window.close()
+            window.deleteLater()
+            self.app.processEvents()
+
+        self.addCleanup(close)
+        path = next(path for path in window.script_data
+                    if pathlib.Path(path).name == "Embedding_MSA.py")
+        return window, path, window.script_data[path]["inputs"]
+
+    def select(self, inputs, tree_method):
+        from desktop.Desktop_App import select_combo_value
+
+        select_combo_value(inputs["TREE_METHOD"]["widget"], tree_method)
+
+    def assert_perturbed(self, window, path, inputs, checked, enabled):
+        switch = inputs["BOOTSTRAP_TREE"]["widget"]
+        self.assertEqual(switch.isChecked(), checked)
+        self.assertEqual(switch.isEnabled(), enabled)
+        self.assertEqual(switch.text(), "ON" if checked else "OFF")
+        # Its replicate count follows the switch as shown.
+        self.assertEqual(inputs["NUM_TREES"]["widget"].isEnabled(), checked)
+        # What Save & Run and Export collect.
+        self.assertEqual(window._collect_tool_settings(path)["BOOTSTRAP_TREE"], checked)
+
+    def test_upgma_gets_back_the_state_neighbor_joining_turned_off(self):
+        for perturbed in (True, False):
+            with self.subTest(perturbed=perturbed):
+                window, path, inputs = self.open_tools(self.UPGMA, perturbed)
+                self.assert_perturbed(window, path, inputs, perturbed, True)
+                for _ in range(2):
+                    self.select(inputs, self.NEIGHBOR_JOINING)
+                    self.assert_perturbed(window, path, inputs, False, False)
+                    self.select(inputs, self.UPGMA)
+                    self.assert_perturbed(window, path, inputs, perturbed, True)
+
+    def test_the_last_choice_made_with_upgma_is_restored(self):
+        window, path, inputs = self.open_tools(self.UPGMA, True)
+        switch = inputs["BOOTSTRAP_TREE"]["widget"]
+        for choice in (False, True):
+            switch.setChecked(choice)
+            self.select(inputs, self.NEIGHBOR_JOINING)
+            self.select(inputs, self.UPGMA)
+            self.assert_perturbed(window, path, inputs, choice, True)
+
+    def test_saved_neighbor_joining_shows_perturbed_trees_off_until_upgma(self):
+        # Exported or hand-edited settings can pair them; the tool itself would honour both.
+        window, path, inputs = self.open_tools(self.NEIGHBOR_JOINING, True)
+        self.assert_perturbed(window, path, inputs, False, False)
+        self.select(inputs, self.UPGMA)
+        self.assert_perturbed(window, path, inputs, True, True)
+
+    def test_imputed_pairs_follow_the_restored_perturbed_trees(self):
+        incomplete = NetworkCompletenessInfo(
+            status="incomplete", sequence_count=10, edge_count=20,
+            expected_edge_count=45,
+        )
+        with patch("EMAPSSN_Tools.inspect_network_completeness", return_value=incomplete):
+            window, path, inputs = self.open_tools(self.UPGMA, True)
+            network = inputs["INPUT_NETWORK"]["widget"].combo
+            network.addItem("incomplete.h5")
+            network.setCurrentText("incomplete.h5")
+            imputed = inputs["INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"]["widget"]
+            self.assertTrue(imputed.isEnabled())
+            self.select(inputs, self.NEIGHBOR_JOINING)
+            self.assertFalse(imputed.isEnabled())
+            self.select(inputs, self.UPGMA)
+            self.assertTrue(imputed.isEnabled())
+
+    def test_a_redraw_keeps_the_choice_neighbor_joining_turned_off(self):
+        window, path, inputs = self.open_tools(self.UPGMA, True)
+        self.select(inputs, self.NEIGHBOR_JOINING)
+        carried = window.language_carry_over()
+        self.assertTrue(carried["document"]["Embedding_MSA.py"]["BOOTSTRAP_TREE"])
+
+        redrawn, path, inputs = self.open_tools(carried=carried)
+        self.assert_perturbed(redrawn, path, inputs, False, False)
+        self.assertEqual(redrawn.language_carry_over()["document"], carried["document"])
+        self.select(inputs, self.UPGMA)
+        self.assert_perturbed(redrawn, path, inputs, True, True)
+
+
 if __name__ == "__main__":
     unittest.main()
