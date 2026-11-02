@@ -96,6 +96,14 @@ still change before version 1.0.0.
     being passed over in silence. The benchmark uses the same search.
 - BLAST+ runs started by the program have NCBI's usage reporting turned off
   (`BLAST_USAGE_REPORT=false`).
+- **Noise-perturbed neighbor-joining guide trees average path lengths.** With
+  Neighbor-Joining and noise-perturbed trees on, each replicate tree now adds to the
+  consensus matrix the path length between two sequences along its branches, clamped as in
+  the saved guide tree. It used to add the height at which the two merge. For
+  neighbor-joining that height only keeps the tree format in order, so the final tree was
+  built from clock-like distances and sister sequences came out with equal branch lengths.
+  - Neighbor-joining guide trees, and so their alignments, change. UPGMA guide trees and
+    alignments are unchanged, bit for bit.
 
 ### Fixed
 
