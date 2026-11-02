@@ -409,8 +409,10 @@ class MSACluster:
 def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noise_scale, tree_method, kernel_threads=None):
     """Build one replicate tree from the complete shared distance baseline.
 
-    ``kernel_threads`` is this worker's share of the Numba thread budget, so
-    concurrent neighbor-joining workers do not oversubscribe the CPUs.
+    Returns the linkage matrix and, for neighbor-joining, each join's raw
+    branch lengths (None for UPGMA). ``kernel_threads`` is this worker's
+    share of the Numba thread budget, so concurrent neighbor-joining workers
+    do not oversubscribe the CPUs.
     """
     condensed_size = int(num_seqs * (num_seqs - 1) / 2)
     baseline_dist = np.memmap(
@@ -449,17 +451,21 @@ def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noi
         D_perturbed_cond[start:end] = chunk
 
     # Run Linkage or Neighbor-joining
+    branch_lengths = None
     if neighbor_joining:
-        Z = neighbor_joining_condensed(
-            D_perturbed_cond, num_seqs, threads=kernel_threads
+        Z, branch_lengths = neighbor_joining_condensed(
+            D_perturbed_cond,
+            num_seqs,
+            threads=kernel_threads,
+            return_branch_lengths=True,
         )
     else:
         Z = sch.linkage(D_perturbed_cond, method='average')
-    
+
     # Windows requires explicitly closing the memmap before cleanup.
     del baseline_dist
-    
-    return Z
+
+    return Z, branch_lengths
 
 
 def generate_bootstrap_seeds(num_trees):
@@ -910,6 +916,145 @@ def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator):
         head[parent] = head[child_a]
         tail[parent] = tail[child_b]
         next_leaf[tail[child_a]] = head[child_b]
+
+
+@jit(nopython=True, fastmath=True)
+def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator):
+    """Add float32 leaf-to-leaf path lengths for every condensed pair in place.
+
+    The merge loop of accumulate_full_cophenetic, keeping each leaf's
+    distance to the root of its current cluster. A pair first meets at a
+    merge, and its path climbs both children's branches to it. node_length
+    holds each node's branch to its parent. Only per-node arrays are made.
+    """
+    if num_seqs <= 1:
+        return
+
+    total_nodes = 2 * num_seqs - 1
+    head = np.full(total_nodes, -1, dtype=np.int32)
+    tail = np.full(total_nodes, -1, dtype=np.int32)
+    next_leaf = np.full(num_seqs, -1, dtype=np.int32)
+    to_cluster_root = np.zeros(num_seqs, dtype=np.float64)
+
+    for leaf in range(num_seqs):
+        head[leaf] = leaf
+        tail[leaf] = leaf
+
+    for step in range(num_seqs - 1):
+        child_a = int(Z[step, 0])
+        child_b = int(Z[step, 1])
+        parent = num_seqs + step
+
+        # Child b's leaves climb to the new cluster root first, so every
+        # pair below reads their finished distances.
+        length_b = node_length[child_b]
+        leaf_b = head[child_b]
+        while leaf_b != -1:
+            to_cluster_root[leaf_b] += length_b
+            leaf_b = next_leaf[leaf_b]
+
+        length_a = node_length[child_a]
+        leaf_a = head[child_a]
+        while leaf_a != -1:
+            reach_a = to_cluster_root[leaf_a] + length_a
+            leaf_b = head[child_b]
+            while leaf_b != -1:
+                i = leaf_a
+                j = leaf_b
+                if i > j:
+                    temp = i
+                    i = j
+                    j = temp
+                condensed_idx = (
+                    num_seqs * i - i * (i + 1) // 2 + j - i - 1
+                )
+                path_accumulator[condensed_idx] += np.float32(
+                    reach_a + to_cluster_root[leaf_b]
+                )
+                leaf_b = next_leaf[leaf_b]
+            to_cluster_root[leaf_a] = reach_a
+            leaf_a = next_leaf[leaf_a]
+
+        head[parent] = head[child_a]
+        tail[parent] = tail[child_b]
+        next_leaf[tail[child_a]] = head[child_b]
+
+
+@jit(nopython=True, fastmath=True)
+def accumulate_sparse_path_lengths(
+    Z, num_seqs, node_length, edge_i, edge_j, path_accumulator
+):
+    """Add float32 path lengths for the listed pairs only, in place.
+
+    A pair's path is depth(i) + depth(j) - 2 * depth(LCA), with float64
+    depths from the root; the LCA walk is compute_sparse_cophenetic's.
+    """
+    if num_seqs <= 1:
+        return
+
+    total_nodes = 2 * num_seqs - 1
+    parent = np.arange(total_nodes, dtype=np.int32)
+    for step in range(num_seqs - 1):
+        node = num_seqs + step
+        parent[int(Z[step, 0])] = node
+        parent[int(Z[step, 1])] = node
+
+    # Linkage numbers every parent above its children, so one sweep down
+    # from the root sets each depth after its parent's.
+    depth = np.zeros(total_nodes, dtype=np.float64)
+    for node in range(total_nodes - 2, -1, -1):
+        depth[node] = depth[parent[node]] + node_length[node]
+
+    visited_marker = np.zeros(total_nodes, dtype=np.int64)
+    for k in range(len(edge_i)):
+        u = edge_i[k]
+        v = edge_j[k]
+        marker = k + 1
+
+        curr = u
+        visited_marker[curr] = marker
+        while parent[curr] != curr:
+            curr = parent[curr]
+            visited_marker[curr] = marker
+
+        curr = v
+        while visited_marker[curr] != marker:
+            curr = parent[curr]
+
+        path_accumulator[k] += np.float32(depth[u] + depth[v] - 2.0 * depth[curr])
+
+
+def add_replicate_to_consensus(
+    Z,
+    nj_branch_lengths,
+    num_seqs,
+    full_consensus,
+    full_accumulator,
+    edge_i,
+    edge_j,
+    sparse_accumulator,
+):
+    """Add one replicate tree's leaf distances to the consensus in place.
+
+    UPGMA replicates add their cophenetic merge heights. A neighbor-joining
+    height only keeps the linkage format monotone, so those replicates add
+    path lengths instead, over branches clamped as the Newick export clamps
+    them.
+    """
+    if nj_branch_lengths is None:
+        if full_consensus:
+            accumulate_full_cophenetic(Z, num_seqs, full_accumulator)
+        else:
+            sparse_accumulator += compute_sparse_cophenetic(Z, num_seqs, edge_i, edge_j)
+        return
+
+    _, node_length = guide_tree_branches(Z, num_seqs, nj_branch_lengths)
+    if full_consensus:
+        accumulate_full_path_lengths(Z, num_seqs, node_length, full_accumulator)
+    else:
+        accumulate_sparse_path_lengths(
+            Z, num_seqs, node_length, edge_i, edge_j, sparse_accumulator
+        )
 
 
 def use_full_cophenetic_consensus(is_sparse, include_imputed_pairs):
@@ -2134,18 +2279,20 @@ def run_msa_builder():
         split_keys = []
         with mp.Pool(processes=WORKERS) as pool:
             iterator = pool.imap_unordered(worker_func, seeds)
-            for Z in tqdm(iterator, total=NUM_TREES, desc="Bootstrapping Trees"):
+            for Z, replicate_lengths in tqdm(
+                iterator, total=NUM_TREES, desc="Bootstrapping Trees"
+            ):
                 split_keys.append(replicate_split_keys(Z, num_seqs, leaf_keys))
-                if full_consensus:
-                    accumulate_full_cophenetic(Z, num_seqs, D_final_cond)
-                else:
-                    sparse_coph = compute_sparse_cophenetic(
-                        Z,
-                        num_seqs,
-                        mm_i_main,
-                        mm_j_main,
-                    )
-                    C_accum_sparse += sparse_coph
+                add_replicate_to_consensus(
+                    Z,
+                    replicate_lengths,
+                    num_seqs,
+                    full_consensus,
+                    D_final_cond,
+                    mm_i_main,
+                    mm_j_main,
+                    C_accum_sparse,
+                )
         replicate_keys = np.sort(np.concatenate(split_keys))
         del split_keys
 

@@ -485,7 +485,7 @@ class ParallelNeighborJoiningTests(unittest.TestCase):
             np.linspace(0.1, 1.0, 10, dtype=np.float32).tofile(path)
             with mock.patch.object(
                 Embedding_MSA, "neighbor_joining_condensed",
-                return_value=np.zeros((4, 4)),
+                return_value=(np.zeros((4, 4)), np.zeros((4, 2))),
             ) as neighbor_joining:
                 Embedding_MSA.compute_single_tree_worker(
                     7, 5, path, 1.0, 0.0, "Neighbor-joining (Slow)",

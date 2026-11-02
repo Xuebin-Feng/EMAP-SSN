@@ -3,7 +3,8 @@
 UPGMA trees keep their root and halve merge heights into branch lengths;
 neighbor-joining trees carry their Saitou-Nei branch lengths and are rooted
 at the midpoint of their longest path. Noise-perturbed replicates label each
-split with the percentage of replicates that hold it.
+split with the percentage of replicates that hold it, and neighbor-joining
+replicates enter the consensus matrix as path lengths over their branches.
 """
 
 import gc
@@ -152,6 +153,121 @@ def random_additive_distances(count, seed):
             length[child] = rng.uniform(0.05, 1.0)
         pool.append(new)
     return tree_path_lengths(parent, length, count)
+
+
+def random_nj_replicates(count, trees, rng):
+    """Return neighbor-joining trees and raw branch lengths of random distances.
+
+    Random distances fit no tree, so some raw lengths come out negative.
+    """
+    return [
+        Embedding_MSA.neighbor_joining_condensed(
+            rng.random(count * (count - 1) // 2), count, return_branch_lengths=True
+        )
+        for _ in range(trees)
+    ]
+
+
+def summed_path_lengths(replicates, count):
+    """Return the brute-force sum of each replicate's clamped path lengths."""
+    total = np.zeros((count, count))
+    for tree, lengths in replicates:
+        parent, length = Embedding_MSA.guide_tree_branches(tree, count, lengths)
+        total += tree_path_lengths(parent, length, count)
+    return total
+
+
+def condensed_indices(count, first, second):
+    """Return the condensed-matrix index of each pair, in either order."""
+    i = np.minimum(first, second).astype(np.int64)
+    j = np.maximum(first, second).astype(np.int64)
+    return count * i - i * (i + 1) // 2 + j - i - 1
+
+
+class PathLengthConsensusTests(unittest.TestCase):
+    @staticmethod
+    def every_ordered_pair(count):
+        # Half of the pairs list the larger index first.
+        edge_i, edge_j = np.nonzero(~np.eye(count, dtype=bool))
+        return edge_i.astype(np.int32), edge_j.astype(np.int32)
+
+    @staticmethod
+    def add_full(replicates, count):
+        accumulator = np.zeros(count * (count - 1) // 2, dtype=np.float32)
+        for tree, lengths in replicates:
+            Embedding_MSA.add_replicate_to_consensus(
+                tree, lengths, count, True, accumulator, None, None, None
+            )
+        return accumulator
+
+    @staticmethod
+    def add_sparse(replicates, count, edge_i, edge_j):
+        accumulator = np.zeros(edge_i.size, dtype=np.float32)
+        for tree, lengths in replicates:
+            Embedding_MSA.add_replicate_to_consensus(
+                tree, lengths, count, False, None, edge_i, edge_j, accumulator
+            )
+        return accumulator
+
+    def test_full_sums_match_brute_force_paths(self):
+        rng = np.random.default_rng(42)
+        for count in (2, 3, 17, 40):
+            with self.subTest(count=count):
+                replicates = random_nj_replicates(count, 4, rng)
+                np.testing.assert_allclose(
+                    self.add_full(replicates, count),
+                    squareform(summed_path_lengths(replicates, count), checks=False),
+                    rtol=1e-6,
+                    atol=1e-6,
+                )
+        # The clamped branches were exercised.
+        self.assertLess(min(lengths.min() for _, lengths in replicates), 0.0)
+
+    def test_sparse_sums_match_brute_force_paths(self):
+        rng = np.random.default_rng(42)
+        for count in (2, 3, 17, 40):
+            with self.subTest(count=count):
+                replicates = random_nj_replicates(count, 4, rng)
+                edge_i, edge_j = self.every_ordered_pair(count)
+                np.testing.assert_allclose(
+                    self.add_sparse(replicates, count, edge_i, edge_j),
+                    summed_path_lengths(replicates, count)[edge_i, edge_j],
+                    rtol=1e-6,
+                    atol=1e-6,
+                )
+
+    def test_negative_branches_are_clamped_before_summing(self):
+        # Clamped, the branches above leaves 0-3 are 0, 0.8, 0.4 and 0, and
+        # both inner branches 0. Unclamped, the path from 0 to 2 would be 0.1.
+        tree = np.array([[0, 1, 1.0, 2], [2, 3, 1.0, 2], [4, 5, 1.0, 4]], dtype=float)
+        lengths = np.array([[-0.2, 1.0], [0.5, -0.1], [-0.3, 0.1]])
+        expected = np.array([0.8, 0.4, 0.0, 1.2, 0.8, 0.4], dtype=np.float32)
+        edge_i, edge_j = np.triu_indices(4, k=1)
+        np.testing.assert_allclose(self.add_full([(tree, lengths)], 4), expected, atol=1e-7)
+        np.testing.assert_allclose(
+            self.add_sparse([(tree, lengths)], 4, edge_i.astype(np.int32), edge_j.astype(np.int32)),
+            expected,
+            atol=1e-7,
+        )
+
+    def test_upgma_replicates_still_add_merge_heights(self):
+        count = 30
+        tree = sch.linkage(np.random.default_rng(42).random(count * (count - 1) // 2), method="average")
+        full = np.zeros(count * (count - 1) // 2, dtype=np.float32)
+        Embedding_MSA.add_replicate_to_consensus(tree, None, count, True, full, None, None, None)
+        expected_full = np.zeros_like(full)
+        Embedding_MSA.accumulate_full_cophenetic(tree, count, expected_full)
+        self.assertEqual(full.tobytes(), expected_full.tobytes())
+
+        edge_i, edge_j = self.every_ordered_pair(count)
+        sparse = np.zeros(edge_i.size, dtype=np.float32)
+        Embedding_MSA.add_replicate_to_consensus(
+            tree, None, count, False, None, edge_i, edge_j, sparse
+        )
+        self.assertEqual(
+            sparse.tobytes(),
+            Embedding_MSA.compute_sparse_cophenetic(tree, count, edge_i, edge_j).tobytes(),
+        )
 
 
 class NeighborJoiningBranchLengthTests(unittest.TestCase):
@@ -436,6 +552,57 @@ class BuilderGuideTreeTests(unittest.TestCase):
         self.assertTrue(labels)
         # Four replicates give multiples of 25 per cent.
         self.assertTrue(set(labels) <= {0, 25, 50, 75, 100})
+
+    def test_neighbor_joining_consensus_averages_replicate_path_lengths(self):
+        real_join = Embedding_MSA.neighbor_joining_condensed
+        real_finalize = Embedding_MSA.finalize_cophenetic_consensus
+        joins = []
+        observed = {}
+
+        def record_join(D_condensed, num_seqs, *args, **kwargs):
+            result = real_join(D_condensed, num_seqs, *args, **kwargs)
+            joins.append((np.array(D_condensed), result))
+            return result
+
+        def record_finalize(distance_matrix, num_seqs, edge_i, edge_j, *args):
+            if edge_i is not None:
+                observed["pairs"] = (np.array(edge_i), np.array(edge_j))
+            return real_finalize(distance_matrix, num_seqs, edge_i, edge_j, *args)
+
+        # A complete network averages every pair; an incomplete one only the
+        # observed pairs.
+        for complete in (True, False):
+            joins.clear()
+            observed.clear()
+            with self.subTest(complete=complete), tempfile.TemporaryDirectory() as directory:
+                fixture = NetworkFixture(directory, complete=complete, seed=42)
+                with mock.patch.multiple(
+                    Embedding_MSA,
+                    neighbor_joining_condensed=record_join,
+                    finalize_cophenetic_consensus=record_finalize,
+                ):
+                    seen = self.run_builder(
+                        fixture, TREE_METHOD=NEIGHBOR_JOINING, BOOTSTRAP_TREE=True, NUM_TREES=3
+                    )
+
+                count = len(seen["headers"])
+                *replicates, (final_input, _) = joins
+                self.assertEqual(len(replicates), 3)
+                mean = summed_path_lengths([tree for _, tree in replicates], count) / 3
+                if complete:
+                    self.assertNotIn("pairs", observed)
+                    np.testing.assert_allclose(
+                        final_input, squareform(mean, checks=False), rtol=1e-5, atol=1e-6
+                    )
+                else:
+                    edge_i, edge_j = observed["pairs"]
+                    self.assertLess(edge_i.size, count * (count - 1) // 2)
+                    np.testing.assert_allclose(
+                        final_input[condensed_indices(count, edge_i, edge_j)],
+                        mean[edge_i, edge_j],
+                        rtol=1e-5,
+                        atol=1e-6,
+                    )
 
 
 if __name__ == "__main__":

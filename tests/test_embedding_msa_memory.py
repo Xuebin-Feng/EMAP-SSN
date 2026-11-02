@@ -353,11 +353,11 @@ class BootstrapWorkerTests(ArrayAssertions, unittest.TestCase):
             return real_linkage(y, *args, **kwargs)
 
         with mock.patch.object(Embedding_MSA.sch, "linkage", record_linkage):
-            tree = Embedding_MSA.compute_single_tree_worker(
+            tree, branch_lengths = Embedding_MSA.compute_single_tree_worker(
                 seed, num_seqs, path, max_dist, noise_scale, tree_method
             )
         gc.collect()
-        return tree, dtypes
+        return tree, branch_lengths, dtypes
 
     def test_upgma_replicate_matches_float32_reference(self):
         # 1,123,250 pairs span two noise chunks.
@@ -368,20 +368,26 @@ class BootstrapWorkerTests(ArrayAssertions, unittest.TestCase):
                     reference_replicate(seed, baseline, max_dist, noise_scale),
                     method="average",
                 )
-                tree, dtypes = self.run_worker(
+                tree, branch_lengths, dtypes = self.run_worker(
                     seed, num_seqs, path, max_dist, noise_scale, UPGMA
                 )
                 self.assertSameArray(tree, expected)
+                self.assertIsNone(branch_lengths)
                 # SciPy receives float64, so it makes no conversion copy.
                 self.assertEqual(dtypes, [np.dtype(np.float64)])
 
     def test_neighbor_joining_replicate_matches_float32_reference(self):
         baseline, max_dist, path = self.write_baseline(120, 14)
-        expected = Embedding_MSA.neighbor_joining_condensed(
-            reference_replicate(14, baseline, max_dist, 0.02), 120
+        expected, expected_lengths = Embedding_MSA.neighbor_joining_condensed(
+            reference_replicate(14, baseline, max_dist, 0.02),
+            120,
+            return_branch_lengths=True,
         )
-        tree, dtypes = self.run_worker(14, 120, path, max_dist, 0.02, NEIGHBOR_JOINING)
+        tree, branch_lengths, dtypes = self.run_worker(
+            14, 120, path, max_dist, 0.02, NEIGHBOR_JOINING
+        )
         self.assertSameArray(tree, expected)
+        self.assertSameArray(branch_lengths, expected_lengths)
         self.assertEqual(dtypes, [])
 
 
