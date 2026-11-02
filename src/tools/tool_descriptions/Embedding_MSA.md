@@ -93,7 +93,13 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
      For a sparse network, the complete baseline matrix combines observed network distances with regression-imputed distances for missing pairs. This complete baseline is shared with every replicate worker, and the same additive perturbation is applied to every distance. Imputed relationships therefore participate in every replicate tree instead of being replaced by $D_{\max}$.
 
-     The final averaging mode is selected after the network/embedding/FASTA intersection. A complete induced network automatically uses full all-pairs cophenetic consensus. For an incomplete induced network, **Include Imputed Pairs in Final Consensus** controls only the final matrix: OFF replaces observed-pair entries with their replicate-averaged cophenetic distances while missing pairs retain their baseline regression-imputed values; ON replaces every pair with its replicate-averaged cophenetic distance. Turning this switch OFF does not disable imputation or remove imputed pairs from replicate tree construction. When noise-perturbed trees are disabled, the switch is ignored and the complete observed-plus-imputed baseline directly builds the deterministic tree.
+     Each replicate tree contributes one tree distance per sequence pair. A UPGMA replicate contributes the cophenetic distance, the height at which the two sequences merge. A Neighbor-Joining merge height only keeps the linkage format monotone, so a Neighbor-Joining replicate contributes the path length along its branches instead:
+
+     $$d_{\text{tree}}(i,j) = \delta(i) + \delta(j) - 2\,\delta(\operatorname{LCA}(i,j))$$
+
+     where $\delta$ is a node's distance from the replicate's root and $\operatorname{LCA}(i,j)$ is the two sequences' lowest common ancestor. Branches are clamped as in the guide tree export, so no path is negative. Path lengths do not depend on where a tree is rooted, and averaging them keeps the differences between sister sequences that merge heights would erase.
+
+     The final averaging mode is selected after the network/embedding/FASTA intersection. A complete induced network automatically uses full all-pairs consensus. For an incomplete induced network, **Include Imputed Pairs in Final Consensus** controls only the final matrix: OFF replaces observed-pair entries with their replicate-averaged tree distances while missing pairs retain their baseline regression-imputed values; ON replaces every pair with its replicate-averaged tree distance. Turning this switch OFF does not disable imputation or remove imputed pairs from replicate tree construction. When noise-perturbed trees are disabled, the switch is ignored and the complete observed-plus-imputed baseline directly builds the deterministic tree.
 
      These replicates measure sensitivity to randomized distance perturbations; they are not classical bootstrap resamples and do not provide classical bootstrap support values.
 
