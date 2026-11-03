@@ -44,7 +44,7 @@ Settings:
 - NUM_WORKERS: CPU threads for parallel bootstrap generation of the consensus tree.
 - NUM_TREES: How many bootstrap replicate iterations to average for the consensus guide tree (higher = more stable topology).
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
-- INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged cophenetic distances in the final matrix. Imputed pairs always participate in replicate trees.
+- INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged tree distances (cophenetic for UPGMA, path lengths for neighbor-joining) in the final matrix. Imputed pairs always participate in replicate trees.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 - DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
 - SHOW_REGRESSION_PLOT: For a sparse network, shows the isotonic regression fit over the observed pairs as a pop-up
@@ -2198,7 +2198,7 @@ def run_msa_builder():
         )
         consensus_label = "full all-pairs" if full_consensus else "observed-edge partial"
         print(f"\nBuilding Consensus Tree from {NUM_TREES} bootstrap replicates using {WORKERS} cores...")
-        print(f"Final cophenetic consensus mode: {consensus_label}.")
+        print(f"Final tree-distance consensus mode: {consensus_label}.")
         
         # --- MEMORY MAPPING FIX FOR WINDOWS IPC LIMITS ---
         print("Writing the complete distance baseline to a temporary Memory-Mapped file for workers...")

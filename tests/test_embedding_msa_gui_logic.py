@@ -146,7 +146,7 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
         )
         self.assertFalse(enabled)
         self.assertIn("Complete network", tip)
-        self.assertIn("full cophenetic consensus is automatic", tip)
+        self.assertIn("full tree-distance consensus is automatic", tip)
 
     def test_imputed_consensus_enabled_for_sparse_network_with_noise_trees(self):
         sparse_info = NetworkCompletenessInfo(
@@ -160,7 +160,7 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
         )
         self.assertTrue(enabled)
         self.assertIn("Incomplete network", tip)
-        self.assertIn("replicate-averaged cophenetic distances", tip)
+        self.assertIn("replicate-averaged tree distances", tip)
 
     def test_imputed_consensus_disabled_when_noise_trees_inactive(self):
         sparse_info = NetworkCompletenessInfo(

@@ -390,8 +390,8 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
         return False, translate(
             "Tools",
             "Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
-            "observed pairs. Not applicable: all pairs are observed, so full cophenetic "
-            "consensus is automatic.",
+            "observed pairs. Not applicable: all pairs are observed, so the full "
+            "tree-distance consensus is automatic.",
         ).format(
             sequences=network_info.sequence_count, observed=network_info.edge_count,
             expected=network_info.expected_edge_count,
@@ -401,7 +401,7 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
         behavior = translate(
             "Tools",
             "Imputed pairs participate in every replicate tree and are also replaced "
-            "by replicate-averaged cophenetic distances in the final matrix.",
+            "by replicate-averaged tree distances in the final matrix.",
         )
     else:
         behavior = translate(
@@ -1844,7 +1844,7 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "For incomplete networks, chooses the distances the final consensus uses."),
                     details=(translate("Tools", "Imputed pairs participate in all replicate trees."),),
                     options=(
-                        TipOption(True, translate("Tools", "Replaces all pairs with replicate-averaged cophenetic distances.")),
+                        TipOption(True, translate("Tools", "Replaces all pairs with replicate-averaged tree distances.")),
                         TipOption(False, translate("Tools", "Retains baseline imputed distances.")),
                     ),
                 ),

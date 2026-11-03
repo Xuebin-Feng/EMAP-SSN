@@ -406,7 +406,7 @@
       "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": {
         "type": "boolean",
         "default": false,
-        "description": "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees."
+        "description": "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged tree distances (cophenetic for UPGMA, path lengths for Neighbor-joining). Imputed pairs participate in all replicate trees."
       },
       "GAP_OPEN": {
         "type": "number",

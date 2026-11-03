@@ -7324,11 +7324,11 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: all pairs are observed, so full cophenetic consensus is automatic.</source>
+        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: all pairs are observed, so the full tree-distance consensus is automatic.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Imputed pairs participate in every replicate tree and are also replaced by replicate-averaged cophenetic distances in the final matrix.</source>
+        <source>Imputed pairs participate in every replicate tree and are also replaced by replicate-averaged tree distances in the final matrix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7849,7 +7849,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Replaces all pairs with replicate-averaged cophenetic distances.</source>
+        <source>Replaces all pairs with replicate-averaged tree distances.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

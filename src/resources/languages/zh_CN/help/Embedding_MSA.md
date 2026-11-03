@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_MSA.md, sha256 d3d5527bf79759ab6722b8340b2d151ab829b4be04e4334c6d3aa355788ffa4c -->
+<!-- Translation of Embedding_MSA.md, sha256 e8d35feed9039e7260c4a89a4ecc873a59580e1c613a0b23809f2f9e8f5a0e4c -->
 # Embedding 多序列比对 (`Embedding_MSA.py`)
 
 该脚本使用蛋白质语言模型（pLM）embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
@@ -29,7 +29,7 @@
 | 建树方法 **`TREE_METHOD`** | “UPGMA（快速）”（`UPGMA (Fast)`）使用平均连接层次聚类（clustering）；“邻接法（慢速）”（`Neighbor-joining (Slow)`）根据同一个完整距离矩阵构建邻接树。所选方法同时用于确定性树和噪声扰动树。 |
 | 噪声扰动一致引导树 **`BOOTSTRAP_TREE`** | 启用时，构建若干随机扰动的引导树重复并取平均。这是一种敏感性集成，而不是经典的自展（bootstrap）支持度。为保持向后兼容，沿用原有的设置键名。选择 `Neighbor-joining (Slow)` 时，Tools 窗口和 MCP 作业会将其关闭，因为每个重复都是一棵完整的邻接树；从命令行运行的设置文件则保留该值。 |
 | 扰动树重复数 **`NUM_TREES`** | 用于构建一致引导树的噪声扰动重复树数量。 |
-| 在最终一致树中纳入插补的序列对 **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS`** | 对于不完整的网络，关闭时只对原本观测到的序列对平均共表型距离（cophenetic distance），缺失的序列对保留基线回归插补（imputation）值；开启时，每个序列对都替换为其重复平均后的共表型距离。两种模式下，插补的序列对都会参与每棵重复树的构建。完整网络自动采用完整的一致树（consensus tree）。 |
+| 在最终一致树中纳入插补的序列对 **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS`** | 对于不完整的网络，关闭时只对原本观测到的序列对平均树距离（UPGMA 取共表型距离 cophenetic distance，邻接法取路径长度），缺失的序列对保留基线回归插补（imputation）值；开启时，每个序列对都替换为其重复平均后的树距离。两种模式下，插补的序列对都会参与每棵重复树的构建。完整网络自动采用完整的一致树（consensus tree）。 |
 | 归一化加性噪声尺度 **`NOISE_SCALE`** | 以有效距离范围的比例表示的高斯标准差。例如，`0.02` 施加的加性标准差等于最大引导树距离的 2%。每个观测距离和回归插补距离都会被扰动。 |
 | 空位开放罚分 **`GAP_OPEN`** | 空位开放罚分值。数值越负，对开启新空位的惩罚越重。 |
 | 空位延伸罚分 **`GAP_EXTEND`** | 空位延伸罚分值。数值越负，对延伸已有空位的惩罚越重。 |

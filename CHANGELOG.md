@@ -104,6 +104,9 @@ still change before version 1.0.0.
   built from clock-like distances and sister sequences came out with equal branch lengths.
   - Neighbor-joining guide trees, and so their alignments, change. UPGMA guide trees and
     alignments are unchanged, bit for bit.
+  - The Tools tips, the MCP setting description and the help page now call the averaged
+    values tree distances: cophenetic distances for UPGMA, path lengths for neighbor-joining.
+    They used to say cophenetic distances for both.
 - **MCP embedding MSA jobs with Neighbor-joining build one guide tree.** Validation
   overrides `BOOTSTRAP_TREE` to false and says why, as the Tools window already turns
   the switch off. `BOOTSTRAP_TREE` defaults to true, so an agent that only picked
