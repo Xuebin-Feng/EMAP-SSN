@@ -42,11 +42,12 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 *   **Format**: Aligned FASTA (`.fasta`).
 *   **Structure**: Standard FASTA, containing aligned sequence strings padded with gaps (`-`) to match the final alignment length.
 
-#### Guide Tree Newick File
-*   **Format**: Newick tree (`.nwk`) named `<set>_[<model>]_guide_tree.nwk`, saved in `MSA_DIR` as soon as the guide tree is built, before the progressive alignment starts. An existing file is replaced.
-*   **Structure**: One line whose leaves are the aligned sequence headers, quoted when they contain spaces or Newick punctuation. Branch lengths are guide-tree distances. A `UPGMA (Fast)` tree keeps its root; a `Neighbor-joining (Slow)` tree is rooted at the midpoint of its longest path.
+#### Guide Tree NEXUS File
+*   **Format**: NEXUS tree (`.nex`) named `<set>_[<model>]_guide_tree.nex`, saved in `MSA_DIR` as soon as the guide tree is built, before the progressive alignment starts. An existing file is replaced.
+*   **Origin**: An `EMAPSSN` block records how the tree was built: the program version and date, the input files, the score and tree settings, the perturbed-tree settings when they run, how the tree is rooted, and what its branch lengths and labels mean. Tree readers skip this block.
+*   **Structure**: The `TREES` block holds one tree, `guide_tree`. Its text after the equals sign is plain Newick, so it can be copied out for tools that read only Newick. Its leaves are the aligned sequence headers, quoted unless they hold only letters, digits, dots and bars, because NEXUS reads an unquoted underscore as a space. Branch lengths are guide-tree distances. A `UPGMA (Fast)` tree keeps its root and is marked rooted (`[&R]`). A `Neighbor-joining (Slow)` tree is rooted at the midpoint of its longest path and marked unrooted (`[&U]`), because that root is a choice, not something the tree shows.
 *   **Split Labels**: When `BOOTSTRAP_TREE` is enabled, each internal node is labelled with the percentage of noise-perturbed replicate trees that contain its split. These measure stability under distance noise, not classical bootstrap support.
-*   **Use**: Tree viewers such as iTOL or FigTree open it. It records the order in which the alignment was built, not a phylogeny: its distances are inverted alignment scores, and on a sparse network many of them are regression-imputed.
+*   **Use**: Tree viewers such as iTOL or FigTree open it. Biopython's NEXUS reader splits quoted headers that contain commas, so read the copied-out tree line with its Newick reader instead. The tree records the order in which the alignment was built, not a phylogeny: its distances are inverted alignment scores, and on a sparse network many of them are regression-imputed.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -104,7 +105,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
      These replicates measure sensitivity to randomized distance perturbations; they are not classical bootstrap resamples and do not provide classical bootstrap support values.
 
 6. **Guide Tree Export**:
-     Saves the final guide tree as Newick before the progressive alignment, so a failed alignment keeps it.
+     Saves the final guide tree as NEXUS before the progressive alignment, so a failed alignment keeps it.
      * **UPGMA**: each branch is half the height difference between a node and its parent, so the path between two leaves equals the height at which they merge.
      * **Neighbor-Joining**: each join gives its two branches the Saitou–Nei lengths
        $$b_u = \frac{1}{2}\left(D(u,v) + \frac{R_u - R_v}{k - 2}\right), \qquad b_v = D(u,v) - b_u$$

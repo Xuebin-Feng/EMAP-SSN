@@ -33,8 +33,9 @@ Input:
 
 Output:
 - A completed Multiple Sequence Alignment FASTA file padded with '-' gap characters (`OUTPUT_FASTA`).
-- The guide tree as Newick beside it (`<set>_[<model>]_guide_tree.nwk`), saved before the alignment starts. Internal
-  nodes carry the percentage of noise-perturbed replicates that hold their split when those replicates run.
+- The guide tree as NEXUS beside it (`<set>_[<model>]_guide_tree.nex`), saved before the alignment starts. Its TREE
+  line is a Newick tree, and an EMAPSSN block records the settings that built it. Internal nodes carry the percentage
+  of noise-perturbed replicates that hold their split when those replicates run.
 
 Settings:
 - TARGET_SET: A prefix for the output MSA file name.
@@ -296,8 +297,8 @@ def build_msa_output_path(msa_dir, sequence_set, model_name):
 
 
 def build_guide_tree_path(msa_dir, sequence_set, model_name):
-    """Build the guide-tree Newick filename written beside the alignment."""
-    return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_guide_tree.nwk")
+    """Build the guide-tree NEXUS filename written beside the alignment."""
+    return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_guide_tree.nex")
 
 
 def build_memmap_cache_dir(temp_dir, msa_dir, sequence_set, model_name):
@@ -1038,8 +1039,8 @@ def add_replicate_to_consensus(
 
     UPGMA replicates add their cophenetic merge heights. A neighbor-joining
     height only keeps the linkage format monotone, so those replicates add
-    path lengths instead, over branches clamped as the Newick export clamps
-    them.
+    path lengths instead, over branches clamped as the guide tree export
+    clamps them.
     """
     if nj_branch_lengths is None:
         if full_consensus:
@@ -1435,14 +1436,23 @@ def split_support(children, root, num_seqs, leaf_keys, replicate_keys, num_trees
     return support
 
 
-_NEWICK_PLAIN_LABEL = re.compile(r"[^\s()\[\]':;,]+\Z")
+_NEWICK_PLAIN_LABEL = re.compile(r"[A-Za-z0-9.|]+\Z")
 
 
 def newick_label(text):
-    """Quote a Newick label that holds whitespace or Newick punctuation."""
+    """Quote a label unless it holds only letters, digits, dots and bars.
+
+    NEXUS, like the Newick standard, reads an unquoted underscore as a space
+    and splits words at - + * = / < >, so quoting keeps a header as it is.
+    """
     if _NEWICK_PLAIN_LABEL.match(text):
         return text
-    return "'" + text.replace("'", "''") + "'"
+    return nexus_string(text)
+
+
+def nexus_string(text):
+    """Single-quote a NEXUS word, doubling any quote inside it."""
+    return "'" + str(text).replace("'", "''") + "'"
 
 
 def newick_text(children, branch, root, headers, support=None):
@@ -1484,27 +1494,121 @@ def write_guide_tree(
     leaf_keys=None,
     replicate_keys=None,
     num_trees=0,
+    notes=(),
 ):
-    """Save the guide tree as Newick: UPGMA keeps its root, neighbor-joining
-    is midpoint-rooted, and perturbed replicates label each split."""
+    """Save the guide tree as NEXUS: UPGMA keeps its root, neighbor-joining
+    is midpoint-rooted, and perturbed replicates label each split.
+
+    The TREE line holds a plain Newick tree with the full headers, so it can
+    be copied out as it is. An EMAPSSN block, which tree readers skip, records
+    the (name, value) ``notes`` of the run and how to read the tree.
+    """
     num_seqs = len(headers)
+    neighbor_joining = nj_branch_lengths is not None
+    support = None
     if num_seqs < 2:
         text = newick_label(headers[0]) + ";" if num_seqs else ";"
     else:
         parent, length = guide_tree_branches(linkage_matrix, num_seqs, nj_branch_lengths)
-        if nj_branch_lengths is None:
+        if not neighbor_joining:
             children, root = rooted_children(parent)
             branch = length
         else:
             children, branch, root = midpoint_rooted_children(parent, length, num_seqs)
-        support = None
         if replicate_keys is not None and num_trees > 0:
             support = split_support(
                 children, root, num_seqs, leaf_keys, replicate_keys, num_trees
             )
         text = newick_text(children, branch, root, headers, support)
+
+    notes = list(notes) + [("SEQUENCES", num_seqs)]
+    if num_seqs >= 2 and neighbor_joining:
+        notes += [
+            ("ROOT", "Midpoint of the longest path. The alignment merged from the last "
+                     "neighbor-joining join instead."),
+            ("BRANCH_LENGTHS", "Saitou-Nei neighbor-joining lengths. A negative length became "
+                               "zero and its sibling took the rest."),
+        ]
+    elif num_seqs >= 2:
+        notes += [
+            ("ROOT", "The UPGMA root. Every sequence is equally far from it."),
+            ("BRANCH_LENGTHS", "Half of each merge-height step, so the path between two "
+                               "sequences equals the height at which they merge."),
+        ]
+    if support is not None:
+        notes.append(("INTERNAL_LABELS", f"Percentage of the {num_trees} noise-perturbed replicate "
+                                         "trees that hold the split. This is stability under "
+                                         "distance noise, not bootstrap support."))
+    lines = [
+        "#NEXUS",
+        "[Guide tree saved by the EMAP-SSN embedding MSA. After the equals sign, the TREE line is a Newick tree.]",
+        "",
+        "BEGIN EMAPSSN;",
+        "    [How this guide tree was built. Tree readers skip this block.]",
+        *(f"    {name} = {nexus_string(value)};" for name, value in notes),
+        "END;",
+        "",
+        "BEGIN TREES;",
+        f"    TREE guide_tree = {'[&U]' if neighbor_joining else '[&R]'} {text}",
+        "END;",
+    ]
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text + "\n")
+        handle.write("\n".join(lines) + "\n")
+
+
+def program_version():
+    """The release Desktop_App.py names, read without importing Qt; None when unreadable."""
+    source = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "desktop", "Desktop_App.py"
+    )
+    try:
+        with open(source, encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(target, "id", None) == "APPLICATION_VERSION" for target in node.targets
+        ):
+            try:
+                return ast.literal_eval(node.value)
+            except ValueError:
+                return None
+    return None
+
+
+def guide_tree_notes(network_type, imputed):
+    """The settings a saved guide tree records, as (name, value) pairs."""
+    version = program_version()
+    notes = [
+        ("WRITTEN", time.strftime("%Y-%m-%d %H:%M:%S %z")),
+        ("PROGRAM", f"EMAP-SSN {version}" if version else "EMAP-SSN"),
+        ("SEQUENCE_SET", _seq_set),
+        ("MODEL", _model_name),
+        ("INPUT_NETWORK", os.path.basename(FULL_INPUT_NETWORK)),
+        ("INPUT_EMBED", os.path.basename(FULL_INPUT_EMBED)),
+    ]
+    if USE_SEQUENCE_FILTER:
+        notes.append(("INPUT_FASTA", os.path.basename(FULL_INPUT_FASTA)))
+    if network_type == "blast":
+        notes.append(("NETWORK_SCORES", "BLAST E-values"))
+    else:
+        notes += [("ALIGNMENT_SCORE", ALIGNMENT_SCORE), ("NORMALIZATION_MODE", NORMALIZATION_MODE)]
+    notes += [
+        ("MISSING_PAIRS", "Regression-imputed from embedding distances" if imputed
+                          else "None. Every pair is in the network."),
+        ("TREE_METHOD", TREE_METHOD),
+        ("BOOTSTRAP_TREE", "true" if BOOTSTRAP_TREE else "false"),
+    ]
+    if BOOTSTRAP_TREE:
+        notes += [
+            ("NUM_TREES", NUM_TREES),
+            ("NOISE_SCALE", NOISE_SCALE),
+            ("RANDOM_SEED", RANDOM_SEED),
+            ("INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
+             "true" if INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS else "false"),
+        ]
+    return notes
 
 @jit(nopython=True, fastmath=True)
 def calculate_normalized_scores_kernel(edge_i, edge_j, raw_scores, align_lens, seq_lens, is_evalue, mode_int):
@@ -2354,6 +2458,7 @@ def run_msa_builder():
         leaf_keys,
         replicate_keys,
         NUM_TREES if BOOTSTRAP_TREE else 0,
+        guide_tree_notes(network_metadata.network_type, is_sparse),
     )
     del leaf_keys, replicate_keys
 

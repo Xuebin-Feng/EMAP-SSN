@@ -183,7 +183,7 @@
       },
       "outputs": [
         {"directory": "MSA_DIR", "name": "<set>_[<model>]_alignment.fasta (set is the INPUT_FASTA stem when filtering, else the embedding set name)", "existing": "replaced"},
-        {"directory": "MSA_DIR", "name": "<set>_[<model>]_guide_tree.nwk (the guide tree as Newick, written before the alignment; internal labels are perturbed-replicate split percentages when BOOTSTRAP_TREE is true)", "existing": "replaced"}
+        {"directory": "MSA_DIR", "name": "<set>_[<model>]_guide_tree.nex (the guide tree as NEXUS, written before the alignment; its TREE line is Newick, an EMAPSSN block records the settings that built it, and internal labels are perturbed-replicate split percentages when BOOTSTRAP_TREE is true)", "existing": "replaced"}
       ],
       "next": ["sparse_msa_converter (optional, for large alignments)", "Viewer settings alignment.MSA_FILE"],
       "requirements": "Memory grows with the square of the sequence count (about 16 bytes per pair per UPGMA worker).",

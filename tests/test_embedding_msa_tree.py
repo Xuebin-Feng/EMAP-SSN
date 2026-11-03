@@ -1,6 +1,8 @@
-"""Embedding_MSA saves its guide tree as Newick beside the alignment.
+"""Embedding_MSA saves its guide tree as NEXUS beside the alignment.
 
-UPGMA trees keep their root and halve merge heights into branch lengths;
+The TREE line is a Newick tree with the full headers, and an EMAPSSN block
+records the settings that built it. UPGMA trees keep their root and halve
+merge heights into branch lengths;
 neighbor-joining trees carry their Saitou-Nei branch lengths and are rooted
 at the midpoint of their longest path. Noise-perturbed replicates label each
 split with the percentage of replicates that hold it, and neighbor-joining
@@ -86,6 +88,19 @@ def parse_newick(text):
         if index in has_children and node[0]:
             node[3], node[0] = node[0], ""
     return nodes
+
+
+def nexus_tree(text):
+    """Return the TREE line's rooted flag ("R" or "U") and its Newick text."""
+    match = re.search(r"^    TREE guide_tree = \[&([RU])\] (.*)$", text, re.MULTILINE)
+    return match.group(1), match.group(2)
+
+
+def nexus_notes(text):
+    """Return the EMAPSSN block's notes as {name: value}."""
+    block = re.search(r"^BEGIN EMAPSSN;\n(.*?)^END;", text, re.MULTILINE | re.DOTALL).group(1)
+    pairs = re.findall(r"^    (\w+) = '((?:[^']|'')*)';$", block, re.MULTILINE)
+    return {name: value.replace("''", "'") for name, value in pairs}
 
 
 def leaf_path_lengths(nodes, names):
@@ -451,9 +466,12 @@ class NewickTextTests(unittest.TestCase):
         text = Embedding_MSA.newick_text(children, length, root, ["a", "b", "c"], support)
         self.assertEqual(text, "(c:3,(a:1,b:1)87:2);")
 
-    def test_labels_with_newick_punctuation_are_quoted(self):
+    def test_labels_beyond_letters_digits_dots_and_bars_are_quoted(self):
         for label, written in (
-            ("sp|P12345|NAME_HUMAN", "sp|P12345|NAME_HUMAN"),
+            ("tr|A0A1B2.1|Q9", "tr|A0A1B2.1|Q9"),
+            # NEXUS reads an unquoted underscore as a space.
+            ("sp|P12345|NAME_HUMAN", "'sp|P12345|NAME_HUMAN'"),
+            ("a-b+c=d", "'a-b+c=d'"),
             ("seq 1", "'seq 1'"),
             ("O'Brien", "'O''Brien'"),
             ("x(1):2;3,4[5]", "'x(1):2;3,4[5]'"),
@@ -477,9 +495,51 @@ class NewickTextTests(unittest.TestCase):
 
     def test_one_sequence_is_its_own_tree(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = pathlib.Path(directory) / "tree.nwk"
+            path = pathlib.Path(directory) / "tree.nex"
             Embedding_MSA.write_guide_tree(path, np.zeros((0, 4)), ["only one"])
-            self.assertEqual(path.read_text(encoding="utf-8"), "'only one';\n")
+            text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("#NEXUS\n"))
+        self.assertEqual(nexus_tree(text), ("R", "'only one';"))
+        self.assertEqual(nexus_notes(text), {"SEQUENCES": "1"})
+
+
+class NexusFileTests(unittest.TestCase):
+    HEADERS = ["sp|P1|A_B", "x y", "O'Brien", "pdb|1IYE|Chains_A,_B,_C"]
+
+    def write(self, directory, headers=HEADERS, **kwargs):
+        tree = sch.linkage(np.array([1.0, 4.0, 4.0, 4.0, 4.0, 2.0]), method="average")
+        path = pathlib.Path(directory) / "tree.nex"
+        Embedding_MSA.write_guide_tree(path, tree, headers, **kwargs)
+        return path
+
+    def test_notes_keep_quotes_brackets_and_semicolons(self):
+        notes = [("INPUT_NETWORK", "Set_[E1_RA]_network.h5"), ("ODD", "O'Brien; [x] = y"), ("NUM_TREES", 7)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = self.write(directory, notes=notes).read_text(encoding="utf-8")
+        found = nexus_notes(text)
+        self.assertEqual(list(found)[:4], ["INPUT_NETWORK", "ODD", "NUM_TREES", "SEQUENCES"])
+        self.assertEqual(found["INPUT_NETWORK"], "Set_[E1_RA]_network.h5")
+        self.assertEqual(found["ODD"], "O'Brien; [x] = y")
+        self.assertEqual(found["NUM_TREES"], "7")
+        self.assertEqual(found["SEQUENCES"], "4")
+        self.assertIn("UPGMA root", found["ROOT"])
+
+    def test_biopython_reads_the_file_and_the_tree_line_as_newick(self):
+        from Bio import Phylo
+
+        notes = [("INPUT_NETWORK", "Set_[E1_RA]_network.h5")]
+        with tempfile.TemporaryDirectory() as directory:
+            # Biopython's NEXUS reader keeps quotes on names and splits a
+            # quoted comma, so it gets headers without commas.
+            plain = self.write(directory, headers=["sp|P1|A_B", "x y", "O'Brien", "seq.4"], notes=notes)
+            tree = Phylo.read(str(plain), "nexus")
+            text = self.write(directory, notes=notes).read_text(encoding="utf-8")
+        self.assertEqual(tree.name, "guide_tree")
+        self.assertTrue(tree.rooted)
+        self.assertEqual(tree.count_terminals(), 4)
+        # Copied out, the TREE line is Newick with every header as it was.
+        newick = Phylo.read(io.StringIO(nexus_tree(text)[1]), "newick")
+        self.assertEqual(sorted(leaf.name for leaf in newick.get_terminals()), sorted(self.HEADERS))
 
 
 class BuilderGuideTreeTests(unittest.TestCase):
@@ -515,16 +575,34 @@ class BuilderGuideTreeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = NetworkFixture(directory, seed=4)
             seen = self.run_builder(fixture, TREE_METHOD=UPGMA)
-            expected_path = fixture.msa_dir / f"Fixture_[{MODEL}]_guide_tree.nwk"
+            expected_path = fixture.msa_dir / f"Fixture_[{MODEL}]_guide_tree.nex"
 
         self.assertEqual(seen["path"], expected_path)
-        self.assertTrue(seen["text"].endswith(";\n"))
-        self.assertEqual(seen["text"].count("\n"), 1)
-        nodes = parse_newick(seen["text"])
+        self.assertTrue(seen["text"].startswith("#NEXUS\n"))
+        self.assertTrue(seen["text"].endswith("END;\n"))
+        rooted, newick = nexus_tree(seen["text"])
+        self.assertEqual(rooted, "R")
+        nodes = parse_newick(newick)
         names = [node[0] for node in nodes if node[0]]
         self.assertEqual(sorted(names), sorted(seen["headers"]))
         # Without perturbed replicates no node carries a label.
         self.assertFalse(any(node[3] for node in nodes))
+        notes = nexus_notes(seen["text"])
+        for name, value in (
+            ("SEQUENCE_SET", "Fixture"),
+            ("MODEL", MODEL),
+            ("INPUT_NETWORK", f"Fixture_[{MODEL}]_network.h5"),
+            ("INPUT_EMBED", f"Fixture_[{MODEL}]_embeddings.h5"),
+            ("ALIGNMENT_SCORE", "global"),
+            ("NORMALIZATION_MODE", "alignment_length"),
+            ("TREE_METHOD", UPGMA),
+            ("BOOTSTRAP_TREE", "false"),
+            ("SEQUENCES", str(len(seen["headers"]))),
+        ):
+            self.assertEqual(notes[name], value, name)
+        self.assertTrue(notes["PROGRAM"].startswith("EMAP-SSN "))
+        self.assertNotIn("NUM_TREES", notes)
+        self.assertNotIn("INTERNAL_LABELS", notes)
         np.testing.assert_allclose(
             squareform(leaf_path_lengths(nodes, seen["headers"]), checks=False),
             sch.cophenet(seen["tree"]),
@@ -539,7 +617,15 @@ class BuilderGuideTreeTests(unittest.TestCase):
                 fixture, TREE_METHOD=NEIGHBOR_JOINING, BOOTSTRAP_TREE=True, NUM_TREES=4
             )
 
-        nodes = parse_newick(seen["text"])
+        rooted, newick = nexus_tree(seen["text"])
+        # The midpoint root is a choice, not something the tree knows.
+        self.assertEqual(rooted, "U")
+        notes = nexus_notes(seen["text"])
+        self.assertEqual(notes["TREE_METHOD"], NEIGHBOR_JOINING)
+        self.assertEqual(notes["NUM_TREES"], "4")
+        self.assertIn("Midpoint", notes["ROOT"])
+        self.assertIn("4 noise-perturbed", notes["INTERNAL_LABELS"])
+        nodes = parse_newick(newick)
         count = len(seen["headers"])
         parent, length = Embedding_MSA.guide_tree_branches(seen["tree"], count, seen["nj"])
         np.testing.assert_allclose(

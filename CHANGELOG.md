@@ -56,8 +56,12 @@ still change before version 1.0.0.
   - Similarity and gaps are counted over identity's own length, which in global mode
     includes end gaps.
 - **The embedding MSA saves its guide tree.** Embedding Multiple Alignment writes
-  `<set>_[<model>]_guide_tree.nwk` beside the alignment as soon as the tree is built, so
+  `<set>_[<model>]_guide_tree.nex` beside the alignment as soon as the tree is built, so
   iTOL, FigTree and other tree viewers can open it, and a failed alignment keeps it.
+  - **The file is NEXUS.** Its tree line is plain Newick that can be copied out, and an
+    `EMAPSSN` block records how the tree was built: version and date, input files, score
+    and tree settings, perturbation settings, rooting, and what the lengths and labels mean.
+    Tree readers skip that block.
   - **UPGMA trees** keep their root, with each branch half the height step, so the path
     between two sequences equals their merge height.
   - **Neighbor-joining trees** carry the neighbor-joining branch lengths, which the tree
