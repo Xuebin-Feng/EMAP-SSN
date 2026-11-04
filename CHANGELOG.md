@@ -11,6 +11,9 @@ still change before version 1.0.0.
 - The first launch after updating reinstalls PyTorch, whichever backend this computer
   uses, because the pinned version moves from 2.12.0 to 2.14.0. For CUDA that downloads
   several GB.
+- The Viewer no longer reads an alignment path ending in `none_[E1_RA]_alignment.fasta`,
+  an old placeholder, as "no alignment": it reports the file as missing. An empty MSA
+  field means no alignment.
 
 ### Added
 
@@ -55,13 +58,14 @@ still change before version 1.0.0.
     the alignment still comes from the embeddings.
   - Similarity and gaps are counted over identity's own length, which in global mode
     includes end gaps.
-- **The embedding MSA saves its guide tree.** Embedding Multiple Alignment writes
-  `<set>_[<model>]_guide_tree.nex` beside the alignment as soon as the tree is built, so
-  iTOL, FigTree and other tree viewers can open it, and a failed alignment keeps it.
+- **The embedding MSA saves its guide tree.** Embedding Multiple Alignment writes the tree
+  of `<name>_alignment.fasta` to `Guide_Trees/<name>_guide_tree.nex` inside the alignment's
+  folder as soon as the tree is built, so iTOL, FigTree and other tree viewers can open
+  it, and a failed alignment keeps it. MCP jobs list it among their output files.
   - **The file is NEXUS.** Its tree line is plain Newick that can be copied out, and an
-    `EMAPSSN` block records how the tree was built: version and date, input files, score
-    and tree settings, perturbation settings, rooting, and what the lengths and labels mean.
-    Tree readers skip that block.
+    `EMAPSSN` block records how the tree was built: version and date, the alignment's file
+    name, input files, score and tree settings, perturbation settings, rooting, and what
+    the lengths and labels mean. Tree readers skip that block.
   - **UPGMA trees** keep their root, with each branch half the height step, so the path
     between two sequences equals their merge height.
   - **Neighbor-joining trees** carry the neighbor-joining branch lengths, which the tree
