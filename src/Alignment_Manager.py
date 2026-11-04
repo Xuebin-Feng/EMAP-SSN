@@ -76,7 +76,7 @@ class Alignment_Manager:
         self.viewer_to_aln = np.full(len(self.network_headers), -1, dtype=int)
         self.aligned_node_mask = np.zeros(len(self.network_headers), dtype=bool)
 
-        if not msa_file or str(msa_file).strip() == "" or str(msa_file).strip().lower() == "none" or "none_[e1_ra]_alignment.fasta" in str(msa_file).lower():
+        if not msa_file or str(msa_file).strip() == "" or str(msa_file).strip().lower() == "none":
             print("An MSA is not selected and will not be loaded.")
             return
 

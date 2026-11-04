@@ -614,5 +614,27 @@ class AlignmentRowOrderTests(unittest.TestCase):
         )
 
 
+class MissingAlignmentFileTests(unittest.TestCase):
+    """An MSA_FILE that names no file reports why; no placeholder name is special."""
+
+    def test_the_old_placeholder_name_is_an_ordinary_missing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "None_[E1_RA]_alignment.fasta")
+            with redirect_stdout(io.StringIO()) as output:
+                manager = Alignment_Manager.Alignment_Manager(path, full_headers=["a", "b"])
+        self.assertIsNone(manager.aln)
+        self.assertIn("None_[E1_RA]_alignment.fasta", str(manager.load_failure))
+        self.assertNotIn("not selected", output.getvalue())
+
+    def test_an_empty_or_literal_none_path_is_still_no_alignment(self):
+        for value in ("", "  ", None, "none", "None"):
+            with self.subTest(value=value):
+                with redirect_stdout(io.StringIO()) as output:
+                    manager = Alignment_Manager.Alignment_Manager(value, full_headers=["a"])
+                self.assertIsNone(manager.aln)
+                self.assertIsNone(manager.load_failure)
+                self.assertIn("not selected", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
