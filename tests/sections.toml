@@ -264,6 +264,7 @@ modules = [
     "test_embedding_msa_regression_chart",
     "test_embedding_msa_tree",
     "test_fasta_sanitization",
+    "test_guide_tree_file",
     "test_model_plugins",
     "test_network_extraction",
     "test_plm_load_reports",

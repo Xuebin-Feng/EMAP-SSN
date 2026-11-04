@@ -167,6 +167,38 @@ class PipelineGuideTests(unittest.TestCase):
             self.assertEqual(Pipeline_Guide.watched_directories("sparse_msa_converter", converter, root),
                              (str(root / "Input_Files" / "Multiple_Alignments"),))
 
+    def test_the_embedding_msa_guide_tree_is_in_the_guide_trees_subfolder(self):
+        outputs = Pipeline_Guide.tool_guide("embedding_msa")["outputs"]
+        tree = [output for output in outputs if "guide_tree.nex" in output["name"]]
+        self.assertEqual(len(tree), 1)
+        self.assertEqual(tree[0]["directory"], "MSA_DIR")
+        self.assertEqual(tree[0]["subfolder"], "Guide_Trees")
+        self.assertIn("alignment file name", tree[0]["name"])
+        # Only the tree has a subfolder; the alignment sits in MSA_DIR itself.
+        self.assertEqual([output.get("subfolder") for output in outputs if output is not tree[0]], [None])
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            document = {"DIRECTORIES": {"MSA_DIR": str(root / "msa")}}
+            self.assertEqual(Pipeline_Guide.watched_directories("embedding_msa", document, root),
+                             (str(root / "msa"), str(root / "msa" / "Guide_Trees")))
+            # A default MSA_DIR is anchored to the project root, as the tool does.
+            self.assertEqual(
+                Pipeline_Guide.watched_directories("embedding_msa", {"DIRECTORIES": {}}, root),
+                (str(root / "Input_Files" / "Multiple_Alignments"),
+                 str(root / "Input_Files" / "Multiple_Alignments" / "Guide_Trees")))
+
+    def test_a_job_lists_the_tree_in_its_subfolder_at_depth_one(self):
+        with tempfile.TemporaryDirectory() as temp:
+            msa = pathlib.Path(temp) / "msa"
+            tree_folder = msa / "Guide_Trees"
+            before = directory_snapshot((str(msa), str(tree_folder)), 1)
+            tree_folder.mkdir(parents=True)
+            (msa / "Set_[m]_alignment.fasta").write_text(">a")
+            (tree_folder / "Set_[m]_guide_tree.nex").write_text("#NEXUS")
+            after = directory_snapshot((str(msa), str(tree_folder)), 1)
+            names = sorted(os.path.basename(change["path"]) for change in changed_files(before, after))
+        self.assertEqual(names, ["Set_[m]_alignment.fasta", "Set_[m]_guide_tree.nex"])
+
     def test_tool_schema_carries_guide_and_model_availability(self):
         from mcp_server.pipeline.Pipeline_Settings import get_pipeline_schema
         schema = get_pipeline_schema("embedding_injection", ROOT)

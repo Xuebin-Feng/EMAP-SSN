@@ -59,12 +59,14 @@ def input_path(tool_id, field, document, project_root):
 
 
 def watched_directories(tool_id, document, project_root):
-    """Folders a tool writes to: its output directories and any input it writes beside."""
+    """Folders a tool writes to: its output directories (an output's subfolder of one included) and any input it writes beside."""
     spec = get_tool_spec(tool_id)
     folders = []
     for output in _GUIDE["tools"][spec.tool_id]["outputs"]:
         if "directory" in output:
             folder = _directory(document, output["directory"], project_root)
+            if output.get("subfolder"):
+                folder = os.path.join(folder, output["subfolder"])
         else:
             beside = input_path(spec.tool_id, output["beside"], document, project_root)
             folder = os.path.dirname(beside) if beside else None

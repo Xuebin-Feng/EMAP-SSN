@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_MSA.md, sha256 ff57fba09a43892f042f0b0beb24455b934dcf7c7fb5e4c58451b1e8d5371feb -->
+<!-- Translation of Embedding_MSA.md, sha256 575e29cc186337b3af86a44cff270cc8c530fbbc0184ec9f224a45f9d3efde85 -->
 # Embedding 多序列比对 (`Embedding_MSA.py`)
 
 该脚本使用蛋白质语言模型（pLM）embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
@@ -44,8 +44,8 @@
 *   **结构**：标准 FASTA，包含用空位（`-`）填充至最终比对长度的已比对序列字符串。
 
 #### 引导树 NEXUS 文件
-*   **格式**：NEXUS 树文件（`.nex`），名为 `<set>_[<model>]_guide_tree.nex`，在引导树构建完成后、渐进式比对开始前立即保存到 `MSA_DIR`。已有的同名文件会被替换。
-*   **来源**：`EMAPSSN` 块记录这棵树的构建方式：程序版本与日期、输入文件、得分与建树设置、启用时的扰动树设置、树的定根方式，以及分支长度和标签的含义。树查看器会跳过此块。
+*   **格式**：NEXUS 树文件（`.nex`），名为 `<set>_[<model>]_guide_tree.nex`，在引导树构建完成后、渐进式比对开始前立即保存到比对文件所在文件夹（`MSA_DIR`）内的 `Guide_Trees` 文件夹。树跟随它的比对文件：`<name>_alignment.fasta`（或 `<name>_alignment_sparse.h5`）对应的树是 `Guide_Trees/<name>_guide_tree.nex`。已有的同名文件会被替换。
+*   **来源**：`EMAPSSN` 块记录这棵树的构建方式：程序版本与日期、比对文件名、输入文件、得分与建树设置、启用时的扰动树设置、树的定根方式，以及分支长度和标签的含义。树查看器会跳过此块。
 *   **结构**：`TREES` 块包含一棵名为 `guide_tree` 的树。等号之后的文本就是普通的 Newick，可以直接复制给只读取 Newick 的工具。叶节点为已比对序列的标题（FASTA header）；除非标题只含字母、数字、点和竖线，否则都会加引号，因为 NEXUS 会把未加引号的下划线读作空格。分支长度为引导树距离。`UPGMA (Fast)` 树保留原有的根，并标记为有根（`[&R]`）。`Neighbor-joining (Slow)` 树以最长路径的中点为根，并标记为无根（`[&U]`），因为这个根只是一种选择，而不是树本身显示的信息。
 *   **划分标签**：启用 `BOOTSTRAP_TREE` 时，每个内部节点标注包含其划分（split）的噪声扰动重复树所占的百分比。这些数值衡量的是在距离噪声下的稳定性，而不是经典的自展支持值。
 *   **用途**：可用 iTOL 或 FigTree 等树查看器打开。Biopython 的 NEXUS 读取器会拆开含逗号的带引号标题，因此请改用其 Newick 读取器读取复制出的树行。这棵树记录的是构建比对的顺序，而不是系统发育树：其距离由比对得分反转而来，且在稀疏网络中许多距离来自回归插补。

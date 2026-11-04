@@ -1,4 +1,4 @@
-"""Embedding_MSA saves its guide tree as NEXUS beside the alignment.
+"""Embedding_MSA saves its guide tree as NEXUS in the Guide_Trees folder of the alignment's folder.
 
 The TREE line is a Newick tree with the full headers, and an EMAPSSN block
 records the settings that built it. UPGMA trees keep their root and halve
@@ -571,13 +571,17 @@ class BuilderGuideTreeTests(unittest.TestCase):
         seen["text"] = seen["path"].read_text(encoding="utf-8")
         return seen
 
-    def test_upgma_tree_is_saved_beside_the_alignment(self):
+    def test_upgma_tree_is_saved_in_the_guide_trees_folder_of_the_alignment(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = NetworkFixture(directory, seed=4)
             seen = self.run_builder(fixture, TREE_METHOD=UPGMA)
-            expected_path = fixture.msa_dir / f"Fixture_[{MODEL}]_guide_tree.nex"
+            expected_path = fixture.msa_dir / "Guide_Trees" / f"Fixture_[{MODEL}]_guide_tree.nex"
+            alignment_path = fixture.msa_dir / f"Fixture_[{MODEL}]_alignment.fasta"
+            written_folder_exists = expected_path.parent.is_dir()
 
         self.assertEqual(seen["path"], expected_path)
+        self.assertTrue(written_folder_exists)
+        self.assertEqual(seen["path"].parent.parent, alignment_path.parent)
         self.assertTrue(seen["text"].startswith("#NEXUS\n"))
         self.assertTrue(seen["text"].endswith("END;\n"))
         rooted, newick = nexus_tree(seen["text"])
@@ -591,6 +595,7 @@ class BuilderGuideTreeTests(unittest.TestCase):
         for name, value in (
             ("SEQUENCE_SET", "Fixture"),
             ("MODEL", MODEL),
+            ("ALIGNMENT", f"Fixture_[{MODEL}]_alignment.fasta"),
             ("INPUT_NETWORK", f"Fixture_[{MODEL}]_network.h5"),
             ("INPUT_EMBED", f"Fixture_[{MODEL}]_embeddings.h5"),
             ("ALIGNMENT_SCORE", "global"),

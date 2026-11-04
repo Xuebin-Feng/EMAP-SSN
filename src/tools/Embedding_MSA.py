@@ -33,8 +33,9 @@ Input:
 
 Output:
 - A completed Multiple Sequence Alignment FASTA file padded with '-' gap characters (`OUTPUT_FASTA`).
-- The guide tree as NEXUS beside it (`<set>_[<model>]_guide_tree.nex`), saved before the alignment starts. Its TREE
-  line is a Newick tree, and an EMAPSSN block records the settings that built it. Internal nodes carry the percentage
+- The guide tree as NEXUS in a `Guide_Trees` folder inside the alignment's folder
+  (`<set>_[<model>]_guide_tree.nex`), saved before the alignment starts. Its TREE
+  line is a Newick tree, and an EMAPSSN block records the settings that built it, the alignment's file name among them. Internal nodes carry the percentage
   of noise-perturbed replicates that hold their split when those replicates run.
 
 Settings:
@@ -94,6 +95,7 @@ from Cache_Manifest import validate_network_schema
 from utilities.Localization import Message, set_translator
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import read_embedding_manifest
+from utilities.Guide_Tree_File import guide_tree_path_for_alignment, newick_label, nexus_string
 from tools.tool_helpers import Tool_Charts
 
 
@@ -296,9 +298,9 @@ def build_msa_output_path(msa_dir, sequence_set, model_name):
     return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_alignment.fasta")
 
 
-def build_guide_tree_path(msa_dir, sequence_set, model_name):
-    """Build the guide-tree NEXUS filename written beside the alignment."""
-    return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_guide_tree.nex")
+def build_guide_tree_path(output_fasta):
+    """Build the guide-tree NEXUS path from the alignment's: the Guide_Trees folder inside its folder."""
+    return guide_tree_path_for_alignment(output_fasta)
 
 
 def build_memmap_cache_dir(temp_dir, msa_dir, sequence_set, model_name):
@@ -1436,25 +1438,6 @@ def split_support(children, root, num_seqs, leaf_keys, replicate_keys, num_trees
     return support
 
 
-_NEWICK_PLAIN_LABEL = re.compile(r"[A-Za-z0-9.|]+\Z")
-
-
-def newick_label(text):
-    """Quote a label unless it holds only letters, digits, dots and bars.
-
-    NEXUS, like the Newick standard, reads an unquoted underscore as a space
-    and splits words at - + * = / < >, so quoting keeps a header as it is.
-    """
-    if _NEWICK_PLAIN_LABEL.match(text):
-        return text
-    return nexus_string(text)
-
-
-def nexus_string(text):
-    """Single-quote a NEXUS word, doubling any quote inside it."""
-    return "'" + str(text).replace("'", "''") + "'"
-
-
 def newick_text(children, branch, root, headers, support=None):
     """Write a rooted tree as one Newick line, without recursion.
 
@@ -1585,6 +1568,7 @@ def guide_tree_notes(network_type, imputed):
         ("PROGRAM", f"EMAP-SSN {version}" if version else "EMAP-SSN"),
         ("SEQUENCE_SET", _seq_set),
         ("MODEL", _model_name),
+        ("ALIGNMENT", os.path.basename(OUTPUT_FASTA)),
         ("INPUT_NETWORK", os.path.basename(FULL_INPUT_NETWORK)),
         ("INPUT_EMBED", os.path.basename(FULL_INPUT_EMBED)),
     ]
@@ -2448,7 +2432,8 @@ def run_msa_builder():
     tree_building_seconds = time.perf_counter() - tree_building_started
 
     # Saved before the hours-long merge so a failed alignment keeps the tree.
-    guide_tree_path = build_guide_tree_path(MSA_DIR, _seq_set, _model_name)
+    guide_tree_path = build_guide_tree_path(OUTPUT_FASTA)
+    os.makedirs(os.path.dirname(guide_tree_path), exist_ok=True)
     print(f"Saving guide tree to {guide_tree_path}...")
     write_guide_tree(
         guide_tree_path,
