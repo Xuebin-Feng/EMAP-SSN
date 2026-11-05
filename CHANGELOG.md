@@ -14,6 +14,10 @@ still change before version 1.0.0.
 - The Viewer no longer reads an alignment path ending in `none_[E1_RA]_alignment.fasta`,
   an old placeholder, as "no alignment": it reports the file as missing. An empty MSA
   field means no alignment.
+- Config and VR Config no longer fill an empty network field with
+  `<set>_[E1_RA]_network.h5` built from the node FASTA's name, and no longer swap the
+  `none_[E1_RA]` alignment and network placeholders for such names. Choose the network
+  file in Config; a Viewer started without one reports the network as missing.
 
 ### Added
 
