@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -577,6 +578,54 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
         )
         self.assertIn("OFFSCREEN_CONFIG_OK", completed.stdout)
+
+
+
+class ModuleSettingsLoadTests(unittest.TestCase):
+    """What the module's own load of a saved settings file leaves in its names."""
+
+    @staticmethod
+    def _load(document):
+        script = (
+            "import json, sys; sys.path.insert(0, {src!r}); import {module} as c; "
+            "print(json.dumps([c.NODE_FASTA_FILE, c.INPUT_HDF5, c.MSA_FILE, "
+            "getattr(c, 'SEQUENCES_FILE', None), getattr(c, 'SEQUENCE_SET', None)]))"
+        ).format(src=str(SRC_DIR), module='EMAPSSN_Config')
+        with tempfile.TemporaryDirectory() as folder:
+            settings = os.path.join(folder, "settings.json")
+            with open(settings, "w", encoding="utf-8") as handle:
+                json.dump(document, handle)
+            env = os.environ.copy()
+            env["SSN_VIEWER_SETTINGS_PATH"] = settings
+            env["SSN_APP_SETTINGS_PATH"] = os.path.join(folder, "app_settings.json")
+            env["SSN_NO_CONSOLE_CAPTURE"] = "1"
+            env["QT_QPA_PLATFORM"] = "offscreen"
+            env.pop("SSN_VIEWER_EXPLICIT_SETTINGS", None)
+            done = subprocess.run(
+                [sys.executable, "-c", script], cwd=PROJECT_ROOT, env=env,
+                capture_output=True, text=True, timeout=120,
+            )
+        assert done.returncode == 0, done.stderr
+        return json.loads(done.stdout.strip().splitlines()[-1])
+
+    def test_an_empty_network_stays_empty(self):
+        fasta, network, _, _, _ = self._load({"NODE_FASTA_FILE": "Set_A.fasta", "INPUT_HDF5": ""})
+        self.assertEqual(fasta, "Set_A.fasta")
+        self.assertEqual(network, "")
+
+    def test_placeholder_names_are_left_as_written(self):
+        _, network, msa, _, _ = self._load({
+            "NODE_FASTA_FILE": "Set_A.fasta",
+            "INPUT_HDF5": "None_[E1_RA]_network.h5",
+            "MSA_FILE": "None_[E1_RA]_alignment.fasta",
+        })
+        self.assertEqual(network, "None_[E1_RA]_network.h5")
+        self.assertEqual(msa, "None_[E1_RA]_alignment.fasta")
+
+    def test_the_sequence_names_still_follow_the_fasta(self):
+        fasta, _, _, sequences, name = self._load({"NODE_FASTA_FILE": "Set_A.fasta"})
+        self.assertEqual(sequences, fasta)
+        self.assertEqual(name, "Set_A")
 
 
 if __name__ == "__main__":

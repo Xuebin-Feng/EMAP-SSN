@@ -494,10 +494,6 @@ _resolve_runtime_path_settings()
 if NODE_FASTA_FILE:
     SEQUENCES_FILE = NODE_FASTA_FILE
     SEQUENCE_SET = os.path.splitext(os.path.basename(NODE_FASTA_FILE))[0]
-    if MSA_FILE and "none_[e1_ra]_alignment.fasta" in MSA_FILE.lower():
-        MSA_FILE = os.path.join(MSA_DIR, f"{SEQUENCE_SET}_[E1_RA]_alignment.fasta")
-    if not INPUT_HDF5 or "none_[e1_ra]_network.h5" in INPUT_HDF5.lower():
-        INPUT_HDF5 = os.path.join(HDF5_DIR, f"{SEQUENCE_SET}_[E1_RA]_network.h5")
 
 
 def _viewer_terminal_command(project_root, settings_path, executable):
