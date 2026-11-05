@@ -13538,7 +13538,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+2"/>
-        <source>Run the Embedding MSA tool again to make it, or put the tree there, and press Check again.</source>
+        <source>Run the Embedding MSA tool again to make it, and press Check again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13587,7 +13587,7 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+39"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13622,7 +13622,12 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+10"/>
+        <source>Drawn from the midpoint root; the tree itself is unrooted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13687,7 +13692,7 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+9"/>
         <source>How it fits</source>
         <translation type="unfinished"></translation>
     </message>

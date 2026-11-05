@@ -35,6 +35,13 @@ from web_ui import Web_Server, tree_backend
 EVENTS = """
 window.fire = {
     canvas() { return document.getElementById('tree-canvas'); },
+    // Where, in the canvas's own pixels, the page finds the pointer that these helpers put at (x, y): an event's
+    // position is a whole number of pixels, and the canvas can lie on a fraction of one (under a banner of text).
+    local(x, y) {
+        const rect = this.canvas().getBoundingClientRect();
+        const event = new MouseEvent('mousemove', {clientX: rect.left + x, clientY: rect.top + y});
+        return [event.clientX - rect.left, event.clientY - rect.top];
+    },
     wheel(deltaY, x, y, options = {}) {
         const rect = this.canvas().getBoundingClientRect();
         const event = new WheelEvent('wheel', {deltaY, deltaMode: 0, clientX: rect.left + x, clientY: rect.top + y,

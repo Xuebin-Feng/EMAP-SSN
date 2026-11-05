@@ -324,10 +324,11 @@ window.TreeView = window.TreeView || {};
         return TV.layoutTree(model, "rectangular", mode);
     };
 
-    // The layout a tree is shown in at first: a rooted tree (UPGMA's) as a rectangular tree from its root, an unrooted
-    // one (neighbor-joining's, rooted at a midpoint only so that it can be written down) from the middle, and a tree
-    // that says neither as the rooted kind.
+    // The layout a tree is shown in at first, which its rooting decides: a rooted tree is drawn from its root, as a
+    // rectangular tree, and an unrooted one, or one that does not say, in the unrooted layout. The root that an
+    // unrooted tree is saved with is only where its file begins, so that it can be written down: nothing is drawn
+    // from it unless the person asks for a layout that has a root.
     TV.defaultLayoutKind = function (model) {
-        return model.rooted === false ? "unrooted" : "rectangular";
+        return model.rooted === true ? "rectangular" : "unrooted";
     };
 })(window.TreeView);

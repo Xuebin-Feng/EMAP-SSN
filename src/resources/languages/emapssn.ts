@@ -9181,7 +9181,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Run the Embedding MSA tool again to make it, or put the tree there, and press Check again.</source>
+        <source>Run the Embedding MSA tool again to make it, and press Check again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9246,6 +9246,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>The tree and the Viewer differ in a way this page has no words for: {code}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drawn from the midpoint root; the tree itself is unrooted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

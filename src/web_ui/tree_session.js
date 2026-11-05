@@ -102,7 +102,7 @@ window.TreeView = window.TreeView || {};
                     title: t("No guide tree was found for this alignment"),
                     body: t("The guide tree of {alignment} should be the file below, which the Embedding MSA tool saves in the Guide_Trees folder beside the alignment. It is not there.", { alignment }),
                     path: payload.tree_path,
-                    more: t("Run the Embedding MSA tool again to make it, or put the tree there, and press Check again."),
+                    more: t("Run the Embedding MSA tool again to make it, and press Check again."),
                 };
             case "unreadable":
                 return {
@@ -154,6 +154,9 @@ window.TreeView = window.TreeView || {};
     function chooseLayout(kind, mode) {
         TV.setLayout(kind, mode);
         showLayoutControls();
+        showBanner();
+        // The note can change the room the drawing has: fit it to what is left, not to what there was.
+        if (state.fitted) TV.fitView();
         TV.drawNow();
     }
 
@@ -179,18 +182,39 @@ window.TreeView = window.TreeView || {};
         }
     }
 
-    function showWarnings(warnings) {
+    // The note on an unrooted tree drawn from a root, or null. A rectangular tree and a circular one grow from a root,
+    // and an unrooted tree has none but the one its file was saved with, so the picture would say what the tree does
+    // not. A rooted tree in any layout, and an unrooted one in the unrooted layout, say nothing untrue: no note.
+    function rootingNote() {
+        const model = state.model;
+        if (!model || model.rooted === true || state.kind === "unrooted") return null;
+        return t("Drawn from the midpoint root; the tree itself is unrooted.");
+    }
+
+    // The banner under the controls: a sentence for each warning the Viewer found, and the note on the rooting when
+    // the layout in use calls for it, which the Details panel repeats.
+    function showBanner() {
+        if (!state.model) return;
         const list = $("warning-list");
         list.replaceChildren();
-        for (const warning of warnings) {
+        const add = (symbol, text, className) => {
             const item = document.createElement("li");
-            item.appendChild(icon("triangle-alert"));
-            const text = document.createElement("span");
-            text.textContent = warningText(warning);
-            item.appendChild(text);
+            if (className) item.className = className;
+            item.appendChild(symbol);
+            const words = document.createElement("span");
+            words.textContent = text;
+            item.appendChild(words);
             list.appendChild(item);
+        };
+        for (const warning of state.model.warnings) add(icon("triangle-alert"), warningText(warning));
+        const note = rootingNote();
+        if (note) add(icon("info"), note, "rooting-note");
+        $("banner").classList.toggle("shown", list.children.length > 0);
+        const detail = $("details-rooting");
+        if (detail) {
+            detail.textContent = note || "";
+            detail.hidden = !note;
         }
-        $("banner").classList.toggle("shown", warnings.length > 0);
     }
 
     // The counts, as the status line says them.
@@ -251,6 +275,12 @@ window.TreeView = window.TreeView || {};
             [t("Tree method"), notes.TREE_METHOD],
             [t("Kind"), kind],
         ]);
+        // The note on drawing an unrooted tree from a root, which showBanner fills in and clears with the layout.
+        const rooting = document.createElement("p");
+        rooting.className = "note";
+        rooting.id = "details-rooting";
+        rooting.hidden = true;
+        panel.appendChild(rooting);
 
         addTitle(t("How it fits"));
         const counts = model.counts;
@@ -291,7 +321,7 @@ window.TreeView = window.TreeView || {};
         }
         state.model = model;
         TV.resetFolds();
-        // A rooted tree is shown from its root, an unrooted one (neighbor-joining's) from its middle.
+        // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted.
         state.kind = TV.defaultLayoutKind(model);
         state.layout = TV.layoutTree(model, state.kind, "lengths");
         state.mode = state.layout.mode;
@@ -304,8 +334,8 @@ window.TreeView = window.TreeView || {};
         show("tree");
         TV.fitView();
         showLayoutControls();
-        showWarnings(model.warnings);
         showDetails(payload, model);
+        showBanner();
         showPinned(-1);
         TV.drawNow();
         return true;

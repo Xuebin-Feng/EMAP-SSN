@@ -134,7 +134,8 @@ class EmptyStateTests(TreePageMixin, unittest.TestCase):
         self.assertEqual(card["path"], expected)
         self.assertFalse(card["pathHidden"] or card["copyHidden"] or card["moreHidden"])
         self.assertIn(ALIGNMENT_NAME, card["body"])
-        self.assertIn("press Check again", card["more"])
+        # It points at the tool and nothing else: a tree put there by hand is not one the page reads.
+        self.assertEqual(card["more"], "Run the Embedding MSA tool again to make it, and press Check again.")
         self.assertEqual(card["controls"], [True] * 5)
 
     def test_a_file_that_is_not_a_tree_says_why(self):
@@ -957,23 +958,24 @@ class LayoutCase(TreePageMixin, unittest.TestCase):
 
 
 class LayoutChoiceTests(LayoutCase):
-    def test_an_unrooted_file_opens_unrooted_and_a_rooted_one_rectangular(self):
+    def test_a_tree_opens_by_its_rooting(self):
         info = self.script("""return {kind: TreeView.state.kind, shown: TreeView.state.layout.kind, mode: TreeView.state.layout.mode,
             select: document.getElementById('layout-select').value, rooted: TreeView.state.model.rooted,
             hint: document.getElementById('hints').textContent};""")
         self.assertEqual((info["kind"], info["shown"], info["select"], info["rooted"]), ("unrooted",) * 2 + ("unrooted", False))
         self.assertEqual(info["mode"], "lengths")
         self.assertEqual(info["hint"], "Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.")
-        # UPGMA's file says it is rooted; one that says neither is taken as rooted.
-        self.serve_headers(headers_of(20))
-        self.open_page()
-        self.assertEqual(self.state("[TreeView.state.kind, document.getElementById('layout-select').value, TreeView.state.model.rooted]"),
-                         ["rectangular", "rectangular", True])
-        folder = self.make_folder()
-        write_tree_file(folder, list("abc"), "#NEXUS\nBEGIN TREES;\n  TREE t = ((a:1,b:2):1,c:3);\nEND;\n")
-        self.serve_headers(list("abc"), folder=folder, tree=None)
-        self.open_page()
-        self.assertEqual(self.state("[TreeView.state.kind, TreeView.state.model.rooted]"), ["rectangular", None])
+        # What decides it is what the file says of its rooting, [&R], [&U] or nothing, and not how the tree was made: a
+        # rooted tree opens rectangular, an unrooted one opens unrooted, and one that does not say is taken as unrooted.
+        for flag, rooted, expected in (("[&R] ", True, "rectangular"), ("[&U] ", False, "unrooted"), ("", None, "unrooted")):
+            with self.subTest(rooted=rooted):
+                folder = self.make_folder()
+                write_tree_file(folder, list("abc"), f"#NEXUS\nBEGIN TREES;\n  TREE t = {flag}((a:1,b:2):1,c:3);\nEND;\n")
+                self.serve_headers(list("abc"), folder=folder, tree=None)
+                self.open_page()
+                self.assertEqual(self.state("[TreeView.state.model.rooted, TreeView.state.kind, TreeView.state.layout.kind, "
+                                            "document.getElementById('layout-select').value]"),
+                                 [rooted, expected, expected, expected])
 
     def test_the_selector_changes_the_layout_and_shows_the_whole_tree_again(self):
         self.script("TreeView.zoomAbout(600, 300, 3, 3); return 1")
@@ -1260,6 +1262,8 @@ class UniformZoomTests(LayoutCase):
         for kind in ("circular", "unrooted"):
             with self.subTest(kind=kind):
                 self.choose(kind)
+                # Where the page finds the pointer: the canvas can lie on a fraction of a pixel, and an event cannot.
+                pointer_x, pointer_y = self.script("return fire.local(700, 300)")
                 for options, factor in (({}, np.exp(0.18)), ({"shiftKey": True}, np.exp(0.18)), ({"ctrlKey": True}, np.exp(0.18))):
                     before = self.view_state()
                     self.script(f"return fire.wheel(-120, 700, 300, {json.dumps(options)})")
@@ -1267,8 +1271,8 @@ class UniformZoomTests(LayoutCase):
                     self.assertAlmostEqual(after["sx"] / before["sx"], factor, places=6, msg=options)
                     self.assertEqual(after["sx"], after["sy"])
                     # The point under the pointer stays under it.
-                    self.assertAlmostEqual((700 - after["ox"]) / after["sx"], (700 - before["ox"]) / before["sx"], places=6)
-                    self.assertAlmostEqual((300 - after["oy"]) / after["sy"], (300 - before["oy"]) / before["sy"], places=6)
+                    self.assertAlmostEqual((pointer_x - after["ox"]) / after["sx"], (pointer_x - before["ox"]) / before["sx"], places=6)
+                    self.assertAlmostEqual((pointer_y - after["oy"]) / after["sy"], (pointer_y - before["oy"]) / before["sy"], places=6)
 
     def test_keys_zoom_and_fit_in_one_scale_and_the_zoom_is_held_between_limits(self):
         self.choose("circular")
@@ -2027,6 +2031,88 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
         for shape in ("bushy", "caterpillar", "chains"):
             with self.subTest(shape=shape):
                 self.check(self.measure(shape, 44000))
+
+
+class RootingNoteTests(TreePageMixin, unittest.TestCase):
+    """An unrooted tree drawn from a root says so, in the banner and in Details; no other case says anything."""
+
+    NOTE = "Drawn from the midpoint root; the tree itself is unrooted."
+
+    def open_tree(self, flag, headers=None, **options):
+        headers = headers or list("abcd")
+        folder = self.make_folder()
+        write_tree_file(folder, headers, f"#NEXUS\nBEGIN TREES;\n  TREE t = {flag}(((a:1,b:2):1,c:3):1,d:2);\nEND;\n")
+        self.serve_headers(headers, folder=folder, tree=None, **options)
+        self.open_page()
+
+    def choose(self, kind):
+        self.script(f"""const select = document.getElementById('layout-select');
+            select.value = {json.dumps(kind)}; select.dispatchEvent(new Event('change')); TreeView.drawNow(); return 1""")
+
+    def shown(self):
+        return self.script("""
+            const detail = document.getElementById('details-rooting');
+            return {banner: document.getElementById('banner').classList.contains('shown'), kind: TreeView.state.kind,
+                    items: [...document.querySelectorAll('#warning-list li')].map(li => li.textContent),
+                    noted: [...document.querySelectorAll('#warning-list li.rooting-note use')].map(use => use.getAttribute('href')),
+                    detail: detail.hidden ? null : detail.textContent};""")
+
+    def test_the_note_is_shown_for_exactly_an_unrooted_tree_in_a_layout_that_has_a_root(self):
+        # [&R] is a rooted tree; [&U] an unrooted one; a file that says nothing is taken as unrooted.
+        for flag, rooted in (("[&R] ", True), ("[&U] ", False), ("", None)):
+            self.open_tree(flag)
+            self.assertEqual(self.state("TreeView.state.model.rooted"), rooted)
+            # The layouts in turn, so that the note is seen to follow the layout on the same page.
+            for kind in ("unrooted", "rectangular", "circular", "unrooted", "circular", "rectangular"):
+                with self.subTest(rooted=rooted, layout=kind):
+                    self.choose(kind)
+                    found = self.shown()
+                    wanted = rooted is not True and kind != "unrooted"
+                    self.assertEqual(found["kind"], kind)
+                    self.assertEqual(found["items"], [self.NOTE] if wanted else [])
+                    self.assertEqual(found["banner"], wanted)
+                    self.assertEqual(found["detail"], self.NOTE if wanted else None)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_rooted_tree_opens_without_a_note_and_an_unrooted_one_too(self):
+        # The default layouts are the ones that need none.
+        for flag in ("[&R] ", "[&U] ", ""):
+            with self.subTest(flag=flag):
+                self.open_tree(flag)
+                found = self.shown()
+                self.assertEqual((found["banner"], found["items"], found["detail"]), (False, [], None))
+
+    def test_the_note_comes_after_the_warnings_and_has_its_own_icon(self):
+        headers = list("abcd")
+        self.open_tree("[&U] ", headers=headers, network=["a", "b", "c", "zz"])
+        self.choose("rectangular")
+        found = self.shown()
+        self.assertEqual(len(found["items"]), 3)
+        self.assertEqual(found["items"][-1], self.NOTE)
+        self.assertEqual(found["noted"], ["#i-info"])
+        self.choose("unrooted")
+        found = self.shown()
+        self.assertEqual(len(found["items"]), 2)
+        self.assertTrue(found["banner"])
+        self.assertNotIn(self.NOTE, found["items"])
+
+    def test_the_drawing_fits_the_room_that_is_left_under_the_note(self):
+        self.open_tree("[&U] ")
+        self.choose("unrooted")
+        before = self.state("document.getElementById('tree-canvas').clientHeight")
+        self.choose("rectangular")
+        self.wait_for(f"document.getElementById('tree-canvas').clientHeight < {before}")
+        self.wait_for("TreeView.state.fitted")
+        info = self.script("""const s = TreeView.state, v = s.view, L = s.layout, c = document.getElementById('tree-canvas');
+            let maxY = -1e9, minY = 1e9;
+            for (let i = 0; i < s.model.nodeCount; i++) { const y = v.oy + L.y[i] * v.sy; maxY = Math.max(maxY, y); minY = Math.min(minY, y); }
+            return {minY, maxY, height: c.clientHeight, fitted: s.fitted};""")
+        self.assertTrue(info["fitted"])
+        self.assertGreaterEqual(info["minY"], 0)
+        self.assertLessEqual(info["maxY"], info["height"])
+        # And back: the room comes back with the note gone.
+        self.choose("unrooted")
+        self.wait_for(f"document.getElementById('tree-canvas').clientHeight >= {before}")
 
 
 class FitReportTests(TreePageMixin, unittest.TestCase):
