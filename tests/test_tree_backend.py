@@ -37,6 +37,7 @@ from tests.tree_fixtures import (  # noqa: E402
     http_get,
     make_alignment_folder,
     make_viewer,
+    node_colors,
     page_headers,
     random_linkage,
     save_guide_tree,
@@ -426,6 +427,290 @@ class RouteTests(FolderTestCase):
         # POST is not registered for it: the server falls through to its own routes, which do not know it.
         route = self.viewer.web_plugin_registry.api_routes
         self.assertEqual([key for key in route if key[1] == tree_backend.DATA_ROUTE], [("GET", tree_backend.DATA_ROUTE)])
+
+    def give_colors(self):
+        from tests.tree_fixtures import node_colors
+
+        self.viewer.current_colors = node_colors(30, {2: "#ff0000"})
+        self.viewer.visible_mask = np.ones(30, dtype=bool)
+        self.viewer.cluster_labels = np.arange(30, dtype=np.int32) % 3
+
+    def test_the_page_gets_the_colours_as_json(self):
+        import json
+
+        self.give_colors()
+        status, headers, body = self.http_get(self.server, tree_backend.COLORS_ROUTE, self.page_headers(self.server))
+        self.assertEqual(status, 200)
+        self.assertTrue(headers["Content-Type"].startswith("application/json"))
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        payload = json.loads(body)
+        self.assertEqual((payload["status"], payload["count"]), ("ok", 30))
+        self.assertEqual(list(unpack(payload["rgba"], np.uint8).reshape(-1, 4)[2]), [255, 0, 0, 255])
+        self.assertEqual(payload["version"], tree_backend.colors_snapshot(self.viewer)["version"])
+
+    def test_a_viewer_with_no_colours_answers_no_colours(self):
+        import json
+
+        status, _headers, body = self.http_get(self.server, tree_backend.COLORS_ROUTE, self.page_headers(self.server))
+        self.assertEqual((status, json.loads(body)), (200, {"status": "no_colors", "version": 0}))
+
+    def test_a_request_for_the_colours_from_another_origin_is_refused(self):
+        self.give_colors()
+        status, _headers, _body = self.http_get(
+            self.server, tree_backend.COLORS_ROUTE, {**self.page_headers(self.server), "Origin": "http://evil.example"})
+        self.assertEqual(status, 403)
+
+    def test_the_colours_route_answers_get_only(self):
+        route = self.viewer.web_plugin_registry.api_routes
+        self.assertEqual([key for key in route if key[1] == tree_backend.COLORS_ROUTE], [("GET", tree_backend.COLORS_ROUTE)])
+
+    def test_what_the_page_was_sent_is_not_announced_to_it(self):
+        self.give_colors()
+        _status, _headers, body = self.http_get(self.server, tree_backend.COLORS_ROUTE, self.page_headers(self.server))
+        import json
+
+        watch = self.viewer._tree_color_watch
+        self.assertEqual((watch.latest, watch.announced), (json.loads(body)["version"],) * 2)
+
+
+class ColorStateTests(unittest.TestCase):
+    """What the page is told of the nodes' colours: their bytes, which are hidden, their clusters, and a version that names it."""
+
+    def viewer(self, count=10, painted=None, hidden=(), clusters=None):
+        return make_viewer(None, headers_of(count), colors=node_colors(count, painted), hidden=hidden, clusters=clusters)
+
+    def test_every_node_has_its_colour_as_four_bytes(self):
+        state = tree_backend.colors_state(self.viewer(painted={1: "#ff0000", 4: "#00ff80"}))
+        rgba = unpack(state["rgba"], np.uint8).reshape(-1, 4)
+        self.assertEqual((state["status"], state["count"], rgba.shape), ("ok", 10, (10, 4)))
+        self.assertEqual(list(rgba[1]), [255, 0, 0, 255])
+        self.assertEqual(list(rgba[4]), [0, 255, 128, 255])
+        # What no command has coloured is the Viewer's initial node colour, which the page is told so as to leave it plain.
+        self.assertEqual(state["plain"], [0x44, 0x88, 0xFF, 255])
+        self.assertEqual(list(rgba[0]), state["plain"])
+
+    def test_a_colour_is_rounded_to_the_nearest_byte(self):
+        viewer = self.viewer(count=2)
+        viewer.current_colors[0] = (0.3957, 0.8039, 0.2, 1.0)  # 100.9 and 204.99 of 255
+        rgba = unpack(tree_backend.colors_state(viewer)["rgba"], np.uint8).reshape(-1, 4)
+        self.assertEqual(list(rgba[0]), [101, 205, 51, 255])
+
+    def test_the_plain_colour_is_the_initial_node_colour_the_viewer_is_set_to(self):
+        import EMAPSSN_Config as cfg
+
+        with mock.patch.object(cfg, "INITIAL_NODE_COLOR", "#102030"):
+            state = tree_backend.colors_state(self.viewer(count=3))
+        self.assertEqual(state["plain"], [0x10, 0x20, 0x30, 255])
+
+    def test_hidden_nodes_are_one_bit_each_least_significant_first(self):
+        state = tree_backend.colors_state(self.viewer(count=10, hidden=[2, 9]))
+        bits = np.unpackbits(unpack(state["hidden"], np.uint8), bitorder="little")
+        self.assertEqual(len(unpack(state["hidden"], np.uint8)), 2)
+        self.assertEqual(list(bits[:10]), [0, 0, 1, 0, 0, 0, 0, 0, 0, 1])
+
+    def test_clusters_come_with_the_colours_when_the_viewer_has_them(self):
+        state = tree_backend.colors_state(self.viewer(count=5, clusters=[3, 3, -1, 7, 0]))
+        self.assertEqual(state["cluster_type"], "i2")
+        self.assertEqual(list(unpack(state["cluster"], "<i2")), [3, 3, -1, 7, 0])
+        absent = tree_backend.colors_state(self.viewer(count=5))
+        self.assertEqual((absent["cluster"], absent["cluster_type"]), (None, None))
+
+    def test_cluster_numbers_that_do_not_fit_two_bytes_take_four(self):
+        state = tree_backend.colors_state(self.viewer(count=4, clusters=[0, 40000, -1, 2**31 - 1]))
+        self.assertEqual(state["cluster_type"], "i4")
+        self.assertEqual(list(unpack(state["cluster"], "<i4")), [0, 40000, -1, 2**31 - 1])
+        edge = tree_backend.colors_state(self.viewer(count=3, clusters=[-32768, 32767, 5]))
+        self.assertEqual((edge["cluster_type"], list(unpack(edge["cluster"], "<i2"))), ("i2", [-32768, 32767, 5]))
+
+    def test_a_viewer_with_no_colours_says_so(self):
+        for viewer in (make_viewer(None, headers_of(4)),
+                       SimpleNamespace(n_nodes=4, current_colors=np.zeros((3, 4), np.float32)),
+                       SimpleNamespace(n_nodes=4, current_colors=np.zeros((4, 3), np.float32)),
+                       SimpleNamespace(n_nodes=0, current_colors=np.zeros((0, 4), np.float32))):
+            with self.subTest(viewer=vars(viewer).keys()):
+                self.assertEqual(tree_backend.colors_state(viewer), {"status": "no_colors", "version": 0})
+
+    def test_a_visible_mask_of_the_wrong_length_hides_nothing(self):
+        viewer = self.viewer(count=6)
+        viewer.visible_mask = np.array([False, True])
+        state = tree_backend.colors_state(viewer)
+        self.assertEqual(list(np.unpackbits(unpack(state["hidden"], np.uint8), bitorder="little")[:6]), [0] * 6)
+
+    def test_the_version_names_what_is_sent_and_nothing_else(self):
+        viewer = self.viewer(count=20, painted={3: "red"}, clusters=[1] * 20)
+        base = tree_backend.colors_state(viewer)["version"]
+        self.assertEqual(tree_backend.colors_state(viewer)["version"], base)
+        # A colour that differs by less than a byte is no change.
+        viewer.current_colors[0, 0] += 1e-4
+        self.assertEqual(tree_backend.colors_state(viewer)["version"], base)
+        for change in ("colour", "hidden", "cluster"):
+            with self.subTest(change=change):
+                other = self.viewer(count=20, painted={3: "red"}, clusters=[1] * 20)
+                if change == "colour":
+                    other.current_colors[7] = (0, 1, 0, 1)
+                elif change == "hidden":
+                    other.visible_mask[7] = False
+                else:
+                    other.cluster_labels[7] = 2
+                self.assertNotEqual(tree_backend.colors_state(other)["version"], base)
+
+    def test_the_state_is_a_copy_of_what_the_viewer_held(self):
+        viewer = self.viewer(count=4)
+        snapshot = tree_backend.colors_snapshot(viewer)
+        viewer.current_colors[:] = 0
+        viewer.visible_mask[:] = False
+        self.assertEqual(int(snapshot["rgba"][0, 0]), 0x44)
+        self.assertEqual(int(np.unpackbits(snapshot["hidden"], bitorder="little")[:4].sum()), 0)
+
+    def test_the_colours_of_forty_four_thousand_nodes_are_a_quarter_of_a_megabyte(self):
+        import json
+
+        count = 44000
+        viewer = make_viewer(None, ["n%d" % i for i in range(count)], colors=node_colors(count), clusters=np.arange(count) % 200)
+        state = tree_backend.colors_state(viewer)
+        self.assertEqual(len(unpack(state["rgba"], np.uint8)), 4 * count)
+        self.assertLess(len(json.dumps(state)), 400_000)
+
+
+class FakeTimer:
+    """A timer that fires when the test says, in the place of threading.Timer."""
+
+    def __init__(self, delay, callback):
+        self.delay, self.callback, self.started, self.daemon = delay, callback, False, False
+
+    def start(self):
+        self.started = True
+
+    def fire(self):
+        self.callback()
+
+
+class ColorWatchTests(unittest.TestCase):
+    """The listener that tells a connected Tree View page the colours changed: once per burst, and only when they did."""
+
+    def setUp(self):
+        self.timers = []
+
+        def make_timer(delay, callback):
+            self.timers.append(FakeTimer(delay, callback))
+            return self.timers[-1]
+
+        self.clients = {"tree"}
+        self.viewer = make_viewer(None, headers_of(12), colors=node_colors(12), clusters=[0] * 12)
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client in self.clients)
+        self.viewer.broadcast_event = mock.Mock()
+        self.watch = tree_backend.ColorWatch(self.viewer, timer_factory=make_timer)
+
+    def version(self):
+        return tree_backend.colors_snapshot(self.viewer)["version"]
+
+    def test_a_change_is_announced_once_with_its_version(self):
+        self.watch.served(self.version())
+        self.viewer.current_colors[3] = (1, 0, 0, 1)
+        self.watch()
+        self.assertEqual(len(self.timers), 1)
+        self.assertTrue(self.timers[0].started and self.timers[0].daemon)
+        self.assertEqual(self.timers[0].delay, tree_backend.COLOR_COALESCE_SECONDS)
+        self.viewer.broadcast_event.assert_not_called()
+        self.timers[0].fire()
+        self.viewer.broadcast_event.assert_called_once_with({"type": "tree_colors_changed", "version": self.version()})
+
+    def test_a_burst_of_changes_is_one_event_with_the_last_version(self):
+        self.watch.served(self.version())
+        for node in (1, 2, 3):
+            self.viewer.current_colors[node] = (node / 10, 0, 0, 1)
+            self.watch()
+        self.assertEqual(len(self.timers), 1)
+        self.timers[0].fire()
+        self.viewer.broadcast_event.assert_called_once_with({"type": "tree_colors_changed", "version": self.version()})
+
+    def test_a_change_that_is_undone_before_the_event_announces_nothing(self):
+        self.watch.served(self.version())
+        before = self.viewer.current_colors[5].copy()
+        self.viewer.current_colors[5] = (0, 1, 0, 1)
+        self.watch()
+        self.viewer.current_colors[5] = before
+        self.watch()
+        self.timers[0].fire()
+        self.viewer.broadcast_event.assert_not_called()
+
+    def test_drawing_the_nodes_again_in_the_same_colours_announces_nothing(self):
+        # What the pointer moving over the nodes does: the hover colour is painted on a copy, never in current_colors.
+        self.watch.served(self.version())
+        for _ in range(5):
+            self.watch()
+        self.assertEqual(self.timers, [])
+        self.viewer.broadcast_event.assert_not_called()
+
+    def test_the_colours_the_page_was_sent_are_not_announced_to_it(self):
+        self.viewer.current_colors[2] = (0, 0, 1, 1)
+        self.watch.served(self.version())
+        self.watch()
+        self.assertEqual(self.timers, [])
+
+    def test_hiding_a_node_and_changing_a_cluster_are_changes_too(self):
+        self.watch.served(self.version())
+        self.viewer.visible_mask[4] = False
+        self.watch()
+        self.timers[0].fire()
+        self.viewer.cluster_labels[4] = 9
+        self.watch()
+        self.timers[1].fire()
+        self.assertEqual(self.viewer.broadcast_event.call_count, 2)
+
+    def test_the_next_change_after_an_event_is_announced_again(self):
+        self.watch.served(self.version())
+        for node in (1, 2):
+            self.viewer.current_colors[node] = (1, 1, 0, 1)
+            self.watch()
+            self.timers[-1].fire()
+        self.assertEqual(self.viewer.broadcast_event.call_count, 2)
+        versions = [call.args[0]["version"] for call in self.viewer.broadcast_event.call_args_list]
+        self.assertNotEqual(versions[0], versions[1])
+
+    def test_nothing_is_done_while_no_tree_page_is_connected(self):
+        self.clients = {"esmfold", "meta"}
+        self.viewer.current_colors[1] = (1, 0, 0, 1)
+        self.watch()
+        self.assertEqual(self.timers, [])
+        self.viewer.web_server = None
+        self.watch()
+        del self.viewer.web_server
+        self.watch()
+        self.assertEqual(self.timers, [])
+
+    def test_no_colour_is_computed_for_a_viewer_that_nobody_is_watching(self):
+        self.clients = set()
+        with mock.patch.object(tree_backend, "colors_snapshot", side_effect=AssertionError("worked out for nobody")):
+            self.watch()
+
+    def test_the_event_is_small_and_carries_no_colour(self):
+        self.watch.served(self.version())
+        self.viewer.current_colors[3] = (1, 0, 0, 1)
+        self.watch()
+        self.timers[0].fire()
+        event = self.viewer.broadcast_event.call_args.args[0]
+        self.assertEqual(sorted(event), ["type", "version"])
+
+
+class FollowColorsTests(unittest.TestCase):
+    def test_the_viewer_gets_one_listener_however_often_the_backend_is_registered(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+
+        viewer = SimpleNamespace()
+        registry = WebPluginRegistry(viewer)
+        for _ in range(3):
+            tree_backend.register_backend(registry, viewer)
+        self.assertEqual(len(viewer.node_update_listeners), 1)
+        self.assertIs(viewer.node_update_listeners[0], viewer._tree_color_watch)
+        self.assertEqual(registry.api_routes[("GET", "/api/tree/colors")].plugin_id, "tree")
+
+    def test_listeners_that_are_there_already_are_kept(self):
+        mine = lambda: None  # noqa: E731
+        viewer = SimpleNamespace(node_update_listeners=[mine])
+        tree_backend.follow_colors(viewer)
+        self.assertEqual(viewer.node_update_listeners[0], mine)
+        self.assertEqual(len(viewer.node_update_listeners), 2)
 
 
 class RegistrationTests(unittest.TestCase):

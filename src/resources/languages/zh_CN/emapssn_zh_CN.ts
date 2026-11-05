@@ -6992,7 +6992,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1664"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1667"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7019,7 +7019,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+613"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+624"/>
         <source>Continued: type the rest and press Enter.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
@@ -13442,7 +13442,12 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+557"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+556"/>
+        <source>Cluster {id}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>A node of this network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13453,6 +13458,11 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+3"/>
+        <source>Cluster: {id}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>The root of the tree</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13477,7 +13487,12 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+5"/>
+        <source>Colour of {percent}% of its leaves: {colour}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Folded up: click it to open it</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13587,7 +13602,17 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+25"/>
+        <source>Mark the leaves of this colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>{count} more colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+112"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13727,7 +13752,7 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+76"/>
         <source>No match</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13742,13 +13767,13 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+30"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+440"/>
+        <location filename="../../../web_ui/tree.html" line="+494"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13763,19 +13788,19 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../web_ui/tree.html" line="+49"/>
+        <location filename="../../../web_ui/tree.html" line="+54"/>
         <source>Copy the path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-467"/>
-        <location line="+416"/>
+        <location filename="../../../web_ui/tree.html" line="-526"/>
+        <location line="+470"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13931,7 +13956,22 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+1"/>
+        <source>The colours of the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show or hide the list of colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Loading the tree...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14012,7 +14052,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2263"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2274"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -14077,7 +14117,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2065"/>
+        <location line="+2076"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -14179,7 +14219,7 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+250"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+405"/>
         <source>Tree View</source>
         <translation type="unfinished"></translation>
     </message>

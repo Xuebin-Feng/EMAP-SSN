@@ -78,6 +78,7 @@ modules = [
     "test_viewer_hidden_window",
     "test_viewer_history_buttons",
     "test_viewer_inspection",
+    "test_viewer_listeners",
     "test_viewer_inspection_http",
     "test_viewer_jobs_card",
     "test_viewer_markers",

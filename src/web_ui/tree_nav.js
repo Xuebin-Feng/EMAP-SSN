@@ -35,6 +35,9 @@ window.TreeView = window.TreeView || {};
         collapsed: null,
         collapsedCount: 0,
         leafHidden: null,
+        // The colours of the network (tree_color.js), or null; and the colour class whose leaves the legend marks, or -1.
+        colors: null,
+        legendClass: -1,
     };
     TV.canvas = null;
     TV.lastStats = null;
@@ -547,6 +550,12 @@ window.TreeView = window.TreeView || {};
     }
 
     // The lines of text that describe node i: { title, lines }. Every header is the file's text, shown as text.
+    // What to call a colour of the network: "Cluster 7" when the leaves that have it are one cluster, else its #rrggbb.
+    TV.classLabel = function (cls) {
+        const id = TV.clusterOfClass(state.colors, state.model, cls);
+        return id >= 0 ? t("Cluster {id}", { id }) : TV.classHex(state.colors, cls);
+    };
+
     TV.describeNode = function (i) {
         const { model } = state;
         const lines = [];
@@ -555,6 +564,10 @@ window.TreeView = window.TreeView || {};
             const leaf = model.leafOrdinal[i];
             title = model.labels[leaf];
             lines.push(model.viewerNode[leaf] >= 0 ? t("A node of this network") : t("Not a node of this network"));
+            const clusters = state.colors && state.colors.cluster;
+            if (clusters && model.viewerNode[leaf] >= 0 && clusters[model.viewerNode[leaf]] >= 0) {
+                lines.push(t("Cluster: {id}", { id: clusters[model.viewerNode[leaf]] }));
+            }
         } else {
             const count = TV.leavesUnder(model, i);
             title = i === model.root ? t("The root of the tree") : t("A clade");
@@ -562,6 +575,13 @@ window.TreeView = window.TreeView || {};
             lines.push(t("Of them in this network: {count}", { count: TV.shownUnder(model, i).toLocaleString() }));
             if (model.support[i] >= 0) {
                 lines.push(t("Stable in {percent}% of the replicate trees", { percent: model.support[i] }));
+            }
+            const colors = state.colors;
+            if (colors && colors.present[i] > 0 && colors.dominant[i] !== TV.NO_CLASS && colors.dominant[i] !== TV.PLAIN_CLASS
+                && colors.purity[i] > 0.5) {
+                lines.push(t("Colour of {percent}% of its leaves: {colour}", {
+                    percent: Math.round(colors.purity[i] * 100), colour: TV.classLabel(colors.dominant[i]),
+                }));
             }
             if (state.collapsed && state.collapsed[i]) lines.push(t("Folded up: click it to open it"));
         }

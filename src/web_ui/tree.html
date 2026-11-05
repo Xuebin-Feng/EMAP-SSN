@@ -297,6 +297,60 @@
         .stage canvas.pointing { cursor: pointer; }
         .stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
+        /* The legend of the colours, at the other corner */
+        .legend {
+            position: absolute;
+            z-index: 4;
+            top: 8px;
+            right: 28px;
+            display: none;
+            width: 210px;
+            max-height: calc(50% - 8px);
+            overflow: auto;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-card);
+            font-size: 12px;
+        }
+        .legend.shown { display: block; }
+        .legend-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 6px 10px;
+            border: 0;
+            background: none;
+            color: var(--text-secondary);
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .legend-list { list-style: none; margin: 0; padding: 0 4px 6px; }
+        .legend-list[hidden] { display: none; }
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 3px 6px;
+            border: 0;
+            border-radius: 4px;
+            background: none;
+            color: var(--text-primary);
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+        .legend-row:hover { background-color: var(--bg-muted); }
+        .legend-row[aria-pressed="true"] { background-color: var(--accent-soft); }
+        .legend-row .swatch { flex: none; width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; }
+        .legend-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .legend-row .count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+        .legend-more { padding: 0 10px 8px; color: var(--text-soft); }
+        .legend-more[hidden] { display: none; }
+
         /* The overview map, at the corner of the drawing */
         .stage .minimap {
             position: absolute;
@@ -475,6 +529,11 @@
     <main class="stage" id="stage">
         <canvas id="tree-canvas" tabindex="0" role="img" aria-label="Guide tree of the loaded alignment"></canvas>
         <canvas class="minimap" id="minimap" hidden title="The whole tree. Press or drag to move there." aria-label="Overview of the whole tree"></canvas>
+        <aside class="legend" id="legend" aria-label="The colours of the network">
+            <button class="legend-head" id="legend-toggle" aria-expanded="true" title="Show or hide the list of colours"><span data-i18n>Colours</span><svg class="icon" id="legend-icon" aria-hidden="true"><use href="#i-chevron-up"/></svg></button>
+            <ul class="legend-list" id="legend-list"></ul>
+            <div class="legend-more" id="legend-more" hidden></div>
+        </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
@@ -498,6 +557,7 @@
     </div>
 
     <script src="/tree_model.js"></script>
+    <script src="/tree_color.js"></script>
     <script src="/tree_layout.js"></script>
     <script src="/tree_render.js"></script>
     <script src="/tree_nav.js"></script>

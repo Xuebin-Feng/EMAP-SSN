@@ -997,6 +997,9 @@ class MainViewer:
         self.history_index = len(self.command_history)
         
         self.cluster_labels = None
+        # Callables with no arguments, called each time the nodes are drawn again (update_nodes): a page that
+        # follows the nodes' colours or visibility adds its own.
+        self.node_update_listeners = []
         self.label_visuals = []
         
 
@@ -2552,6 +2555,11 @@ class MainViewer:
             alignment_offset=self.alignment_offset,
             reuse=getattr(self, 'alignment', None) if reuse_loaded else None,
         )
+        # Pages that show what the alignment holds ask for it again. A viewer that cannot tell them (it has no web
+        # UI) has loaded the alignment all the same.
+        broadcast = getattr(self, 'broadcast_event', None)
+        if broadcast is not None:
+            broadcast({"type": "alignment_changed"})
 
     def load_embedding(self, reuse_loaded=False):
         """Match the optional embedding file's manifest to the nodes (Embedding_Manager).
@@ -3026,6 +3034,15 @@ class MainViewer:
         
         # ---> NEW: Force HUD to instantly sync whenever visual state changes
         self._update_hud_elements()
+        self._notify_node_update_listeners()
+
+    def _notify_node_update_listeners(self):
+        """Tell what follows the nodes that they were drawn again. One that fails does not stop the others or the drawing."""
+        for listener in list(getattr(self, 'node_update_listeners', ())):
+            try:
+                listener()
+            except Exception as error:
+                print(f"Warning: a node update listener failed: {error}")
 
     def create_hud(self):
         cfg_hud = self.hud_layout

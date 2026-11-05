@@ -55,7 +55,7 @@ window.TreeView = window.TreeView || {};
         map = fitMap(state.layout, width, height);
         const scene = {
             model: state.model, layout: state.layout, view: map, palette: state.palette,
-            collapsed: state.collapsed, matches: state.matches,
+            collapsed: state.collapsed, matches: state.matches, colors: state.colors,
         };
         TV.paintTree(ctx, scene, width, height, true);
         // A leaf the search found, as a point; a leaf inside a folded clade is in its outlined shape.

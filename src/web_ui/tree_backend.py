@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tree View's side of the Viewer: the guide tree of the alignment that is loaded.
+"""Tree View's side of the Viewer: the guide tree of the alignment that is loaded, and the colours of the network.
 
 The page names no file. The tree is the one the Embedding MSA tool saved for the
 alignment the Viewer has loaded (utilities/Guide_Tree_File.py maps an alignment's
@@ -21,12 +21,22 @@ path to its tree's), so the tree follows the alignment, and an alignment that di
 not come from the tool has none. /api/tree/data answers with the tree as compact
 arrays, how it matches the Viewer's network and the alignment, and, when there is
 nothing to draw, why. The page puts every word of it in its own language.
+
+The leaves are drawn in the colours of the nodes they stand for. /api/tree/colors
+answers with the colour of every node of the network, which nodes are hidden, and
+the clusters; the page works out for itself what a clade looks like. Whatever
+changes a colour, in whatever command, ends by drawing the nodes again, so one
+generic listener on that (viewer.node_update_listeners) is all that follows them:
+it tells a connected page, once per burst of changes, that the colours changed,
+and the page asks for them again. No colour travels in the event stream, which
+every open page receives.
 """
 
 import base64
 import datetime
 import os
 import threading
+import zlib
 
 import numpy as np
 
@@ -35,6 +45,11 @@ from utilities.Guide_Tree_File import GuideTreeError, guide_tree_path_for_alignm
 from web_ui.Plugin_Manager import ensure_registry
 
 DATA_ROUTE = "/api/tree/data"
+COLORS_ROUTE = "/api/tree/colors"
+# The event that says the colours (or which nodes are hidden, or the clusters) are not what the page was sent.
+COLORS_EVENT = "tree_colors_changed"
+# A colour change is announced this long after the last one seen, so that a command that draws in a burst sends one event.
+COLOR_COALESCE_SECONDS = 0.15
 
 # A tree is saved before the alignment is merged, so a finished alignment is as new as its tree, or newer. This
 # many seconds of difference are the file system's and the clocks', not a sign that the alignment is older.
@@ -237,9 +252,149 @@ def handle_tree_data(viewer, request):
     return 200, tree_state(viewer)
 
 
+# ---- The colours of the network ---------------------------------------------------------------------------------
+
+
+def _plain_color_bytes():
+    """The red, green, blue and alpha (0 to 255) a node has until something colours it: the Viewer's initial node colour."""
+    from matplotlib import colors as mcolors
+
+    import EMAPSSN_Config as cfg
+
+    return [int(round(value * 255)) for value in mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)]
+
+
+def colors_snapshot(viewer):
+    """What the page is told of the nodes' colours, as arrays, and the version that names it; None when the Viewer has none.
+
+    A copy of what the Viewer holds, taken at once: the Viewer changes its arrays on its own thread. The version is a
+    checksum of everything that is sent, so two states that look alike have one version, whoever asks, and a page
+    that holds a version asks for nothing when it hears of the same one again. Colours are as the nodes are drawn,
+    without the hover colour (the Viewer paints that on a copy).
+    """
+    colors = getattr(viewer, "current_colors", None)
+    count = int(getattr(viewer, "n_nodes", 0) or 0)
+    if colors is None or count < 1:
+        return None
+    colors = np.array(colors, dtype=np.float64, copy=True)
+    if colors.shape != (count, 4):
+        return None
+    rgba = np.clip(np.rint(colors * 255.0), 0, 255).astype(np.uint8)
+    mask = getattr(viewer, "visible_mask", None)
+    shown = np.ones(count, dtype=bool) if mask is None or len(mask) != count else np.array(mask, dtype=bool, copy=True)
+    hidden = np.packbits(~shown, bitorder="little")
+    labels = getattr(viewer, "cluster_labels", None)
+    cluster = None
+    if labels is not None and len(labels) == count:
+        cluster = np.array(labels, dtype=np.int64, copy=True)
+        cluster = np.clip(cluster, -(2**31), 2**31 - 1).astype(np.int32)
+    version = zlib.crc32(rgba.tobytes())
+    version = zlib.crc32(hidden.tobytes(), version)
+    if cluster is not None:
+        version = zlib.crc32(cluster.tobytes(), version)
+    return {"count": count, "rgba": rgba, "hidden": hidden, "cluster": cluster, "version": version & 0xFFFFFFFF}
+
+
+def colors_state(viewer):
+    """What /api/tree/colors answers: ``status`` "ok" with the colours of every node of the network, or "no_colors".
+
+    ``rgba`` holds 4 bytes a node, ``hidden`` one bit a node (set when the node is hidden, least significant bit
+    first), ``cluster`` the cluster number of each node (-1 for none) when the Viewer has clusters, in 2 bytes each
+    (``cluster_type`` "i2") unless one of them needs 4 ("i4"), and ``plain`` the colour of a node nothing has coloured.
+    The nodes are the Viewer's, in its numbering; the tree's leaves find theirs in the viewer_node array of
+    /api/tree/data.
+    """
+    found = colors_snapshot(viewer)
+    if found is None:
+        return {"status": "no_colors", "version": 0}
+    cluster = found["cluster"]
+    small = cluster is not None and (int(cluster.min()) >= -(2**15) and int(cluster.max()) < 2**15)
+    return {
+        "status": "ok",
+        "version": found["version"],
+        "count": found["count"],
+        "plain": _plain_color_bytes(),
+        "rgba": _packed(found["rgba"], "u1"),
+        "hidden": _packed(found["hidden"], "u1"),
+        "cluster": None if cluster is None else _packed(cluster, "<i2" if small else "<i4"),
+        "cluster_type": None if cluster is None else ("i2" if small else "i4"),
+    }
+
+
+class ColorWatch:
+    """Tells a connected Tree View page that the colours changed: the viewer's node update listener.
+
+    It runs each time the nodes are drawn, so it costs nothing while no Tree View page is connected, and else only
+    the checksum of the colours. A change is announced once, a short while after the last of a burst; the event
+    carries the new version, and the page asks /api/tree/colors for what it is. The hover colour is not part of
+    the colours, so a pointer moving over the nodes announces nothing.
+    """
+
+    def __init__(self, viewer, *, delay=COLOR_COALESCE_SECONDS, timer_factory=threading.Timer):
+        self.viewer = viewer
+        self.delay = delay
+        self.timer_factory = timer_factory
+        self.latest = None
+        self.announced = None
+        self._timer = None
+        self._lock = threading.Lock()
+
+    def __call__(self):
+        server = getattr(self.viewer, "web_server", None)
+        has_client = getattr(server, "has_event_client", None)
+        if not callable(has_client) or not has_client("tree"):
+            return
+        found = colors_snapshot(self.viewer)
+        version = 0 if found is None else found["version"]
+        with self._lock:
+            if version == self.latest:
+                return
+            self.latest = version
+            if self._timer is not None:
+                return
+            self._timer = self.timer_factory(self.delay, self._announce)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def served(self, version):
+        """The page was sent this version: nothing is owed to it until the colours are something else."""
+        with self._lock:
+            self.latest = self.announced = version
+
+    def _announce(self):
+        with self._lock:
+            self._timer = None
+            version = self.latest
+            if version == self.announced:
+                return
+            self.announced = version
+        self.viewer.broadcast_event({"type": COLORS_EVENT, "version": version})
+
+
+def handle_tree_colors(viewer, request):
+    """GET /api/tree/colors: the colours of the network's nodes (colors_state). The web server has checked the request's origin."""
+    state = colors_state(viewer)
+    watch = getattr(viewer, "_tree_color_watch", None)
+    if watch is not None:
+        watch.served(state["version"])
+    return 200, state
+
+
+def follow_colors(viewer):
+    """Have the viewer tell this module when the nodes are drawn again; once, however often it is asked."""
+    if getattr(viewer, "_tree_color_watch", None) is not None:
+        return
+    viewer._tree_color_watch = ColorWatch(viewer)
+    if getattr(viewer, "node_update_listeners", None) is None:
+        viewer.node_update_listeners = []
+    viewer.node_update_listeners.append(viewer._tree_color_watch)
+
+
 def register_backend(registry, viewer):
     """Register Tree View's web capabilities without adding a Console button."""
     registry.register_api_route("tree", DATA_ROUTE, lambda request: handle_tree_data(viewer, request))
+    registry.register_api_route("tree", COLORS_ROUTE, lambda request: handle_tree_colors(viewer, request))
+    follow_colors(viewer)
 
 
 def activate(viewer):

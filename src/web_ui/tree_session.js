@@ -130,6 +130,119 @@ window.TreeView = window.TreeView || {};
         }
     }
 
+    // ---- The colours of the network ----------------------------------------------------------------------------
+
+    let legendOpen = true;
+    let colorsLoading = false;
+    let colorsAgain = false;
+
+    // The legend: the colours the leaves have, most leaves first, each of them a button that marks its leaves.
+    function showLegend() {
+        const colors = state.colors;
+        const legend = $("legend");
+        const list = $("legend-list");
+        list.replaceChildren();
+        const rows = colors ? colors.legend : [];
+        legend.classList.toggle("shown", rows.length > 0);
+        if (!rows.length) return;
+        for (const entry of rows) {
+            const item = document.createElement("li");
+            const button = document.createElement("button");
+            button.className = "legend-row";
+            button.setAttribute("aria-pressed", String(state.legendClass === entry.cls));
+            button.title = t("Mark the leaves of this colour");
+            const swatch = document.createElement("span");
+            swatch.className = "swatch";
+            swatch.style.backgroundColor = entry.css;
+            const name = document.createElement("span");
+            name.className = "name";
+            name.textContent = TV.classLabel(entry.cls);
+            const count = document.createElement("span");
+            count.className = "count";
+            count.textContent = entry.count.toLocaleString();
+            button.append(swatch, name, count);
+            button.addEventListener("click", () => markColor(entry.cls));
+            item.appendChild(button);
+            list.appendChild(item);
+        }
+        const more = $("legend-more");
+        more.hidden = !(colors.more > 0);
+        if (colors.more > 0) more.textContent = t("{count} more colours", { count: colors.more.toLocaleString() });
+        list.hidden = !legendOpen;
+        more.hidden = more.hidden || !legendOpen;
+        $("legend-toggle").setAttribute("aria-expanded", String(legendOpen));
+        setIcon($("legend-icon"), legendOpen ? "chevron-up" : "chevron-down");
+    }
+
+    // Mark the leaves of one colour as a search marks what it found; the same button again takes the marks off.
+    function markColor(cls) {
+        const colors = state.colors;
+        if (!colors) return;
+        if (state.legendClass === cls) {
+            state.legendClass = -1;
+            state.matches = new Int32Array(0);
+        } else {
+            state.legendClass = cls;
+            state.matches = TV.leavesOfClass(colors, cls);
+        }
+        state.current = -1;
+        state.query = "";
+        $("search-input").value = "";
+        $("search-box").classList.remove("has-text");
+        showSearch(0);
+        TV.minimapChanged();
+        TV.requestDraw();
+        showLegend();
+    }
+
+    // The colours the Viewer has now, drawn; none (the tree in its own colours) when the Viewer has none to give.
+    function applyColors(payload) {
+        let colors = null;
+        if (payload && payload.status === "ok" && state.model) {
+            try {
+                colors = TV.decodeColors(payload, state.model);
+            } catch (error) {
+                colors = null;
+            }
+        }
+        // A colour the legend marked that is no longer there marks nothing.
+        const marked = state.legendClass;
+        state.colors = colors;
+        if (marked >= 0) {
+            state.legendClass = -1;
+            state.matches = new Int32Array(0);
+            state.current = -1;
+        }
+        showLegend();
+        TV.minimapChanged();
+        TV.drawNow();
+    }
+
+    // Ask the Viewer for the colours of the network. A change that comes while one is asked for is asked for after.
+    TV.loadColors = async function () {
+        if (!state.model) return false;
+        if (colorsLoading) {
+            colorsAgain = true;
+            return false;
+        }
+        colorsLoading = true;
+        try {
+            const response = await fetch("/api/tree/colors", { cache: "no-store" });
+            if (!response.ok) throw new Error(response.status + " " + response.statusText);
+            applyColors(await response.json());
+            return true;
+        } catch (error) {
+            applyColors(null);
+            return false;
+        } finally {
+            colorsLoading = false;
+            if (colorsAgain) {
+                colorsAgain = false;
+                TV.loadColors();
+            }
+        }
+    };
+
     // ---- The layout ------------------------------------------------------------------------------------------
 
     // Show in the controls the layout in use, and which forms of it there are: a tree with no branch lengths has no
@@ -320,6 +433,8 @@ window.TreeView = window.TreeView || {};
             return false;
         }
         state.model = model;
+        state.colors = null;
+        state.legendClass = -1;
         TV.resetFolds();
         // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted.
         state.kind = TV.defaultLayoutKind(model);
@@ -337,7 +452,9 @@ window.TreeView = window.TreeView || {};
         showDetails(payload, model);
         showBanner();
         showPinned(-1);
+        showLegend();
         TV.drawNow();
+        TV.loadColors();
         return true;
     };
 
@@ -372,6 +489,11 @@ window.TreeView = window.TreeView || {};
     }
 
     function search(value) {
+        // What a search finds replaces what the legend marked.
+        if (state.legendClass >= 0) {
+            state.legendClass = -1;
+            showLegend();
+        }
         const count = TV.runSearch(value);
         if (count) TV.stepMatch(1); else TV.requestDraw();
         showSearch(count);
@@ -423,7 +545,19 @@ window.TreeView = window.TreeView || {};
             if (reconnecting && /^\{"type":\s*"init"/.test(event.data)) {
                 reconnecting = false;
                 TV.loadTree();
+                return;
             }
+            // Only the two small events that matter here are read: the first message of a connection is the Viewer's
+            // whole state, and most of what follows is for other pages.
+            const kind = /^\{"type":\s*"(tree_colors_changed|alignment_changed)"/.exec(event.data);
+            if (!kind) return;
+            if (kind[1] === "alignment_changed") {
+                TV.loadTree();
+                return;
+            }
+            let version = null;
+            try { version = JSON.parse(event.data).version; } catch (error) {}
+            if (!state.colors || state.colors.version !== version) TV.loadColors();
         };
     }
 
@@ -460,6 +594,10 @@ window.TreeView = window.TreeView || {};
             if (overviewOn) TV.requestDraw();
         });
         $("details-btn").addEventListener("click", () => $("details").classList.toggle("shown"));
+        $("legend-toggle").addEventListener("click", () => {
+            legendOpen = !legendOpen;
+            showLegend();
+        });
         $("empty-retry").addEventListener("click", () => TV.loadTree());
         $("empty-copy").addEventListener("click", copyPath);
         $("search-prev").addEventListener("click", () => step(-1));

@@ -30,6 +30,8 @@ window.TreeView = window.TreeView || {};
         return new Type(bytes.buffer);
     }
 
+    TV.typedArray = typedArray;
+
     // The model of a payload whose status is "ok". Throws an Error with a plain reason when the payload cannot be
     // a tree the page can draw.
     TV.decodeTree = function (payload) {

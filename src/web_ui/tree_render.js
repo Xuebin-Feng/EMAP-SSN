@@ -219,6 +219,43 @@ window.TreeView = window.TreeView || {};
     }
     TV.addWedge = addWedge;
 
+    // The bar that shows what colours a folded clade holds: along the far edge of its wedge, one piece for each of
+    // its colours, as long as the share of the clade's leaves that have it. `paths` holds a path for each colour.
+    function addMixBar(paths, out, view, mix) {
+        let at = 0;
+        for (const [cls, share] of mix.parts) {
+            let path = paths.get(cls);
+            if (!path) paths.set(cls, path = new Path2D());
+            const from = at;
+            const to = Math.min(1, at + share);
+            at = to;
+            if (out[0] === 0) {
+                // A triangle: its far edge runs from one corner to the other.
+                const x0 = view.ox + out[3] * view.sx, y0 = view.oy + out[4] * view.sy;
+                const x1 = view.ox + out[5] * view.sx, y1 = view.oy + out[6] * view.sy;
+                path.moveTo(x0 + (x1 - x0) * from, y0 + (y1 - y0) * from);
+                path.lineTo(x0 + (x1 - x0) * to, y0 + (y1 - y0) * to);
+            } else {
+                // A slice: its far edge is the arc, a little inside it so that the bar is not half outside the wedge.
+                const cx = view.ox + out[3] * view.sx, cy = view.oy + out[4] * view.sy;
+                const radius = Math.max(0, out[5] * view.sx - 2);
+                const a = out[6] + (out[7] - out[6]) * from, b = out[6] + (out[7] - out[6]) * to;
+                path.moveTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
+                path.arc(cx, cy, radius, a, b);
+            }
+        }
+    }
+
+    // The colour a folded clade is filled with when most of its leaves have one: that colour, washed out into the
+    // background, as an opaque colour (cheaper to draw than a see-through one). Kept for the colours and theme in hand.
+    function tintOf(colors, palette, cls) {
+        const key = palette.background + "|" + cls;
+        if (!colors.tints) colors.tints = new Map();
+        let tint = colors.tints.get(key);
+        if (tint === undefined) colors.tints.set(key, tint = TV.mixColors(colors.css[cls], palette.background, 0.45));
+        return tint;
+    }
+
     // Draw the tree of scene on the context, which is `width` x `height` CSS pixels: the lines, the shapes of the
     // collapsed and the tiny, and the dots, handles and names that have room. scene: { model, layout, view, palette,
     // collapsed, matches }. mini is true for the overview map, which draws only the shapes of the tree. Returns
@@ -241,6 +278,11 @@ window.TreeView = window.TreeView || {};
         const matches = scene.matches;
         drawW = width;
         drawH = height;
+        // The colours of the network, when they are for this tree: a node's class says what it is drawn in (NO_CLASS
+        // for none, the colour of the branches).
+        const colors = scene.colors && scene.colors.nodeClass.length === model.nodeCount ? scene.colors : null;
+        const nodeClass = colors ? colors.nodeClass : null;
+        const NO = TV.NO_CLASS;
 
         const branches = new Path2D();
         const faded = new Path2D();
@@ -249,21 +291,41 @@ window.TreeView = window.TreeView || {};
         const handles = [];
         const leaves = [];
         const out = new Float64Array(8);
-        // A tiny clade is a line, in the bucket of its thickness (to the half pixel, one to three): one stroke for each.
+        // What is drawn in a colour goes in the path of its class: one stroke (or fill) for each colour in view.
+        const inks = new Map();
+        const wedgeFills = new Map();
+        const mixBars = new Map();
+        const inkOf = (cls) => {
+            if (cls === NO) return branches;
+            let path = inks.get(cls);
+            if (!path) inks.set(cls, path = new Path2D());
+            return path;
+        };
+        // A leaf is drawn as part of the network when it is a node of it and, with colours, is not hidden.
+        const shownLeaf = (k) => viewerNode[k] >= 0 && (!colors || colors.leafClass[k] !== NO);
+        // A tiny clade is a line, in the bucket of its thickness (to the half pixel, one to three) and its colour: one
+        // stroke for each.
         const marks = new Map();
         const snap = TV.snapFor(layout);
 
         const wedgeOf = (i) => {
             layout.wedge(i, out);
             addWedge(wedges, out, view);
+            const cls = nodeClass ? nodeClass[i] : NO;
+            let fill = wedgeFills.get(cls);
+            if (!fill) wedgeFills.set(cls, fill = new Path2D());
+            addWedge(fill, out, view);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addWedge(matched, out, view);
+            if (colors) addMixBar(mixBars, out, view, TV.cladeMix(colors, model, i));
         };
         const markOf = (i) => {
             const width = Math.min(3, Math.max(1, Math.round(layout.thickness(i, sx, sy) * 2) / 2));
-            let path = marks.get(width);
-            if (!path) marks.set(width, path = new Path2D());
+            const cls = nodeClass ? nodeClass[i] : NO;
+            const key = width * 2 * 65536 + cls;
+            let entry = marks.get(key);
+            if (!entry) marks.set(key, entry = { path: new Path2D(), width, cls });
             layout.mark(i, out);
-            addStem(path, out, view, snap);
+            addStem(entry.path, out, view, snap);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addStem(matched, out, view, snap);
         };
 
@@ -282,23 +344,25 @@ window.TreeView = window.TreeView || {};
             const nodeX = ox + out[2] * sx;
             const nodeY = oy + out[3] * sy;
 
+            const cls = nodeClass ? nodeClass[i] : NO;
             if (childCount[i] === 0) {
-                const inNetwork = viewerNode[leafOrdinal[i]] >= 0;
-                addStem(inNetwork ? branches : faded, out, view, snap);
+                addStem(shownLeaf(leafOrdinal[i]) ? inkOf(cls) : faded, out, view, snap);
                 leaves.push(i);
             } else if (collapsed && collapsed[i]) {
-                addStem(branches, out, view, snap);
+                addStem(inkOf(cls), out, view, snap);
                 wedgeOf(i);
                 stats.collapsed++;
                 if (!mini) handles.push([i, nodeX, nodeY, true]);
             } else if (layout.tiny(i, sx, sy, limit)) {
-                addStem(branches, out, view, snap);
+                addStem(inkOf(cls), out, view, snap);
                 markOf(i);
                 stats.bars++;
             } else {
-                addStem(branches, out, view, snap);
+                // A clade that is one colour is drawn in it, all its lines.
+                const ink = inkOf(cls);
+                addStem(ink, out, view, snap);
                 layout.join(i, out);
-                addJoin(branches, out, view, snap);
+                addJoin(ink, out, view, snap);
                 if (!mini && (i === scene.hover || i === scene.pinned) && i !== model.root
                     && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX) {
                     handles.push([i, nodeX, nodeY, false]);
@@ -310,19 +374,35 @@ window.TreeView = window.TreeView || {};
         // Everything is drawn opaque: a see-through shape costs several times as much where there is no GPU.
         ctx.lineWidth = 1;
         ctx.lineCap = "butt";
-        ctx.fillStyle = palette.wedge;
-        ctx.fill(wedges);
-        ctx.strokeStyle = palette.mark;
-        for (const [width, path] of marks) {
+        for (const [cls, path] of wedgeFills) {
+            ctx.fillStyle = cls === NO ? palette.wedge : tintOf(colors, palette, cls);
+            ctx.fill(path);
+        }
+        for (const { path, width, cls } of marks.values()) {
+            ctx.strokeStyle = cls === NO ? palette.mark : colors.css[cls];
             ctx.lineWidth = width;
             ctx.stroke(path);
         }
+        ctx.strokeStyle = palette.mark;
         ctx.lineWidth = 1;
         ctx.stroke(wedges);
+        // The colours a folded clade holds, along its far edge.
+        if (mixBars.size) {
+            ctx.lineWidth = mini ? 2 : 4;
+            for (const [cls, path] of mixBars) {
+                ctx.strokeStyle = colors.css[cls];
+                ctx.stroke(path);
+            }
+            ctx.lineWidth = 1;
+        }
         ctx.strokeStyle = palette.faded;
         ctx.stroke(faded);
         ctx.strokeStyle = palette.branch;
         ctx.stroke(branches);
+        for (const [cls, path] of inks) {
+            ctx.strokeStyle = colors.css[cls];
+            ctx.stroke(path);
+        }
         ctx.lineWidth = mini ? 1.5 : 2;
         ctx.strokeStyle = palette.match;
         ctx.stroke(matched);
@@ -333,14 +413,19 @@ window.TreeView = window.TreeView || {};
         const dotRadius = Math.min(3.2, Math.max(1.1, detail.size * 0.25));
         const dots = new Path2D();
         const fadedDots = new Path2D();
+        const dotsBy = new Map();
         const names = [];
         for (const i of leaves) {
             layout.stem(i, out);
             const x = ox + out[2] * sx;
             const y = oy + out[3] * sy;
-            const inNetwork = viewerNode[leafOrdinal[i]] >= 0;
+            const inNetwork = shownLeaf(leafOrdinal[i]);
             if (detail.dots) {
-                const path = inNetwork ? dots : fadedDots;
+                let path = inNetwork ? dots : fadedDots;
+                if (inNetwork && nodeClass && nodeClass[i] !== NO) {
+                    path = dotsBy.get(nodeClass[i]);
+                    if (!path) dotsBy.set(nodeClass[i], path = new Path2D());
+                }
                 path.moveTo(x + dotRadius, y);
                 path.arc(x, y, dotRadius, 0, 2 * Math.PI);
                 stats.dots++;
@@ -357,6 +442,10 @@ window.TreeView = window.TreeView || {};
             ctx.fill(fadedDots);
             ctx.fillStyle = palette.branch;
             ctx.fill(dots);
+            for (const [cls, path] of dotsBy) {
+                ctx.fillStyle = colors.css[cls];
+                ctx.fill(path);
+            }
         }
 
         // The handles that fold a clade up (a minus) and the ones that open it again (a plus).

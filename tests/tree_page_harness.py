@@ -138,15 +138,33 @@ class TreePageMixin:
         server = Web_Server.start_server(viewer, preferred_port=0)
         self.addCleanup(Web_Server.stop_server, server)
         self.server = server
+        # What the Viewer does with an event: put it in the queue of every page that listens.
+        viewer.web_server = server
+
+        def broadcast_event(event):
+            with server.queues_lock:
+                queues = list(server.event_queues)
+            for queue in queues:
+                queue.put(event)
+
+        viewer.broadcast_event = broadcast_event
         return server
 
-    def serve_headers(self, headers, *, network=None, folder=None, **options):
-        """Write the alignment and tree of ``headers``, and serve the page over a Viewer holding them."""
+    def serve_headers(self, headers, *, network=None, folder=None, colors=None, hidden=None, clusters=None, **options):
+        """Write the alignment and tree of ``headers``, and serve the page over a Viewer holding them.
+
+        colors, hidden and clusters are what the Viewer holds of its nodes' colours, which are hidden, and their clusters
+        (tree_fixtures.make_viewer).
+        """
         folder = folder or self.make_folder()
         msa, tree = tree_fixtures.make_alignment_folder(folder, headers, **options)
         viewer = server_viewer()
-        fixture = tree_fixtures.make_viewer(msa, headers if network is None else network)
+        fixture = tree_fixtures.make_viewer(msa, headers if network is None else network,
+                                            colors=colors, hidden=hidden, clusters=clusters)
         viewer.alignment, viewer.full_headers, viewer.n_nodes = fixture.alignment, fixture.full_headers, fixture.n_nodes
+        for name in ("current_colors", "visible_mask", "cluster_labels"):
+            if hasattr(fixture, name):
+                setattr(viewer, name, getattr(fixture, name))
         self.viewer, self.msa, self.tree_file = viewer, msa, tree
         return self.start_page_server(viewer)
 

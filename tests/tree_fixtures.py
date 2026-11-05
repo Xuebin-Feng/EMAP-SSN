@@ -142,11 +142,28 @@ def make_alignment_folder(root, headers, *, alignment=ALIGNMENT_NAME, tree=TREE_
     return msa_path, tree_path
 
 
-def make_viewer(msa_path, headers, *, aligned=None, loaded=True):
+def node_colors(count, painted=None):
+    """The (count, 4) float32 colours of a network's nodes: the Viewer's initial node colour, with ``painted`` over it.
+
+    painted maps a node number to a colour (a name, or #rrggbb), or to an RGBA tuple of 0 to 1.
+    """
+    from matplotlib import colors as mcolors
+
+    import EMAPSSN_Config as cfg
+
+    colors = np.tile(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), (count, 1)).astype(np.float32)
+    for node, color in (painted or {}).items():
+        colors[node] = mcolors.to_rgba(color)
+    return colors
+
+
+def make_viewer(msa_path, headers, *, aligned=None, loaded=True, colors=None, hidden=None, clusters=None):
     """The little of a Viewer that Tree View reads: its alignment manager and its network's headers.
 
     aligned: which nodes of the network the alignment holds (all by default). loaded=False is an alignment that
-    failed to load: its manager has a path and no rows.
+    failed to load: its manager has a path and no rows. colors, hidden and clusters are what the Viewer holds of the
+    nodes' colours (an array of RGBA), the nodes that are hidden (a list of node numbers) and their clusters
+    (a list, -1 for none); left out, the Viewer has none of them.
     """
     mask = np.ones(len(headers), dtype=bool) if aligned is None else np.asarray(aligned, dtype=bool)
     alignment = SimpleNamespace(
@@ -154,7 +171,14 @@ def make_viewer(msa_path, headers, *, aligned=None, loaded=True):
         aln=object() if loaded else None,
         aligned_node_mask=mask,
     )
-    return SimpleNamespace(alignment=alignment, full_headers=list(headers), n_nodes=len(headers))
+    viewer = SimpleNamespace(alignment=alignment, full_headers=list(headers), n_nodes=len(headers))
+    if colors is not None:
+        viewer.current_colors = np.asarray(colors, dtype=np.float32)
+        viewer.visible_mask = np.ones(len(headers), dtype=bool)
+        viewer.visible_mask[list(hidden or [])] = False
+    if clusters is not None:
+        viewer.cluster_labels = np.asarray(clusters, dtype=np.int32)
+    return viewer
 
 
 class TemporaryTreeFolder:

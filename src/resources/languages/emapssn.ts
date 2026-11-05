@@ -9105,11 +9105,19 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>TreePage</name>
     <message>
+        <source>Cluster {id}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>A node of this network</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Not a node of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cluster: {id}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9130,6 +9138,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Stable in {percent}% of the replicate trees</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Colour of {percent}% of its leaves: {colour}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9218,6 +9230,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>The Viewer answered with a status this page does not know: {status}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mark the leaves of this colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} more colours</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9490,6 +9510,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Overview of the whole tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The colours of the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show or hide the list of colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Colours</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

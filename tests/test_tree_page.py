@@ -38,6 +38,7 @@ from tests.tree_fixtures import (  # noqa: E402
     make_alignment_folder,
     make_viewer,
     neighbor_joining_tree,
+    node_colors,
     random_linkage,
     save_guide_tree,
     shaped_linkage,
@@ -47,7 +48,8 @@ from utilities.Guide_Tree_File import read_guide_tree  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
-PAGE_FILES = ["tree.html", "tree_model.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_minimap.js", "tree_session.js"]
+PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_minimap.js",
+              "tree_session.js"]
 
 
 def clade_of(size_low, size_high):
@@ -1961,7 +1963,7 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
     to have each run's figures appended to it as JSON lines).
     """
 
-    BUDGET_MS = {"layout": 400, "decode": 400, "frame": 1500, "pan": 1500, "hit": 150, "fold": 150}
+    BUDGET_MS = {"layout": 400, "decode": 400, "frame": 1500, "pan": 1500, "hit": 150, "fold": 150, "recolor": 1500}
 
     MEASURE = """
         const flush = () => { document.getElementById('tree-canvas').getContext('2d').getImageData(0, 0, 1, 1); };
@@ -1970,6 +1972,16 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
         const payload = await (await fetch('/api/tree/data')).json();
         const out = {nodes: payload.counts.nodes, decode: time(() => TreeView.decodeTree(payload))};
         const s = TreeView.state, m = s.model;
+        // The network's colours: the payload, its decoding into classes and clade summaries, and the whole of taking new
+        // colours (the request, the decoding, the legend and a frame).
+        const colorText = await (await fetch('/api/tree/colors')).text();
+        out.colors_bytes = colorText.length;
+        const colorPayload = JSON.parse(colorText);
+        out.colors_decode = time(() => TreeView.decodeColors(colorPayload, m));
+        const painted = TreeView.decodeColors(colorPayload, m);
+        out.colors_classes = painted.classCount;
+        s.colors = null;
+        out.recolor = await (async () => { const a = performance.now(); await TreeView.loadColors(); flush(); return performance.now() - a; })();
         const find = (low, high) => { for (let i = 0; i < m.nodeCount; i++) { const n = m.lastLeaf[i] - m.firstLeaf[i] + 1; if (m.childCount[i] > 0 && n >= low && n <= high) return i; } return -1; };
         for (const kind of ['rectangular', 'circular', 'unrooted']) {
             const r = {};
@@ -1978,6 +1990,11 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
             r.first_frame = time(() => TreeView.drawNow());
             r.fit_frame = median(Array.from({length: 5}, () => time(() => TreeView.drawNow())));
             r.visited = TreeView.lastStats.visited;
+            // What the colours cost a frame: the same one, in the tree's own colours.
+            const coloured = s.colors;
+            s.colors = null;
+            r.fit_frame_plain = median(Array.from({length: 5}, () => time(() => TreeView.drawNow())));
+            s.colors = coloured;
             r.hit = median(Array.from({length: 15}, (_, k) => time(() => TreeView.hitTest(300 + k * 37, 200 + k * 21))));
             TreeView.zoomAbout(650, 330, 1, 20);
             TreeView.zoomAbout(650, 330, 20, 1);
@@ -1987,15 +2004,34 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
             TreeView.fitView();
             const big = find(Math.max(100, m.leafCount / 50), m.leafCount / 5);
             if (big >= 0) { r.fold = time(() => TreeView.toggleFold(big)); r.fold_frame = time(() => TreeView.drawNow()); TreeView.toggleFold(big); }
+            r.legend_mark = time(() => TreeView.state.matches = TreeView.leavesOfClass(s.colors, s.colors.legend[0].cls));
+            r.marked_frame = median(Array.from({length: 3}, () => time(() => TreeView.drawNow())));
+            TreeView.state.matches = new Int32Array(0);
             r.overview = time(() => { TreeView.minimapChanged(); TreeView.drawMinimap(); });
             out[kind] = r;
         }
         return out;
     """
 
+    def paint_by_tree_order(self, headers, block=150):
+        """Colour the Viewer's nodes by their place in the tree, in clusters of ``block`` leaves, as clusters mostly are
+        clades; hide one in a hundred, and give each its cluster number."""
+        from matplotlib import colors as mcolors
+
+        order = {header: k for k, header in enumerate(read_guide_tree(self.tree_file).labels)}
+        ranks = np.array([order[header] for header in headers])
+        cluster = ranks // block
+        hues = (cluster * 0.61803398875) % 1.0
+        rgba = np.ones((len(headers), 4), dtype=np.float32)
+        rgba[:, :3] = mcolors.hsv_to_rgb(np.column_stack([hues, np.full(len(headers), 0.65), np.full(len(headers), 0.9)]))
+        self.viewer.current_colors = rgba
+        self.viewer.visible_mask = ranks % 100 != 7
+        self.viewer.cluster_labels = cluster.astype(np.int32)
+
     def measure(self, shape, count):
         headers = headers_of(count)
         self.serve_headers(headers, linkage=shaped_linkage(shape, count))
+        self.paint_by_tree_order(headers)
         started = time.perf_counter()
         self.open_page()
         ready = time.perf_counter() - started
@@ -2009,12 +2045,17 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
 
     def check(self, result):
         self.assertLess(result["decode"], self.BUDGET_MS["decode"])
+        self.assertLess(result["colors_decode"], self.BUDGET_MS["decode"])
+        self.assertLess(result["recolor"], self.BUDGET_MS["recolor"])
+        # Four bytes and about a third of a byte a node, in base64, and the clusters: well under 400 KB at 44,000 nodes.
+        self.assertLess(result["colors_bytes"], result["nodes"] * 5)
         for kind in ("rectangular", "circular", "unrooted"):
             with self.subTest(shape=result["shape"], leaves=result["leaves"], kind=kind):
                 found = result[kind]
                 self.assertLess(found["layout"], self.BUDGET_MS["layout"])
                 self.assertLess(found["fit_frame"], self.BUDGET_MS["frame"])
                 self.assertLess(found["first_frame"], self.BUDGET_MS["frame"] * 3)
+                self.assertLess(found["marked_frame"], self.BUDGET_MS["frame"])
                 self.assertLess(found["pan_frame"], self.BUDGET_MS["pan"])
                 self.assertLess(found["hit"], self.BUDGET_MS["hit"])
                 self.assertLess(found.get("fold", 0), self.BUDGET_MS["fold"])
@@ -2031,6 +2072,528 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
         for shape in ("bushy", "caterpillar", "chains"):
             with self.subTest(shape=shape):
                 self.check(self.measure(shape, 44000))
+
+
+EIGHT_LEAVES = ("#NEXUS\nBEGIN TREES;\n  TREE t = [&R] (((a:1,b:1):1,(c:1,d:1):1):1,((e:1,f:1):1,(g:1,h:1):1):1);\nEND;\n")
+# The tree above, node by node (post-order): a0 b1 (ab)2 c3 d4 (cd)5 (abcd)6 e7 f8 (ef)9 g10 h11 (gh)12 (efgh)13 root14.
+RED, BLUE, GREEN = "#ff0000", "#0000ff", "#00ff00"
+BASE_PAINT = {0: RED, 1: RED, 2: RED, 3: RED, 4: BLUE, 5: BLUE, 6: GREEN}  # h (7) is left plain
+NO_CLASS = 65535
+
+# Spies on what the page draws: every stroke and fill of a Path2D, with the lines and arcs the path holds.
+SPY = """
+    const original = {stroke: CanvasRenderingContext2D.prototype.stroke, fill: CanvasRenderingContext2D.prototype.fill,
+        moveTo: Path2D.prototype.moveTo, lineTo: Path2D.prototype.lineTo, arc: Path2D.prototype.arc};
+    const parts = new WeakMap();
+    const note = (path, item) => { let list = parts.get(path); if (!list) parts.set(path, list = []); list.push(item); };
+    Path2D.prototype.moveTo = function (x, y) { note(this, ['m', x, y]); return original.moveTo.call(this, x, y); };
+    Path2D.prototype.lineTo = function (x, y) { note(this, ['l', x, y]); return original.lineTo.call(this, x, y); };
+    Path2D.prototype.arc = function (x, y, r, a, b) { note(this, ['a', x, y, r, a, b]); return original.arc.apply(this, arguments); };
+    const drawn = [];
+    const main = (context) => context.canvas.id === 'tree-canvas';
+    CanvasRenderingContext2D.prototype.stroke = function (path) {
+        if (path instanceof Path2D) drawn.push({op: 'stroke', main: main(this), style: TreeView.rgbOf(this.strokeStyle), width: this.lineWidth, parts: parts.get(path) || []});
+        return original.stroke.apply(this, arguments);
+    };
+    CanvasRenderingContext2D.prototype.fill = function (path) {
+        if (path instanceof Path2D) drawn.push({op: 'fill', main: main(this), style: TreeView.rgbOf(this.fillStyle), parts: parts.get(path) || []});
+        return original.fill.apply(this, arguments);
+    };
+    const restore = () => {
+        CanvasRenderingContext2D.prototype.stroke = original.stroke; CanvasRenderingContext2D.prototype.fill = original.fill;
+        Path2D.prototype.moveTo = original.moveTo; Path2D.prototype.lineTo = original.lineTo; Path2D.prototype.arc = original.arc;
+    };
+    // The colours drawn lines of the segment (x0, y0)-(x1, y1) of the main canvas: those of the strokes that hold it (to within tol pixels).
+    const stylesOf = (x0, y0, x1, y1, tol = 0.75) => {
+        const found = [];
+        const close = (a, b, c, d) => Math.abs(a - c) <= tol && Math.abs(b - d) <= tol;
+        for (const entry of drawn) {
+            if (entry.op !== 'stroke' || !entry.main) continue;
+            for (let k = 0; k + 1 < entry.parts.length; k++) {
+                const [kind, ax, ay] = entry.parts[k], [next, bx, by] = entry.parts[k + 1];
+                if (kind !== 'm' || next !== 'l') continue;
+                if (close(ax, ay, x0, y0) && close(bx, by, x1, y1) || close(ax, ay, x1, y1) && close(bx, by, x0, y0)) found.push(entry.style);
+            }
+        }
+        return found;
+    };
+    const stemOf = (node) => { const b = TreeView.nodePixels(TreeView.state, node); return [b.x0, b.y0, b.x, b.y]; };
+"""
+
+
+class ColorCase(TreePageMixin, unittest.TestCase):
+    """A page over the eight-leaf tree above, whose network the Viewer has coloured."""
+
+    def open_colored(self, painted=None, *, hidden=(), clusters=None, network=None, text=EIGHT_LEAVES):
+        headers = list("abcdefgh")
+        folder = self.make_folder()
+        write_tree_file(folder, headers, text)
+        count = len(network or headers)
+        self.serve_headers(headers, folder=folder, tree=None, network=network,
+                           colors=node_colors(count, BASE_PAINT if painted is None else painted), hidden=hidden, clusters=clusters)
+        self.open_page()
+        self.wait_for("TreeView.state.colors !== null")
+        # The page is listening: what the Viewer says of its colours reaches it.
+        deadline = time.monotonic() + 10
+        while not self.server.has_event_client("tree") and time.monotonic() < deadline:
+            self.pump(0.05)
+
+    def info(self):
+        return self.state("""(() => { const c = TreeView.state.colors;
+            return {version: c.version, leafClass: Array.from(c.leafClass), nodeClass: Array.from(c.nodeClass), dominant: Array.from(c.dominant),
+                    purity: Array.from(c.purity).map(v => Math.round(v * 100) / 100), present: Array.from(c.present),
+                    legend: c.legend.map(e => ({cls: e.cls, count: e.count, css: e.css, hex: e.hex})), more: c.more, css: c.css}; })()""")
+
+    def choose(self, kind, mode="lengths"):
+        self.script(f"TreeView.setLayout({json.dumps(kind)}, {json.dumps(mode)}); TreeView.drawNow(); return 1")
+
+    def spied(self, body):
+        """Draw a frame with spies on the drawing, and run ``body`` (which may use drawn, stylesOf and stemOf) on it."""
+        return self.script(SPY + f"""
+            let result;
+            try {{ TreeView.drawNow(); result = (() => {{ {body} }})(); }} finally {{ restore(); }}
+            return result;""")
+
+
+class ColorModelTests(ColorCase):
+    """What a clade's colour is: the colour that most of its leaves have, when nine in ten do."""
+
+    def test_leaves_take_their_nodes_colours_and_clades_that_are_nine_tenths_one_colour_take_it(self):
+        self.open_colored()
+        found = self.info()
+        # Red is class 1, blue 2, green 3 (in the order they are met), plain 0.
+        self.assertEqual(found["leafClass"], [1, 1, 1, 1, 2, 2, 3, 0])
+        self.assertEqual(found["nodeClass"], [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, NO_CLASS, NO_CLASS, NO_CLASS, NO_CLASS])
+        self.assertEqual(found["present"], [1, 1, 2, 1, 1, 2, 4, 1, 1, 2, 1, 1, 2, 4, 8])
+        # What most of a mixed clade has, and how much of it: (gh) is half green and half plain, the root is half red.
+        self.assertEqual((found["dominant"][12], found["purity"][12]), (3, 0.5))
+        self.assertEqual((found["dominant"][13], found["purity"][13]), (2, 0.5))
+        self.assertEqual((found["dominant"][14], found["purity"][14]), (1, 0.5))
+        self.assertEqual((found["dominant"][6], found["purity"][6]), (1, 1.0))
+
+    def test_plain_is_no_colour_and_the_legend_leaves_it_out(self):
+        self.open_colored()
+        found = self.info()
+        self.assertEqual([entry["cls"] for entry in found["legend"]], [1, 2, 3])
+        self.assertEqual([entry["count"] for entry in found["legend"]], [4, 2, 1])
+        self.assertEqual(found["more"], 0)
+        # Nothing coloured: a tree in its own colours, and no legend.
+        self.open_colored({})
+        self.assertEqual(self.info()["legend"], [])
+        self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
+
+    def test_hidden_nodes_and_nodes_outside_the_network_have_no_colour_and_do_not_count(self):
+        self.open_colored(hidden=[2])
+        found = self.info()
+        self.assertEqual(found["leafClass"][2], NO_CLASS)
+        # (cd) holds one leaf that is shown, which is red: the clade is red.
+        self.assertEqual((found["present"][5], found["nodeClass"][5]), (1, 1))
+        self.assertEqual(found["legend"][0]["count"], 3)
+        # A leaf that is not a node of the network has no colour either; (gh) is then green all through.
+        self.open_colored(network=list("abcdefg"))
+        found = self.info()
+        self.assertEqual(found["leafClass"][7], NO_CLASS)
+        self.assertEqual((found["present"][12], found["nodeClass"][12]), (1, 3))
+
+    def test_colours_are_compared_in_classes_of_sixteen_levels_so_that_a_gradient_forms_clades(self):
+        self.open_colored({0: "#fa0000", 1: "#ff0000", 2: "#e60000", 3: "#f10000"})
+        found = self.info()
+        self.assertEqual(found["leafClass"][:4], [1, 1, 2, 1])
+        # A class is drawn in the first colour met in it, exactly.
+        self.assertEqual(found["css"][1], "rgb(250, 0, 0)")
+        self.assertEqual(self.state("TreeView.state.colors.legend[0].hex"), "#fa0000")
+
+    def test_a_clade_that_is_not_quite_pure_takes_the_colour_by_the_votes_not_the_first_child(self):
+        # Ten leaves under one parent: nine red among others and a blue one first.
+        text = "#NEXUS\nBEGIN TREES;\n  TREE t = [&R] (j:1,a:1,b:1,c:1,d:1,e:1,f:1,g:1,h:1,i:1);\nEND;\n"
+        headers = list("abcdefghij")
+        folder = self.make_folder()
+        write_tree_file(folder, headers, text)
+        painted = {n: RED for n in range(10)}
+        painted[9] = BLUE  # j, the first child
+        self.serve_headers(headers, folder=folder, tree=None, colors=node_colors(10, painted))
+        self.open_page()
+        self.wait_for("TreeView.state.colors !== null")
+        found = self.info()
+        root = found["nodeClass"][-1]
+        # Blue is met first, so it is class 1 and red class 2.
+        self.assertEqual((found["dominant"][-1], found["purity"][-1], root), (2, 0.9, 2))
+
+    def test_cluster_numbers_name_the_colours_that_are_one_cluster_and_the_others_by_their_hex(self):
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        names = self.state("TreeView.state.colors.legend.map(e => TreeView.classLabel(e.cls))")
+        self.assertEqual(names, ["Cluster 0", "Cluster 1", "Cluster 2"])
+        # Two clusters in a colour, or none given: its #rrggbb.
+        self.open_colored(clusters=[0, 0, 5, 5, 1, 1, 2, -1])
+        self.assertEqual(self.state("TreeView.classLabel(1)"), "#ff0000")
+        self.open_colored()
+        self.assertEqual(self.state("TreeView.classLabel(2)"), "#0000ff")
+
+    def test_the_legend_lists_twelve_colours_and_says_how_many_more_there_are(self):
+        headers = headers_of(30)
+        painted = {n: "#%02x%02x%02x" % (8 + 8 * n, 255 - 8 * n, (n * 37) % 256) for n in range(30)}
+        self.serve_headers(headers, colors=node_colors(30, painted))
+        self.open_page()
+        self.wait_for("TreeView.state.colors !== null")
+        info = self.state("""({rows: document.querySelectorAll('#legend-list .legend-row').length, more: document.getElementById('legend-more').textContent,
+                               counts: TreeView.state.colors.legend.map(e => e.count)})""")
+        self.assertEqual(info["rows"], 12)
+        self.assertEqual(info["more"], "18 more colours")
+        self.assertEqual(info["counts"], sorted(info["counts"], reverse=True))
+
+    def test_a_viewer_with_no_colours_leaves_the_tree_in_its_own(self):
+        self.serve_headers(headers_of(20))
+        self.open_page()
+        self.pump(0.5)
+        self.assertEqual(self.state("TreeView.state.colors"), None)
+        self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
+        self.assertEqual(self.console_errors(), [])
+
+
+class ColorDrawingTests(ColorCase):
+    """The colours on the canvas, in each layout, from what is stroked and filled."""
+
+    def test_a_leaf_is_drawn_in_its_colour_a_plain_one_in_the_branch_colour_and_a_hidden_one_faded(self):
+        self.open_colored(hidden=[2])
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                found = self.spied("""
+                    const m = TreeView.state.model, p = TreeView.state.palette, at = (k) => stylesOf(...stemOf(m.leafNode[k]));
+                    return {a: at(0), e: at(4), g: at(6), h: at(7), c: at(2),
+                            branch: TreeView.rgbOf(p.branch), faded: TreeView.rgbOf(p.faded)};""")
+                self.assertEqual(found["a"], [[255, 0, 0]])
+                self.assertEqual(found["e"], [[0, 0, 255]])
+                self.assertEqual(found["g"], [[0, 255, 0]])
+                self.assertEqual(found["h"], [found["branch"]])
+                self.assertEqual(found["c"], [found["faded"]])
+
+    def test_the_branches_of_a_clade_that_is_one_colour_are_drawn_in_it_and_a_mixed_clade_in_the_branch_colour(self):
+        self.open_colored()
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                found = self.spied("""
+                    const m = TreeView.state.model, p = TreeView.state.palette, at = (i) => stylesOf(...stemOf(i));
+                    return {ab: at(2), abcd: at(6), ef: at(9), efgh: at(13), gh: at(12), branch: TreeView.rgbOf(p.branch)};""")
+                self.assertEqual(found["ab"], [[255, 0, 0]])
+                self.assertEqual(found["abcd"], [[255, 0, 0]])
+                self.assertEqual(found["ef"], [[0, 0, 255]])
+                self.assertEqual(found["efgh"], [found["branch"]])
+                self.assertEqual(found["gh"], [found["branch"]])
+
+    def test_a_clade_too_small_to_draw_is_one_line_in_its_colour_or_in_the_neutral_one(self):
+        self.open_colored()
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                # The tree at a size that makes every clade under three pixels.
+                found = self.spied("""
+                    const s = TreeView.state, v = s.view, L = s.layout, start = {...v};
+                    // Smaller by tenths until (abcd) is under three pixels: (efgh) is its twin, the root is twice as big.
+                    let k = 1;
+                    while (k > 1e-4 && !L.tiny(6, v.sx, v.sy, 3)) {
+                        k *= 0.9;
+                        v.sx = start.sx * k; v.sy = start.sy * k; v.ox = 650 + (start.ox - 650) * k; v.oy = 330 + (start.oy - 330) * k;
+                    }
+                    TreeView.drawNow();
+                    const o = new Float64Array(8), line = (i) => { L.mark(i, o); return stylesOf(
+                        v.ox + o[0] * v.sx, v.oy + o[1] * v.sy, v.ox + o[2] * v.sx, v.oy + o[3] * v.sy); };
+                    return {bars: TreeView.lastStats.bars, rootTiny: L.tiny(14, v.sx, v.sy, 3), abcd: line(6), efgh: line(13),
+                            mark: TreeView.rgbOf(s.palette.mark), branch: TreeView.rgbOf(s.palette.branch)};""")
+                self.assertGreater(found["bars"], 0)
+                self.assertFalse(found["rootTiny"])
+                # (The clade's stem and its line are a pixel apart at this size, so each is found; both are in its colour.)
+                self.assertEqual({tuple(style) for style in found["abcd"]}, {(255, 0, 0)})
+                self.assertIn(found["mark"], found["efgh"])
+                self.assertEqual({tuple(style) for style in found["efgh"]} - {tuple(found["mark"]), tuple(found["branch"])}, set())
+
+    def test_a_folded_clade_is_filled_in_its_colour_and_has_a_bar_of_the_colours_it_holds(self):
+        self.open_colored()
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script("TreeView.openAll(); TreeView.toggleFold(6); TreeView.toggleFold(13); return 1")
+                found = self.spied("""
+                    const s = TreeView.state, p = s.palette;
+                    const fills = drawn.filter(e => e.op === 'fill' && e.main).map(e => e.style);
+                    const bars = drawn.filter(e => e.op === 'stroke' && e.main && e.width === 4).map(e => ({style: e.style, parts: e.parts.length}));
+                    return {fills, bars, wedge: TreeView.rgbOf(p.wedge), tint: TreeView.mixColors('rgb(255, 0, 0)', p.background, 0.45)};""")
+                # (abcd) is red all through: a red-tinted fill; (efgh) is mixed: the plain wedge.
+                tint = TreeView_rgb(found["tint"])
+                self.assertIn(tint, found["fills"])
+                self.assertIn(found["wedge"], found["fills"])
+                # (abcd) a bar in red alone, (efgh) one in blue and green, as long as their shares (a half, a quarter).
+                self.assertEqual(sorted(bar["style"] for bar in found["bars"]), sorted([[255, 0, 0], [0, 0, 255], [0, 255, 0]]))
+
+    def test_the_bar_of_a_folded_rectangular_clade_is_in_pieces_as_long_as_the_shares(self):
+        self.open_colored()
+        self.choose("rectangular")
+        self.script("TreeView.toggleFold(13); return 1")
+        found = self.spied("""
+            const s = TreeView.state, v = s.view, o = new Float64Array(8);
+            s.layout.wedge(13, o);
+            const x = v.ox + o[3] * v.sx, top = v.oy + o[4] * v.sy, bottom = v.oy + o[6] * v.sy;
+            const pieces = drawn.filter(e => e.op === 'stroke' && e.main && e.width === 4).map(e => ({
+                style: e.style, from: (e.parts[0][2] - top) / (bottom - top), to: (e.parts[1][2] - top) / (bottom - top), x: e.parts[0][1] - x}));
+            return pieces.sort((a, b) => a.from - b.from);""")
+        self.assertEqual([piece["style"] for piece in found], [[0, 0, 255], [0, 255, 0]])
+        self.assertEqual([(round(piece["from"], 3), round(piece["to"], 3)) for piece in found], [(0.0, 0.5), (0.5, 0.75)])
+        self.assertTrue(all(abs(piece["x"]) < 1e-6 for piece in found))
+
+    def test_a_leaf_with_room_for_a_dot_has_it_in_its_colour(self):
+        self.open_colored()
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                found = self.spied("""
+                    const m = TreeView.state.model, p = TreeView.state.palette;
+                    const dots = drawn.filter(e => e.op === 'fill' && e.main && e.parts.some(x => x[0] === 'a'));
+                    const at = (k) => { const b = TreeView.nodePixels(TreeView.state, m.leafNode[k]);
+                        return dots.filter(d => d.parts.some(x => x[0] === 'a' && Math.abs(x[1] - b.x) < 0.01 && Math.abs(x[2] - b.y) < 0.01)).map(d => d.style); };
+                    return {a: at(0), e: at(4), h: at(7), branch: TreeView.rgbOf(p.branch)};""")
+                self.assertEqual(found["a"], [[255, 0, 0]])
+                self.assertEqual(found["e"], [[0, 0, 255]])
+                self.assertEqual(found["h"], [found["branch"]])
+
+    def test_the_overview_map_is_drawn_in_the_colours_too(self):
+        self.open_colored()
+        for kind in ("rectangular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                reddish = self.state("""(() => { TreeView.drawNow();
+                    const mini = document.getElementById('minimap'), data = mini.getContext('2d').getImageData(0, 0, mini.width, mini.height).data;
+                    let n = 0;
+                    for (let i = 0; i < data.length; i += 4) if (data[i] > 200 && data[i + 1] < 150 && data[i + 2] < 150 && data[i + 3] > 200) n++;
+                    return n; })()""")
+                self.assertGreater(reddish, 3)
+
+    def test_a_tree_nobody_has_coloured_is_drawn_as_it_was(self):
+        self.open_colored({})
+        found = self.spied("""
+            const m = TreeView.state.model, p = TreeView.state.palette;
+            const reds = drawn.filter(e => e.op === 'stroke' && e.main && JSON.stringify(e.style) === JSON.stringify(TreeView.rgbOf(p.branch)));
+            return {strokeStyles: new Set(drawn.filter(e => e.op === 'stroke' && e.main).map(e => JSON.stringify(e.style))).size,
+                    leaf: stylesOf(...stemOf(m.leafNode[0])), branch: TreeView.rgbOf(p.branch)};""")
+        self.assertEqual(found["leaf"], [found["branch"]])
+
+    def test_drawing_with_colours_writes_nothing_to_the_console(self):
+        self.open_colored(hidden=[1], clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        for kind in ("rectangular", "circular", "unrooted"):
+            self.choose(kind)
+            self.script("TreeView.toggleFold(13); TreeView.drawNow(); TreeView.toggleFold(13); TreeView.drawNow(); return 1")
+        self.assertEqual(self.console_errors(), [])
+
+
+def TreeView_rgb(css):
+    """The red, green and blue of the CSS colour ``rgb(r, g, b)`` the page's mixColors makes."""
+    return [int(part) for part in css[css.index("(") + 1:css.index(")")].split(",")]
+
+
+class ColorFollowTests(ColorCase):
+    """The page follows the Viewer: its colours, which nodes are hidden, and the alignment."""
+
+    def fetches(self):
+        return self.state("performance.getEntriesByType('resource').filter(e => e.name.includes('/api/tree/colors')).length")
+
+    def repaint(self):
+        """What the Viewer does when it draws its nodes again: tell its listeners."""
+        for listener in list(self.viewer.node_update_listeners):
+            listener()
+
+    def test_a_change_of_colour_is_followed_with_one_request_however_many_times_it_is_drawn(self):
+        self.open_colored()
+        before = self.info()
+        fetched = self.fetches()
+        for node in (0, 1, 2):
+            self.viewer.current_colors[node] = (1.0, 0.5, 0.0, 1.0)
+            self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {before['version']}")
+        self.pump(0.4)
+        self.assertEqual(self.fetches(), fetched + 1)
+        after = self.info()
+        # Orange is met first, so it is class 1, then red 2, blue 3 and green 4.
+        self.assertEqual(after["leafClass"][:4], [1, 1, 1, 2])
+        self.assertEqual([entry["count"] for entry in after["legend"]], [3, 2, 1, 1])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_drawing_the_nodes_again_in_the_same_colours_asks_for_nothing(self):
+        self.open_colored()
+        fetched = self.fetches()
+        for _ in range(4):
+            self.repaint()
+        self.pump(0.6)
+        self.assertEqual(self.fetches(), fetched)
+
+    def test_hiding_a_node_is_followed(self):
+        self.open_colored()
+        version = self.info()["version"]
+        self.viewer.visible_mask[3] = False
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.assertEqual(self.info()["leafClass"][3], NO_CLASS)
+
+    def test_a_change_of_clusters_is_followed(self):
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        self.assertEqual(self.state("TreeView.classLabel(1)"), "Cluster 0")
+        version = self.info()["version"]
+        self.viewer.cluster_labels = np.array([4, 4, 4, 4, 1, 1, 2, -1], dtype=np.int32)
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.assertEqual(self.state("TreeView.classLabel(1)"), "Cluster 4")
+
+    def test_a_viewer_that_loses_its_colours_leaves_the_tree_in_its_own(self):
+        self.open_colored()
+        del self.viewer.current_colors
+        self.viewer._tree_color_watch.latest = None
+        self.repaint()
+        self.wait_for("TreeView.state.colors === null")
+        self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
+
+    def test_a_new_alignment_brings_its_tree_and_its_colours(self):
+        self.open_colored()
+        self.assertEqual(self.state("TreeView.state.model.leafCount"), 8)
+        headers = headers_of(20)
+        folder = self.make_folder()
+        msa, _tree = make_alignment_folder(folder, headers)
+        other = make_viewer(msa, headers, colors=node_colors(20, {0: RED, 1: RED}))
+        self.viewer.alignment, self.viewer.full_headers, self.viewer.n_nodes = other.alignment, other.full_headers, other.n_nodes
+        self.viewer.current_colors, self.viewer.visible_mask = other.current_colors, other.visible_mask
+        self.viewer.broadcast_event({"type": "alignment_changed"})
+        self.wait_for("TreeView.state.model.leafCount === 20 && TreeView.state.colors !== null && TreeView.state.colors.leafClass.length === 20")
+        self.assertEqual(self.state("TreeView.state.colors.legend[0].count"), 2)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_new_alignment_without_a_tree_says_so(self):
+        self.open_colored()
+        folder = self.make_folder()
+        msa, _tree = make_alignment_folder(folder, headers_of(5), tree=None)
+        other = make_viewer(msa, headers_of(5))
+        self.viewer.alignment = other.alignment
+        self.viewer.broadcast_event({"type": "alignment_changed"})
+        self.wait_for("document.body.dataset.view === 'empty'")
+        self.assertEqual(self.state("document.getElementById('empty-title').textContent"), "No guide tree was found for this alignment")
+
+    def test_events_for_other_pages_are_ignored_and_not_parsed(self):
+        self.open_colored()
+        fetched = self.fetches()
+        for event in ({"type": "selection_changed", "indices": [1, 2]}, {"type": "state_updated", "metadata": {}}, {"type": "unknown"}):
+            self.viewer.broadcast_event(event)
+        self.pump(0.5)
+        self.assertEqual(self.fetches(), fetched)
+        self.assertEqual(self.console_errors(), [])
+
+
+class LegendTests(ColorCase):
+    def rows(self):
+        return self.state("""[...document.querySelectorAll('#legend-list .legend-row')].map(b => ({name: b.querySelector('.name').textContent,
+            count: b.querySelector('.count').textContent, pressed: b.getAttribute('aria-pressed'), swatch: b.querySelector('.swatch').style.backgroundColor}))""")
+
+    def test_the_legend_lists_each_colour_with_its_name_and_number_of_leaves(self):
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        self.assertEqual(self.rows(), [
+            {"name": "Cluster 0", "count": "4", "pressed": "false", "swatch": "rgb(255, 0, 0)"},
+            {"name": "Cluster 1", "count": "2", "pressed": "false", "swatch": "rgb(0, 0, 255)"},
+            {"name": "Cluster 2", "count": "1", "pressed": "false", "swatch": "rgb(0, 255, 0)"},
+        ])
+        self.assertTrue(self.state("document.getElementById('legend').classList.contains('shown')"))
+
+    def test_a_colour_marks_its_leaves_and_marks_them_off_again(self):
+        self.open_colored()
+        self.js("document.querySelectorAll('#legend-list .legend-row')[1].click()")
+        self.assertEqual(self.state("Array.from(TreeView.state.matches)"), [4, 5])
+        self.assertEqual([row["pressed"] for row in self.rows()], ["false", "true", "false"])
+        self.js("document.querySelectorAll('#legend-list .legend-row')[1].click()")
+        self.assertEqual(self.state("Array.from(TreeView.state.matches)"), [])
+        self.assertEqual([row["pressed"] for row in self.rows()], ["false"] * 3)
+        # Another colour in place of the first.
+        self.js("document.querySelectorAll('#legend-list .legend-row')[0].click()")
+        self.js("document.querySelectorAll('#legend-list .legend-row')[2].click()")
+        self.assertEqual(self.state("Array.from(TreeView.state.matches)"), [6])
+        self.assertEqual([row["pressed"] for row in self.rows()], ["false", "false", "true"])
+
+    def test_a_search_replaces_what_a_colour_marked_and_a_colour_replaces_a_search(self):
+        self.open_colored()
+        self.js("document.querySelectorAll('#legend-list .legend-row')[0].click()")
+        self.assertEqual(self.state("Array.from(TreeView.state.matches)"), [0, 1, 2, 3])
+        self.script("""const input = document.getElementById('search-input'); input.value = 'g'; input.dispatchEvent(new Event('input')); return 1""")
+        self.wait_for("TreeView.state.matches.length === 1")
+        self.assertEqual([row["pressed"] for row in self.rows()], ["false"] * 3)
+        self.js("document.querySelectorAll('#legend-list .legend-row')[1].click()")
+        self.assertEqual(self.state("Array.from(TreeView.state.matches)"), [4, 5])
+        self.assertEqual(self.state("document.getElementById('search-input').value"), "")
+
+    def test_marked_leaves_are_drawn_as_a_search_marks_its_matches(self):
+        self.open_colored()
+        self.js("document.querySelectorAll('#legend-list .legend-row')[1].click()")
+        info = self.script("""TreeView.drawNow();
+            const m = TreeView.state.model, b = TreeView.nodePixels(TreeView.state, m.leafNode[4]), p = TreeView.state.palette;
+            const probe = document.createElement('canvas').getContext('2d'); probe.fillStyle = p.match; probe.fillRect(0, 0, 1, 1);
+            const want = probe.getImageData(0, 0, 1, 1).data;
+            let best = 255;
+            for (let dx = -12; dx <= 12; dx++) for (let dy = -12; dy <= 12; dy++) {
+                const px = fire.pixel(Math.round(b.x) + dx, Math.round(b.y) + dy);
+                best = Math.min(best, Math.max(Math.abs(px[0] - want[0]), Math.abs(px[1] - want[1]), Math.abs(px[2] - want[2])));
+            }
+            return best;""")
+        self.assertLess(info, 30)
+
+    def test_the_button_at_the_top_hides_and_shows_the_list(self):
+        self.open_colored()
+        self.assertEqual(self.state("document.getElementById('legend-list').hidden"), False)
+        self.js("document.getElementById('legend-toggle').click()")
+        self.assertEqual(self.state("[document.getElementById('legend-list').hidden, document.getElementById('legend-toggle').getAttribute('aria-expanded')]"),
+                         [True, "false"])
+        self.js("document.getElementById('legend-toggle').click()")
+        self.assertEqual(self.state("document.getElementById('legend-list').hidden"), False)
+
+    def test_new_colours_take_the_marks_off(self):
+        self.open_colored()
+        self.js("document.querySelectorAll('#legend-list .legend-row')[0].click()")
+        version = self.info()["version"]
+        self.viewer.current_colors[7] = (1.0, 0.0, 1.0, 1.0)
+        for listener in list(self.viewer.node_update_listeners):
+            listener()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.assertEqual(self.state("[Array.from(TreeView.state.matches), TreeView.state.legendClass]"), [[], -1])
+
+    def test_the_legend_is_inside_the_theme_and_the_page(self):
+        self.open_colored()
+        info = self.state("""(() => { const box = document.getElementById('legend').getBoundingClientRect(), stage = document.getElementById('stage').getBoundingClientRect();
+            return {inside: box.left >= stage.left && box.right <= stage.right && box.top >= stage.top && box.bottom <= stage.bottom,
+                    minimap: document.getElementById('minimap').getBoundingClientRect().right <= box.left}; })()""")
+        self.assertEqual(info, {"inside": True, "minimap": True})
+
+
+class ColorHoverTests(ColorCase):
+    def hover_text(self, node):
+        point = self.state(f"""(() => {{ const b = TreeView.nodePixels(TreeView.state, {node});
+            return [(b.x0 + b.x) / 2, (b.y0 + b.y) / 2]; }})()""")
+        self.script(f"fire.move({point[0]}, {point[1]}); return 1")
+        self.wait_for("document.getElementById('tooltip').style.display === 'block'")
+        return self.state("[...document.getElementById('tooltip').children].map(e => e.textContent)")
+
+    def test_a_leaf_says_its_cluster_and_a_clade_says_the_colour_most_of_its_leaves_have(self):
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        self.choose("rectangular")
+        leaf = self.hover_text(0)
+        self.assertIn("Cluster: 0", leaf)
+        clade = self.hover_text(6)
+        self.assertIn("Colour of 100% of its leaves: Cluster 0", clade)
+
+    def test_a_leaf_with_no_cluster_and_a_clade_with_no_dominant_colour_say_nothing_of_them(self):
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+        self.choose("rectangular")
+        self.assertFalse(any(line.startswith("Cluster:") for line in self.hover_text(11)))
+        # (efgh) is half blue: no colour has most of its leaves.
+        text = self.hover_text(13)
+        self.assertFalse(any("Colour of" in line for line in text), text)
+
+    def test_without_clusters_a_clade_names_its_colour_by_its_hex(self):
+        self.open_colored()
+        self.choose("rectangular")
+        self.assertIn("Colour of 100% of its leaves: #ff0000", self.hover_text(6))
+
 
 
 class RootingNoteTests(TreePageMixin, unittest.TestCase):
