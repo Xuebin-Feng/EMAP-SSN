@@ -95,6 +95,11 @@ still change before version 1.0.0.
   - **Large trees:** a clade can be folded into one shape and opened again, and an overview
     map in the corner shows the whole tree and where the view is. Clades too small to see are
     drawn as one line, and names appear only where they fit.
+  - **In the network's colours:** each leaf is drawn in its node's colour, and a clade in the
+    colour that nine in ten of its shown leaves share, so clusters that form clades stand out
+    even in the overview. A legend names the colours (by cluster where one matches) and marks
+    a colour's leaves when clicked. Hidden nodes are faded. The tree follows the Viewer when
+    colours, clusters or hidden nodes change, and when another alignment is loaded.
   - **The Details panel** names the file, says how the tree was built, and counts how its
     leaves match the network and the alignment. A tree saved for another alignment, an
     alignment older than its tree (an unfinished run), and leaves missing from the network
