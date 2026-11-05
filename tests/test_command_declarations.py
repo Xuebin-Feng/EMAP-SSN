@@ -426,7 +426,7 @@ class AgentDeclarationsOfAPluginTests(PortalFixture, unittest.TestCase):
         with scratch_commands(AGENT_PLUGINS):
             text = render_system_prompt(template)
         self.assertIn("\n3. `zagentful [wipe]`\n   - Does the declared thing.\n", text)
-        self.assertIn("\n27. `zagentless`\n    - The zagentless command; its module declares no description.\n", text)
+        self.assertIn("\n28. `zagentless`\n    - The zagentless command; its module declares no description.\n", text)
         self.assertIn("`zagentful` waits for the user to press Run only with the first word `wipe`", text)
         self.assertIn("; is refused only with the first word `nuke`; any other form runs at once.", text)
         self.assertNotIn("zagent", render_system_prompt(template))

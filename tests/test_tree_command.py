@@ -6,7 +6,7 @@
 
 It takes no argument but help and --register-only (which brings the Console button back when a session
 loads), says why when the page cannot open (a Viewer with no window), runs at once even while commands wait,
-and is a catalogued command whose agent reply is refused. A valid request that has nothing to show succeeds
+and is a catalogued command whose agent reply waits for approval. A valid request that has nothing to show succeeds
 with a note: the page opens on its empty state and the result names what is missing; a page that is open
 already is a request that changes nothing.
 """
@@ -219,16 +219,15 @@ class ArgumentTests(TreeViewerTestCase):
 
 
 class DeclarationTests(unittest.TestCase):
-    def test_it_is_catalogued_and_an_agent_reply_may_not_open_it(self):
-        # A window for the person at the Viewer, as the Console is: the Agent's instructions, which the size
-        # ceiling of test_agent_prompt leaves no room in, have no item for it.
+    def test_it_is_catalogued_and_an_agent_reply_that_opens_it_waits_for_approval(self):
+        # It opens a page in the user's browser, as meta and esmfold do.
         self.assertIn("tree", COMMAND_METADATA)
         entry = COMMAND_METADATA["tree"]
         self.assertTrue(entry["summary"])
         self.assertTrue(entry["opens_interface"])
         self.assertFalse(entry["writes_files"])
-        self.assertEqual(agent_policy("tree"), "refuse")
-        self.assertEqual(AGENT_POLICY["tree"]["default"], "refuse")
+        self.assertEqual(agent_policy("tree"), "approve")
+        self.assertEqual(AGENT_POLICY["tree"]["default"], "approve")
 
     def test_the_catalog_entry_says_the_page_names_no_file(self):
         text = COMMAND_METADATA["tree"]["summary"]

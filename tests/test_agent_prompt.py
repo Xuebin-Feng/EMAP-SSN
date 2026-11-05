@@ -27,18 +27,18 @@ COMMANDS = sorted(path.stem for path in COMMANDS_DIR.glob('*.py') if not path.st
 # command added later may come between them, so the test keeps the relative order of these.
 ITEM_ORDER = ['color', 'select', 'hide', 'reset', 'zoom', 'undo', 'redo', 'save', 'run', 'reference', 'offset', 'alignment',
               'embedding', 'query', 'cluster', 'subcluster', 'spectrum', 'meta', 'group', 'export', 'label', 'logo', 'print',
-              'esmfold', 'jobs']
+              'esmfold', 'tree', 'jobs']
 
 # Commands the prompt does not describe yet, as a command whose item is still to be written (jobs was
 # one until its item was). Name one here only while its item is pending; the test below fails if a
 # command listed here has an item, so an exemption cannot outlive its reason.
 NOT_YET_DESCRIBED = set()
 
-# The most words the prompt may have. It has 7,694 with every command described (help is named among the
-# refused commands, one word, and has no item), so there is almost no room left: raise this only for text
-# the model needs, since a small local model's context is 4,000 tokens or so, which this prompt already
-# exceeds.
-MAX_WORDS = 7700
+# The most words the prompt may have. The user raised it from 7,700 to 20,000 on 2026-11-05 ("Raise the word
+# limit to 20k and do what is the most accurate"), so that a command is described as it is rather than cut to
+# fit. A small local model's context is 4,000 tokens or so, which the prompt exceeded long before; the ceiling
+# only stops a runaway, and a text the model does not need is still better left out.
+MAX_WORDS = 20000
 
 CLASS_OF_PHRASE = {'runs at once': 'run', 'waits for the user to press Run': 'approve', 'is refused': 'refuse'}
 
