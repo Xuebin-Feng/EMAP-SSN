@@ -45,7 +45,7 @@ from web_ui.Web_Server import MIME_TYPES, WebServerHandler, content_security_pol
 from tests.translation_fixtures import pseudo_language  # noqa: E402
 
 PAGES = SRC / "web_ui"
-THEMED = ("agent.html", "meta.html", "esmfold.html")
+THEMED = ("agent.html", "meta.html", "esmfold.html", "tree.html")
 DECLARATION = re.compile(r"^\s*(--[a-z0-9-]+)\s*:\s*(.*?);\s*$", re.MULTILINE)
 
 

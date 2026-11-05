@@ -104,6 +104,7 @@ CANVAS_MARKED = frozenset({
     "commands/select.py",
     "commands/spectrum.py",
     "commands/subcluster.py",
+    "commands/tree.py",
     "commands/undo.py",
     "commands/zoom.py",
     "web_ui/Browser_Page.py",
@@ -672,7 +673,7 @@ class ViewerRunTimeTextTests(WindowTestCase):
         from web_ui import Web_Server
         from web_ui.Plugin_Manager import bundled_pages
 
-        for page in ("agent", "meta", "esmfold"):
+        for page in ("agent", "meta", "esmfold", "tree"):
             viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False), web_plugin_registry=bundled_pages())
             MainViewer.open_page(viewer, page)
             name = display_text(viewer._open_web_ui.call_args.args[1])

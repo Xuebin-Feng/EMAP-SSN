@@ -110,7 +110,16 @@ modules = [
     "test_esmfold_worker",
     "test_meta_backend",
     "test_residue_data",
+    "test_tree_backend",
+    "test_tree_command",
     "test_vendored_assets",
+]
+
+[sections.tree_page]
+description = "Tree View page: the guide tree in Qt WebEngine over the real web server (drawing, zoom, search, hover, the report)"
+seconds = 60
+modules = [
+    "test_tree_page",
 ]
 
 # The Fold View page tests (tests/esmfold_page_harness.py) open esmfold.html in Qt WebEngine over the real
@@ -390,6 +399,16 @@ paths = [
     "tests/esmfold_*", "tests/molstar_api_probe.py",
 ]
 sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
+
+# Tree View's page, its scripts and the helpers that open it reach its page section through the web server, not
+# through an import. Its backend and the helpers it shares with the backend's tests select the sections that run them.
+[[rules]]
+paths = ["src/web_ui/tree.html", "src/web_ui/tree_*.js", "src/web_ui/page_text.js", "tests/tree_*"]
+sections = ["tree_page"]
+
+[[rules]]
+paths = ["src/web_ui/tree_backend.py", "src/commands/tree.py", "tests/tree_fixtures.py", "src/utilities/Guide_Tree_File.py"]
+sections = ["plugins", "tree_page"]
 
 # The desktop probe (tests/desktop_probe) is loaded by file path and as a package of its own, which the reference
 # scan cannot follow: a change to any of its files runs the section of its tests.

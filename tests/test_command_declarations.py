@@ -150,12 +150,12 @@ class DeclaredCasesTests(unittest.TestCase):
                      if any(hasattr(declarations.command_module(name), attribute)
                             for attribute in ("QUEUE", "queue_kind", "STARTS_MODEL_REQUEST", "starts_model_request",
                                               "ACTS_ON_JOBS", "acts_on_jobs", "CONSOLE_BUTTON"))}
-        self.assertEqual(declaring, {"jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent", "console", "help"})
+        self.assertEqual(declaring, {"jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent", "console", "help", "tree"})
 
     def test_exactly_these_commands_declare_a_console_button(self):
         # Only a command that declares one is run by name when a layout cache lists it: a cache cannot extend this.
         buttons = {name for name in COMMAND_NAMES if declarations.registers_console_button(name)}
-        self.assertEqual(buttons, {"agent", "esmfold", "meta"})
+        self.assertEqual(buttons, {"agent", "esmfold", "meta", "tree"})
         for name in COMMAND_NAMES:
             with self.subTest(command=name):
                 self.assertIs(getattr(declarations.command_module(name), "CONSOLE_BUTTON", False), name in buttons)
@@ -866,7 +866,7 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
     def test_the_pairs_of_a_page_and_its_command_are_these(self):
         # A new plugin whose page and command share a name is exempt in its own files; it is added here on purpose.
         pairs = plugin_pairs()
-        self.assertEqual(set(pairs), {"agent", "esmfold", "meta"})
+        self.assertEqual(set(pairs), {"agent", "esmfold", "meta", "tree"})
         for name, files in pairs.items():
             self.assertEqual(files, (f"src/web_ui/plugins/{name}.py", f"src/web_ui/{name}_backend.py"))
             for relative in files:

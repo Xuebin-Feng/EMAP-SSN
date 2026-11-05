@@ -84,7 +84,7 @@ class ManifestDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(
             [descriptor.plugin_id for descriptor in descriptors],
-            ["agent", "esmfold", "meta"],
+            ["agent", "esmfold", "meta", "tree"],
         )
         self.assertEqual(diagnostics, [])
         importer.assert_not_called()
@@ -229,7 +229,7 @@ class ManagerTests(unittest.TestCase):
         manager = WebPluginManager(viewer)
         manager.discover_and_register()
 
-        self.assertEqual(manager.registry.registered_plugins, {"agent", "esmfold", "meta"})
+        self.assertEqual(manager.registry.registered_plugins, {"agent", "esmfold", "meta", "tree"})
         self.assertEqual(viewer.buttons, [])
         self.assertIs(viewer.get_initial_web_state.__func__, original_state_method)
 
@@ -278,8 +278,9 @@ class ManagerTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 BUNDLED_PLUGIN_DIR = SRC_DIR / "web_ui" / "plugins"
-# The files that hold the three bundled pages' texts, and the catalog context of each, as the
-# program had them in Page_Texts.PAGE_CONTEXTS before the manifests declared them.
+# The files that hold the bundled pages' texts, and the catalog context of each: the three pages the program had
+# in Page_Texts.PAGE_CONTEXTS before the manifests declared them, and Tree View's, whose scripts without texts
+# (tree_model.js, tree_layout.js, tree_render.js) are declared by no one.
 EXPECTED_PAGE_CONTEXTS = {
     "web_ui/agent.html": "AgentPage",
     "resources/agent/attachments.js": "AgentPage",
@@ -288,6 +289,9 @@ EXPECTED_PAGE_CONTEXTS = {
     **{f"web_ui/esmfold_{name}.js": "EsmfoldPage" for name in (
         "shell", "layers", "superposition", "structures", "session", "color", "residue", "sequence", "tools",
         "image", "jobs")},
+    "web_ui/tree.html": "TreePage",
+    "web_ui/tree_session.js": "TreePage",
+    "web_ui/tree_nav.js": "TreePage",
 }
 
 
@@ -328,8 +332,10 @@ class BundledManifestTests(unittest.TestCase):
     def test_each_plugin_declares_its_page(self):
         pages = {plugin_id: descriptor.pages for plugin_id, descriptor in self.descriptors().items()}
         self.assertEqual({plugin_id: [page.path for page in found] for plugin_id, found in pages.items()},
-                         {"agent": ["/agent.html"], "esmfold": ["/esmfold.html"], "meta": ["/meta.html"]})
-        agent, esmfold, meta = (pages[name][0] for name in ("agent", "esmfold", "meta"))
+                         {"agent": ["/agent.html"], "esmfold": ["/esmfold.html"], "meta": ["/meta.html"],
+                          "tree": ["/tree.html"]})
+        agent, esmfold, meta, tree = (pages[name][0] for name in ("agent", "esmfold", "meta", "tree"))
+        self.assertEqual((tree.label, tree.client, tree.themed, tree.csp), ("Tree View UI", "tree", True, ()))
         self.assertEqual((agent.label, agent.client, agent.themed, agent.csp), ("Agent UI", "agent", True, ()))
         self.assertEqual((meta.label, meta.client, meta.themed, meta.csp), ("Metadata UI", "meta", True, ()))
         self.assertEqual((esmfold.label, esmfold.client, esmfold.themed), ("ESMFold Mol* UI", "esmfold", True))
@@ -337,7 +343,8 @@ class BundledManifestTests(unittest.TestCase):
         self.assertEqual(esmfold.csp_additions, {"script-src": "'unsafe-eval'", "connect-src": "https: data:"})
 
     def test_the_declared_files_and_contexts_are_the_ones_the_program_had_before(self):
-        # Page_Texts.PAGE_CONTEXTS is read from the manifests: the same 15 files in the same 3 contexts.
+        # Page_Texts.PAGE_CONTEXTS is read from the manifests: the 15 files of the first three pages in their 3
+        # contexts, and the 3 files of Tree View's in its own.
         from web_ui import Page_Texts
 
         self.assertEqual(Page_Texts.PAGE_CONTEXTS, EXPECTED_PAGE_CONTEXTS)
@@ -1329,7 +1336,7 @@ class EveryPageIsDeclaredTests(unittest.TestCase):
             staged = {path.relative_to(stage).as_posix() for path in Path(stage).rglob("*") if path.is_file()}
             manifests = {f"web_ui/plugins/{path.name}" for path in BUNDLED_PLUGIN_DIR.glob("*.py") if path.name != "__init__.py"}
         self.assertEqual(staged - manifests, set(PAGE_CONTEXTS))
-        self.assertEqual(len(staged - manifests), 15)
+        self.assertEqual(len(staged - manifests), 18)
         self.assertEqual(staged & manifests, manifests)  # each manifest, for its pages' labels
 
     def test_the_labels_the_update_lists_are_the_ones_the_pages_are_opened_with(self):

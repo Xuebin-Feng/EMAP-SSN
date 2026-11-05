@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4014"/>
+        <location line="+4010"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4013"/>
+        <location line="-4009"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4648"/>
+        <location line="+4644"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4640"/>
+        <location line="-4636"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -763,7 +763,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+725"/>
+        <location line="+721"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -1658,7 +1658,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">无缩放和侧边栏动画：</translation>
     </message>
     <message>
-        <location line="-620"/>
+        <location line="-616"/>
         <source>Update Colors After Mouse Release:</source>
         <translation type="unfinished">松开鼠标后再更新颜色：</translation>
     </message>
@@ -1673,7 +1673,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">显示帧率（FPS）：</translation>
     </message>
     <message>
-        <location line="+619"/>
+        <location line="+615"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
         <translation type="unfinished">较短序列长度</translation>
@@ -1885,12 +1885,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4016"/>
+        <location line="-4012"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
     <message>
-        <location line="+660"/>
+        <location line="+656"/>
         <source>Metric: EFI alignment score</source>
         <translation type="unfinished">指标：EFI 比对得分</translation>
     </message>
@@ -4848,6 +4848,7 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
         <location filename="../../../commands/subcluster.py" line="+233"/>
+        <location filename="../../../commands/tree.py" line="+76"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -5634,6 +5635,7 @@ Command-line usage:
         <location filename="../../../commands/run.py" line="-50"/>
         <location filename="../../../commands/save.py" line="+49"/>
         <location filename="../../../commands/subcluster.py" line="-235"/>
+        <location filename="../../../commands/tree.py" line="+6"/>
         <location filename="../../../commands/undo.py" line="+73"/>
         <location line="+15"/>
         <location filename="../../../commands/zoom.py" line="+81"/>
@@ -6888,7 +6890,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4978"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4974"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6930,7 +6932,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1506"/>
+        <location line="+1502"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -8908,7 +8910,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+1711"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+1799"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -9375,6 +9377,41 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location filename="../../../utilities/Job_Cancellation.py" line="+358"/>
         <source>Could not save {path}: another program kept the file in use (a virus scan or a sync client, for example). The system reported: {error}</source>
         <translation type="unfinished">无法保存 {path}：另一个程序一直占用着该文件（例如病毒扫描程序或同步客户端）。系统报告：{error}</translation>
+    </message>
+    <message>
+        <location filename="../../../commands/tree.py" line="-1"/>
+        <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Registered Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Opened Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Tree View is already open in your browser.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A Viewer with no window opens no browser page; Tree View is served at {address}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Could not open Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/plugins/tree.py" line="+13"/>
+        <source>Tree View UI</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -13388,6 +13425,403 @@ Fedora / RHEL：
     </message>
 </context>
 <context>
+    <name>TreePage</name>
+    <message>
+        <location filename="../../../web_ui/tree_nav.js" line="+236"/>
+        <source>A node of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Not a node of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The root of the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>A clade</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Leaves in this clade: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Of them in this network: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Stable in {percent}% of the replicate trees</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Branch length: {length}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+71"/>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_session.js" line="+89"/>
+        <source>No alignment is loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tree View shows the guide tree of the alignment that is loaded in the Viewer. Load an alignment, and its tree appears here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This alignment has no guide tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{alignment} was not named by the Embedding MSA tool, which saves a guide tree for each alignment it makes, beside it, in a file named after the alignment: a name like Set_[model]_alignment.fasta. A renamed or external alignment has none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>No guide tree was found for this alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The guide tree of {alignment} should be the file below, which the Embedding MSA tool saves in the Guide_Trees folder beside the alignment. It is not there.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Run the Embedding MSA tool again to make it, or put the tree there, and press Check again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The guide tree could not be read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The file is there, but this page cannot read it as a guide tree: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The tree does not match this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Tree View could not reach the Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The Viewer did not answer: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Check that the Viewer is still running, and press Check again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Tree View could not read the Viewer&apos;s answer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The Viewer answered with a status this page does not know: {status}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This tree was made for {tree}, but the loaded alignment is for {loaded}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The loaded alignment is older than this tree, so the alignment step of the run that made the tree may not have finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Leaves that are not nodes of this network: {count}. They are drawn faded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nodes of this network that are not leaves of the tree: {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Leaves whose sequence is not in the loaded alignment: {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The tree and the Viewer differ in a way this page has no words for: {code}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>{leaves} leaves, {shown} of them nodes of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>This tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Rooted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Unrooted (rooted at its midpoint in the file)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Rooting not stated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Program</source>
+        <translation type="unfinished">程序</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sequence set</source>
+        <translation type="unfinished">序列集</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Model</source>
+        <translation type="unfinished">模型</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tree method</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Kind</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>How it fits</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Leaves</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Leaves in this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Leaves not in this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network nodes not in the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Leaves not in the alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>About this tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+66"/>
+        <source>No match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{count} found</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{current} of {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Light Mode</source>
+        <translation type="unfinished">浅色模式</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location filename="../../../web_ui/tree.html" line="+394"/>
+        <source>Dark Mode</source>
+        <translation type="unfinished">深色模式</translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Connected</source>
+        <translation type="unfinished">已连接</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reconnecting...</source>
+        <translation type="unfinished">正在重新连接…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Copied</source>
+        <translation type="unfinished">已复制</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location filename="../../../web_ui/tree.html" line="+34"/>
+        <source>Copy the path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree.html" line="-406"/>
+        <location line="+370"/>
+        <source>EMAP-SSN Tree View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Connecting...</source>
+        <translation type="unfinished">正在连接…</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Find a header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Find a header. Put it in double quotes to match it exactly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Find a header in the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+0"/>
+        <source>Clear the search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Previous match (Shift+Enter)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Previous match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Next match (Enter)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Next match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Show the whole tree (Home)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>How this tree was made, and how it fits the alignment and the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Guide tree of the loaded alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Loading the tree...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Check again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Viewer</name>
     <message>
         <location filename="../../../commands/alignment.py" line="-132"/>
@@ -13623,6 +14057,16 @@ Fedora / RHEL：
         <location line="+6"/>
         <source>Folding with Biohub needs your Biohub API token. It is saved for later folds and is not shown again.</source>
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_backend.py" line="+234"/>
+        <source>Tree View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open the guide tree of the loaded alignment in browser</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

@@ -110,7 +110,7 @@ class RemovingAnyOneCommandTests(unittest.TestCase):
         self.assertEqual(baseline["names"], COMMAND_NAMES)
         self.assertEqual(sorted(self.probe["removed"]), COMMAND_NAMES)
         self.assertEqual(baseline["unimportable"], [])
-        self.assertEqual(baseline["console_buttons"], ["agent", "esmfold", "meta"])
+        self.assertEqual(baseline["console_buttons"], ["agent", "esmfold", "meta", "tree"])
         self.assertEqual(baseline["pickers"], {"embedding": "embedding", "msa": "alignment"})
         self.assertEqual(baseline["help"], COMMAND_NAMES)
         self.assertEqual(baseline["reset_targets"], ["cluster", "color", "group", "hidden", "hide", "layer", "network", "order",

@@ -78,7 +78,8 @@ class PagePolicyTests(unittest.TestCase):
         # agent.html's, meta.html's and esmfold.html's sets the theme in <head>,
         # before the page is drawn; esmfold.html's second keeps what went wrong
         # if Mol*'s file does not load, for the page to say.
-        inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 2}
+        # tree.html has only that one.
+        inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 2, 'tree.html': 1}
         for page, count in inline_scripts.items():
             with self.subTest(page=page):
                 policy = directives(content_security_policy(str(PAGES / page), (PAGES / page).read_bytes()))
@@ -91,7 +92,7 @@ class PagePolicyTests(unittest.TestCase):
                 self.assertEqual(policy['frame-ancestors'], ["'none'"])
 
     def test_only_mol_star_may_evaluate_code_and_reach_public_servers(self):
-        for page in ('agent.html', 'meta.html'):
+        for page in ('agent.html', 'meta.html', 'tree.html'):
             with self.subTest(page=page):
                 policy = directives(content_security_policy(str(PAGES / page), b''))
                 self.assertNotIn("'unsafe-eval'", policy['script-src'])
@@ -139,6 +140,8 @@ class BundledPageIconTests(unittest.TestCase):
         'esmfold.html': tuple(PAGES / name for name in (
             'esmfold_shell.js', 'esmfold_layers.js', 'esmfold_structures.js', 'esmfold_session.js', 'esmfold_color.js',
             'esmfold_residue.js', 'esmfold_sequence.js', 'esmfold_tools.js', 'esmfold_image.js', 'esmfold_jobs.js')),
+        'tree.html': tuple(PAGES / name for name in (
+            'tree_model.js', 'tree_layout.js', 'tree_render.js', 'tree_nav.js', 'tree_session.js')),
     }
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'
@@ -151,7 +154,7 @@ class BundledPageIconTests(unittest.TestCase):
         return presentation, [(shape.tag.replace(self.SVG, ''), shape.attrib) for shape in root]
 
     def test_each_icon_is_a_bundled_lucide_icon_in_the_pages_sprite(self):
-        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+        for page in ('agent.html', 'meta.html', 'esmfold.html', 'tree.html'):
             with self.subTest(page=page):
                 source = (PAGES / page).read_text(encoding='utf-8')
                 self.assertIn('Icons from Lucide 1.47.0, ISC licence', source)
@@ -171,7 +174,7 @@ class BundledPageIconTests(unittest.TestCase):
                 self.assertEqual(sorted(set(symbols) - named), [], 'a symbol nothing draws')
 
     def test_no_page_shows_an_emoji_as_an_icon(self):
-        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+        for page in ('agent.html', 'meta.html', 'esmfold.html', 'tree.html'):
             with self.subTest(page=page):
                 source = (PAGES / page).read_text(encoding='utf-8')
                 self.assertEqual([glyph for glyph in '🤖🌙☀⚙✕💾✓☰⏳📊📤🔍🖱' if glyph in source], [])
@@ -205,7 +208,7 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
             connection.close()
 
     def test_bundled_pages_carry_the_policy_of_their_served_bytes(self):
-        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+        for page in ('agent.html', 'meta.html', 'esmfold.html', 'tree.html'):
             with self.subTest(page=page):
                 response, body = self.get(f'/{page}')
                 self.assertEqual(response.status, 200)
@@ -314,7 +317,7 @@ class ServedFileTypeTests(RunningServerTestCase):
                 self.assertEqual(self.get(path)[0].status, status)
 
     def test_every_file_the_pages_name_is_served(self):
-        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+        for page in ('agent.html', 'meta.html', 'esmfold.html', 'tree.html'):
             names = self.LOCAL_NAME.findall((PAGES / page).read_text(encoding='utf-8'))
             self.assertTrue(names, page)
             for name in names:

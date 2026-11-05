@@ -294,6 +294,8 @@ class PageHandler(FixtureHandler):
         "/esmfold_image.js": SRC / "web_ui" / "esmfold_image.js",
         "/esmfold_jobs.js": SRC / "web_ui" / "esmfold_jobs.js",
         "/esmfold/molstar.js": SRC / "resources" / "esmfold" / "molstar.js",
+        "/tree.html": SRC / "web_ui" / "tree.html",
+        **{f"/tree_{name}.js": SRC / "web_ui" / f"tree_{name}.js" for name in ("model", "layout", "render", "nav", "session")},
     }
 
 
@@ -314,6 +316,9 @@ SERVED_TEXTS = {
     "/esmfold_tools.js": "Click a residue to label it.",
     "/esmfold_image.js": "Saved fold-view.png.",
     "/esmfold_jobs.js": "Copied the log path.",
+    "/tree.html": "Check again",
+    "/tree_session.js": "No alignment is loaded",
+    "/tree_nav.js": "A node of this network",
 }
 
 

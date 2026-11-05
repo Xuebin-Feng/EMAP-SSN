@@ -4895,6 +4895,30 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message>
+        <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Registered Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opened Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View is already open in your browser.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A Viewer with no window opens no browser page; Tree View is served at {address}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not open Tree View.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
@@ -6504,6 +6528,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Metadata UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View UI</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9063,6 +9091,321 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
 </context>
 <context>
+    <name>TreePage</name>
+    <message>
+        <source>A node of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not a node of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The root of the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A clade</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves in this clade: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Of them in this network: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stable in {percent}% of the replicate trees</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Branch length: {length}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No alignment is loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View shows the guide tree of the alignment that is loaded in the Viewer. Load an alignment, and its tree appears here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This alignment has no guide tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{alignment} was not named by the Embedding MSA tool, which saves a guide tree for each alignment it makes, beside it, in a file named after the alignment: a name like Set_[model]_alignment.fasta. A renamed or external alignment has none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No guide tree was found for this alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The guide tree of {alignment} should be the file below, which the Embedding MSA tool saves in the Guide_Trees folder beside the alignment. It is not there.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run the Embedding MSA tool again to make it, or put the tree there, and press Check again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The guide tree could not be read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The file is there, but this page cannot read it as a guide tree: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The tree does not match this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View could not reach the Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer did not answer: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Check that the Viewer is still running, and press Check again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View could not read the Viewer&apos;s answer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer answered with a status this page does not know: {status}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This tree was made for {tree}, but the loaded alignment is for {loaded}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The loaded alignment is older than this tree, so the alignment step of the run that made the tree may not have finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves that are not nodes of this network: {count}. They are drawn faded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nodes of this network that are not leaves of the tree: {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves whose sequence is not in the loaded alignment: {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The tree and the Viewer differ in a way this page has no words for: {code}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{leaves} leaves, {shown} of them nodes of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rooted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unrooted (rooted at its midpoint in the file)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rooting not stated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Program</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree method</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Kind</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How it fits</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves in this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves not in this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network nodes not in the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves not in the alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>About this tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} found</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{current} of {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Light Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dark Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reconnecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy the path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN Tree View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Find a header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Find a header. Put it in double quotes to match it exactly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Find a header in the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear the search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Previous match (Shift+Enter)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Previous match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next match (Enter)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next match</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show the whole tree (Home)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How this tree was made, and how it fits the alignment and the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guide tree of the loaded alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loading the tree...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Check again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Viewer</name>
     <message>
         <source>Select Alignment File</source>
@@ -9218,6 +9561,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Open Metadata Spreadsheet in browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the guide tree of the loaded alignment in browser</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2026 Xuebin Feng
+  Author affiliation: University of Toronto
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title data-i18n>EMAP-SSN Tree View</title>
+    <link rel="stylesheet" href="/fonts/fonts.css">
+    <!-- t() fills in this page's texts, which the Viewer serves in its
+         language (src/web_ui/Page_Texts.py). -->
+    <script src="/page_text.js"></script>
+    <style>
+        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py), as on the Metadata page: tinted
+           greys, hairline borders, 8 px controls, and one theme colour for the primary button, focus and
+           selection. The colours that take the theme colour (Studio_Theme's WEB_PAGE_PROPERTIES) hold Purple's
+           here; the Viewer's web server adds the Viewer's theme colour after them. */
+        :root {
+            color-scheme: light;
+            --bg-main: #fafafa;
+            --bg-card: #ffffff;
+            --bg-muted: #f4f4f5;
+            --bg-inset: #fafafa;
+            --border-color: #e4e4e7;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
+            --text-primary: #09090b;
+            --text-soft: #3f3f46;
+            --text-secondary: #52525b;
+            --text-subtle: #71717a;
+            --text-disabled: #a1a1aa;
+            --input-bg: #ffffff;
+            --input-text: #09090b;
+            --input-disabled-bg: #fafafa;
+            --primary: #5b5bd6;
+            --primary-hover: #4e4bc5;
+            --primary-pressed: #423bb4;
+            --primary-text: #ffffff;
+            --accent: #5b5bd6;
+            --accent-soft: #e9ecfc;
+            --selection: rgba(91, 91, 214, 0.1);
+            --success: #15803d;
+            --success-soft: #f0fdf4;
+            --warning: #b45309;
+            --warning-soft: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: #fef2f2;
+            --highlight-bg: rgba(245, 158, 11, 0.15);
+            --highlight-ring: #f59e0b;
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
+            --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
+            --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
+            --shadow-dialog: 0 16px 40px -8px rgba(9, 9, 11, 0.2), 0 4px 12px rgba(9, 9, 11, 0.06);
+            --radius: 8px;
+            --radius-card: 12px;
+            --font-family: 'Noto Sans', 'EMAP-SSN Language', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg-main: #09090b;
+            --bg-card: #18181b;
+            --bg-muted: #27272a;
+            --bg-inset: #111113;
+            --border-color: #27272a;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
+            --text-primary: #fafafa;
+            --text-soft: #d4d4d8;
+            --text-secondary: #a1a1aa;
+            --text-subtle: #8e8e96;
+            --text-disabled: #52525b;
+            --input-bg: #09090b;
+            --input-text: #fafafa;
+            --input-disabled-bg: #18181b;
+            --primary: #8289ff;
+            --primary-hover: #98a1ff;
+            --primary-pressed: #aeb7ff;
+            --primary-text: #18181b;
+            --accent: #8289ff;
+            --accent-soft: #24264d;
+            --selection: rgba(130, 137, 255, 0.16);
+            --success: #4ade80;
+            --success-soft: rgba(34, 197, 94, 0.12);
+            --warning: #fbbf24;
+            --warning-soft: rgba(245, 158, 11, 0.14);
+            --danger: #f87171;
+            --danger-soft: rgba(239, 68, 68, 0.12);
+            --highlight-bg: rgba(245, 158, 11, 0.18);
+            --highlight-ring: #fbbf24;
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-control: none;
+            --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-family);
+            font-size: 13px;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        b, strong { font-weight: 600; }
+
+        /* Icons: the sprite's symbols, drawn in the text colour */
+        .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .icon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+
+        /* Header bar */
+        header {
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 16px 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 56px;
+            flex-shrink: 0;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+        .header-actions { display: flex; align-items: center; gap: 8px; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 24px;
+            padding: 0 10px;
+            margin-left: 4px;
+            border-radius: 9999px;
+            background-color: var(--bg-muted);
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
+        .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
+
+        /* Buttons: outline unless a variant says otherwise */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            border-radius: var(--radius);
+            border: 1px solid var(--field-border);
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+            outline: none;
+            box-shadow: var(--shadow-control);
+            white-space: nowrap;
+        }
+        .btn:hover { background-color: var(--bg-muted); }
+        .btn:active { background-color: var(--border-color); }
+        .btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .btn:disabled { color: var(--text-disabled); cursor: default; background-color: var(--bg-card); }
+        .btn-primary { background-color: var(--primary); border-color: var(--primary); color: var(--primary-text); font-weight: 600; }
+        .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-primary:active { background-color: var(--primary-pressed); }
+        .btn-ghost { background-color: transparent; border-color: transparent; color: var(--text-secondary); box-shadow: none; }
+        .btn-ghost:hover { background-color: var(--bg-muted); color: var(--text-primary); }
+        .btn-icon { width: 30px; padding: 0; }
+
+        /* The tool row: search, then the view */
+        .toolbar {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 8px 16px;
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .search { position: relative; display: inline-flex; align-items: center; }
+        .search .icon { position: absolute; left: 9px; color: var(--text-subtle); }
+        .search input {
+            height: 30px;
+            width: 300px;
+            padding: 0 30px 0 30px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            color: var(--input-text);
+            background-color: var(--input-bg);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            outline: none;
+        }
+        .search input:hover { border-color: var(--field-border-hover); }
+        .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .search input::placeholder { color: var(--text-disabled); }
+        .search input:disabled { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
+        .search input:disabled:hover { border-color: var(--field-border); }
+        .search .clear { position: absolute; right: 2px; width: 26px; height: 26px; border: none; background: transparent; color: var(--text-subtle); border-radius: 6px; cursor: pointer; display: none; align-items: center; justify-content: center; }
+        .search .clear:hover { background-color: var(--bg-muted); color: var(--text-primary); }
+        .search.has-text .clear { display: inline-flex; }
+        .match-count { min-width: 76px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+        .toolbar .spacer { flex: 1; }
+
+        /* A warning about how the tree fits the alignment and the network: shown, never hidden, never an error */
+        .banner {
+            display: none;
+            padding: 8px 16px;
+            background-color: var(--warning-soft);
+            color: var(--warning);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .banner.shown { display: block; }
+        .banner ul { margin: 0; padding: 0; list-style: none; }
+        .banner li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.45; }
+        .banner li + li { margin-top: 2px; }
+        .banner .icon { margin-top: 2px; }
+
+        /* The drawing */
+        .stage { position: relative; flex: 1; min-height: 0; background-color: var(--bg-card); }
+        .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline: none; }
+        .stage canvas.dragging { cursor: grabbing; }
+        .stage canvas.pointing { cursor: pointer; }
+        .stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+        .tooltip {
+            position: absolute;
+            z-index: 6;
+            display: none;
+            max-width: 440px;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            box-shadow: var(--shadow-dialog);
+            font-size: 12px;
+            line-height: 1.45;
+            pointer-events: none;
+        }
+        .tooltip .name { font-weight: 600; overflow-wrap: anywhere; }
+        .tooltip .line { color: var(--text-secondary); }
+
+        /* What the page says when there is no tree to draw */
+        .empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; background-color: var(--bg-main); overflow: auto; }
+        .empty.shown { display: flex; }
+        .empty-card {
+            max-width: 600px;
+            width: 100%;
+            padding: 24px 28px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-card);
+        }
+        .empty-card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+        .empty-card p { margin: 0 0 12px; line-height: 1.55; color: var(--text-soft); overflow-wrap: anywhere; }
+        .empty-card .path {
+            display: block;
+            margin: 0 0 12px;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            background-color: var(--bg-inset);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+        .empty-card .actions { display: flex; gap: 8px; margin-top: 16px; }
+
+        .loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: var(--text-subtle); background-color: var(--bg-card); }
+        .loading.shown { display: flex; }
+
+        /* The run's details, opened from the toolbar */
+        .details {
+            position: absolute;
+            z-index: 5;
+            top: 8px;
+            right: 28px;
+            display: none;
+            width: 420px;
+            max-width: calc(100% - 56px);
+            max-height: calc(100% - 24px);
+            overflow: auto;
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-dialog);
+        }
+        .details.shown { display: block; }
+        .details h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+        .details dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12px; }
+        .details dt { color: var(--text-subtle); }
+        .details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-soft); }
+        .details .note { margin: 0 0 6px; font-size: 12px; color: var(--text-soft); }
+        .details .group-title { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+
+        .statusbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            height: 28px;
+            padding: 0 16px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--bg-card);
+            color: var(--text-subtle);
+            font-size: 12px;
+            flex-shrink: 0;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .statusbar span { overflow: hidden; text-overflow: ellipsis; }
+    </style>
+    <!-- The theme chosen on this page or the Agent page (all keep it as ssn_theme), else the system's, set
+         before the page is drawn so a dark page never shows light first. -->
+    <script>
+        (() => {
+            let theme = null;
+            try { theme = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (theme !== "dark" && theme !== "light") {
+                theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+<body>
+    <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+        <symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></symbol>
+        <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+        <symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+        <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+        <symbol id="i-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    </svg>
+
+    <header>
+        <h1><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span data-i18n>EMAP-SSN Tree View</span></h1>
+        <div class="header-actions">
+            <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
+            <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
+        </div>
+    </header>
+
+    <div class="toolbar">
+        <div class="search" id="search-box">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="text" id="search-input" placeholder="Find a header" title="Find a header. Put it in double quotes to match it exactly." aria-label="Find a header in the tree" autocomplete="off" spellcheck="false" disabled>
+            <button class="clear" id="search-clear" title="Clear the search" aria-label="Clear the search"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+        </div>
+        <button class="btn btn-icon" id="search-prev" title="Previous match (Shift+Enter)" aria-label="Previous match" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-up"/></svg></button>
+        <button class="btn btn-icon" id="search-next" title="Next match (Enter)" aria-label="Next match" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+        <span class="match-count" id="search-count" aria-live="polite"></span>
+        <span class="spacer"></span>
+        <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
+        <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
+    </div>
+
+    <div class="banner" id="banner" role="status"><ul id="warning-list"></ul></div>
+
+    <main class="stage" id="stage">
+        <canvas id="tree-canvas" tabindex="0" role="img" aria-label="Guide tree of the loaded alignment"></canvas>
+        <div class="tooltip" id="tooltip" role="tooltip"></div>
+        <div class="details" id="details"></div>
+        <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
+        <div class="empty" id="empty">
+            <div class="empty-card">
+                <h2 id="empty-title"></h2>
+                <p id="empty-body"></p>
+                <code class="path" id="empty-path" hidden></code>
+                <p id="empty-more" hidden></p>
+                <div class="actions">
+                    <button class="btn btn-primary" id="empty-retry"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg><span data-i18n>Check again</span></button>
+                    <button class="btn" id="empty-copy" hidden><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n>Copy the path</span></button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="statusbar">
+        <span id="summary"></span>
+        <span id="hints"></span>
+    </div>
+
+    <script src="/tree_model.js"></script>
+    <script src="/tree_layout.js"></script>
+    <script src="/tree_render.js"></script>
+    <script src="/tree_nav.js"></script>
+    <script src="/tree_session.js"></script>
+</body>
+</html>
