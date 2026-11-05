@@ -163,13 +163,13 @@ def consistency(tree, alignment, msa_path, tree_path, viewer_node, network_size)
     return counts, warnings
 
 
-def tree_state(viewer):
-    """What the Tree View page is sent: the tree of the loaded alignment, or why there is none to draw.
+def locate_tree(viewer):
+    """Where the tree of the loaded alignment should be, said without reading it.
 
-    ``status`` is "ok" (everything below is there), "no_alignment" (none loaded), "unnamed_alignment" (the
-    alignment's name is not the tool's, so it has no tree), "no_tree" (the file the name leads to is not
-    there), "unreadable" (it is there, but is not a tree this reader takes: ``reason``) or "no_overlap" (none
-    of its leaves is a node of the network). The path of the expected file comes with every status that has one.
+    ``status`` is "no_alignment" (none loaded), "unnamed_alignment" (the alignment's name is not the tool's, so
+    it has no tree; ``alignment`` names it), "no_tree" (the file the name leads to is not there) or "present"
+    (something is there; whether it is a tree is for tree_state to find out). The last two come with
+    ``alignment`` and ``tree_path``, the absolute path of the expected file.
     """
     alignment, msa_path = loaded_alignment(viewer)
     if alignment is None:
@@ -178,8 +178,24 @@ def tree_state(viewer):
     tree_path = guide_tree_path_for_alignment(msa_path)
     if tree_path is None:
         return {"status": "unnamed_alignment", "alignment": name}
-    shown_path = os.path.abspath(tree_path)
-    base = {"alignment": name, "tree_path": shown_path}
+    base = {"alignment": name, "tree_path": os.path.abspath(tree_path)}
+    return {"status": "present" if os.path.exists(tree_path) else "no_tree", **base}
+
+
+def tree_state(viewer):
+    """What the Tree View page is sent: the tree of the loaded alignment, or why there is none to draw.
+
+    ``status`` is "ok" (everything below is there), "no_alignment" (none loaded), "unnamed_alignment" (the
+    alignment's name is not the tool's, so it has no tree), "no_tree" (the file the name leads to is not
+    there), "unreadable" (it is there, but is not a tree this reader takes: ``reason``) or "no_overlap" (none
+    of its leaves is a node of the network). The path of the expected file comes with every status that has one.
+    """
+    found = locate_tree(viewer)
+    if found["status"] != "present":
+        return found
+    alignment, msa_path = loaded_alignment(viewer)
+    tree_path = guide_tree_path_for_alignment(msa_path)
+    base = {"alignment": found["alignment"], "tree_path": found["tree_path"]}
     try:
         tree = _read_cached(tree_path)
     except FileNotFoundError:

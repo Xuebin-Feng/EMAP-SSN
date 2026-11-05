@@ -4848,7 +4848,7 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
         <location filename="../../../commands/subcluster.py" line="+233"/>
-        <location filename="../../../commands/tree.py" line="+76"/>
+        <location filename="../../../commands/tree.py" line="+98"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -9379,7 +9379,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法保存 {path}：另一个程序一直占用着该文件（例如病毒扫描程序或同步客户端）。系统报告：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/tree.py" line="-1"/>
+        <location filename="../../../commands/tree.py" line="-25"/>
+        <source>No alignment is loaded, so there is no guide tree to show.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The loaded alignment, {alignment}, was not named by the Embedding MSA tool, so it has no guide tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>No guide tree was found for the loaded alignment; Tree View looks for {path}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9394,7 +9409,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Tree View is already open in your browser.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13708,7 +13723,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+394"/>
+        <location filename="../../../web_ui/tree.html" line="+398"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13734,8 +13749,8 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-406"/>
-        <location line="+370"/>
+        <location filename="../../../web_ui/tree.html" line="-410"/>
+        <location line="+374"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14059,7 +14074,7 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+234"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+250"/>
         <source>Tree View</source>
         <translation type="unfinished"></translation>
     </message>

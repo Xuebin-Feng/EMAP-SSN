@@ -4896,6 +4896,18 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>No alignment is loaded, so there is no guide tree to show.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The loaded alignment, {alignment}, was not named by the Embedding MSA tool, so it has no guide tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No guide tree was found for the loaded alignment; Tree View looks for {path}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>

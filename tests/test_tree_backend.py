@@ -39,6 +39,7 @@ from tests.tree_fixtures import (  # noqa: E402
     make_viewer,
     page_headers,
     random_linkage,
+    save_guide_tree,
     server_viewer,
     writer,
 )
@@ -213,6 +214,39 @@ class WhichTreeTests(FolderTestCase):
         request = SimpleNamespace(method="GET", path=tree_backend.DATA_ROUTE, query="path=C:/Windows/win.ini&file=x", headers={}, body=b"")
         status, payload = tree_backend.handle_tree_data(viewer, request)
         self.assertEqual((status, payload["status"]), (200, "ok"))
+
+
+class LocateTreeTests(FolderTestCase):
+    """Where the tree should be, which the tree command says without parsing it on the Viewer's thread."""
+
+    def test_each_place_the_tree_may_or_may_not_be(self):
+        headers = headers_of(10)
+        self.assertEqual(tree_backend.locate_tree(SimpleNamespace(alignment=None)), {"status": "no_alignment"})
+        unnamed = self.folder / "mafft_result.fasta"
+        unnamed.write_text(">x\nA\n", encoding="utf-8")
+        self.assertEqual(tree_backend.locate_tree(make_viewer(unnamed, headers)),
+                         {"status": "unnamed_alignment", "alignment": "mafft_result.fasta"})
+        viewer, _msa, tree = self.viewer_for(headers, tree=None)
+        expected = os.path.abspath(self.folder / "Guide_Trees" / TREE_NAME)
+        self.assertEqual(tree_backend.locate_tree(viewer),
+                         {"status": "no_tree", "alignment": ALIGNMENT_NAME, "tree_path": expected})
+        save_guide_tree(expected, headers)
+        self.assertEqual(tree_backend.locate_tree(viewer),
+                         {"status": "present", "alignment": ALIGNMENT_NAME, "tree_path": expected})
+
+    def test_whatever_is_there_is_present_and_nothing_is_read(self):
+        headers = headers_of(10)
+        viewer, _msa, tree = self.viewer_for(headers)
+        tree.write_text("not a tree", encoding="utf-8")
+        with mock.patch.object(tree_backend, "read_guide_tree", side_effect=AssertionError("read the file")):
+            self.assertEqual(tree_backend.locate_tree(viewer)["status"], "present")
+        # tree_state is what finds out that it is no tree.
+        self.assertEqual(tree_backend.tree_state(viewer)["status"], "unreadable")
+
+    def test_an_alignment_that_failed_to_load_has_no_place_for_a_tree(self):
+        headers = headers_of(10)
+        msa, _tree = make_alignment_folder(self.folder, headers)
+        self.assertEqual(tree_backend.locate_tree(make_viewer(msa, headers, loaded=False)), {"status": "no_alignment"})
 
 
 class HowTheTreeFitsTests(FolderTestCase):

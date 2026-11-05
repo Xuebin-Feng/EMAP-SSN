@@ -24,14 +24,14 @@ from Viewer_Command_Portal import CURRENT
 from desktop.Command_Metadata import argument, choice, entry
 from utilities.Localization import JoinedMessage, Message
 from web_ui.Browser_Page import is_headless, page_address, page_is_open
-from web_ui.tree_backend import register
+from web_ui.tree_backend import locate_tree, register
 
 # --- What this command declares about itself ---
 # A page for the person at the Viewer: nothing in it an Agent can read (the tree is not offered to one), so an Agent
 # reply may not open it, and the Agent's instructions, which have no room to spare, have no item for it.
 AGENT_POLICY = 'refuse'
 
-CATALOG_ENTRY = entry('Open Tree View in the browser: the guide tree the Embedding MSA tool saved for the alignment that is loaded, drawn beside the network. The page names no file: the tree is the one saved in the Guide_Trees folder of the alignment\'s folder, and an alignment that did not come from the tool has none. Needs a Viewer that shows windows.',
+CATALOG_ENTRY = entry('Open Tree View in the browser: the guide tree the Embedding MSA tool saved for the alignment that is loaded, drawn beside the network. The page names no file: the tree is the one saved in the Guide_Trees folder of the alignment\'s folder, and an alignment that did not come from the tool has none. With no alignment, or no tree for it, the page still opens on a card that says why, and the result names the file it looked for. A page that is open already is not opened again, and the result says so. Needs a Viewer that shows windows.',
     argument('action', 'Omit to open the page. Registration only adds the Tree View button to the Console without opening it.', choice('--register-only')), opens_interface=True)
 
 # How the Viewer dispatches this command (Command_Declarations). Opening the page changes nothing a waiting
@@ -69,6 +69,28 @@ def _refuse(viewer, message):
     Command_Engine.command_failed(viewer, message)
 
 
+def _no_tree_note(viewer):
+    """The sentence that says why Tree View has no tree to show, or None when it has one (or something that may be one).
+
+    The page opens all the same: a request that is valid succeeds, with this to tell the person what is missing.
+    """
+    found = locate_tree(viewer)
+    if found["status"] == "no_alignment":
+        return Message("No alignment is loaded, so there is no guide tree to show.")
+    if found["status"] == "unnamed_alignment":
+        return Message("The loaded alignment, {alignment}, was not named by the Embedding MSA tool, so it has no guide tree.",
+                       alignment=found["alignment"])
+    if found["status"] == "no_tree":
+        return Message("No guide tree was found for the loaded alignment; Tree View looks for {path}.", path=found["tree_path"])
+    return None
+
+
+def _succeeded(viewer, message):
+    """Report success with ``message``, and after it the note on a missing tree when there is one."""
+    note = _no_tree_note(viewer)
+    Command_Engine.command_succeeded(viewer, message if note is None else JoinedMessage([message, note], separator=" "))
+
+
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
@@ -92,11 +114,12 @@ def run(viewer, args):
     # is reported on the status line only.
     options = {"show_existing_dialog": False} if CURRENT.get() is not None else {}
     if viewer.open_page("tree", **options):
-        Command_Engine.command_succeeded(viewer, Message("Opened Tree View."))
+        _succeeded(viewer, Message("Opened Tree View."))
     elif page_is_open(viewer, "tree"):
-        Command_Engine.command_failed(viewer, Message("Tree View is already open in your browser."))
+        # Nothing to open: it is open. A valid request that changes nothing succeeds, with a note.
+        _succeeded(viewer, Message("Tree View is already open in your browser."))
     elif is_headless(viewer) and (address := page_address(viewer, "/tree.html")) is not None:
-        Command_Engine.command_succeeded(
+        _succeeded(
             viewer,
             Message("A Viewer with no window opens no browser page; Tree View is served at {address}.", address=address),
         )
