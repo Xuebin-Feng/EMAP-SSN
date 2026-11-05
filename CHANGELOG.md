@@ -80,6 +80,20 @@ still change before version 1.0.0.
     not bootstrap support.
   - It is a guide tree, not a phylogeny: its distances are inverted alignment scores, partly
     imputed on sparse networks. The alignment itself is unchanged.
+- **Tree View, a Viewer page for the guide tree.** The `tree` command, or the Tree View
+  button it adds to the Console, opens the guide tree of the loaded alignment in the browser.
+  - **There is no tree to choose.** The page reads `Guide_Trees/<name>_guide_tree.nex` beside
+    `<name>_alignment.fasta`, and follows the alignment when another one is loaded.
+  - **Navigation:** the rows and the width zoom separately, the tree pans, and headers can be
+    searched (a substring, or an exact header in quotes). Hovering or clicking a branch or
+    clade shows its details. Clades too small to draw are shown as one bar.
+  - **The Details panel** names the file, says how the tree was built, and counts how its
+    leaves match the network and the alignment. A tree saved for another alignment, an
+    alignment older than its tree (an unfinished run), and leaves missing from the network
+    or the alignment are shown as warnings.
+  - **With nothing to show** (no alignment, an alignment the Embedding MSA tool did not
+    name, or no tree file), the page opens on a card that says why, and the command's
+    result names the file it looked for.
 
 ### Changed
 
