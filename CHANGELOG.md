@@ -84,9 +84,17 @@ still change before version 1.0.0.
   button it adds to the Console, opens the guide tree of the loaded alignment in the browser.
   - **There is no tree to choose.** The page reads `Guide_Trees/<name>_guide_tree.nex` beside
     `<name>_alignment.fasta`, and follows the alignment when another one is loaded.
-  - **Navigation:** the rows and the width zoom separately, the tree pans, and headers can be
-    searched (a substring, or an exact header in quotes). Hovering or clicking a branch or
-    clade shows its details. Clades too small to draw are shown as one bar.
+  - **Three layouts:** rectangular, circular and unrooted, each drawn with branch lengths
+    (phylogram) or without (cladogram). A rooted tree opens rectangular and an unrooted tree
+    opens unrooted; either can be switched to any layout. An unrooted tree drawn rectangular
+    or circular is marked "Drawn from the midpoint root; the tree itself is unrooted."
+  - **Navigation:** the tree zooms and pans; in the rectangular layout the rows and the width
+    zoom separately. Headers can be searched (a substring, or an exact header in quotes).
+    Hovering or clicking a branch or clade shows its details, and double-clicking a clade
+    zooms to it.
+  - **Large trees:** a clade can be folded into one shape and opened again, and an overview
+    map in the corner shows the whole tree and where the view is. Clades too small to see are
+    drawn as one line, and names appear only where they fit.
   - **The Details panel** names the file, says how the tree was built, and counts how its
     leaves match the network and the alignment. A tree saved for another alignment, an
     alignment older than its tree (an unfinished run), and leaves missing from the network
@@ -94,6 +102,9 @@ still change before version 1.0.0.
   - **With nothing to show** (no alignment, an alignment the Embedding MSA tool did not
     name, or no tree file), the page opens on a card that says why, and the command's
     result names the file it looked for.
+  - **From the Agent,** a reply that opens Tree View waits for the user to press Run, as
+    `meta` and `esmfold` do.
+  - **In the VR viewer,** `tree` says that Tree View needs the desktop Viewer.
 
 ### Changed
 
