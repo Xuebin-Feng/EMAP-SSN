@@ -59,6 +59,57 @@ def random_linkage(count, seed=1):
     return rows
 
 
+def shaped_linkage(shape, count, seed=1):
+    """A valid UPGMA-style linkage matrix of ``count`` leaves in a given shape, made without any distances.
+
+    "bushy" is random_linkage. "caterpillar" joins one leaf at a time to a growing clade, so it is as deep as it
+    has leaves. "balanced" joins neighbours level by level. "chains" is 8 caterpillars joined as a balanced tree:
+    long chains, thousands of nodes deep at 44,000 leaves, hung from a shallow trunk. Heights rise with every row, so a clade is never above its parent.
+    """
+    if shape == "bushy":
+        return random_linkage(count, seed)
+    rows = []
+    sizes = {leaf: 1 for leaf in range(count)}
+
+    def join(first, second):
+        new = count + len(rows)
+        sizes[new] = sizes[first] + sizes[second]
+        rows.append([first, second, 1.0 + len(rows) * 0.01, sizes[new]])
+        return new
+
+    def chain(leaves):
+        clade = leaves[0]
+        for leaf in leaves[1:]:
+            clade = join(clade, leaf)
+        return clade
+
+    def balance(clades):
+        while len(clades) > 1:
+            joined = [join(clades[i], clades[i + 1]) for i in range(0, len(clades) - 1, 2)]
+            clades = joined + ([clades[-1]] if len(clades) % 2 else [])
+        return clades[0]
+
+    if shape == "caterpillar":
+        chain(list(range(count)))
+    elif shape == "balanced":
+        balance(list(range(count)))
+    elif shape == "chains":
+        groups = max(1, min(8, count // 2))
+        bounds = [round(count * g / groups) for g in range(groups + 1)]
+        balance([chain(list(range(bounds[g], bounds[g + 1]))) for g in range(groups)])
+    else:
+        raise ValueError(f"no tree shape {shape!r}")
+    return np.asarray(rows, dtype=float)
+
+
+def neighbor_joining_tree(count, seed=4):
+    """(linkage, branch lengths) of the neighbor-joining tree of ``count`` random points: what a [&U] file is made from."""
+    from scipy.spatial.distance import pdist
+
+    points = np.random.default_rng(seed).random((count, 4))
+    return writer().neighbor_joining_condensed(pdist(points), count, return_branch_lengths=True)
+
+
 def headers_of(count, prefix="sp|Q"):
     """Distinct headers shaped like UniProt ones, with the characters that need quoting in a tree file."""
     return [f"{prefix}{i:05d}|PROT_{i} Some protein, organism {i}" for i in range(count)]

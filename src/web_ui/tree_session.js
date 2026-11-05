@@ -21,6 +21,8 @@ window.TreeView = window.TreeView || {};
     let reconnecting = false;
     let searchTimer = null;
     let copiedTimer = null;
+    // Whether the overview map is wanted (it is shown only with a tree).
+    let overviewOn = true;
 
     // ---- Icons -----------------------------------------------------------------------------------------------
 
@@ -48,9 +50,10 @@ window.TreeView = window.TreeView || {};
         $("loading").classList.toggle("shown", which === "loading");
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
-        for (const id of ["search-input", "fit-btn", "details-btn"]) $(id).disabled = !hasTree;
+        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn"]) $(id).disabled = !hasTree;
+        $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
-            for (const id of ["search-prev", "search-next"]) $(id).disabled = true;
+            for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) $(id).disabled = true;
             $("search-count").textContent = "";
             $("details").classList.remove("shown");
             $("banner").classList.remove("shown");
@@ -125,6 +128,33 @@ window.TreeView = window.TreeView || {};
                     body: t("The Viewer answered with a status this page does not know: {status}", { status: String(payload.status) }),
                 };
         }
+    }
+
+    // ---- The layout ------------------------------------------------------------------------------------------
+
+    // Show in the controls the layout in use, and which forms of it there are: a tree with no branch lengths has no
+    // phylogram.
+    function showLayoutControls() {
+        const model = state.model;
+        $("layout-select").value = state.kind;
+        const lengths = state.mode === "lengths";
+        $("phylogram-btn").setAttribute("aria-pressed", String(lengths));
+        $("cladogram-btn").setAttribute("aria-pressed", String(!lengths));
+        $("phylogram-btn").disabled = !model.hasLengths;
+        $("cladogram-btn").disabled = !model.hasLengths && !lengths;
+        $("unfold-btn").disabled = !state.collapsedCount;
+        $("hints").textContent = TV.hintText();
+    }
+
+    // What the page does when something is folded up or opened.
+    TV.onFoldsChanged = function () {
+        $("unfold-btn").disabled = !state.collapsedCount;
+    };
+
+    function chooseLayout(kind, mode) {
+        TV.setLayout(kind, mode);
+        showLayoutControls();
+        TV.drawNow();
     }
 
     // ---- How the tree fits the alignment and the network -----------------------------------------------------
@@ -260,7 +290,12 @@ window.TreeView = window.TreeView || {};
             return false;
         }
         state.model = model;
-        state.layout = TV.layoutRectangular(model, "lengths");
+        TV.resetFolds();
+        // A rooted tree is shown from its root, an unrooted one (neighbor-joining's) from its middle.
+        state.kind = TV.defaultLayoutKind(model);
+        state.layout = TV.layoutTree(model, state.kind, "lengths");
+        state.mode = state.layout.mode;
+        TV.minimapChanged();
         state.hover = state.pinned = -1;
         state.matches = new Int32Array(0);
         state.current = -1;
@@ -268,6 +303,7 @@ window.TreeView = window.TreeView || {};
         $("search-box").classList.remove("has-text");
         show("tree");
         TV.fitView();
+        showLayoutControls();
         showWarnings(model.warnings);
         showDetails(payload, model);
         showPinned(-1);
@@ -332,6 +368,7 @@ window.TreeView = window.TreeView || {};
         setIcon(themeIcon, dark ? "sun" : "moon");
         // The canvas draws in the theme's colours, read again whenever it changes.
         state.palette = TV.readPalette();
+        TV.minimapChanged();
         TV.requestDraw();
     }
 
@@ -380,7 +417,18 @@ window.TreeView = window.TreeView || {};
         $("hints").textContent = TV.hintText();
         show("loading");
 
+        TV.attachMinimap($("minimap"));
         $("fit-btn").addEventListener("click", () => TV.fitView());
+        $("layout-select").addEventListener("change", (event) => chooseLayout(event.target.value, state.mode));
+        $("phylogram-btn").addEventListener("click", () => chooseLayout(state.kind, "lengths"));
+        $("cladogram-btn").addEventListener("click", () => chooseLayout(state.kind, "cladogram"));
+        $("unfold-btn").addEventListener("click", () => TV.openAll());
+        $("overview-btn").addEventListener("click", () => {
+            overviewOn = !overviewOn;
+            $("overview-btn").setAttribute("aria-pressed", String(overviewOn));
+            $("minimap").hidden = !overviewOn;
+            if (overviewOn) TV.requestDraw();
+        });
         $("details-btn").addEventListener("click", () => $("details").classList.toggle("shown"));
         $("empty-retry").addEventListener("click", () => TV.loadTree());
         $("empty-copy").addEventListener("click", copyPath);

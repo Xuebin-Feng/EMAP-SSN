@@ -9133,11 +9133,27 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Folded up: click it to open it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Branch length: {length}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it.</source>
+        <source>Click to open this clade</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click to fold this clade up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9389,6 +9405,62 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How the tree is laid out</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rectangular</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Circular</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unrooted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How the branches are drawn</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Draw each branch as long as its length</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Phylogram</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Draw the branches only to show who is next to whom</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cladogram</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open every clade that is folded up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show or hide the overview map</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Overview</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Show the whole tree (Home)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9406,6 +9478,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Guide tree of the loaded alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The whole tree. Press or drag to move there.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Overview of the whole tree</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

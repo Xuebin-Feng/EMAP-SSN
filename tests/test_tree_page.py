@@ -37,15 +37,17 @@ from tests.tree_fixtures import (  # noqa: E402
     headers_of,
     make_alignment_folder,
     make_viewer,
+    neighbor_joining_tree,
     random_linkage,
     save_guide_tree,
+    shaped_linkage,
     writer,
 )
 from utilities.Guide_Tree_File import read_guide_tree  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
-PAGE_FILES = ["tree.html", "tree_model.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_session.js"]
+PAGE_FILES = ["tree.html", "tree_model.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_minimap.js", "tree_session.js"]
 
 
 def clade_of(size_low, size_high):
@@ -620,6 +622,9 @@ class HitTestTests(TreeCase):
                     if (Math.abs(py - b.y) <= tol && px >= b.x0 - tol && px <= b.x + tol) found.push([i, 'branch']);
                     const f = m.childList[m.childStart[i]], l = m.childList[m.childStart[i + 1] - 1];
                     if (Math.abs(px - b.x) <= tol && py >= v.oy + L.y[f] * v.sy - tol && py <= v.oy + L.y[l] * v.sy + tol) found.push([i, 'connector']);
+                    // The square that folds a clade up, at its node, for the clade hovered or selected, if big enough for one.
+                    if ((i === s.hover || i === s.pinned) && i !== m.root && Math.max(b.right - b.left, b.bottom - b.top) >= TreeView.HANDLE_CLADE_PX
+                        && Math.abs(px - b.x) <= TreeView.HANDLE_PX / 2 + 1 && Math.abs(py - b.y) <= TreeView.HANDLE_PX / 2 + 1) found.push([i, 'handle']);
                 }
             }
             return found;
@@ -910,6 +915,1118 @@ class SearchTests(TreeCase):
         for pixel in info["seen"]:
             self.assertEqual(pixel, info["match"])
         self.assertNotEqual(info["none"], info["match"])
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Phase 2: the three layouts, folding clades, the overview map, level of detail
+# ---------------------------------------------------------------------------------------------------------------------
+
+def nj_options(count, seed=4):
+    """The writer's options for the neighbor-joining tree of ``count`` random points: a tree its file flags [&U]."""
+    linkage, lengths = neighbor_joining_tree(count, seed)
+    return {"linkage": linkage, "nj_branch_lengths": lengths}
+
+
+class LayoutCase(TreePageMixin, unittest.TestCase):
+    """A page over a neighbor-joining tree of 60 leaves (a file that says it is unrooted), in a view of 1300 x 800."""
+
+    COUNT = 60
+
+    def setUp(self):
+        super().setUp()
+        self.headers = headers_of(self.COUNT)
+        self.serve_headers(self.headers, **nj_options(self.COUNT))
+        self.open_page()
+
+    def tearDown(self):
+        self.view.resize(1300, 800)
+        super().tearDown()
+
+    def view_state(self):
+        return self.state("""({...TreeView.state.view, fitted: TreeView.state.fitted,
+            w: document.getElementById('tree-canvas').clientWidth, h: document.getElementById('tree-canvas').clientHeight})""")
+
+    def choose(self, kind=None, mode=None):
+        """Choose a layout and form as a person does, with the page's own controls."""
+        if kind:
+            self.script(f"""const select = document.getElementById('layout-select');
+                select.value = {json.dumps(kind)}; select.dispatchEvent(new Event('change')); return 1""")
+        if mode:
+            self.js(f"document.getElementById('{'phylogram' if mode == 'lengths' else 'cladogram'}-btn').click()")
+        self.script("TreeView.drawNow(); return 1")
+
+
+class LayoutChoiceTests(LayoutCase):
+    def test_an_unrooted_file_opens_unrooted_and_a_rooted_one_rectangular(self):
+        info = self.script("""return {kind: TreeView.state.kind, shown: TreeView.state.layout.kind, mode: TreeView.state.layout.mode,
+            select: document.getElementById('layout-select').value, rooted: TreeView.state.model.rooted,
+            hint: document.getElementById('hints').textContent};""")
+        self.assertEqual((info["kind"], info["shown"], info["select"], info["rooted"]), ("unrooted",) * 2 + ("unrooted", False))
+        self.assertEqual(info["mode"], "lengths")
+        self.assertEqual(info["hint"], "Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.")
+        # UPGMA's file says it is rooted; one that says neither is taken as rooted.
+        self.serve_headers(headers_of(20))
+        self.open_page()
+        self.assertEqual(self.state("[TreeView.state.kind, document.getElementById('layout-select').value, TreeView.state.model.rooted]"),
+                         ["rectangular", "rectangular", True])
+        folder = self.make_folder()
+        write_tree_file(folder, list("abc"), "#NEXUS\nBEGIN TREES;\n  TREE t = ((a:1,b:2):1,c:3);\nEND;\n")
+        self.serve_headers(list("abc"), folder=folder, tree=None)
+        self.open_page()
+        self.assertEqual(self.state("[TreeView.state.kind, TreeView.state.model.rooted]"), ["rectangular", None])
+
+    def test_the_selector_changes_the_layout_and_shows_the_whole_tree_again(self):
+        self.script("TreeView.zoomAbout(600, 300, 3, 3); return 1")
+        self.assertFalse(self.view_state()["fitted"])
+        for kind in ("circular", "rectangular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.script("""const s = TreeView.state, v = s.view, L = s.layout, b = L.bounds;
+                    return {kind: s.kind, layoutKind: L.kind, fitted: s.fitted, uniform: L.uniform, sx: v.sx, sy: v.sy,
+                            left: v.ox + b.minX * v.sx, right: v.ox + b.maxX * v.sx, top: v.oy + b.minY * v.sy, bottom: v.oy + b.maxY * v.sy,
+                            w: document.getElementById('tree-canvas').clientWidth, h: document.getElementById('tree-canvas').clientHeight};""")
+                self.assertEqual((info["kind"], info["layoutKind"], info["fitted"]), (kind, kind, True))
+                self.assertEqual(info["uniform"], kind != "rectangular")
+                self.assertGreaterEqual(info["left"], 0)
+                self.assertLessEqual(info["right"], info["w"])
+                self.assertGreaterEqual(info["top"], 0)
+                self.assertLessEqual(info["bottom"], info["h"])
+                if info["uniform"]:
+                    self.assertEqual(info["sx"], info["sy"])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_branch_form_follows_the_buttons_and_keeps_the_layout(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind, "cladogram")
+                info = self.script("""return {mode: TreeView.state.layout.mode, kind: TreeView.state.kind,
+                    pressed: ['phylogram-btn', 'cladogram-btn'].map(id => document.getElementById(id).getAttribute('aria-pressed'))};""")
+                self.assertEqual((info["mode"], info["kind"], info["pressed"]), ("cladogram", kind, ["false", "true"]))
+                self.choose(None, "lengths")
+                info = self.script("""return {mode: TreeView.state.layout.mode,
+                    pressed: ['phylogram-btn', 'cladogram-btn'].map(id => document.getElementById(id).getAttribute('aria-pressed'))};""")
+                self.assertEqual((info["mode"], info["pressed"]), ("lengths", ["true", "false"]))
+
+    def test_changing_the_layout_keeps_the_branch_form(self):
+        for mode in ("cladogram", "lengths"):
+            with self.subTest(mode=mode):
+                self.choose(None, mode)
+                for kind in ("circular", "unrooted", "rectangular"):
+                    self.choose(kind)
+                    self.assertEqual(self.state("TreeView.state.layout.mode"), mode, kind)
+
+    def test_a_tree_with_no_branch_lengths_has_no_phylogram_to_choose(self):
+        folder = self.make_folder()
+        write_tree_file(folder, list("abcd"), "#NEXUS\nBEGIN TREES;\n  TREE t = [&R] ((a,b),(c,d));\nEND;\n")
+        self.serve_headers(list("abcd"), folder=folder, tree=None)
+        self.open_page()
+        info = self.script("""return {mode: TreeView.state.layout.mode, disabled: ['phylogram-btn', 'cladogram-btn'].map(id => document.getElementById(id).disabled),
+            pressed: ['phylogram-btn', 'cladogram-btn'].map(id => document.getElementById(id).getAttribute('aria-pressed'))};""")
+        self.assertEqual((info["mode"], info["disabled"], info["pressed"]), ("cladogram", [True, True], ["false", "true"]))
+        for kind in ("circular", "unrooted"):
+            self.choose(kind)
+            self.assertEqual(self.state("TreeView.state.layout.mode"), "cladogram")
+
+    def test_the_controls_wait_for_a_tree(self):
+        viewer = server_viewer()
+        viewer.alignment, viewer.full_headers = None, []
+        self.start_page_server(viewer)
+        self.open_page("empty")
+        disabled = self.state("""['layout-select', 'phylogram-btn', 'cladogram-btn', 'unfold-btn', 'overview-btn', 'fit-btn']
+            .map(id => document.getElementById(id).disabled)""")
+        self.assertEqual(disabled, [True] * 6)
+        self.assertTrue(self.state("document.getElementById('minimap').hidden"))
+
+
+class LayoutGeometryTests(LayoutCase):
+    """The layouts, as the arrays they come to: every branch its length, every leaf in its place."""
+
+    COUNT = 80
+
+    def test_every_branch_is_as_long_as_its_length_in_a_phylogram_and_a_step_in_a_cladogram(self):
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [];
+            const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+            for (const kind of ['rectangular', 'circular', 'unrooted']) {
+                const lengths = TreeView.layoutTree(m, kind, 'lengths'), steps = TreeView.layoutTree(m, kind, 'cladogram');
+                if (lengths.mode !== 'lengths' || steps.mode !== 'cladogram') wrong.push([kind, 'mode']);
+                for (let i = 0; i < m.nodeCount - 1; i++) {
+                    const p = m.parent[i];
+                    // The distance between a node and its parent along the branch: x for a rectangular tree, the radius for a
+                    // circular one, the straight line for an unrooted one.
+                    const along = (L) => kind === 'rectangular' ? L.x[i] - L.x[p] : kind === 'circular' ? L.depth[i] - L.depth[p]
+                        : Math.hypot(L.x[i] - L.x[p], L.y[i] - L.y[p]);
+                    if (!near(along(lengths), Math.max(0, m.length[i]))) wrong.push([kind, 'length', i, along(lengths), m.length[i]]);
+                    if (kind === 'unrooted' ? !near(along(steps), 1) : !(along(steps) >= 1 - 1e-9)) wrong.push([kind, 'step', i, along(steps)]);
+                }
+                // In a cladogram every leaf stands at the end.
+                if (kind !== 'unrooted') {
+                    const ends = new Set(Array.from(m.leafNode, (node) => (kind === 'rectangular' ? steps.x[node] : steps.depth[node])));
+                    if (ends.size !== 1) wrong.push([kind, 'cladogram leaves', [...ends]]);
+                }
+            }
+            return wrong;""")
+        self.assertEqual(bad, [])
+
+    def test_the_leaves_keep_their_order_and_share_the_circle_in_proportion(self):
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [];
+            const near = (a, b) => Math.abs(a - b) <= 1e-9;
+            const L = m.leafCount;
+            const rect = TreeView.layoutTree(m, 'rectangular', 'lengths'), circ = TreeView.layoutTree(m, 'circular', 'lengths');
+            const unr = TreeView.layoutTree(m, 'unrooted', 'lengths');
+            for (let k = 0; k < L; k++) {
+                const node = m.leafNode[k];
+                if (!near(rect.y[node], k + 0.5)) wrong.push(['rect row', k]);
+                if (!near(circ.angle[node], -Math.PI / 2 + 2 * Math.PI * (k + 0.5) / L)) wrong.push(['circular angle', k]);
+            }
+            // Equal angle: the root has the whole circle; a clade has the share its leaves are of the leaves, its children
+            // divide it end to end in order, and its branch runs along the middle of its share.
+            if (!near(unr.low[m.root], -Math.PI) || !near(unr.high[m.root], Math.PI)) wrong.push(['root share']);
+            for (let i = 0; i < m.nodeCount; i++) {
+                const share = unr.high[i] - unr.low[i];
+                if (!near(share, 2 * Math.PI * TreeView.leavesUnder(m, i) / L)) wrong.push(['share', i]);
+                if (m.childCount[i] > 0) {
+                    let at = unr.low[i];
+                    for (let k = m.childStart[i]; k < m.childStart[i + 1]; k++) {
+                        const child = m.childList[k];
+                        if (!near(unr.low[child], at)) wrong.push(['child start', i, child]);
+                        at = unr.high[child];
+                    }
+                    if (!near(at, unr.high[i])) wrong.push(['children end', i]);
+                }
+                if (i !== m.root && m.length[i] > 1e-6) {
+                    const p = m.parent[i], direction = Math.atan2(unr.y[i] - unr.y[p], unr.x[i] - unr.x[p]);
+                    if (!near(Math.cos(direction), Math.cos((unr.low[i] + unr.high[i]) / 2))) wrong.push(['direction', i]);
+                }
+            }
+            return wrong;""")
+        self.assertEqual(bad, [])
+
+    def test_circular_and_unrooted_layouts_equal_an_independent_computation_from_the_file(self):
+        tree = read_guide_tree(self.tree_file)
+        count, parent, length = tree.node_count, tree.parent, tree.length.astype(np.float64)
+        children = [[] for _ in range(count)]
+        for node in range(count - 1):
+            children[parent[node]].append(node)
+        under = np.zeros(count)
+        for node in range(count):
+            under[node] = sum(under[child] for child in children[node]) if children[node] else 1
+        # The equal-angle layout.
+        low, high, x, y = np.zeros(count), np.zeros(count), np.zeros(count), np.zeros(count)
+        low[-1], high[-1] = -np.pi, np.pi
+        for node in range(count - 1, -1, -1):
+            start = low[node]
+            for child in children[node]:
+                share = (high[node] - low[node]) * under[child] / under[node]
+                low[child], high[child] = start, start + share
+                start += share
+                direction = (low[child] + high[child]) / 2
+                x[child] = x[node] + max(0.0, length[child]) * np.cos(direction)
+                y[child] = y[node] + max(0.0, length[child]) * np.sin(direction)
+        # The circular layout: the leaves round the circle from the top, a clade at the middle of its first and last child.
+        angle, depth = np.zeros(count), np.zeros(count)
+        leaf = 0
+        for node in range(count):
+            if children[node]:
+                angle[node] = (angle[children[node][0]] + angle[children[node][-1]]) / 2
+            else:
+                angle[node] = -np.pi / 2 + 2 * np.pi * (leaf + 0.5) / tree.leaf_count
+                leaf += 1
+        for node in range(count - 2, -1, -1):
+            depth[node] = depth[parent[node]] + max(0.0, length[node])
+        seen = self.script("""const m = TreeView.state.model, u = TreeView.layoutTree(m, 'unrooted', 'lengths'), c = TreeView.layoutTree(m, 'circular', 'lengths');
+            return {ux: Array.from(u.x), uy: Array.from(u.y), cx: Array.from(c.x), cy: Array.from(c.y), angle: Array.from(c.angle)};""")
+        np.testing.assert_allclose(seen["ux"], x, rtol=1e-9, atol=1e-9)
+        np.testing.assert_allclose(seen["uy"], y, rtol=1e-9, atol=1e-9)
+        np.testing.assert_allclose(seen["angle"], angle, rtol=1e-12)
+        np.testing.assert_allclose(seen["cx"], depth * np.cos(angle), rtol=1e-9, atol=1e-9)
+        np.testing.assert_allclose(seen["cy"], depth * np.sin(angle), rtol=1e-9, atol=1e-9)
+
+    def test_every_nodes_box_holds_its_lines_its_shape_and_its_childrens_boxes(self):
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [], o = new Float64Array(8);
+            for (const kind of ['rectangular', 'circular', 'unrooted']) for (const mode of ['lengths', 'cladogram']) {
+                const L = TreeView.layoutTree(m, kind, mode), b = L.boxes;
+                const inside = (i, x, y) => x >= b.x0[i] - 1e-9 && x <= b.x1[i] + 1e-9 && y >= b.y0[i] - 1e-9 && y <= b.y1[i] + 1e-9;
+                for (let i = 0; i < m.nodeCount; i++) {
+                    L.stem(i, o);
+                    if (!inside(i, o[0], o[1]) || !inside(i, o[2], o[3])) wrong.push([kind, mode, i, 'stem']);
+                    L.join(i, o);
+                    if (o[0] === 1 && (!inside(i, o[1], o[2]) || !inside(i, o[3], o[4]))) wrong.push([kind, mode, i, 'line']);
+                    if (o[0] === 2) for (let s = 0; s <= 16; s++) {
+                        const a = o[2] + (o[3] - o[2]) * s / 16;
+                        if (!inside(i, o[1] * Math.cos(a), o[1] * Math.sin(a))) wrong.push([kind, mode, i, 'arc', s]);
+                    }
+                    if (m.childCount[i] > 0) {
+                        L.wedge(i, o);
+                        if (o[0] === 0) {
+                            for (const [x, y] of [[o[1], o[2]], [o[3], o[4]], [o[5], o[6]]]) if (!inside(i, x, y)) wrong.push([kind, mode, i, 'triangle']);
+                        } else {
+                            if (!inside(i, o[1], o[2])) wrong.push([kind, mode, i, 'point']);
+                            for (let s = 0; s <= 16; s++) {
+                                const a = o[6] + (o[7] - o[6]) * s / 16;
+                                if (!inside(i, o[3] + o[5] * Math.cos(a), o[4] + o[5] * Math.sin(a))) wrong.push([kind, mode, i, 'slice', s]);
+                            }
+                        }
+                    }
+                    const p = m.parent[i];
+                    if (p >= 0 && !(b.x0[i] >= b.x0[p] - 1e-9 && b.x1[i] <= b.x1[p] + 1e-9 && b.y0[i] >= b.y0[p] - 1e-9 && b.y1[i] <= b.y1[p] + 1e-9)) wrong.push([kind, mode, i, 'child box']);
+                }
+            }
+            return wrong.slice(0, 10);""")
+        self.assertEqual(bad, [])
+
+    def test_the_tiny_clades_line_goes_from_the_node_to_where_the_clade_reaches(self):
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [], o = new Float64Array(8), w = new Float64Array(8);
+            for (const kind of ['rectangular', 'circular', 'unrooted']) {
+                const L = TreeView.layoutTree(m, kind, 'lengths'), b = L.boxes;
+                for (let i = 0; i < m.nodeCount; i++) {
+                    if (m.childCount[i] === 0) continue;
+                    L.mark(i, o);
+                    L.stem(i, w);
+                    if (Math.hypot(o[0] - w[2], o[1] - w[3]) > 1e-9) wrong.push([kind, i, 'starts at the node']);
+                    for (const [x, y] of [[o[0], o[1]], [o[2], o[3]]]) {
+                        if (x < b.x0[i] - 1e-9 || x > b.x1[i] + 1e-9 || y < b.y0[i] - 1e-9 || y > b.y1[i] + 1e-9) wrong.push([kind, i, 'inside the box']);
+                    }
+                    if (!(L.thickness(i, 1, 1) >= 0)) wrong.push([kind, i, 'thickness']);
+                }
+            }
+            return wrong.slice(0, 10);""")
+        self.assertEqual(bad, [])
+
+    def test_everything_of_an_unrooted_clade_lies_in_the_slice_of_the_circle_that_is_its_share(self):
+        # A clade that is long but a few pixels wide at its far end is drawn as one line along the middle of its slice.
+        # That stands for the clade only if nothing of it lies outside the slice, from its node as far as it reaches.
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [], tau = 2 * Math.PI;
+            for (const mode of ['lengths', 'cladogram']) {
+                const L = TreeView.layoutTree(m, 'unrooted', mode);
+                for (let k = 0; k < m.nodeCount; k++) {
+                    for (let a = m.parent[k]; a >= 0; a = m.parent[a]) {
+                        const dx = L.x[k] - L.x[a], dy = L.y[k] - L.y[a], r = Math.hypot(dx, dy);
+                        if (r > L.far[a] + 1e-9) wrong.push([mode, k, a, 'beyond its reach']);
+                        if (r > 1e-9) {
+                            const turn = (((Math.atan2(dy, dx) - L.low[a]) % tau) + tau) % tau;
+                            if (turn > L.high[a] - L.low[a] + 1e-9) wrong.push([mode, k, a, 'outside its slice']);
+                        }
+                    }
+                }
+            }
+            return wrong.slice(0, 10);""")
+        self.assertEqual(bad, [])
+
+    def test_an_unrooted_clades_line_runs_along_the_middle_of_its_slice_and_is_no_wider_than_it(self):
+        bad = self.script("""
+            const m = TreeView.state.model, wrong = [], o = new Float64Array(8);
+            for (const mode of ['lengths', 'cladogram']) {
+                const L = TreeView.layoutTree(m, 'unrooted', mode);
+                for (let i = 0; i < m.nodeCount; i++) {
+                    if (m.childCount[i] === 0) continue;
+                    L.mark(i, o);
+                    const middle = (L.low[i] + L.high[i]) / 2;
+                    if (Math.hypot(o[2] - (L.x[i] + L.far[i] * Math.cos(middle)), o[3] - (L.y[i] + L.far[i] * Math.sin(middle))) > 1e-9) wrong.push([mode, i, 'direction']);
+                    // Half the width of the slice at its far end, at most: the mean width of the slice.
+                    if (L.thickness(i, 1, 1) > L.far[i] * (L.high[i] - L.low[i]) * 0.5 + 1e-12) wrong.push([mode, i, 'thickness']);
+                }
+            }
+            return wrong.slice(0, 10);""")
+        self.assertEqual(bad, [])
+
+    def test_a_single_leaf_and_a_pair_have_every_layout(self):
+        for text, headers, leaves in (("only;", ["only"], 1), ("(a:1,b:2);", ["a", "b"], 2)):
+            with self.subTest(leaves=leaves):
+                folder = self.make_folder()
+                write_tree_file(folder, headers, f"#NEXUS\nBEGIN TREES;\n  TREE t = [&U] {text}\nEND;\n")
+                self.serve_headers(headers, folder=folder, tree=None)
+                self.open_page()
+                for kind in ("rectangular", "circular", "unrooted"):
+                    for mode in ("lengths", "cladogram"):
+                        self.choose(kind, mode)
+                        info = self.script("""const L = TreeView.state.layout, v = TreeView.state.view;
+                            return {finite: [v.sx, v.sy, v.ox, v.oy, L.bounds.minX, L.bounds.maxX, L.bounds.minY, L.bounds.maxY].every(Number.isFinite),
+                                    stats: TreeView.lastStats};""")
+                        self.assertTrue(info["finite"], (kind, mode))
+                        self.assertGreaterEqual(info["stats"]["visited"], 1)
+                    self.script("TreeView.focusLeaf(0); TreeView.drawNow(); return 1")
+                self.assertEqual(self.console_errors(), [])
+
+
+class UniformZoomTests(LayoutCase):
+    """The circular and unrooted layouts have one scale: no zoom of the rows or the width alone."""
+
+    def test_every_wheel_gesture_zooms_both_ways_alike_about_the_pointer(self):
+        for kind in ("circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                for options, factor in (({}, np.exp(0.18)), ({"shiftKey": True}, np.exp(0.18)), ({"ctrlKey": True}, np.exp(0.18))):
+                    before = self.view_state()
+                    self.script(f"return fire.wheel(-120, 700, 300, {json.dumps(options)})")
+                    after = self.view_state()
+                    self.assertAlmostEqual(after["sx"] / before["sx"], factor, places=6, msg=options)
+                    self.assertEqual(after["sx"], after["sy"])
+                    # The point under the pointer stays under it.
+                    self.assertAlmostEqual((700 - after["ox"]) / after["sx"], (700 - before["ox"]) / before["sx"], places=6)
+                    self.assertAlmostEqual((300 - after["oy"]) / after["sy"], (300 - before["oy"]) / before["sy"], places=6)
+
+    def test_keys_zoom_and_fit_in_one_scale_and_the_zoom_is_held_between_limits(self):
+        self.choose("circular")
+        limits = self.state("TreeView.limits()")
+        self.assertEqual((limits["sxMin"], limits["sxMax"]), (limits["syMin"], limits["syMax"]))
+        for key in ("]", "+", "="):
+            before = self.view_state()
+            self.script(f"fire.key({json.dumps(key)}); return 1")
+            after = self.view_state()
+            self.assertAlmostEqual(after["sx"] / before["sx"], 1.25)
+            self.assertEqual(after["sx"], after["sy"])
+        for _ in range(80):
+            self.js("fire.wheel(-400, 600, 300); 1")
+        self.assertEqual(self.view_state()["sx"], limits["sxMax"])
+        for _ in range(160):
+            self.js("fire.wheel(400, 600, 300); 1")
+        self.assertEqual(self.view_state()["sx"], limits["sxMin"])
+        self.script("fire.key('Home'); return 1")
+        self.assertTrue(self.view_state()["fitted"])
+
+    def test_the_overview_and_the_ruler_belong_to_the_layouts_that_have_them(self):
+        # A rectangular tree has the ruler, with its rows; the others have none, and the pointer is not taken by a strip.
+        self.choose("rectangular")
+        self.assertTrue(self.state("TreeView.drawNow() && true"))
+        ruler = self.state("fire.pixel(document.getElementById('tree-canvas').clientWidth - 6, 300).slice(0, 3)")
+        self.choose("circular")
+        none = self.state("fire.pixel(document.getElementById('tree-canvas').clientWidth - 6, 300).slice(0, 3)")
+        self.assertNotEqual(ruler, none)
+        before = self.view_state()
+        self.script("""const w = document.getElementById('tree-canvas').clientWidth;
+            fire.pointer('pointerdown', w - 5, 100); fire.pointer('pointerup', w - 5, 100); return 1""")
+        self.assertEqual(self.view_state()["oy"], before["oy"])
+
+    def test_a_leaf_is_brought_into_view_among_the_leaves_near_it(self):
+        for kind in ("circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind, "cladogram")
+                info = self.script("""TreeView.focusLeaf(20); TreeView.drawNow();
+                    const s = TreeView.state, box = TreeView.nodePixels(s, s.model.leafNode[20]);
+                    return {x: box.x, y: box.y, w: document.getElementById('tree-canvas').clientWidth, h: document.getElementById('tree-canvas').clientHeight,
+                            fitted: s.fitted, labels: TreeView.lastStats.labels};""")
+                self.assertTrue(0 < info["x"] < info["w"] and 0 < info["y"] < info["h"], info)
+                self.assertFalse(info["fitted"])
+                self.assertGreater(info["labels"], 0)
+
+
+    def test_names_need_room_in_an_unrooted_tree_and_dots_need_less(self):
+        self.choose("unrooted", "lengths")
+
+        def with_leaves_apart_by(pixels):
+            # The view in which the leaves at the farthest rim are this far from each other, round the tree's root.
+            return self.script(f"""const s = TreeView.state, L = s.layout, root = s.model.root;
+                const scale = {pixels} / (L.far[L.far.length - 1] * L.slot);
+                s.view = {{sx: scale, sy: scale, ox: 650 - L.x[root] * scale, oy: 330 - L.y[root] * scale}};
+                s.fitted = false;
+                TreeView.drawNow(); return {{...TreeView.lastStats}};""")
+        crowded, roomy, wide = with_leaves_apart_by(2), with_leaves_apart_by(8), with_leaves_apart_by(24)
+        self.assertEqual((crowded["dots"], crowded["labels"]), (0, 0))
+        self.assertGreater(roomy["dots"], 0)
+        self.assertEqual(roomy["labels"], 0)
+        self.assertGreater(wide["dots"], 0)
+        self.assertGreater(wide["labels"], 0)
+
+    def test_every_arc_that_is_in_view_is_drawn(self):
+        self.choose("circular", "lengths")
+        info = self.script("""
+            TreeView.zoomAbout(650, 330, 5, 5);
+            const s = TreeView.state, m = s.model, L = s.layout, v = s.view, o = new Float64Array(8);
+            const w = TreeView.canvas.clientWidth, h = TreeView.canvas.clientHeight;
+            const drawn = new Set(), arc = Path2D.prototype.arc;
+            Path2D.prototype.arc = function (cx, cy, r, a0, a1) { drawn.add(r.toFixed(3) + '|' + a0.toFixed(6)); return arc.apply(this, arguments); };
+            try { TreeView.drawNow(); } finally { Path2D.prototype.arc = arc; }
+            let inView = 0;
+            const missing = [];
+            for (let i = 0; i < m.nodeCount; i++) {
+                L.join(i, o);
+                if (o[0] !== 2) continue;
+                let seen = false;
+                for (let k = 0; k <= 24 && !seen; k++) {
+                    const a = o[2] + (o[3] - o[2]) * k / 24;
+                    const px = v.ox + o[1] * Math.cos(a) * v.sx, py = v.oy + o[1] * Math.sin(a) * v.sy;
+                    seen = px >= 0 && px <= w && py >= 0 && py <= h;
+                }
+                if (!seen) continue;
+                inView++;
+                if (!drawn.has((o[1] * v.sx).toFixed(3) + '|' + o[2].toFixed(6))) missing.push(i);
+            }
+            return {inView, missing: missing.slice(0, 5), arcs: drawn.size};""")
+        self.assertGreater(info["inView"], 5)
+        self.assertEqual(info["missing"], [])
+
+    def test_zooming_to_a_node_that_is_not_there_changes_nothing(self):
+        before = self.view_state()
+        self.script("for (const node of [-1, 1e6, NaN, undefined]) TreeView.zoomToNode(node); return 1")
+        self.assertEqual(self.view_state(), before)
+
+
+class HitTestEverywhereTests(LayoutCase):
+    """What is under the pointer in the circular and unrooted layouts, from the clades near it, against looking at every node.
+
+    (The rectangular layout's is checked above, line by line, by HitTestTests; a row of it is as tall as its row.)
+    """
+
+    COUNT = 80
+
+    SCRIPT = """
+        const s = TreeView.state, m = s.model, tol = 5, o = new Float64Array(8);
+        const segment = (px, py, x0, y0, x1, y1) => {
+            const dx = x1 - x0, dy = y1 - y0, q = dx * dx + dy * dy;
+            const t = q > 0 ? Math.min(1, Math.max(0, ((px - x0) * dx + (py - y0) * dy) / q)) : 0;
+            return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
+        };
+        const arc = (px, py, cx, cy, r, a0, a1) => {
+            const dx = px - cx, dy = py - cy, tau = 2 * Math.PI;
+            const turn = (((Math.atan2(dy, dx) - a0) % tau) + tau) % tau;
+            if (turn <= a1 - a0) return Math.abs(Math.hypot(dx, dy) - r);
+            return Math.min(Math.hypot(px - (cx + r * Math.cos(a0)), py - (cy + r * Math.sin(a0))), Math.hypot(px - (cx + r * Math.cos(a1)), py - (cy + r * Math.sin(a1))));
+        };
+        // The distance from a pixel to each line of node i, as {part: distance}.
+        const distances = (i, px, py) => {
+            const v = s.view, L = s.layout, found = {};
+            L.stem(i, o);
+            const x0 = v.ox + o[0] * v.sx, y0 = v.oy + o[1] * v.sy, x1 = v.ox + o[2] * v.sx, y1 = v.oy + o[3] * v.sy;
+            found[m.childCount[i] === 0 ? 'leaf' : 'branch'] = segment(px, py, x0, y0, x1, y1);
+            L.join(i, o);
+            if (o[0] === 1) found.connector = segment(px, py, v.ox + o[1] * v.sx, v.oy + o[2] * v.sy, v.ox + o[3] * v.sx, v.oy + o[4] * v.sy);
+            if (o[0] === 2) found.connector = arc(px, py, v.ox, v.oy, o[1] * v.sx, o[2], o[3]);
+            return found;
+        };
+        // The nearest line of any node, and the pixel's distance to it.
+        const nearest = (px, py) => {
+            let best = {distance: Infinity};
+            for (let i = 0; i < m.nodeCount; i++) {
+                for (const [part, distance] of Object.entries(distances(i, px, py))) if (distance < best.distance) best = {node: i, part, distance};
+            }
+            return best;
+        };
+        // No names and no dots, which are the page's own business: the lines are what is compared.
+        TreeView.leafDetail = () => ({dots: false, labels: false, size: 14});
+    """
+
+    def test_the_nearest_line_is_found_in_every_layout_as_by_looking_at_every_node(self):
+        result = self.script(f"""
+            {self.SCRIPT}
+            const out = {{}};
+            for (const kind of ['circular', 'unrooted']) {{
+                TreeView.setLayout(kind, 'cladogram');
+                TreeView.drawNow();
+                let seeded = 4321;
+                const random = () => (seeded = (seeded * 1103515245 + 12345) % 2147483648) / 2147483648;
+                const missed = [], wrong = [];
+                let hits = 0, empty = 0;
+                for (let n = 0; n < 700; n++) {{
+                    const px = random() * 1286, py = random() * 660 + 4;
+                    const best = nearest(px, py), hit = TreeView.hitTest(px, py);
+                    if (best.distance > tol) {{
+                        empty++;
+                        if (hit) wrong.push(['hit where nothing is', px, py, hit]);
+                        continue;
+                    }}
+                    if (!hit) {{ missed.push([px, py, best]); continue; }}
+                    hits++;
+                    const found = distances(hit.node, px, py)[hit.part];
+                    if (found === undefined || Math.abs(found - best.distance) > 1e-6) wrong.push([px, py, hit, best]);
+                }}
+                out[kind] = {{hits, empty, missed: missed.slice(0, 3), wrong: wrong.slice(0, 3)}};
+            }}
+            return out;""")
+        for kind, found in result.items():
+            with self.subTest(kind=kind):
+                self.assertGreater(found["hits"], 15)
+                self.assertGreater(found["empty"], 100)
+                self.assertEqual((found["missed"], found["wrong"]), ([], []))
+
+    def test_a_point_on_a_branch_or_a_join_finds_its_node_in_every_layout(self):
+        result = self.script(f"""
+            {self.SCRIPT}
+            const out = {{}};
+            for (const kind of ['circular', 'unrooted']) {{
+                TreeView.setLayout(kind, 'cladogram');
+                TreeView.drawNow();
+                const v = s.view, L = s.layout, unseen = [];
+                let tried = 0;
+                for (let i = 0; i < m.nodeCount; i++) {{
+                    L.stem(i, o);
+                    const length = Math.hypot((o[2] - o[0]) * v.sx, (o[3] - o[1]) * v.sy);
+                    if (i === m.root || length < 16) continue;
+                    const px = v.ox + (o[0] + o[2]) / 2 * v.sx, py = v.oy + (o[1] + o[3]) / 2 * v.sy;
+                    if (px < 4 || px > 1280 || py < 4 || py > 660) continue;
+                    tried++;
+                    const hit = TreeView.hitTest(px, py);
+                    // The point is on node i's line, so what is found is a line that passes through it.
+                    const away = hit ? distances(hit.node, px, py)[hit.part] : undefined;
+                    if (away === undefined || away > 1e-6) unseen.push([i, hit]);
+                }}
+                // The arc that joins a clade's children, at its middle.
+                let joined = 0;
+                for (let i = 0; i < m.nodeCount && kind === 'circular'; i++) {{
+                    L.join(i, o);
+                    if (o[0] !== 2 || (o[3] - o[2]) * o[1] * v.sx < 30) continue;
+                    const a = (o[2] + o[3]) / 2, px = v.ox + o[1] * Math.cos(a) * v.sx, py = v.oy + o[1] * Math.sin(a) * v.sy;
+                    if (px < 4 || px > 1280 || py < 4 || py > 660) continue;
+                    joined++;
+                    const hit = TreeView.hitTest(px, py);
+                    const away = hit ? distances(hit.node, px, py)[hit.part] : undefined;
+                    if (away === undefined || away > 1e-6) unseen.push([i, 'arc', hit]);
+                }}
+                out[kind] = {{tried, joined, unseen: unseen.slice(0, 4)}};
+            }}
+            return out;""")
+        self.assertGreater(result["circular"]["tried"], 15)
+        self.assertGreater(result["circular"]["joined"], 3)
+        self.assertGreater(result["unrooted"]["tried"], 15)
+        for kind, found in result.items():
+            with self.subTest(kind=kind):
+                self.assertEqual(found["unseen"], [])
+
+    def test_a_leaf_is_found_by_its_name_in_every_layout(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind, "cladogram")
+                result = self.script("""
+                    TreeView.focusLeaf(25);
+                    TreeView.drawNow();
+                    const s = TreeView.state, m = s.model, box = TreeView.nodePixels(s, m.leafNode[25]);
+                    const stats = TreeView.lastStats;
+                    // Where the name is: along the leaf's own direction in a circular tree (its name runs outwards), to its
+                    // side in an unrooted one, to its right in a rectangular one.
+                    const toward = s.layout.kind === 'circular' ? [Math.cos(s.layout.angle[m.leafNode[25]]), Math.sin(s.layout.angle[m.leafNode[25]])]
+                        : s.layout.kind === 'unrooted' ? [Math.cos(Math.atan2(box.y - box.y0, box.x - box.x0)) < 0 ? -1 : 1, 0] : [1, 0];
+                    const onName = TreeView.hitTest(box.x + 40 * toward[0], box.y + 40 * toward[1]);
+                    const far = TreeView.hitTest(box.x + 1500 * toward[0], box.y + 1500 * toward[1]);
+                    return {labels: stats.labels, onName, far, leaf: m.leafNode[25], isLeaf: onName ? m.childCount[onName.node] === 0 : null};""")
+                self.assertGreater(result["labels"], 0)
+                self.assertEqual(result["onName"]["part"], "leaf")
+                self.assertTrue(result["isLeaf"])
+                if kind != "unrooted":
+                    # Names of unrooted leaves may lie over each other; the others are one to a row or a slot.
+                    self.assertEqual(result["onName"]["node"], result["leaf"])
+                self.assertIsNone(result["far"])
+
+
+class FoldingTests(LayoutCase):
+    """A clade folds into one shape (its point, and the arc of what it held), and opens again."""
+
+    COUNT = 100
+
+    def clade(self, low=12, high=30):
+        return self.state(clade_of(low, high))
+
+    def test_a_folded_clade_is_one_shape_in_every_layout_and_holds_nothing_else(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                clade = self.clade()
+                before = self.drawn()
+                self.assertEqual(self.script(f"return TreeView.toggleFold({clade})"), True)
+                after = self.drawn()
+                self.assertEqual((before["collapsed"], after["collapsed"]), (0, 1))
+                self.assertLess(after["visited"], before["visited"])
+                info = self.script(f"""const s = TreeView.state, m = s.model, o = new Float64Array(8);
+                    s.layout.wedge({clade}, o);
+                    const wedge = Array.from(o);
+                    return {{count: s.collapsedCount, hidden: s.leafHidden.reduce((a, b) => a + b, 0), held: TreeView.leavesUnder(m, {clade}),
+                            wedge, shape: s.collapsed[{clade}]}};""")
+                self.assertEqual(info["count"], 1)
+                self.assertEqual(info["hidden"], info["held"])
+                # A wedge says where its point is and what it spans.
+                self.assertEqual(info["wedge"][0], 0 if kind == "rectangular" else 1)
+                self.assertTrue(np.all(np.isfinite(info["wedge"])))
+                self.script(f"TreeView.toggleFold({clade}); return 1")
+                self.assertEqual(self.drawn()["collapsed"], 0)
+                self.assertEqual(self.state("[TreeView.state.collapsedCount, TreeView.state.leafHidden]"), [0, None])
+
+    def test_the_shape_of_a_folded_clade_is_what_it_reaches_in_each_layout(self):
+        for kind, expected in (("rectangular", 0), ("circular", 1), ("unrooted", 1)):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                clade = self.clade()
+                wedge = self.state(f"""(() => {{ const o = new Float64Array(8); TreeView.state.layout.wedge({clade}, o); return Array.from(o); }})()""")
+                reach = self.state(f"""(() => {{ const s = TreeView.state, b = s.layout.boxes; return {{x1: b.x1[{clade}], y0: b.y0[{clade}], y1: b.y1[{clade}], first: s.model.firstLeaf[{clade}], last: s.model.lastLeaf[{clade}]}}; }})()""")
+                self.assertEqual(wedge[0], expected)
+                if kind == "rectangular":
+                    # A triangle: the node, and the two ends of the rows at the clade's reach.
+                    self.assertEqual((wedge[3], wedge[4], wedge[5], wedge[6]), (reach["x1"], reach["first"], reach["x1"], reach["last"] + 1))
+
+    def test_nothing_can_be_folded_but_a_clade_that_is_not_the_root(self):
+        clade = self.clade()
+        info = self.script(f"""const m = TreeView.state.model;
+            return [TreeView.toggleFold(m.root), TreeView.toggleFold(m.leafNode[3]), TreeView.toggleFold(-1), TreeView.toggleFold({clade}),
+                    TreeView.state.collapsedCount];""")
+        self.assertEqual(info, [False, False, False, True, 1])
+
+    def test_the_square_shows_for_a_clade_that_is_hovered_selected_or_folded_and_nowhere_else(self):
+        clade = self.clade(15, 40)
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script(f"TreeView.zoomToNode({clade}); TreeView.drawNow(); return 1")
+                self.assertEqual(self.drawn()["handles"], 0)
+                self.script(f"TreeView.state.hover = {clade}; return 1")
+                self.assertEqual(self.drawn()["handles"], 1)
+                self.script(f"TreeView.state.hover = -1; TreeView.state.pinned = {clade}; return 1")
+                self.assertEqual(self.drawn()["handles"], 1)
+                self.script(f"TreeView.state.pinned = -1; TreeView.toggleFold({clade}); return 1")
+                self.assertEqual(self.drawn()["handles"], 1)
+                self.script(f"TreeView.toggleFold({clade}); return 1")
+
+    def test_pointing_at_a_clades_node_shows_its_square_and_clicking_it_folds_and_opens(self):
+        clade = self.clade(15, 40)
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script(f"TreeView.zoomToNode({clade}); TreeView.drawNow(); return 1")
+                point = self.state(f"(() => {{ const b = TreeView.nodePixels(TreeView.state, {clade}); return [b.x, b.y]; }})()")
+                self.script(f"fire.move({point[0]}, {point[1]}); return 1")
+                self.wait_for(f"TreeView.state.hover === {clade}")
+                self.script("TreeView.drawNow(); return 1")
+                self.assertEqual(self.state(f"TreeView.hitTest({point[0]}, {point[1]})"), {"node": clade, "part": "handle"})
+                # Pointing at the square says what it does.
+                self.script(f"fire.move({point[0]}, {point[1]}); return 1")
+                self.wait_for("document.getElementById('tooltip').textContent.includes('Click to fold this clade up')")
+                self.script(f"fire.click({point[0]}, {point[1]}); return 1")
+                self.assertEqual(self.state("TreeView.state.collapsed[" + str(clade) + "]"), 1)
+                self.assertEqual(self.state("document.getElementById('unfold-btn').disabled"), False)
+                self.script("TreeView.drawNow(); return 1")
+                # The folded clade, clicked on its body (the middle of the line from its node to where it reaches), opens.
+                body = self.state(f"""(() => {{ const s = TreeView.state, v = s.view, o = new Float64Array(8); s.layout.mark({clade}, o);
+                    return [v.ox + (o[0] + o[2]) / 2 * v.sx, v.oy + (o[1] + o[3]) / 2 * v.sy]; }})()""")
+                self.assertEqual(self.state(f"TreeView.hitTest({body[0]}, {body[1]})"), {"node": clade, "part": "clade"})
+                self.script(f"fire.click({body[0]}, {body[1]}); return 1")
+                self.assertEqual(self.state("TreeView.state.collapsed[" + str(clade) + "]"), 0)
+                self.assertEqual(self.state("document.getElementById('unfold-btn').disabled"), True)
+                self.assertEqual(self.state("document.getElementById('tooltip').style.display"), "none")
+
+    def test_the_c_key_folds_the_selected_clade_and_open_all_opens_every_fold(self):
+        self.choose("circular")
+        first, second = self.clade(5, 10), self.clade(20, 40)
+        self.script(f"TreeView.state.pinned = {first}; fire.key('c'); TreeView.state.pinned = {second}; fire.key('c'); return 1")
+        self.assertEqual(self.state("TreeView.state.collapsedCount"), 2)
+        self.assertEqual(self.state("document.getElementById('unfold-btn').disabled"), False)
+        self.js("document.getElementById('unfold-btn').click()")
+        self.assertEqual(self.state("[TreeView.state.collapsedCount, document.getElementById('unfold-btn').disabled, TreeView.state.leafHidden]"),
+                         [0, True, None])
+        # With nothing selected the key does nothing, and says so by not taking the key.
+        self.script("TreeView.state.pinned = -1; return 1")
+        self.assertFalse(self.script("return fire.key('c')"))
+
+    def test_folds_and_the_selection_go_with_a_change_of_layout(self):
+        clade = self.clade(12, 30)
+        pinned = self.state("TreeView.state.model.leafNode[2]")
+        self.script(f"TreeView.toggleFold({clade}); TreeView.state.pinned = {pinned}; return 1")
+        for kind in ("circular", "rectangular", "unrooted"):
+            self.choose(kind)
+            self.assertEqual(self.state(f"[TreeView.state.collapsed[{clade}], TreeView.state.pinned]"), [1, pinned])
+            self.assertEqual(self.drawn()["collapsed"], 1)
+
+    def test_a_selection_inside_a_clade_that_is_folded_moves_to_the_clade(self):
+        clade = self.clade(12, 30)
+        inside = self.state(f"TreeView.state.model.leafNode[TreeView.state.model.firstLeaf[{clade}]]")
+        self.script(f"TreeView.state.pinned = {inside}; TreeView.state.hover = {inside}; TreeView.toggleFold({clade}); return 1")
+        self.assertEqual(self.state("[TreeView.state.pinned, TreeView.state.hover]"), [clade, clade])
+
+    def test_a_search_opens_the_clade_that_holds_what_it_found(self):
+        clade = self.clade(12, 30)
+        leaf = self.state(f"TreeView.state.model.firstLeaf[{clade}]")
+        header = self.state(f"TreeView.state.model.labels[{leaf}]")
+        self.script(f"TreeView.toggleFold({clade}); return 1")
+        self.assertEqual(self.state(f"TreeView.state.leafHidden[{leaf}]"), 1)
+        self.assertEqual(self.state(f"TreeView.runSearch({json.dumps(chr(34) + header + chr(34))})"), 1)
+        self.script("TreeView.stepMatch(1); return 1")
+        info = self.state(f"[TreeView.state.collapsed[{clade}], TreeView.state.collapsedCount, TreeView.state.leafHidden]")
+        self.assertEqual(info, [0, 0, None])
+        self.assertEqual(self.state("document.getElementById('unfold-btn').disabled"), True)
+
+    def test_a_match_inside_a_folded_clade_outlines_the_clade_and_has_no_ring_of_its_own(self):
+        clade = self.clade(12, 30)
+        leaf = self.state(f"TreeView.state.model.firstLeaf[{clade}]")
+        header = self.state(f"TreeView.state.model.labels[{leaf}]")
+        self.choose("rectangular")
+        self.script(f"""TreeView.zoomToNode({clade}); TreeView.toggleFold({clade});
+            TreeView.runSearch({json.dumps(chr(34) + header + chr(34))}); TreeView.drawNow(); return 1""")
+        info = self.script(f"""const s = TreeView.state, o = new Float64Array(8), v = s.view;
+            s.layout.wedge({clade}, o);
+            // A point on the wedge's edge, half way along it from the node to the first end.
+            const px = v.ox + (o[1] + o[3]) / 2 * v.sx, py = v.oy + (o[2] + o[4]) / 2 * v.sy;
+            const ctx = document.createElement('canvas').getContext('2d');
+            ctx.fillStyle = s.palette.match; ctx.fillRect(0, 0, 1, 1);
+            const near = (x, y) => {{
+                let best = Infinity;
+                for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {{
+                    const pixel = fire.pixel(Math.round(x) + dx, Math.round(y) + dy);
+                    best = Math.min(best, Math.max(...[0, 1, 2].map((c) => Math.abs(pixel[c] - match[c]))));
+                }}
+                return best;
+            }};
+            const match = Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+            return {{match, onTheLine: near(px, py), away: near(px + 400, py)}};""")
+        # Within a pixel of the line the outline is drawn in the match colour; away from it nothing is.
+        self.assertLessEqual(info["onTheLine"], 24)
+        self.assertGreater(info["away"], 60)
+
+
+class OverviewMapTests(LayoutCase):
+    COUNT = 100
+
+    def map_view(self):
+        return self.state("({...TreeView.minimapView})")
+
+    def test_the_map_shows_the_whole_tree_and_the_rectangle_of_the_view_on_it(self):
+        info = self.script("""TreeView.drawNow();
+            const mini = document.getElementById('minimap'), ctx = mini.getContext('2d');
+            const data = ctx.getImageData(0, 0, mini.width, mini.height).data;
+            let ink = 0;
+            for (let i = 3; i < data.length; i += 4) if (data[i] > 200) ink++;
+            const box = mini.getBoundingClientRect();
+            return {hidden: mini.hidden, ink, pixels: data.length / 4, width: Math.round(box.width), height: Math.round(box.height),
+                    inside: [mini.clientWidth, mini.clientHeight], view: {...TreeView.minimapView}};""")
+        self.assertFalse(info["hidden"])
+        self.assertEqual((info["width"], info["height"]), (180, 140))
+        self.assertEqual(info["inside"], [178, 138])
+        # Opaque ink, which the tree is drawn in and the rectangle of the view is not.
+        self.assertGreater(info["ink"], 100)
+        self.assertLess(info["ink"], info["pixels"] * 0.5)
+        # The whole tree is in view: the rectangle takes in the map's picture of it.
+        view = info["view"]
+        self.assertLessEqual(view["left"], 12)
+        self.assertGreaterEqual(view["right"], info["width"] - 12)
+
+    def test_the_rectangle_follows_the_view_in_every_layout(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                whole = self.map_view()
+                self.script("TreeView.zoomAbout(650, 330, 4, 4); TreeView.drawNow(); return 1")
+                zoomed = self.map_view()
+                self.assertLess((zoomed["right"] - zoomed["left"]) * (zoomed["bottom"] - zoomed["top"]),
+                                (whole["right"] - whole["left"]) * (whole["bottom"] - whole["top"]) * 0.8)
+                before = self.map_view()
+                self.script("TreeView.pan(-120, -90); TreeView.drawNow(); return 1")
+                after = self.map_view()
+                self.assertGreater(after["left"] + after["top"], before["left"] + before["top"])
+
+    def test_pressing_and_dragging_on_the_map_moves_the_view_there(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script("TreeView.zoomAbout(650, 330, 3, 3); TreeView.drawNow(); return 1")
+                info = self.script("""
+                    const mini = document.getElementById('minimap'), rect = mini.getBoundingClientRect(), s = TreeView.state;
+                    const press = (type, x, y) => mini.dispatchEvent(new PointerEvent(type, {pointerId: 3, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+                        clientX: rect.left + mini.clientLeft + x, clientY: rect.top + mini.clientTop + y, bubbles: true}));
+                    const centre = () => [(document.getElementById('tree-canvas').clientWidth / 2 - s.view.ox) / s.view.sx,
+                                          (document.getElementById('tree-canvas').clientHeight / 2 - s.view.oy) / s.view.sy];
+                    const out = {};
+                    for (const [name, x, y] of [['first', 60, 50], ['second', 110, 90]]) {
+                        press(name === 'first' ? 'pointerdown' : 'pointermove', x, y);
+                        out[name] = {at: TreeView.minimapPoint(x, y), centre: centre()};
+                    }
+                    press('pointerup', 110, 90);
+                    out.fitted = s.fitted;
+                    return out;""")
+                for name in ("first", "second"):
+                    self.assertAlmostEqual(info[name]["centre"][0], info[name]["at"][0], delta=abs(info[name]["at"][0]) * 1e-6 + 1e-6)
+                    self.assertAlmostEqual(info[name]["centre"][1], info[name]["at"][1], delta=abs(info[name]["at"][1]) * 1e-6 + 1e-6)
+                self.assertFalse(info["fitted"])
+
+    def test_the_whole_layout_is_inside_the_map_in_every_layout(self):
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.script("""
+                    const mini = document.getElementById('minimap'), b = TreeView.state.layout.bounds;
+                    const a = TreeView.minimapPoint(0, 0), z = TreeView.minimapPoint(mini.clientWidth, mini.clientHeight);
+                    return {left: a[0] - b.minX, top: a[1] - b.minY, right: z[0] - b.maxX, bottom: z[1] - b.maxY};""")
+                # The map's corners lie beyond the tree's, and one side of it at least is filled by the tree.
+                self.assertLessEqual(info["left"], 1e-9)
+                self.assertLessEqual(info["top"], 1e-9)
+                self.assertGreaterEqual(info["right"], -1e-9)
+                self.assertGreaterEqual(info["bottom"], -1e-9)
+
+    def test_pressing_the_middle_of_the_map_puts_the_middle_of_the_tree_in_the_middle_of_the_view(self):
+        # Not read back through the map's own arithmetic: the middle of the map is the middle of the tree in every layout.
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script("TreeView.zoomAbout(650, 330, 3, 3); TreeView.drawNow(); return 1")
+                info = self.script("""
+                    const mini = document.getElementById('minimap'), rect = mini.getBoundingClientRect(), s = TreeView.state, b = s.layout.bounds;
+                    const down = (x, y) => mini.dispatchEvent(new PointerEvent('pointerdown', {pointerId: 5, button: 0, buttons: 1,
+                        clientX: rect.left + mini.clientLeft + x, clientY: rect.top + mini.clientTop + y, bubbles: true}));
+                    const up = () => mini.dispatchEvent(new PointerEvent('pointerup', {pointerId: 5, button: 0, buttons: 0, bubbles: true}));
+                    const view = document.getElementById('tree-canvas');
+                    const centre = () => [(view.clientWidth / 2 - s.view.ox) / s.view.sx, (view.clientHeight / 2 - s.view.oy) / s.view.sy];
+                    down(mini.clientWidth / 2, mini.clientHeight / 2);
+                    up();
+                    const middle = centre();
+                    // The map keeps six pixels clear of its edge: its top left corner of the tree is there.
+                    down(6, 6);
+                    up();
+                    return {middle, wanted: [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2], corner: centre(), minimum: [b.minX, b.minY], uniform: s.layout.uniform};""")
+                for got, wanted in zip(info["middle"], info["wanted"]):
+                    self.assertAlmostEqual(got, wanted, delta=abs(wanted) * 1e-6 + 1e-6)
+                if not info["uniform"]:
+                    for got, wanted in zip(info["corner"], info["minimum"]):
+                        self.assertAlmostEqual(got, wanted, delta=abs(wanted) * 1e-6 + 1e-6)
+
+    def test_each_match_is_a_point_on_the_map(self):
+        def matching_pixels():
+            return self.state("""(() => { TreeView.drawNow();
+                const mini = document.getElementById('minimap'), data = mini.getContext('2d').getImageData(0, 0, mini.width, mini.height).data;
+                const ctx = document.createElement('canvas').getContext('2d');
+                ctx.fillStyle = TreeView.state.palette.match; ctx.fillRect(0, 0, 1, 1);
+                const want = ctx.getImageData(0, 0, 1, 1).data;
+                let n = 0;
+                for (let i = 0; i < data.length; i += 4) {
+                    if (Math.abs(data[i] - want[0]) < 60 && Math.abs(data[i + 1] - want[1]) < 60 && Math.abs(data[i + 2] - want[2]) < 60 && data[i + 3] > 200) n++;
+                }
+                return n; })()""")
+        self.choose("unrooted")
+        self.assertEqual(matching_pixels(), 0)
+        self.script("TreeView.runSearch('PROT_1'); return 1")
+        self.assertGreater(matching_pixels(), 5)
+
+    def test_the_overview_button_hides_and_shows_the_map(self):
+        self.js("document.getElementById('overview-btn').click()")
+        self.assertEqual(self.state("[document.getElementById('minimap').hidden, document.getElementById('overview-btn').getAttribute('aria-pressed')]"),
+                         [True, "false"])
+        self.js("document.getElementById('overview-btn').click()")
+        self.assertEqual(self.state("[document.getElementById('minimap').hidden, document.getElementById('overview-btn').getAttribute('aria-pressed')]"),
+                         [False, "true"])
+        # The choice holds through a layout change.
+        self.js("document.getElementById('overview-btn').click()")
+        self.choose("circular")
+        self.assertTrue(self.state("document.getElementById('minimap').hidden"))
+
+    def test_the_map_is_drawn_again_when_what_it_shows_changes(self):
+        def picture():
+            return self.state("""(() => { TreeView.drawNow(); const mini = document.getElementById('minimap');
+                const data = mini.getContext('2d').getImageData(0, 0, mini.width, mini.height).data;
+                let sum = 0; for (let i = 0; i < data.length; i++) sum = (sum * 31 + data[i]) % 1000003; return sum; })()""")
+        first = picture()
+        self.choose("circular")
+        circular = picture()
+        self.assertNotEqual(first, circular)
+        clade = self.state(clade_of(10, 30))
+        self.script(f"TreeView.toggleFold({clade}); return 1")
+        folded = picture()
+        self.assertNotEqual(circular, folded)
+        self.script("TreeView.runSearch('PROT_1'); return 1")
+        after_search = picture()
+        self.assertNotEqual(folded, after_search)
+        # The theme's colours: the map keeps its picture in them.
+        background = self.state("TreeView.state.palette.background")
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.wait_for("TreeView.state.palette.background !== " + json.dumps(background))
+        self.assertNotEqual(self.state("TreeView.state.palette.background"), background)
+        self.assertNotEqual(picture(), after_search)
+        self.js("(() => { try { localStorage.removeItem('ssn_theme'); } catch (error) {} return 1; })()")
+
+
+class LevelOfDetailEverywhereTests(TreePageMixin, unittest.TestCase):
+    """A frame costs what can be seen, in every layout: clades under three pixels are one line."""
+
+    COUNT = 3000
+
+    def serve_shape(self, shape):
+        self.headers = headers_of(self.COUNT)
+        self.serve_headers(self.headers, linkage=shaped_linkage(shape, self.COUNT))
+        self.open_page()
+
+    def serve_neighbor_joining(self):
+        self.headers = headers_of(self.COUNT)
+        self.serve_headers(self.headers, **nj_options(self.COUNT))
+        self.open_page()
+
+    def tearDown(self):
+        self.view.resize(1300, 800)
+        super().tearDown()
+
+    def test_each_layout_draws_far_less_than_the_tree_at_fit_and_names_leaves_when_zoomed(self):
+        # A rectangular and a circular tree are as wide as their leaves are many, which a balanced tree shows well. An
+        # unrooted one is as long as its branches, and the tree of neighbor-joining (which its files hold) has short
+        # ones at its tips, by thousands.
+        for kinds, serve in ((("rectangular", "circular"), lambda: self.serve_shape("balanced")),
+                             (("unrooted",), self.serve_neighbor_joining)):
+            serve()
+            total = self.state("TreeView.state.model.nodeCount")
+            for kind in kinds:
+                with self.subTest(kind=kind):
+                    self.script(f"TreeView.setLayout({json.dumps(kind)}, 'lengths'); return 1")
+                    fit = self.drawn()
+                    self.assertGreater(fit["bars"], 20)
+                    self.assertLess(fit["visited"], total * 0.3)
+                    self.assertEqual((fit["labels"], fit["dots"]), (0, 0))
+                    # Brought up to be read, a leaf has others round it that can be told from it, in every layout.
+                    self.script("TreeView.focusLeaf(100); return 1")
+                    zoomed = self.drawn()
+                    self.assertGreater(zoomed["labels"], 3)
+                    self.assertGreater(zoomed["dots"], 3)
+                    self.assertLess(self.state("TreeView.leavesInView()"), 61)
+                    self.assertLess(zoomed["visited"], total * 0.3)
+
+    def test_a_caterpillar_and_a_chain_of_clades_are_drawn_in_a_frame_in_every_layout(self):
+        for shape in ("caterpillar", "chains"):
+            self.serve_shape(shape)
+            for kind in ("rectangular", "circular", "unrooted"):
+                with self.subTest(shape=shape, kind=kind):
+                    self.script(f"TreeView.setLayout({json.dumps(kind)}, 'lengths'); return 1")
+                    stats = self.drawn()
+                    self.assertGreaterEqual(stats["visited"], 1)
+                    self.assertEqual(self.console_errors(), [])
+                    # A pointer over it finds something or nothing, never fails.
+                    self.script("for (let k = 0; k < 40; k++) TreeView.hitTest(100 + k * 29, 80 + k * 13); return 1")
+                    self.script("TreeView.zoomToNode(TreeView.state.model.root); TreeView.drawNow(); return 1")
+
+    def test_no_line_wholly_outside_the_canvas_is_added_to_the_drawing(self):
+        # A clade is visited for its box, which can be far bigger than its own line; the line is not added to the path
+        # when nobody could see it, which is where the cost of a zoomed view of a spiky tree went.
+        self.serve_neighbor_joining()
+        info = self.script("""
+            TreeView.setLayout('unrooted', 'lengths');
+            TreeView.focusLeaf(100);
+            const w = TreeView.canvas.clientWidth, h = TreeView.canvas.clientHeight, margin = 8;
+            const calls = [], move = Path2D.prototype.moveTo, line = Path2D.prototype.lineTo;
+            let from = null;
+            Path2D.prototype.moveTo = function (x, y) { from = [x, y]; return move.call(this, x, y); };
+            Path2D.prototype.lineTo = function (x, y) { if (from) calls.push([from[0], from[1], x, y]); from = [x, y]; return line.call(this, x, y); };
+            try { TreeView.drawNow(); } finally { Path2D.prototype.moveTo = move; Path2D.prototype.lineTo = line; }
+            const outside = calls.filter(([a, b, c, d]) => (a < -margin && c < -margin) || (a > w + margin && c > w + margin)
+                || (b < -margin && d < -margin) || (b > h + margin && d > h + margin));
+            return {drawn: calls.length, outside: outside.slice(0, 3)};""")
+        self.assertGreater(info["drawn"], 10)
+        self.assertEqual(info["outside"], [])
+
+    def test_tiny_clades_are_one_opaque_line_each_in_a_few_thicknesses(self):
+        # A see-through shape costs several times as much to draw where there is no GPU: nothing about a tiny clade is.
+        self.serve_shape("balanced")
+        info = self.script("""
+            const s = TreeView.state;
+            const palette = s.palette;
+            const rgb = TreeView.rgbOf;
+            const mark = rgb(palette.mark), wedge = rgb(palette.wedge);
+            return {mark, wedge, branch: rgb(palette.branch), background: rgb(palette.background),
+                    opaque: [palette.mark, palette.wedge].every(c => /^rgb\\(\\d+, \\d+, \\d+\\)$/.test(c))};""")
+        self.assertTrue(info["opaque"])
+        # Between the branch colour and the background, nearer to the background for the fill.
+        for channel in range(3):
+            low, high = sorted((info["branch"][channel], info["background"][channel]))
+            self.assertTrue(low <= info["mark"][channel] <= high)
+            self.assertTrue(low <= info["wedge"][channel] <= high)
+
+    def test_a_rectangular_tree_is_drawn_on_the_middle_of_its_pixels(self):
+        # Lines that fall on the middle of a pixel draw several times faster than those spread over two.
+        self.serve_shape("balanced")
+        info = self.script("""
+            const s = TreeView.state, v = s.view, L = s.layout;
+            TreeView.zoomToNode(TreeView.state.model.root);
+            TreeView.zoomAbout(600, 300, 1, 60);
+            TreeView.drawNow();
+            // A leaf's stem is one row of full colour: the row beside it is the background.
+            const ctx = document.createElement('canvas').getContext('2d');
+            const colour = (css) => { ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1); return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)); };
+            const branch = colour(s.palette.branch), background = colour(s.palette.background);
+            let crisp = 0, blurred = 0;
+            const m = s.model;
+            for (let k = 0; k < m.leafCount; k++) {
+                const box = TreeView.nodePixels(s, m.leafNode[k]);
+                if (box.y < 20 || box.y > 640 || box.x0 < 40 || box.x - box.x0 < 40) continue;
+                const x = Math.round(box.x0 + 20), row = Math.floor(box.y);
+                const on = fire.pixel(x, row).slice(0, 3), above = fire.pixel(x, row - 1).slice(0, 3), below = fire.pixel(x, row + 1).slice(0, 3);
+                const same = (a, b) => a.every((value, i) => value === b[i]);
+                if (same(on, branch) && same(above, background) && same(below, background)) crisp++; else blurred++;
+            }
+            return {crisp, blurred};""")
+        self.assertGreater(info["crisp"], 5)
+        self.assertLessEqual(info["blurred"], info["crisp"] * 0.2)
+
+
+class PerformanceTests(TreePageMixin, unittest.TestCase):
+    """The page on trees of 13,000 and 44,000 leaves in four shapes: measured here, with loose budgets.
+
+    The timings include a flush of the canvas, so they are the cost of the pixels and not only of the drawing
+    commands. This engine has no GPU, so they are what a machine without one would take; the budgets are far
+    above what a sane machine needs, and the measurements are what is recorded (set TREE_PERFORMANCE_FILE to a path
+    to have each run's figures appended to it as JSON lines).
+    """
+
+    BUDGET_MS = {"layout": 400, "decode": 400, "frame": 1500, "pan": 1500, "hit": 150, "fold": 150}
+
+    MEASURE = """
+        const flush = () => { document.getElementById('tree-canvas').getContext('2d').getImageData(0, 0, 1, 1); };
+        const time = (f) => { const a = performance.now(); f(); flush(); return performance.now() - a; };
+        const median = (values) => values.slice().sort((x, y) => x - y)[values.length >> 1];
+        const payload = await (await fetch('/api/tree/data')).json();
+        const out = {nodes: payload.counts.nodes, decode: time(() => TreeView.decodeTree(payload))};
+        const s = TreeView.state, m = s.model;
+        const find = (low, high) => { for (let i = 0; i < m.nodeCount; i++) { const n = m.lastLeaf[i] - m.firstLeaf[i] + 1; if (m.childCount[i] > 0 && n >= low && n <= high) return i; } return -1; };
+        for (const kind of ['rectangular', 'circular', 'unrooted']) {
+            const r = {};
+            r.layout = time(() => TreeView.layoutTree(m, kind, 'lengths'));
+            TreeView.setLayout(kind, 'lengths');
+            r.first_frame = time(() => TreeView.drawNow());
+            r.fit_frame = median(Array.from({length: 5}, () => time(() => TreeView.drawNow())));
+            r.visited = TreeView.lastStats.visited;
+            r.hit = median(Array.from({length: 15}, (_, k) => time(() => TreeView.hitTest(300 + k * 37, 200 + k * 21))));
+            TreeView.zoomAbout(650, 330, 1, 20);
+            TreeView.zoomAbout(650, 330, 20, 1);
+            r.pan_frame = median(Array.from({length: 15}, () => { TreeView.pan(11, 5); return time(() => TreeView.drawNow()); }));
+            const clade = find(30, 60);
+            if (clade >= 0) { TreeView.zoomToNode(clade); r.zoomed_frame = median(Array.from({length: 5}, () => time(() => TreeView.drawNow()))); }
+            TreeView.fitView();
+            const big = find(Math.max(100, m.leafCount / 50), m.leafCount / 5);
+            if (big >= 0) { r.fold = time(() => TreeView.toggleFold(big)); r.fold_frame = time(() => TreeView.drawNow()); TreeView.toggleFold(big); }
+            r.overview = time(() => { TreeView.minimapChanged(); TreeView.drawMinimap(); });
+            out[kind] = r;
+        }
+        return out;
+    """
+
+    def measure(self, shape, count):
+        headers = headers_of(count)
+        self.serve_headers(headers, linkage=shaped_linkage(shape, count))
+        started = time.perf_counter()
+        self.open_page()
+        ready = time.perf_counter() - started
+        result = self.script(self.MEASURE, timeout=300)
+        result.update(shape=shape, leaves=count, page_ready_seconds=round(ready, 3))
+        path = os.environ.get("TREE_PERFORMANCE_FILE")
+        if path:
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(result) + "\n")
+        return result
+
+    def check(self, result):
+        self.assertLess(result["decode"], self.BUDGET_MS["decode"])
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(shape=result["shape"], leaves=result["leaves"], kind=kind):
+                found = result[kind]
+                self.assertLess(found["layout"], self.BUDGET_MS["layout"])
+                self.assertLess(found["fit_frame"], self.BUDGET_MS["frame"])
+                self.assertLess(found["first_frame"], self.BUDGET_MS["frame"] * 3)
+                self.assertLess(found["pan_frame"], self.BUDGET_MS["pan"])
+                self.assertLess(found["hit"], self.BUDGET_MS["hit"])
+                self.assertLess(found.get("fold", 0), self.BUDGET_MS["fold"])
+        # (Reading a pixel to flush the canvas, as the timings do, makes the engine advise willReadFrequently: its own
+        # advice about the measuring, not about the page.)
+        self.assertEqual([entry for entry in self.console_errors() if "willReadFrequently" not in entry[1]], [])
+
+    def test_thirteen_thousand_leaves_in_every_shape(self):
+        for shape in ("bushy", "caterpillar", "chains"):
+            with self.subTest(shape=shape):
+                self.check(self.measure(shape, 13000))
+
+    def test_forty_four_thousand_leaves_in_every_shape(self):
+        for shape in ("bushy", "caterpillar", "chains"):
+            with self.subTest(shape=shape):
+                self.check(self.measure(shape, 44000))
 
 
 class FitReportTests(TreePageMixin, unittest.TestCase):

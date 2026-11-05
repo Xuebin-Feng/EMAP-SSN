@@ -4848,7 +4848,7 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
         <location filename="../../../commands/subcluster.py" line="+233"/>
-        <location filename="../../../commands/tree.py" line="+98"/>
+        <location filename="../../../commands/tree.py" line="+109"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -13442,7 +13442,7 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+236"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+557"/>
         <source>A node of this network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13477,17 +13477,37 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+2"/>
+        <source>Folded up: click it to open it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Branch length: {length}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+71"/>
-        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it.</source>
+        <location line="+14"/>
+        <source>Click to open this clade</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="+89"/>
+        <location line="+0"/>
+        <source>Click to fold this clade up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+62"/>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_session.js" line="+92"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13567,7 +13587,7 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+38"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13702,7 +13722,7 @@ Fedora / RHEL：
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+72"/>
         <source>No match</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13723,12 +13743,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+398"/>
+        <location filename="../../../web_ui/tree.html" line="+440"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -13744,13 +13764,13 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../web_ui/tree.html" line="+34"/>
+        <location filename="../../../web_ui/tree.html" line="+49"/>
         <source>Copy the path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-410"/>
-        <location line="+374"/>
+        <location filename="../../../web_ui/tree.html" line="-467"/>
+        <location line="+416"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13802,6 +13822,76 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+3"/>
+        <source>Layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>How the tree is laid out</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Rectangular</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Circular</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unrooted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>How the branches are drawn</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Draw each branch as long as its length</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Phylogram</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Draw the branches only to show who is next to whom</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Cladogram</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Open every clade that is folded up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Open all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show or hide the overview map</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Overview</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Show the whole tree (Home)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13823,6 +13913,16 @@ Fedora / RHEL：
     <message>
         <location line="+6"/>
         <source>Guide tree of the loaded alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The whole tree. Press or drag to move there.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Overview of the whole tree</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

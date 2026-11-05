@@ -248,6 +248,32 @@
         .search.has-text .clear { display: inline-flex; }
         .match-count { min-width: 76px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
         .toolbar .spacer { flex: 1; }
+        .toolbar .divider { width: 1px; height: 20px; background-color: var(--border-color); margin: 0 4px; }
+
+        /* The layout, a select as the page's other fields are */
+        .field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+        .field select {
+            height: 30px;
+            padding: 0 28px 0 10px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            color: var(--input-text);
+            background-color: var(--input-bg);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            outline: none;
+            cursor: pointer;
+        }
+        .field select:hover { border-color: var(--field-border-hover); }
+        .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .field select:disabled { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
+
+        /* Two buttons that are one choice, and a button that is on or off */
+        .segmented { display: inline-flex; }
+        .segmented .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .segmented .btn + .btn { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+        .btn[aria-pressed="true"] { background-color: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); position: relative; }
+        .btn[aria-pressed="true"]:disabled { color: var(--text-disabled); background-color: var(--bg-muted); border-color: var(--field-border); }
 
         /* A warning about how the tree fits the alignment and the network: shown, never hidden, never an error */
         .banner {
@@ -270,6 +296,22 @@
         .stage canvas.dragging { cursor: grabbing; }
         .stage canvas.pointing { cursor: pointer; }
         .stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+        /* The overview map, at the corner of the drawing */
+        .stage .minimap {
+            position: absolute;
+            z-index: 4;
+            inset: auto auto 12px 12px;
+            width: 180px;
+            height: 140px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-card);
+            cursor: pointer;
+            touch-action: none;
+        }
+        .stage .minimap[hidden] { display: none; }
 
         .tooltip {
             position: absolute;
@@ -410,6 +452,20 @@
         <button class="btn btn-icon" id="search-next" title="Next match (Enter)" aria-label="Next match" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
         <span class="match-count" id="search-count" aria-live="polite"></span>
         <span class="spacer"></span>
+        <label class="field" for="layout-select"><span data-i18n>Layout</span>
+            <select id="layout-select" title="How the tree is laid out" disabled>
+                <option value="rectangular" data-i18n>Rectangular</option>
+                <option value="circular" data-i18n>Circular</option>
+                <option value="unrooted" data-i18n>Unrooted</option>
+            </select>
+        </label>
+        <div class="segmented" role="group" aria-label="How the branches are drawn">
+            <button class="btn" id="phylogram-btn" aria-pressed="true" title="Draw each branch as long as its length" disabled><span data-i18n>Phylogram</span></button>
+            <button class="btn" id="cladogram-btn" aria-pressed="false" title="Draw the branches only to show who is next to whom" disabled><span data-i18n>Cladogram</span></button>
+        </div>
+        <span class="divider"></span>
+        <button class="btn" id="unfold-btn" title="Open every clade that is folded up" disabled><span data-i18n>Open all</span></button>
+        <button class="btn" id="overview-btn" aria-pressed="true" title="Show or hide the overview map" disabled><span data-i18n>Overview</span></button>
         <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
@@ -418,6 +474,7 @@
 
     <main class="stage" id="stage">
         <canvas id="tree-canvas" tabindex="0" role="img" aria-label="Guide tree of the loaded alignment"></canvas>
+        <canvas class="minimap" id="minimap" hidden title="The whole tree. Press or drag to move there." aria-label="Overview of the whole tree"></canvas>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
@@ -444,6 +501,7 @@
     <script src="/tree_layout.js"></script>
     <script src="/tree_render.js"></script>
     <script src="/tree_nav.js"></script>
+    <script src="/tree_minimap.js"></script>
     <script src="/tree_session.js"></script>
 </body>
 </html>

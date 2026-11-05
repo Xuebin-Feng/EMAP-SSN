@@ -4,37 +4,68 @@
  *
  * Tree View's drawing: a tree (tree_model.js) in a layout (tree_layout.js) on a canvas, in the page's theme.
  *
- * Only what is in view is visited. A clade that comes out shorter than a few pixels is drawn as one bar,
- * however many leaves it holds, so what a frame costs follows what a person can see, not the size of the
- * tree. Lines are batched into one path per style, and a leaf is marked with a dot, then named, only when its
- * row is tall enough to show it.
+ * Only what is in view is visited. A clade that comes out smaller than a few pixels, or that a person has
+ * collapsed, is drawn as one shape (a wedge) however many leaves it holds, so what a frame costs follows what can
+ * be seen, not the size of the tree. Lines are batched into one path per style, and a leaf is marked with a dot,
+ * then named, only when there is room for it. One traversal (paintTree) draws every layout, for the page and for
+ * the overview map alike: the layout says how a node's lines run (layout.stem, layout.join, layout.wedge).
  *
- * A view maps the layout's units to pixels: screen x = ox + x * sx, screen y = oy + y * sy. The two scales are
- * kept apart, as a long tree zooms in its rows far more than in its width.
+ * A view maps the layout's units to pixels: screen x = ox + x * sx, screen y = oy + y * sy. A rectangular layout
+ * keeps its two scales apart, as a long tree zooms in its rows far more than in its width; the others have one.
  */
 window.TreeView = window.TreeView || {};
 
 (function (TV) {
     "use strict";
 
-    // A clade shorter than this many pixels is one bar; a row this tall gets a dot, and one this tall its name.
+    // A clade smaller than this many pixels is one shape; a rectangular row or a circular slot this tall gets a dot,
+    // and one this tall its name.
     TV.COLLAPSE_PX = 3;
     TV.DOT_PX = 4;
     TV.LABEL_PX = 12;
-    // The width of the strip at the right edge that shows where the view is in the whole tree, and the matches.
+    // The width of the strip at the right edge that shows where the view is in the whole rectangular tree, and the matches.
     TV.RULER_WIDTH = 14;
     // A name is cut here, whatever its length.
     TV.MAX_LABEL_CHARACTERS = 160;
-    // How far to the right of a leaf the name of one can reach: a clade whose leaves are that far left of the view
-    // can still show names in it.
+    // The most leaves an unrooted tree dots, and names, at once: it has no row to say whether there is room.
+    TV.UNROOTED_DOTS = 2500;
+    TV.UNROOTED_LABELS = 150;
+    // How far from a leaf the name of one can reach: a clade that far outside the view can still show names in it.
     const LABEL_REACH_PX = 520;
+    // The size, in pixels, of the square that folds a clade up, and of the smallest clade that has one. A square is
+    // shown for a clade that is folded, hovered or selected, not for every clade at once.
+    TV.HANDLE_PX = 9;
+    TV.HANDLE_CLADE_PX = 12;
+
+    // The red, green and blue (0 to 255) of a CSS colour, as the canvas reads it.
+    const reader = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    TV.rgbOf = function (css) {
+        reader.clearRect(0, 0, 1, 1);
+        reader.fillStyle = "#000000";
+        reader.fillStyle = css;
+        reader.fillRect(0, 0, 1, 1);
+        return Array.from(reader.getImageData(0, 0, 1, 1).data.slice(0, 3));
+    };
+
+    // A colour between two CSS colours, as an opaque CSS colour: `share` of the first. Drawing a colour that is mixed
+    // already, where a see-through one would be laid on the background, is far cheaper to draw.
+    TV.mixColors = function (first, second, share) {
+        const a = TV.rgbOf(first);
+        const b = TV.rgbOf(second);
+        return "rgb(" + a.map((value, k) => Math.round(value * share + b[k] * (1 - share))).join(", ") + ")";
+    };
 
     // The colours the canvas draws in, read from the page's theme (its custom properties) so that light, dark and
     // the Viewer's theme colour all apply.
     TV.readPalette = function () {
         const style = getComputedStyle(document.documentElement);
         const get = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+        const background = get("--bg-card", "#ffffff");
+        const branch = get("--text-secondary", "#52525b");
         return {
+            // The line a tiny clade is drawn as, and the fill of a folded one: the branch colour, thinned out.
+            mark: TV.mixColors(branch, background, 0.55),
+            wedge: TV.mixColors(branch, background, 0.3),
             background: get("--bg-card", "#ffffff"),
             branch: get("--text-secondary", "#52525b"),
             faded: get("--text-disabled", "#a1a1aa"),
@@ -62,18 +93,24 @@ window.TreeView = window.TreeView || {};
         return { width, height, ratio };
     };
 
-    // The pixel position of node i's own point, and where its branch begins (its parent's x).
+    const scratch = new Float64Array(8);
+
+    // The pixel position of node i's own point (x, y), where its branch begins (x0, y0), and the box round its subtree
+    // (left, top, right, bottom). For a rectangular layout `reach` is where its farthest leaf is.
     TV.nodePixels = function (scene, i) {
-        const { model, layout, view } = scene;
-        const p = model.parent[i];
-        const x = view.ox + layout.x[i] * view.sx;
+        const { layout, view } = scene;
+        const boxes = layout.boxes;
+        layout.stem(i, scratch);
         return {
-            x,
-            y: view.oy + layout.y[i] * view.sy,
-            x0: p >= 0 ? view.ox + layout.x[p] * view.sx : x,
-            reach: view.ox + layout.reach[i] * view.sx,
-            top: view.oy + model.firstLeaf[i] * view.sy,
-            bottom: view.oy + (model.lastLeaf[i] + 1) * view.sy,
+            x: view.ox + scratch[2] * view.sx,
+            y: view.oy + scratch[3] * view.sy,
+            x0: view.ox + scratch[0] * view.sx,
+            y0: view.oy + scratch[1] * view.sy,
+            reach: view.ox + (layout.kind === "rectangular" ? layout.reach[i] : boxes.x1[i]) * view.sx,
+            left: view.ox + boxes.x0[i] * view.sx,
+            right: view.ox + boxes.x1[i] * view.sx,
+            top: view.oy + boxes.y0[i] * view.sy,
+            bottom: view.oy + boxes.y1[i] * view.sy,
         };
     };
 
@@ -92,9 +129,307 @@ window.TreeView = window.TreeView || {};
         return low;
     }
 
-    // Draw the scene on the canvas. scene: { model, layout, view, palette, hover, pinned, matches, current },
-    // hover and pinned a node number or -1, matches the sorted leaf numbers found by the search and current the
-    // index in it of the one the search is at (or -1). Returns what was drawn, for the tests and the status line.
+    // How many of the sorted leaf numbers `matches` are in the range [first, last].
+    TV.matchesIn = function (matches, first, last) {
+        return matches && matches.length ? lowerBound(matches, last + 1) - lowerBound(matches, first) : 0;
+    };
+
+    // Whether there is room to mark each leaf with a dot, and to name it: { dots, labels, size } for a layout in a view
+    // with `leafCount` leaves drawn on their own. A rectangular row says it by its height; a circular tree by the arc
+    // that a leaf has at its farthest, and an unrooted one the same (its leaves are as far as that, or nearer, and
+    // none lie closer to each other than their slice of the circle there), and by how many are to be marked or named.
+    TV.leafDetail = function (layout, view, leafCount) {
+        if (layout.kind === "rectangular") {
+            return { dots: view.sy >= TV.DOT_PX, labels: view.sy >= TV.LABEL_PX, size: view.sy };
+        }
+        if (layout.kind === "circular") {
+            const slot = layout.reach[layout.reach.length - 1] * layout.slot * view.sx;
+            return { dots: slot >= TV.DOT_PX, labels: slot >= TV.LABEL_PX, size: slot };
+        }
+        const slot = layout.far[layout.far.length - 1] * layout.slot * view.sx;
+        return { dots: slot >= TV.DOT_PX && leafCount <= TV.UNROOTED_DOTS, labels: slot >= TV.LABEL_PX && leafCount <= TV.UNROOTED_LABELS, size: 14 };
+    };
+
+    // A rectangular tree is all horizontal and vertical lines, and a line that falls on the middle of a pixel row
+    // draws many times faster than one that is spread over two (60 times, measured, where there is no GPU), so its
+    // coordinates are put on the middle of the device pixel they fall in. Every line of the page goes through the
+    // same function, so those that meet still meet. The other layouts have lines at every angle, which cannot be.
+    TV.snapFor = function (layout) {
+        if (layout.kind !== "rectangular") return null;
+        const ratio = window.devicePixelRatio || 1;
+        return (value) => (Math.floor(value * ratio) + 0.5) / ratio;
+    };
+
+    // The rectangle that a line must touch to be worth adding to a path: the canvas and a margin round it. A visited
+    // clade's own line can lie far outside it (the clade is visited for its box, which is bigger than its line, in a
+    // circular or unrooted tree), and a path with thousands of lines nobody sees costs where there is no GPU.
+    let drawW = Infinity;
+    let drawH = Infinity;
+    const DRAW_MARGIN = 8;
+
+    function offScreen(x0, y0, x1, y1) {
+        return (x0 < -DRAW_MARGIN && x1 < -DRAW_MARGIN) || (x0 > drawW + DRAW_MARGIN && x1 > drawW + DRAW_MARGIN)
+            || (y0 < -DRAW_MARGIN && y1 < -DRAW_MARGIN) || (y0 > drawH + DRAW_MARGIN && y1 > drawH + DRAW_MARGIN);
+    }
+
+    function addStem(path, out, view, snap) {
+        let x0 = view.ox + out[0] * view.sx, y0 = view.oy + out[1] * view.sy;
+        let x1 = view.ox + out[2] * view.sx, y1 = view.oy + out[3] * view.sy;
+        if (offScreen(x0, y0, x1, y1)) return;
+        if (snap) { x0 = snap(x0); y0 = snap(y0); x1 = snap(x1); y1 = snap(y1); }
+        path.moveTo(x0, y0);
+        path.lineTo(x1, y1);
+    }
+
+    // The join of node i's children, in a path (an arc is about the origin, which the view puts at (ox, oy)).
+    function addJoin(path, out, view, snap) {
+        if (out[0] === 1) {
+            let x0 = view.ox + out[1] * view.sx, y0 = view.oy + out[2] * view.sy;
+            let x1 = view.ox + out[3] * view.sx, y1 = view.oy + out[4] * view.sy;
+            if (offScreen(x0, y0, x1, y1)) return;
+            if (snap) { x0 = snap(x0); y0 = snap(y0); x1 = snap(x1); y1 = snap(y1); }
+            path.moveTo(x0, y0);
+            path.lineTo(x1, y1);
+        } else if (out[0] === 2) {
+            // A circle that is all outside the canvas, or all round it, has no arc in view.
+            const radius = out[1] * view.sx;
+            const near = Math.hypot(Math.max(-view.ox, 0, view.ox - drawW), Math.max(-view.oy, 0, view.oy - drawH));
+            const far = Math.hypot(Math.max(view.ox, drawW - view.ox), Math.max(view.oy, drawH - view.oy));
+            if (radius + DRAW_MARGIN < near || radius - DRAW_MARGIN > far) return;
+            path.moveTo(view.ox + out[1] * Math.cos(out[2]) * view.sx, view.oy + out[1] * Math.sin(out[2]) * view.sy);
+            path.arc(view.ox, view.oy, radius, out[2], out[3]);
+        }
+    }
+
+    // The shape of a collapsed clade, as a closed path.
+    function addWedge(path, out, view) {
+        if (out[0] === 0) {
+            path.moveTo(view.ox + out[1] * view.sx, view.oy + out[2] * view.sy);
+            path.lineTo(view.ox + out[3] * view.sx, view.oy + out[4] * view.sy);
+            path.lineTo(view.ox + out[5] * view.sx, view.oy + out[6] * view.sy);
+        } else {
+            const radius = out[5] * view.sx;
+            const cx = view.ox + out[3] * view.sx;
+            const cy = view.oy + out[4] * view.sy;
+            path.moveTo(view.ox + out[1] * view.sx, view.oy + out[2] * view.sy);
+            path.lineTo(cx + radius * Math.cos(out[6]), cy + radius * Math.sin(out[6]));
+            path.arc(cx, cy, radius, out[6], out[7]);
+        }
+        path.closePath();
+    }
+    TV.addWedge = addWedge;
+
+    // Draw the tree of scene on the context, which is `width` x `height` CSS pixels: the lines, the shapes of the
+    // collapsed and the tiny, and the dots, handles and names that have room. scene: { model, layout, view, palette,
+    // collapsed, matches }. mini is true for the overview map, which draws only the shapes of the tree. Returns
+    // what was drawn: { visited, bars, collapsed, labels, dots, handles }, and in `pieces` what the callers add to.
+    TV.paintTree = function (ctx, scene, width, height, mini) {
+        const { model, layout, view, palette, collapsed } = scene;
+        const stats = { visited: 0, bars: 0, collapsed: 0, labels: 0, dots: 0, handles: 0 };
+        const { sx, sy, ox, oy } = view;
+        const boxes = layout.boxes;
+        const { parent, childCount, childStart, childList, firstLeaf, lastLeaf, leafOrdinal, viewerNode } = model;
+        const margin = 8;
+        const rectangular = layout.kind === "rectangular";
+        const labelsPossible = !mini && (rectangular ? view.sy >= TV.LABEL_PX : layout.kind === "circular"
+            ? TV.leafDetail(layout, view, 0).labels : true);
+        // Names reach out of a leaf: to the right of a rectangular tree, to any side of the others.
+        const padOut = labelsPossible ? LABEL_REACH_PX : 0;
+        const padLeft = padOut;
+        const padRight = rectangular ? 0 : padOut;
+        const limit = mini ? 2 : TV.COLLAPSE_PX;
+        const matches = scene.matches;
+        drawW = width;
+        drawH = height;
+
+        const branches = new Path2D();
+        const faded = new Path2D();
+        const wedges = new Path2D();
+        const matched = new Path2D();
+        const handles = [];
+        const leaves = [];
+        const out = new Float64Array(8);
+        // A tiny clade is a line, in the bucket of its thickness (to the half pixel, one to three): one stroke for each.
+        const marks = new Map();
+        const snap = TV.snapFor(layout);
+
+        const wedgeOf = (i) => {
+            layout.wedge(i, out);
+            addWedge(wedges, out, view);
+            if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addWedge(matched, out, view);
+        };
+        const markOf = (i) => {
+            const width = Math.min(3, Math.max(1, Math.round(layout.thickness(i, sx, sy) * 2) / 2));
+            let path = marks.get(width);
+            if (!path) marks.set(width, path = new Path2D());
+            layout.mark(i, out);
+            addStem(path, out, view, snap);
+            if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addStem(matched, out, view, snap);
+        };
+
+        const stack = [model.root];
+        while (stack.length) {
+            const i = stack.pop();
+            const left = ox + boxes.x0[i] * sx;
+            const right = ox + boxes.x1[i] * sx;
+            const top = oy + boxes.y0[i] * sy;
+            const bottom = oy + boxes.y1[i] * sy;
+            if (bottom + (rectangular ? 0 : padOut) < -margin || top - (rectangular ? 0 : padOut) > height + margin) continue;
+            if (right + padLeft < -margin || left - padRight > width + margin) continue;
+            stats.visited++;
+            layout.stem(i, out);
+            // Where node i is, kept before the shapes below use the array for their own.
+            const nodeX = ox + out[2] * sx;
+            const nodeY = oy + out[3] * sy;
+
+            if (childCount[i] === 0) {
+                const inNetwork = viewerNode[leafOrdinal[i]] >= 0;
+                addStem(inNetwork ? branches : faded, out, view, snap);
+                leaves.push(i);
+            } else if (collapsed && collapsed[i]) {
+                addStem(branches, out, view, snap);
+                wedgeOf(i);
+                stats.collapsed++;
+                if (!mini) handles.push([i, nodeX, nodeY, true]);
+            } else if (layout.tiny(i, sx, sy, limit)) {
+                addStem(branches, out, view, snap);
+                markOf(i);
+                stats.bars++;
+            } else {
+                addStem(branches, out, view, snap);
+                layout.join(i, out);
+                addJoin(branches, out, view, snap);
+                if (!mini && (i === scene.hover || i === scene.pinned) && i !== model.root
+                    && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX) {
+                    handles.push([i, nodeX, nodeY, false]);
+                }
+                for (let k = childStart[i]; k < childStart[i + 1]; k++) stack.push(childList[k]);
+            }
+        }
+
+        // Everything is drawn opaque: a see-through shape costs several times as much where there is no GPU.
+        ctx.lineWidth = 1;
+        ctx.lineCap = "butt";
+        ctx.fillStyle = palette.wedge;
+        ctx.fill(wedges);
+        ctx.strokeStyle = palette.mark;
+        for (const [width, path] of marks) {
+            ctx.lineWidth = width;
+            ctx.stroke(path);
+        }
+        ctx.lineWidth = 1;
+        ctx.stroke(wedges);
+        ctx.strokeStyle = palette.faded;
+        ctx.stroke(faded);
+        ctx.strokeStyle = palette.branch;
+        ctx.stroke(branches);
+        ctx.lineWidth = mini ? 1.5 : 2;
+        ctx.strokeStyle = palette.match;
+        ctx.stroke(matched);
+        if (mini) return stats;
+
+        // The leaves drawn on their own: a dot where there is room, a name where there is more.
+        const detail = TV.leafDetail(layout, view, leaves.length);
+        const dotRadius = Math.min(3.2, Math.max(1.1, detail.size * 0.25));
+        const dots = new Path2D();
+        const fadedDots = new Path2D();
+        const names = [];
+        for (const i of leaves) {
+            layout.stem(i, out);
+            const x = ox + out[2] * sx;
+            const y = oy + out[3] * sy;
+            const inNetwork = viewerNode[leafOrdinal[i]] >= 0;
+            if (detail.dots) {
+                const path = inNetwork ? dots : fadedDots;
+                path.moveTo(x + dotRadius, y);
+                path.arc(x, y, dotRadius, 0, 2 * Math.PI);
+                stats.dots++;
+            }
+            if (detail.labels) {
+                // The direction the leaf points in, for a name that runs away from the tree.
+                const direction = rectangular ? 0 : layout.kind === "circular" ? layout.angle[i]
+                    : Math.atan2(out[3] - out[1], out[2] - out[0]);
+                names.push([model.labels[leafOrdinal[i]], x, y, inNetwork, direction]);
+            }
+        }
+        if (detail.dots) {
+            ctx.fillStyle = palette.faded;
+            ctx.fill(fadedDots);
+            ctx.fillStyle = palette.branch;
+            ctx.fill(dots);
+        }
+
+        // The handles that fold a clade up (a minus) and the ones that open it again (a plus).
+        const half = TV.HANDLE_PX / 2;
+        for (const [, x, y, isCollapsed] of handles) {
+            ctx.fillStyle = palette.background;
+            ctx.strokeStyle = palette.branch;
+            ctx.lineWidth = 1;
+            ctx.fillRect(x - half, y - half, TV.HANDLE_PX, TV.HANDLE_PX);
+            ctx.strokeRect(x - half + 0.5, y - half + 0.5, TV.HANDLE_PX - 1, TV.HANDLE_PX - 1);
+            ctx.beginPath();
+            ctx.moveTo(x - half + 2.5, y);
+            ctx.lineTo(x + half - 2.5, y);
+            if (isCollapsed) { ctx.moveTo(x, y - half + 2.5); ctx.lineTo(x, y + half - 2.5); }
+            ctx.stroke();
+            stats.handles++;
+        }
+
+        if (names.length) {
+            ctx.font = Math.min(13, Math.max(9, detail.size * 0.8)).toFixed(1) + "px " + palette.font;
+            ctx.textBaseline = "middle";
+            for (const [text, x, y, inNetwork, direction] of names) {
+                ctx.fillStyle = inNetwork ? palette.label : palette.faded;
+                const offset = dotRadius + 4;
+                if (rectangular) {
+                    ctx.textAlign = "left";
+                    ctx.fillText(shortened(text), x + offset, y);
+                } else if (layout.kind === "circular") {
+                    // Along the radius, turned over on the left half so that no name is upside down.
+                    const flipped = Math.cos(direction) < 0;
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(flipped ? direction + Math.PI : direction);
+                    ctx.textAlign = flipped ? "right" : "left";
+                    ctx.fillText(shortened(text), flipped ? -offset : offset, 0);
+                    ctx.restore();
+                } else {
+                    const toTheLeft = Math.cos(direction) < 0;
+                    ctx.textAlign = toTheLeft ? "right" : "left";
+                    ctx.fillText(shortened(text), toTheLeft ? x - offset : x + offset, y);
+                }
+            }
+            stats.labels = names.length;
+        }
+        stats.leafSize = detail.size;
+        return stats;
+    };
+
+    // The highlight behind the lines for node i: a band across a rectangular tree, the shape of the clade in the others.
+    function drawHighlight(ctx, scene, node, fill) {
+        const { model, layout, view } = scene;
+        ctx.fillStyle = fill;
+        if (layout.kind === "rectangular") {
+            const box = TV.nodePixels(scene, node);
+            const named = view.sy >= TV.LABEL_PX;
+            ctx.fillRect(box.x0, box.top, Math.max(2, box.reach - box.x0) + (named ? LABEL_REACH_PX : 6), Math.max(2, box.bottom - box.top));
+            return;
+        }
+        if (model.childCount[node] === 0) {
+            const box = TV.nodePixels(scene, node);
+            ctx.beginPath();
+            ctx.arc(box.x, box.y, 9, 0, 2 * Math.PI);
+            ctx.fill();
+            return;
+        }
+        const path = new Path2D();
+        layout.wedge(node, scratch);
+        addWedge(path, scratch, view);
+        ctx.fill(path);
+    }
+
+    // Draw the scene on the canvas: the background, the highlights, the tree, then the hovered branch, the search's
+    // matches, and for a rectangular tree the ruler. Returns what was drawn, for the tests and the status line.
     TV.drawTree = function (canvas, scene) {
         const { width, height, ratio } = TV.sizeCanvas(canvas);
         const ctx = canvas.getContext("2d");
@@ -102,145 +437,63 @@ window.TreeView = window.TreeView || {};
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         ctx.fillStyle = palette.background;
         ctx.fillRect(0, 0, width, height);
-        const stats = { visited: 0, bars: 0, labels: 0, dots: 0, width, height };
         const { model, layout, view } = scene;
-        if (!model || !layout) return stats;
+        if (!model || !layout) return { visited: 0, bars: 0, collapsed: 0, labels: 0, dots: 0, handles: 0, width, height };
 
-        const { sx, sy, ox, oy } = view;
-        const { x: layoutX, y: layoutY, reach: layoutReach } = layout;
-        const { parent, childCount, childStart, childList, firstLeaf, lastLeaf, leafOrdinal, viewerNode } = model;
-        const margin = 4;
-        const showDots = sy >= TV.DOT_PX;
-        const showLabels = sy >= TV.LABEL_PX;
-        const labelRoom = showLabels ? LABEL_REACH_PX : 0;
-        const dotRadius = Math.min(3.2, Math.max(1.1, sy * 0.25));
-
-        // Highlights sit behind the lines.
         for (const [node, fill] of [[scene.pinned, palette.selection], [scene.hover, palette.selection]]) {
-            if (node === undefined || node < 0) continue;
-            const box = TV.nodePixels(scene, node);
-            ctx.fillStyle = fill;
-            ctx.fillRect(box.x0, box.top, Math.max(2, box.reach - box.x0) + (showLabels ? LABEL_REACH_PX : 6), Math.max(2, box.bottom - box.top));
+            if (node !== undefined && node >= 0) drawHighlight(ctx, scene, node, fill);
         }
-
-        const branches = new Path2D();
-        const faded = new Path2D();
-        const bars = new Path2D();
-        const dots = new Path2D();
-        const fadedDots = new Path2D();
-        const labels = [];
-
-        const stack = [model.root];
-        while (stack.length) {
-            const i = stack.pop();
-            const p = parent[i];
-            const xi = ox + layoutX[i] * sx;
-            const x0 = p >= 0 ? ox + layoutX[p] * sx : xi;
-            const top = oy + firstLeaf[i] * sy;
-            const bottom = oy + (lastLeaf[i] + 1) * sy;
-            if (bottom < -margin || top > height + margin) continue;
-            if (x0 > width + margin || ox + layoutReach[i] * sx + labelRoom < -margin) continue;
-            stats.visited++;
-            const yi = oy + layoutY[i] * sy;
-
-            if (childCount[i] === 0) {
-                const inNetwork = viewerNode[leafOrdinal[i]] >= 0;
-                const path = inNetwork ? branches : faded;
-                path.moveTo(x0, yi);
-                path.lineTo(xi, yi);
-                if (showDots) {
-                    (inNetwork ? dots : fadedDots).moveTo(xi + dotRadius, yi);
-                    (inNetwork ? dots : fadedDots).arc(xi, yi, dotRadius, 0, 2 * Math.PI);
-                    stats.dots++;
-                }
-                if (showLabels) labels.push([model.labels[leafOrdinal[i]], xi + dotRadius + 4, yi, inNetwork]);
-            } else if (lastLeaf[i] > firstLeaf[i] && bottom - top < TV.COLLAPSE_PX) {
-                branches.moveTo(x0, yi);
-                branches.lineTo(xi, yi);
-                const barHeight = Math.max(1.5, bottom - top);
-                bars.rect(xi, yi - barHeight / 2, Math.max(1, ox + layoutReach[i] * sx - xi), barHeight);
-                stats.bars++;
-            } else {
-                branches.moveTo(x0, yi);
-                branches.lineTo(xi, yi);
-                const first = childList[childStart[i]];
-                const last = childList[childStart[i + 1] - 1];
-                branches.moveTo(xi, oy + layoutY[first] * sy);
-                branches.lineTo(xi, oy + layoutY[last] * sy);
-                for (let k = childStart[i]; k < childStart[i + 1]; k++) stack.push(childList[k]);
-            }
-        }
-
-        ctx.lineWidth = 1;
-        ctx.lineCap = "butt";
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = palette.branch;
-        ctx.fill(bars);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = palette.faded;
-        ctx.stroke(faded);
-        ctx.strokeStyle = palette.branch;
-        ctx.stroke(branches);
-        if (showDots) {
-            ctx.fillStyle = palette.faded;
-            ctx.fill(fadedDots);
-            ctx.fillStyle = palette.branch;
-            ctx.fill(dots);
-        }
-
-        if (labels.length) {
-            ctx.font = Math.min(13, Math.max(9, sy * 0.8)).toFixed(1) + "px " + palette.font;
-            ctx.textBaseline = "middle";
-            ctx.textAlign = "left";
-            for (const [text, x, y, inNetwork] of labels) {
-                ctx.fillStyle = inNetwork ? palette.label : palette.faded;
-                ctx.fillText(shortened(text), x, y);
-            }
-            stats.labels = labels.length;
-        }
+        const stats = TV.paintTree(ctx, scene, width, height, false);
+        stats.width = width;
+        stats.height = height;
 
         // The hovered branch, and the search's matches, over the lines.
-        if (scene.hover !== undefined && scene.hover >= 0) {
-            const box = TV.nodePixels(scene, scene.hover);
+        if (scene.hover !== undefined && scene.hover >= 0 && !(scene.collapsed && scene.collapsed[scene.hover])) {
             ctx.strokeStyle = palette.accent;
             ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(box.x0, box.y);
-            ctx.lineTo(box.x, box.y);
-            if (model.childCount[scene.hover] > 0) {
-                const first = childList[childStart[scene.hover]];
-                const last = childList[childStart[scene.hover + 1] - 1];
-                ctx.moveTo(box.x, oy + layoutY[first] * sy);
-                ctx.lineTo(box.x, oy + layoutY[last] * sy);
-            }
-            ctx.stroke();
+            const path = new Path2D();
+            const snap = TV.snapFor(layout);
+            layout.stem(scene.hover, scratch);
+            addStem(path, scratch, view, snap);
+            layout.join(scene.hover, scratch);
+            addJoin(path, scratch, view, snap);
+            ctx.stroke(path);
         }
         TV.drawMatches(ctx, scene, width, height);
-        TV.drawRuler(ctx, scene, width, height);
+        if (layout.kind === "rectangular") TV.drawRuler(ctx, scene, width, height);
         return stats;
     };
 
     // A ring at the tip of each leaf the search found that is in view; a short tick where its row is too thin for one.
+    // A leaf inside a collapsed clade has no tip: the clade's shape is outlined instead (paintTree).
     TV.drawMatches = function (ctx, scene, width, height) {
         const matches = scene.matches;
         if (!matches || !matches.length) return;
         const { model, layout, view, palette } = scene;
-        const first = lowerBound(matches, Math.floor((-4 - view.oy) / view.sy));
+        const rectangular = layout.kind === "rectangular";
+        const hidden = scene.leafHidden;
+        // A rectangular tree's matches are sorted by row, so those above the view are skipped by a search.
+        const first = rectangular ? lowerBound(matches, Math.floor((-4 - view.oy) / view.sy)) : 0;
+        // A thin row, or so many matches that rings would be a smear, get a small mark instead of a ring.
+        const thin = rectangular ? view.sy < 6 : matches.length > 1500;
         ctx.lineWidth = 1.5;
         for (let m = first; m < matches.length; m++) {
             const leaf = matches[m];
-            const y = view.oy + (leaf + 0.5) * view.sy;
-            if (y > height + 8) break;
-            const x = view.ox + layout.x[model.leafNode[leaf]] * view.sx;
-            if (x < -LABEL_REACH_PX || x > width + 8) continue;
+            if (hidden && hidden[leaf]) continue;
+            const node = model.leafNode[leaf];
+            const y = view.oy + layout.y[node] * view.sy;
+            if (rectangular && y > height + 8) break;
+            const x = view.ox + layout.x[node] * view.sx;
+            if (x < -LABEL_REACH_PX || x > width + 8 || y < -8 || y > height + 8) continue;
             const current = m === scene.current;
             ctx.strokeStyle = current ? palette.accent : palette.match;
             ctx.fillStyle = palette.matchSoft;
-            if (view.sy < 6) {
+            if (thin) {
                 ctx.fillStyle = current ? palette.accent : palette.match;
-                ctx.fillRect(x, y - 1, current ? 22 : 14, 2);
+                if (rectangular) ctx.fillRect(x, y - 1, current ? 22 : 14, 2); else ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
             } else {
-                const radius = Math.min(8, Math.max(3.5, view.sy * 0.45));
+                const size = rectangular ? view.sy : TV.leafDetail(layout, view, 1).size;
+                const radius = Math.min(8, Math.max(3.5, size * 0.45));
                 ctx.beginPath();
                 ctx.arc(x, y, radius, 0, 2 * Math.PI);
                 ctx.fill();
@@ -249,7 +502,8 @@ window.TreeView = window.TreeView || {};
         }
     };
 
-    // The strip at the right edge: the whole tree top to bottom, the rows in view as a thumb, a tick for each match.
+    // The strip at the right edge of a rectangular tree: the whole tree top to bottom, the rows in view as a thumb, a
+    // tick for each match.
     TV.drawRuler = function (ctx, scene, width, height) {
         const { model, view, palette } = scene;
         const left = width - TV.RULER_WIDTH;
