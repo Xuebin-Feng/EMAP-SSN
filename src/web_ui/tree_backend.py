@@ -30,6 +30,13 @@ generic listener on that (viewer.node_update_listeners) is all that follows them
 it tells a connected page, once per burst of changes, that the colours changed,
 and the page asks for them again. No colour travels in the event stream, which
 every open page receives.
+
+The selection goes both ways. The Viewer already tells every page which nodes are
+selected (selection_changed) and which has the click focus (highlight_row), and
+/api/tree/selection gives a page that opens later what it missed. The other way,
+the page asks the Viewer to select the nodes of a clade (the tree_select action)
+or to focus on a leaf's node (tree_focus), and the Viewer does what a box
+selection or a click does; the page learns what came of it from the same two events.
 """
 
 import base64
@@ -46,6 +53,9 @@ from web_ui.Plugin_Manager import ensure_registry
 
 DATA_ROUTE = "/api/tree/data"
 COLORS_ROUTE = "/api/tree/colors"
+SELECTION_ROUTE = "/api/tree/selection"
+# The ways a tree_select request combines its nodes with the selection the network has.
+SELECT_MODES = ("replace", "add", "toggle")
 # The event that says the colours (or which nodes are hidden, or the clusters) are not what the page was sent.
 COLORS_EVENT = "tree_colors_changed"
 # A colour change is announced this long after the last one seen, so that a command that draws in a burst sends one event.
@@ -380,6 +390,130 @@ def handle_tree_colors(viewer, request):
     return 200, state
 
 
+# ---- The selection, both ways -----------------------------------------------------------------------------------
+
+
+def _is_node_number(value):
+    """Whether value is a whole number a JSON request can carry: an int, never a boolean."""
+    return isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_))
+
+
+def selection_state(viewer):
+    """What /api/tree/selection answers: the nodes selected in the network, and the one with the click focus.
+
+    ``indices`` are the Viewer's node numbers, sorted and without repeats, as 4-byte integers (``count`` of them);
+    ``focus`` is the node the network's click focus is on, or None. A page asks for this when it opens, as it hears
+    of later changes through selection_changed and highlight_row.
+    """
+    count = int(getattr(viewer, "n_nodes", 0) or 0)
+    selected = getattr(viewer, "selected_indices", None)
+    found = np.zeros(0, dtype=np.int64)
+    if selected is not None and len(selected) and count > 0:
+        found = np.unique(np.asarray(list(selected), dtype=np.int64))
+        found = found[(found >= 0) & (found < count)]
+    focus = getattr(viewer, "selected_node_idx", None)
+    if not _is_node_number(focus) or not 0 <= int(focus) < count:
+        focus = None
+    return {
+        "status": "ok",
+        "count": int(found.size),
+        "indices": _packed(found, "<i4"),
+        "focus": None if focus is None else int(focus),
+    }
+
+
+def handle_tree_selection(viewer, request):
+    """GET /api/tree/selection: the network's selection and focus (selection_state). The web server has checked the request's origin."""
+    return 200, selection_state(viewer)
+
+
+def handle_tree_select(viewer, data):
+    """The ``tree_select`` action: select nodes of the network from the tree, as a box selection does.
+
+    ``indices`` is a list of the Viewer's node numbers, and ``mode`` says what is done with the selection the
+    network has: "replace" (the nodes become the selection, an empty list clearing it), "add" (they join it) or
+    "toggle" (those selected leave it, the others join it). A request that is not well formed changes nothing:
+    ``indices`` not a list, longer than the network, or holding anything but whole numbers (a boolean is not one) in
+    0..n-1, or another ``mode``. Nodes that are hidden cannot be selected and are left out, as are repeats; when that
+    leaves nothing of a request that named some, or the selection comes out as it was, nothing is changed and the
+    request succeeds with a note. Returns {"ok", "changed", "selected", "note"}; the page learns the new selection
+    from the Viewer's selection_changed event, not from this.
+    """
+    def refuse(note):
+        return {"ok": False, "changed": False, "selected": None, "note": note}
+
+    indices = data.get("indices") if isinstance(data, dict) else None
+    mode = data.get("mode", "replace") if isinstance(data, dict) else None
+    if mode not in SELECT_MODES:
+        return refuse("bad_mode")
+    count = int(getattr(viewer, "n_nodes", 0) or 0)
+    if not isinstance(indices, list):
+        return refuse("bad_indices")
+    if len(indices) > count:
+        return refuse("too_many")
+    for value in indices:
+        if not _is_node_number(value) or not 0 <= int(value) < count:
+            return refuse("bad_indices")
+    visible = getattr(viewer, "visible_mask", None)
+    if visible is None or len(visible) != count:
+        return refuse("no_network")
+    requested = np.unique(np.asarray(indices, dtype=np.int64))
+    wanted = requested[np.asarray(visible, dtype=bool)[requested]] if requested.size else requested
+
+    current = np.unique(np.asarray(list(getattr(viewer, "selected_indices", None) or []), dtype=np.int64))
+    if requested.size and not wanted.size:
+        return {"ok": True, "changed": False, "selected": int(current.size), "note": "nothing_selectable"}
+    if mode == "replace":
+        result = wanted
+    elif mode == "add":
+        result = np.union1d(current, wanted)
+    else:
+        result = np.setxor1d(current, wanted)
+    if np.array_equal(result, current):
+        return {"ok": True, "changed": False, "selected": int(current.size), "note": "unchanged"}
+
+    viewer.selected_indices = [int(value) for value in result]
+    viewer._note_hand_selection()
+    viewer.update_selection_visual()
+    show = getattr(viewer, "_show_selection_status", None)
+    if callable(show):
+        show()
+    return {"ok": True, "changed": True, "selected": int(result.size), "note": None}
+
+
+def handle_tree_focus(viewer, data):
+    """The ``tree_focus`` action: put the network's click focus on the node of a leaf, as a click on the node does.
+
+    ``index`` (it must be there) is a Viewer node number that is shown in the network, or None to clear the click
+    focus (the selection is not touched either way). Anything else, or a node out of range or hidden, changes
+    nothing. Returns
+    {"ok", "changed", "note"}.
+    """
+    if not isinstance(data, dict) or "index" not in data:
+        return {"ok": False, "changed": False, "note": "bad_index"}
+    index = data["index"]
+    count = int(getattr(viewer, "n_nodes", 0) or 0)
+    if index is None:
+        clear = getattr(viewer, "clear_left_click_focus", None)
+        if not callable(clear):
+            return {"ok": False, "changed": False, "note": "no_network"}
+        if getattr(viewer, "selected_node_idx", None) is None:
+            return {"ok": True, "changed": False, "note": "unchanged"}
+        clear()
+        return {"ok": True, "changed": True, "note": None}
+    if not _is_node_number(index) or not 0 <= int(index) < count:
+        return {"ok": False, "changed": False, "note": "bad_index"}
+    index = int(index)
+    visible = getattr(viewer, "visible_mask", None)
+    if visible is None or len(visible) != count or not bool(visible[index]):
+        return {"ok": False, "changed": False, "note": "hidden"}
+    focus = getattr(viewer, "apply_left_click_focus", None)
+    if not callable(focus):
+        return {"ok": False, "changed": False, "note": "no_network"}
+    focus(index)
+    return {"ok": True, "changed": True, "note": None}
+
+
 def follow_colors(viewer):
     """Have the viewer tell this module when the nodes are drawn again; once, however often it is asked."""
     if getattr(viewer, "_tree_color_watch", None) is not None:
@@ -394,6 +528,9 @@ def register_backend(registry, viewer):
     """Register Tree View's web capabilities without adding a Console button."""
     registry.register_api_route("tree", DATA_ROUTE, lambda request: handle_tree_data(viewer, request))
     registry.register_api_route("tree", COLORS_ROUTE, lambda request: handle_tree_colors(viewer, request))
+    registry.register_api_route("tree", SELECTION_ROUTE, lambda request: handle_tree_selection(viewer, request))
+    registry.register_action("tree", "tree_select", lambda data: handle_tree_select(viewer, data))
+    registry.register_action("tree", "tree_focus", lambda data: handle_tree_focus(viewer, data))
     follow_colors(viewer)
 
 

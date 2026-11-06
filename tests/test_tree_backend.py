@@ -464,6 +464,28 @@ class RouteTests(FolderTestCase):
         route = self.viewer.web_plugin_registry.api_routes
         self.assertEqual([key for key in route if key[1] == tree_backend.COLORS_ROUTE], [("GET", tree_backend.COLORS_ROUTE)])
 
+    def test_the_page_gets_the_selection_as_json(self):
+        import json
+
+        self.viewer.selected_indices = [9, 2, 2]
+        self.viewer.selected_node_idx = 5
+        status, headers, body = self.http_get(self.server, tree_backend.SELECTION_ROUTE, self.page_headers(self.server))
+        self.assertEqual(status, 200)
+        self.assertTrue(headers["Content-Type"].startswith("application/json"))
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        payload = json.loads(body)
+        self.assertEqual((payload["status"], payload["count"], payload["focus"]), ("ok", 2, 5))
+        self.assertEqual(list(unpack(payload["indices"], "<i4")), [2, 9])
+
+    def test_a_request_for_the_selection_from_another_origin_is_refused(self):
+        status, _headers, _body = self.http_get(
+            self.server, tree_backend.SELECTION_ROUTE, {**self.page_headers(self.server), "Origin": "http://evil.example"})
+        self.assertEqual(status, 403)
+
+    def test_the_selection_route_answers_get_only(self):
+        route = self.viewer.web_plugin_registry.api_routes
+        self.assertEqual([key for key in route if key[1] == tree_backend.SELECTION_ROUTE], [("GET", tree_backend.SELECTION_ROUTE)])
+
     def test_what_the_page_was_sent_is_not_announced_to_it(self):
         self.give_colors()
         _status, _headers, body = self.http_get(self.server, tree_backend.COLORS_ROUTE, self.page_headers(self.server))
@@ -711,6 +733,276 @@ class FollowColorsTests(unittest.TestCase):
         tree_backend.follow_colors(viewer)
         self.assertEqual(viewer.node_update_listeners[0], mine)
         self.assertEqual(len(viewer.node_update_listeners), 2)
+
+
+class FakeSelectingViewer:
+    """The little of a Viewer that the selection actions touch, which records what they do to it, in order."""
+
+    def __init__(self, count=10, hidden=(), selected=(), focus=None):
+        self.n_nodes = count
+        self.visible_mask = np.ones(count, dtype=bool)
+        self.visible_mask[list(hidden)] = False
+        self.selected_indices = list(selected)
+        self.selected_node_idx = focus
+        self.calls = []
+
+    def _note_hand_selection(self):
+        self.calls.append(("note", list(self.selected_indices)))
+
+    def update_selection_visual(self, broadcast=True):
+        self.calls.append(("visual", list(self.selected_indices)))
+
+    def _show_selection_status(self):
+        self.calls.append(("status",))
+
+    def apply_left_click_focus(self, index):
+        self.selected_node_idx = index
+        self.calls.append(("focus", index))
+
+    def clear_left_click_focus(self):
+        self.selected_node_idx = None
+        self.calls.append(("clear",))
+
+
+class TreeSelectActionTests(unittest.TestCase):
+    """tree_select does what a box selection does, and refuses what is not well formed without touching the selection."""
+
+    def select(self, viewer, indices, mode="replace"):
+        return tree_backend.handle_tree_select(viewer, {"action": "tree_select", "indices": indices, "mode": mode})
+
+    def test_replace_makes_the_nodes_the_selection_as_a_box_selection_does(self):
+        viewer = FakeSelectingViewer(selected=[1, 2])
+        result = self.select(viewer, [5, 3, 4])
+        self.assertEqual(result, {"ok": True, "changed": True, "selected": 3, "note": None})
+        self.assertEqual(viewer.selected_indices, [3, 4, 5])
+        # The selection is noted as made by hand before the nodes are drawn and the pages told, then the status line says it.
+        self.assertEqual([call[0] for call in viewer.calls], ["note", "visual", "status"])
+        self.assertEqual(viewer.calls[0][1], [3, 4, 5])
+
+    def test_the_mode_is_replace_when_none_is_given(self):
+        viewer = FakeSelectingViewer(selected=[1])
+        self.assertTrue(tree_backend.handle_tree_select(viewer, {"indices": [7]})["changed"])
+        self.assertEqual(viewer.selected_indices, [7])
+
+    def test_add_joins_the_selection_and_toggle_swaps_the_nodes_named(self):
+        viewer = FakeSelectingViewer(selected=[1, 2])
+        self.select(viewer, [2, 3], "add")
+        self.assertEqual(viewer.selected_indices, [1, 2, 3])
+        self.select(viewer, [3, 4, 1], "toggle")
+        self.assertEqual(viewer.selected_indices, [2, 4])
+
+    def test_an_empty_list_replaces_the_selection_with_none_and_adds_nothing(self):
+        viewer = FakeSelectingViewer(selected=[1, 2])
+        self.assertTrue(self.select(viewer, [], "add")["ok"])
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertEqual(self.select(viewer, [])["selected"], 0)
+        self.assertEqual(viewer.selected_indices, [])
+        self.assertEqual(viewer.calls[-1], ("status",))
+
+    def test_repeats_count_once(self):
+        viewer = FakeSelectingViewer()
+        self.assertEqual(self.select(viewer, [4, 4, 2, 4, 2])["selected"], 2)
+        self.assertEqual(viewer.selected_indices, [2, 4])
+        viewer = FakeSelectingViewer(selected=[2])
+        self.select(viewer, [4, 4], "toggle")
+        self.assertEqual(viewer.selected_indices, [2, 4])
+
+    def test_hidden_nodes_are_left_out(self):
+        viewer = FakeSelectingViewer(hidden=[3, 4])
+        self.assertEqual(self.select(viewer, [2, 3, 4, 5])["selected"], 2)
+        self.assertEqual(viewer.selected_indices, [2, 5])
+
+    def test_a_request_of_hidden_nodes_only_succeeds_with_a_note_and_changes_nothing(self):
+        viewer = FakeSelectingViewer(hidden=[3, 4], selected=[1])
+        for mode in ("replace", "add", "toggle"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.select(viewer, [3, 4], mode),
+                                 {"ok": True, "changed": False, "selected": 1, "note": "nothing_selectable"})
+        self.assertEqual((viewer.selected_indices, viewer.calls), ([1], []))
+
+    def test_a_request_that_leaves_the_selection_as_it_was_changes_nothing(self):
+        viewer = FakeSelectingViewer(selected=[1, 2])
+        for indices, mode in (([1, 2], "replace"), ([2], "add"), ([], "toggle"), ([], "add")):
+            with self.subTest(indices=indices, mode=mode):
+                result = self.select(viewer, indices, mode)
+                self.assertEqual((result["ok"], result["changed"], result["note"]), (True, False, "unchanged"))
+        self.assertEqual(viewer.calls, [])
+        # An empty selection cleared by an empty replace is the same.
+        viewer = FakeSelectingViewer()
+        self.assertEqual(self.select(viewer, [])["note"], "unchanged")
+        self.assertEqual(viewer.calls, [])
+
+    def test_a_request_that_is_not_well_formed_is_refused_and_changes_nothing(self):
+        cases = {
+            "indices missing": {"mode": "replace"},
+            "indices a tuple": {"indices": (1, 2)},
+            "indices a string": {"indices": "12"},
+            "indices a number": {"indices": 3},
+            "indices None": {"indices": None},
+            "indices a dict": {"indices": {"1": 2}},
+            "a boolean": {"indices": [1, True]},
+            "numpy booleans": {"indices": [np.bool_(True)]},
+            "a float": {"indices": [1, 2.0]},
+            "a string number": {"indices": [1, "2"]},
+            "None in it": {"indices": [1, None]},
+            "a nested list": {"indices": [[1]]},
+            "negative": {"indices": [1, -1]},
+            "the count itself": {"indices": [1, 10]},
+            "far out": {"indices": [1, 10**12]},
+            "more than the network has": {"indices": [0] * 11},
+            "mode unknown": {"indices": [1], "mode": "xor"},
+            "mode in capitals": {"indices": [1], "mode": "Replace"},
+            "mode a number": {"indices": [1], "mode": 1},
+            "mode None": {"indices": [1], "mode": None},
+        }
+        for name, data in cases.items():
+            with self.subTest(name):
+                viewer = FakeSelectingViewer(selected=[7])
+                result = tree_backend.handle_tree_select(viewer, {"action": "tree_select", **data})
+                self.assertFalse(result["ok"])
+                self.assertFalse(result["changed"])
+                self.assertEqual((viewer.selected_indices, viewer.calls), ([7], []))
+
+    def test_a_request_that_is_not_a_dict_is_refused(self):
+        for data in (None, [], "indices", 3):
+            with self.subTest(data=data):
+                viewer = FakeSelectingViewer(selected=[7])
+                self.assertFalse(tree_backend.handle_tree_select(viewer, data)["ok"])
+                self.assertEqual((viewer.selected_indices, viewer.calls), ([7], []))
+
+    def test_one_bad_number_among_good_ones_refuses_them_all(self):
+        viewer = FakeSelectingViewer(selected=[7])
+        self.assertEqual(self.select(viewer, [1, 2, 3, 99])["note"], "bad_indices")
+        self.assertEqual(viewer.selected_indices, [7])
+
+    def test_the_most_a_network_can_name_is_taken(self):
+        viewer = FakeSelectingViewer(count=1000)
+        result = self.select(viewer, list(range(1000)))
+        self.assertEqual((result["ok"], result["selected"]), (True, 1000))
+        self.assertEqual(viewer.selected_indices, list(range(1000)))
+
+    def test_numpy_integers_are_whole_numbers_too(self):
+        viewer = FakeSelectingViewer()
+        self.assertTrue(self.select(viewer, [np.int64(3), np.int32(4)])["changed"])
+        self.assertEqual(viewer.selected_indices, [3, 4])
+        self.assertTrue(all(type(value) is int for value in viewer.selected_indices))
+
+    def test_a_viewer_with_no_network_refuses(self):
+        self.assertFalse(self.select(FakeSelectingViewer(count=0), [0])["ok"])
+        viewer = FakeSelectingViewer()
+        viewer.visible_mask = None
+        self.assertEqual(self.select(viewer, [1])["note"], "no_network")
+
+
+class TreeFocusActionTests(unittest.TestCase):
+    """tree_focus puts the click focus on a node that is shown, as a click on the node does."""
+
+    def focus(self, viewer, index):
+        return tree_backend.handle_tree_focus(viewer, {"action": "tree_focus", "index": index})
+
+    def test_a_node_that_is_shown_gets_the_focus(self):
+        viewer = FakeSelectingViewer(selected=[1])
+        self.assertEqual(self.focus(viewer, 4), {"ok": True, "changed": True, "note": None})
+        self.assertEqual((viewer.calls, viewer.selected_node_idx, viewer.selected_indices), ([("focus", 4)], 4, [1]))
+
+    def test_numpy_integers_are_taken(self):
+        viewer = FakeSelectingViewer()
+        self.assertTrue(self.focus(viewer, np.int64(2))["changed"])
+        self.assertEqual(viewer.calls, [("focus", 2)])
+
+    def test_what_is_not_a_node_of_the_network_changes_nothing(self):
+        for index in (True, False, 1.0, "1", -1, 10, 10**12, [1], {"i": 1}):
+            with self.subTest(index=index):
+                viewer = FakeSelectingViewer(focus=3)
+                self.assertFalse(self.focus(viewer, index)["ok"])
+                self.assertEqual((viewer.calls, viewer.selected_node_idx), ([], 3))
+
+    def test_a_hidden_node_is_refused(self):
+        viewer = FakeSelectingViewer(hidden=[4])
+        self.assertEqual(self.focus(viewer, 4), {"ok": False, "changed": False, "note": "hidden"})
+        self.assertEqual(viewer.calls, [])
+
+    def test_a_missing_index_is_refused_not_taken_for_none(self):
+        viewer = FakeSelectingViewer(focus=3)
+        self.assertFalse(tree_backend.handle_tree_focus(viewer, {"action": "tree_focus"})["ok"])
+        self.assertEqual((viewer.calls, viewer.selected_node_idx), ([], 3))
+
+    def test_none_takes_the_focus_off_and_leaves_the_selection(self):
+        viewer = FakeSelectingViewer(selected=[1, 2], focus=3)
+        self.assertEqual(self.focus(viewer, None), {"ok": True, "changed": True, "note": None})
+        self.assertEqual((viewer.calls, viewer.selected_node_idx, viewer.selected_indices), ([("clear",)], None, [1, 2]))
+
+    def test_none_with_no_focus_succeeds_with_a_note(self):
+        viewer = FakeSelectingViewer()
+        self.assertEqual(self.focus(viewer, None), {"ok": True, "changed": False, "note": "unchanged"})
+        self.assertEqual(viewer.calls, [])
+
+    def test_a_request_that_is_not_a_dict_is_refused(self):
+        viewer = FakeSelectingViewer()
+        self.assertFalse(tree_backend.handle_tree_focus(viewer, [3])["ok"])
+        self.assertEqual(viewer.calls, [])
+
+
+class SelectionStateTests(unittest.TestCase):
+    """/api/tree/selection: what a page opened after a selection was made is told."""
+
+    def test_the_selection_comes_sorted_without_repeats_and_in_range(self):
+        viewer = FakeSelectingViewer(count=10, selected=[7, 3, 3, 12, -1, 5], focus=4)
+        state = tree_backend.selection_state(viewer)
+        self.assertEqual((state["status"], state["count"], state["focus"]), ("ok", 3, 4))
+        self.assertEqual(list(unpack(state["indices"], "<i4")), [3, 5, 7])
+
+    def test_no_selection_and_no_focus(self):
+        state = tree_backend.selection_state(FakeSelectingViewer())
+        self.assertEqual((state["count"], state["indices"], state["focus"]), (0, "", None))
+
+    def test_a_focus_that_is_not_a_node_is_none(self):
+        for focus in (-1, 10, True, "3", 2.5):
+            with self.subTest(focus=focus):
+                self.assertIsNone(tree_backend.selection_state(FakeSelectingViewer(focus=focus))["focus"])
+
+    def test_a_viewer_with_no_network_has_no_selection(self):
+        viewer = FakeSelectingViewer(count=0, selected=[0])
+        self.assertEqual(tree_backend.selection_state(viewer)["count"], 0)
+
+    def test_a_whole_networks_selection_is_four_bytes_a_node(self):
+        viewer = FakeSelectingViewer(count=44000, selected=list(range(44000)))
+        state = tree_backend.selection_state(viewer)
+        self.assertEqual(state["count"], 44000)
+        self.assertEqual(len(base64.b64decode(state["indices"])), 44000 * 4)
+
+
+class RegistrationOfSelectionTests(unittest.TestCase):
+    def test_the_two_actions_and_the_route_are_the_tree_plugins(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+
+        viewer = FakeSelectingViewer()
+        registry = WebPluginRegistry(viewer)
+        tree_backend.register_backend(registry, viewer)
+        self.assertEqual(registry.api_routes[("GET", "/api/tree/selection")].plugin_id, "tree")
+        self.assertEqual(sorted(name for name in registry.actions if name.startswith("tree_")), ["tree_focus", "tree_select"])
+        # The registered handler is the one for this viewer, given the posted dict.
+        registry.actions["tree_select"]({"action": "tree_select", "indices": [2], "mode": "replace"})
+        self.assertEqual(viewer.selected_indices, [2])
+        registry.actions["tree_focus"]({"action": "tree_focus", "index": 3})
+        self.assertEqual(viewer.selected_node_idx, 3)
+
+    def test_registering_again_replaces_them_without_error(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+
+        viewer = FakeSelectingViewer()
+        registry = WebPluginRegistry(viewer)
+        for _ in range(2):
+            tree_backend.register_backend(registry, viewer)
+
+    def test_no_other_plugin_can_take_the_names(self):
+        from web_ui.Plugin_Manager import WebPluginError, WebPluginRegistry, register_bundled_pages
+
+        viewer = FakeSelectingViewer()
+        registry = register_bundled_pages(WebPluginRegistry(viewer))
+        tree_backend.register_backend(registry, viewer)
+        with self.assertRaisesRegex(WebPluginError, "already registered by plugin 'tree'"):
+            registry.register_action("meta", "tree_select", lambda data: None)
 
 
 class RegistrationTests(unittest.TestCase):
