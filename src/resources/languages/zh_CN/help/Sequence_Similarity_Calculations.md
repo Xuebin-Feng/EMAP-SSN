@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 308e94142c1acd26bbe8f56dc88032df5e6e4b233f6efa1cba4bc525f7b42e57 -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 4e667ffc68c4085db36c28030b05572b0372419f1d4e3867316f10a1edd5bfad -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
