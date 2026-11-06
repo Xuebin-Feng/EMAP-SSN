@@ -13523,12 +13523,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+62"/>
-        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -9169,11 +9169,11 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up.</source>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

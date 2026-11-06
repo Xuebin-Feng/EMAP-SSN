@@ -442,6 +442,144 @@ class ShownOnTheTreeTests(SelectionCase):
         self.assertEqual(shown, {"leaves": 0, "clade": -1, "count": 0})
 
 
+class RightClickTests(SelectionCase):
+    """A right-click on the tree selects in the network: replace, with Shift toggle, on empty canvas clear."""
+
+    RIGHT = """
+        window.__bodies = [];
+        if (!window.__fetch) {
+            window.__fetch = window.fetch;
+            window.fetch = (url, options) => { if (String(url) === '/api/action') window.__bodies.push(JSON.parse(options.body)); return window.__fetch(url, options); };
+        }
+        window.rightClick = (x, y, shift = false) => {
+            const c = document.getElementById('tree-canvas'), r = c.getBoundingClientRect();
+            const at = {clientX: r.left + x, clientY: r.top + y, bubbles: true, cancelable: true, shiftKey: shift};
+            c.dispatchEvent(new PointerEvent('pointerdown', {pointerId: 7, button: 2, buttons: 2, ...at}));
+            const menu = new MouseEvent('contextmenu', {button: 2, ...at});
+            c.dispatchEvent(menu);
+            c.dispatchEvent(new PointerEvent('pointerup', {pointerId: 7, button: 2, buttons: 0, ...at}));
+            return menu.defaultPrevented;
+        };
+        window.tip = (leaf) => { const s = TreeView.state, n = s.model.leafNode[leaf]; return [s.view.ox + s.layout.x[n] * s.view.sx, s.view.oy + s.layout.y[n] * s.view.sy]; };
+        window.stem = (node) => { const b = TreeView.nodePixels(TreeView.state, node); return [(b.x0 + b.x) / 2, (b.y0 + b.y) / 2]; };
+        1"""
+
+    def start_right(self):
+        self.start()
+        self.js(self.RIGHT)
+
+    def right(self, point, shift=False):
+        """Right-click at the JavaScript expression ``point`` (an [x, y]); wait until the Viewer has run the action."""
+        before = len(self.viewer.action_results)
+        prevented = self.script(f"const [x, y] = {point}; return window.rightClick(x, y, {json.dumps(shift)})")
+        deadline = time.monotonic() + 10
+        while len(self.viewer.action_results) == before and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.assertEqual(len(self.viewer.action_results), before + 1)
+        self.pump(0.1)
+        return prevented
+
+    def under(self, node):
+        first, last = self.state(f"[TreeView.state.model.firstLeaf[{node}], TreeView.state.model.lastLeaf[{node}]]")
+        return sorted(self.nodes_of(range(first, last + 1)))
+
+    def internal(self):
+        return self.state("TreeView.state.model.parent[TreeView.state.model.leafNode[10]]")
+
+    def test_a_leaf_and_a_clade_replace_the_selection_in_every_layout(self):
+        self.start_right()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.viewer.select([0, 1, 2])
+                self.assertTrue(self.right("window.tip(12)"))
+                self.assertEqual(self.viewer.selected_indices, self.nodes_of([12]))
+                clade = self.internal()
+                hit = self.state(f"(() => {{ const [x, y] = window.stem({clade}); const h = TreeView.hitTest(x, y); return h && h.node; }})()")
+                self.assertGreater(self.state(f"TreeView.state.model.childCount[{hit}]"), 0)
+                self.right(f"window.stem({clade})")
+                self.assertEqual(sorted(self.viewer.selected_indices), self.under(hit))
+
+    def test_shift_toggles_the_nodes_in_every_layout(self):
+        self.start_right()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.viewer.select([])
+                self.right("window.tip(3)", shift=True)
+                self.assertEqual(self.viewer.selected_indices, self.nodes_of([3]))
+                self.right("window.tip(30)", shift=True)
+                self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of([3, 30])))
+                self.right("window.tip(3)", shift=True)
+                self.assertEqual(self.viewer.selected_indices, self.nodes_of([30]))
+
+    def test_empty_canvas_clears_the_selection_in_every_layout(self):
+        self.start_right()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.viewer.select([0, 1, 2])
+                empty = self.state("""(() => { const c = document.getElementById('tree-canvas');
+                    for (let y = 4; y < c.clientHeight; y += 9) for (let x = 4; x < c.clientWidth - 20; x += 9) if (!TreeView.hitTest(x, y)) return [x, y];
+                    return null; })()""")
+                self.assertIsNotNone(empty)
+                self.right(json.dumps(empty))
+                self.assertEqual(self.viewer.selected_indices, [])
+                self.assertEqual(self.viewer.action_results[-1][1]["changed"], True)
+
+    def test_a_folded_clade_is_selected_whole(self):
+        self.start_right()
+        self.choose("rectangular")
+        clade = self.internal()
+        self.script(f"TreeView.openAll(); TreeView.toggleFold({clade}); TreeView.drawNow(); return 1")
+        self.right(f"window.stem({clade})")
+        self.assertEqual(sorted(self.viewer.selected_indices), self.under(clade))
+        self.assertEqual(self.state("TreeView.state.collapsedCount"), 1)
+
+    def test_the_browsers_menu_stays_shut_and_nothing_else_happens(self):
+        self.start_right()
+        self.choose("rectangular")
+        clade = self.internal()
+        snapshot = "(() => { const s = TreeView.state; return {pinned: s.pinned, view: s.view, folds: s.collapsedCount, fitted: s.fitted}; })()"
+        before = self.state(snapshot)
+        for point in ("window.tip(12)", f"window.stem({clade})", "[5, 5]"):
+            self.assertTrue(self.right(point))
+        self.assertEqual(self.state(snapshot), before)
+        # Only selections were asked for: no focus, and the canvas is not left in a drag.
+        self.assertEqual({name for name, _ in self.viewer.action_results}, {"tree_select"})
+        self.assertEqual(self.state("document.getElementById('tree-canvas').classList.contains('dragging')"), False)
+        self.assertIsNone(self.viewer.selected_node_idx)
+
+    def test_the_menu_is_shut_on_the_canvas_only(self):
+        self.start_right()
+        self.assertEqual(self.state("(() => { const e = new MouseEvent('contextmenu', {bubbles: true, cancelable: true}); document.getElementById('legend').dispatchEvent(e); return e.defaultPrevented; })()"), False)
+
+    def test_the_request_the_page_posts(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.right("window.tip(12)")
+        self.right("window.tip(5)", shift=True)
+        self.right("[5, 5]")
+        self.assertEqual(self.state("window.__bodies"), [
+            {"action": "tree_select", "indices": self.nodes_of([12]), "mode": "replace"},
+            {"action": "tree_select", "indices": self.nodes_of([5]), "mode": "toggle"},
+            {"action": "tree_select", "indices": [], "mode": "replace"},
+        ])
+
+    def test_the_ruler_is_not_the_tree(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.js("window.rightClick(document.getElementById('tree-canvas').clientWidth - 5, 100); 1")
+        self.pump(0.3)
+        self.assertEqual(self.viewer.action_results, [])
+
+    def test_the_hints_say_it(self):
+        self.start_right()
+        for kind in ("rectangular", "circular"):
+            self.choose(kind)
+            self.assertIn("Right-click: select in the network.", self.state("TreeView.hintText()"))
+
+
 class AskTheNetworkTests(SelectionCase):
     """A clade's nodes are selected in the network, and a pinned leaf is focused there, through the two actions."""
 

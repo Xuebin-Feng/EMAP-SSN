@@ -145,6 +145,11 @@ window.TreeView = window.TreeView || {};
         return { sent: true, count: indices.length, ok };
     };
 
+    // Ask the Viewer to clear its selection.
+    TV.clearNetworkSelection = function () {
+        return post({ action: "tree_select", indices: [], mode: "replace" });
+    };
+
     // Ask the Viewer to put its click focus on the node of a leaf (the Viewer's node number), or off it (null).
     TV.focusNode = function (index) {
         return post({ action: "tree_focus", index });
