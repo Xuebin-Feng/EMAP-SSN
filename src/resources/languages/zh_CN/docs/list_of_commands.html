@@ -429,7 +429,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-console" data-source-sha256="5451f8d9a425769abcb3db1afd27569fb3c4e3c8999d31d554f4fd44761523dd">
+            <section class="command-card" id="cmd-console" data-source-sha256="368721cf26e47e037e7b6dd0ab401eadb04e943da94a1bfba4c97eeafda60182">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">console</span>
@@ -1090,7 +1090,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-tree" data-source-sha256="c5ca4c6710064671026a87992b5cba16752df0e822618783fdfe4eadffb991f4">
+            <section class="command-card" id="cmd-tree" data-source-sha256="f66161dd280d5dd9f8622bb47c2817c103f924669cd66484c463798740739d2a">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">tree</span>
@@ -1107,7 +1107,7 @@
                 <ul>
                     <li><strong>用哪棵树：</strong>树是根据比对的名称找到的，不能自行指定。对于 <code>Set_[model]_alignment.fasta</code>，它是比对所在文件夹中的 <code>Guide_Trees/Set_[model]_guide_tree.nex</code>。不是该工具生成的比对、被重命名的比对，或在保存树之前生成的比对没有引导树；没有比对或没有对应的树时，页面仍会打开，并用一张卡片说明原因，命令则成功并附带一条说明，指出它查找的文件。页面已经打开时不会再次打开，命令会说明这一点。</li>
                     <li><strong>布局：</strong>有根的树以矩形布局打开；无根的树以无根布局打开。页面还可以把树画成环形，并可按分支长度绘制分支（系统发育图），或只用分支显示谁与谁相邻（支序图）。以矩形或环形绘制无根的树时，按其中点根绘制，页面会注明这一点。双击进化枝可缩放到它，点击其方块可把它折叠成一个形状，<strong>全部展开</strong>可展开所有进化枝。概览图显示整棵树以及你当前所在的位置。</li>
-                    <li><strong>颜色：</strong>树跟随网络的颜色：叶节点全是同一种颜色的进化枝以该颜色绘制，折叠的进化枝显示它所含的颜色。颜色变化时页面会随之更新。</li>
+                    <li><strong>颜色：</strong>树跟随网络的颜色：所显示的叶节点中至少十分之九共享同一种颜色的进化枝以该颜色绘制，折叠的进化枝显示它所含的颜色。颜色变化时页面会随之更新。</li>
                     <li><strong>选择：</strong>网络中选中的节点会在树中显示（青色圆点、包含它们的最小进化枝上的虚线轮廓，以及概览图上的刻度）。右键点击进化枝或叶节点，会用其叶节点替换网络的选择；Shift+右键点击会在选择中切换它们；在空白画布上右键点击会清除选择。点击叶节点会固定它，并在网络中聚焦其节点。树视图没有指向结构视图的链接：请先选中一个进化枝，再运行 <code>esmfold</code>。</li>
                     <li><strong>分裂稳定性：</strong><strong>分裂稳定性</strong>开关会在树放大时，按距离加入噪声扰动后各分裂保持不变的频率给进化枝着色。它是距离噪声下的稳定性，不是 bootstrap 支持率。</li>
                     <li><strong>无窗口：</strong>不显示窗口的查看器不会打开页面；命令成功，并给出树视图所在的地址。</li>
