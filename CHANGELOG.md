@@ -87,7 +87,8 @@ still change before version 1.0.0.
   - **Three layouts:** rectangular, circular and unrooted, each drawn with branch lengths
     (phylogram) or without (cladogram). A rooted tree opens rectangular and an unrooted tree
     opens unrooted; either can be switched to any layout. An unrooted tree drawn rectangular
-    or circular is marked "Drawn from the midpoint root; the tree itself is unrooted."
+    or circular is marked "Drawn from the midpoint root; the tree itself is unrooted." Its x
+    hides the note until the page is opened again.
   - **Navigation:** the tree zooms and pans; in the rectangular layout the rows and the width
     zoom separately. Headers can be searched (a substring, or an exact header in quotes).
     Hovering or clicking a branch or clade shows its details, and double-clicking a clade
