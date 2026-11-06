@@ -13665,7 +13665,7 @@ Fedora / RHEL：
         <location line="+25"/>
         <location line="+1"/>
         <source>Hide this note</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">隐藏此提示</translation>
     </message>
     <message>
         <location line="+23"/>
