@@ -212,6 +212,7 @@ from desktop.Viewer_State import (
     resolve_selected_cache,
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
+from desktop.Viewer_Threshold_Events import ThresholdAnnouncer
 from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, ViewerWindow
 from desktop.Viewer_Caret import CommandCaret
 from desktop.Viewer_Edges import ViewerEdges
@@ -2685,6 +2686,7 @@ class MainViewer:
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.threshold_box.value_at(value)
         self.threshold_box.show_value(self.current_slider_threshold)
+        self._announce_threshold()
         # Under Low Resource Mode's Update Colors After Mouse Release a drag shows the
         # threshold as it goes and redraws the edges once, when let go
         # (_on_slider_released).
@@ -2698,6 +2700,13 @@ class MainViewer:
         if low_resource_drawing(cfg):
             self.update_edges()
 
+    def _announce_threshold(self):
+        """Tell the web pages what the threshold is now (the generic threshold_changed event; one per burst of changes)."""
+        announcer = getattr(self, '_threshold_announcer', None)
+        if announcer is None:
+            announcer = self._threshold_announcer = ThresholdAnnouncer(self)
+        announcer.changed(self.current_slider_threshold)
+
     def _set_threshold_from_box(self, threshold):
         """Draw the edges for a threshold set in the box, and move the slider to it."""
         self.current_slider_threshold = threshold
@@ -2707,6 +2716,7 @@ class MainViewer:
         finally:
             self.slider.blockSignals(blocked)
         self.threshold_box.show_value(threshold)  # What Esc puts back.
+        self._announce_threshold()
         self.update_edges()
 
     def update_edges(self):

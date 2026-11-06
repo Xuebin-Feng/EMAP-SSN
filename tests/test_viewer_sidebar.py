@@ -832,6 +832,52 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertEqual(viewer.edges.method_calls, [])
         self.assertTrue(card.isVisible())
 
+    def listening_viewer(self):
+        """A card viewer with one web page connected, and a threshold announcer that waits 20 ms."""
+        import queue
+        import threading
+
+        from desktop.Viewer_Threshold_Events import ThresholdAnnouncer
+
+        viewer = self.make_card_viewer()
+        events = queue.Queue()
+        viewer.web_server = SimpleNamespace(queues_lock=threading.Lock(), event_queues=[events])
+        viewer._threshold_announcer = ThresholdAnnouncer(viewer, delay=0.02)
+        return viewer, events
+
+    @staticmethod
+    def drain(events, wait=0.25):
+        time.sleep(wait)
+        found = []
+        while not events.empty():
+            found.append(events.get_nowait())
+        return found
+
+    def test_the_slider_and_the_box_tell_the_web_pages_where_the_threshold_is(self):
+        viewer, events = self.listening_viewer()
+        # A burst of changes is one event, with the value the burst ended on.
+        viewer.slider.setValue(viewer.threshold_box.position_of(5.5))
+        viewer.slider.setValue(viewer.threshold_box.position_of(6.5))
+        viewer._set_threshold_from_box(8.5)
+        found = self.drain(events)
+        self.assertEqual(found, [{"type": "threshold_changed", "value": 8.5}])
+        # The slider alone, after a pause, is another event, with the slider's value.
+        viewer.slider.setValue(viewer.threshold_box.position_of(2.0))
+        found = self.drain(events)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["type"], "threshold_changed")
+        self.assertAlmostEqual(found[0]["value"], viewer.current_slider_threshold)
+
+    def test_a_threshold_change_with_no_page_connected_starts_nothing(self):
+        viewer, events = self.listening_viewer()
+        viewer.web_server.event_queues.clear()
+        viewer._set_threshold_from_box(4.0)
+        self.assertIsNone(viewer._threshold_announcer._timer)
+        self.assertEqual(self.drain(events, 0.1), [])
+        viewer.web_server = None
+        viewer._set_threshold_from_box(5.0)
+        self.assertIsNone(viewer._threshold_announcer._timer)
+
     def test_the_info_card_stays_in_the_room_the_sidebar_leaves(self):
         viewer = self.make_card_viewer()
         card = viewer.controls_button.toggle_card()

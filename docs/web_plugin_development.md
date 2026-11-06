@@ -208,6 +208,14 @@ routes do the rest. Neither hook names a page or a plugin.
   `load_global_alignment` has loaded an alignment. It carries nothing: a page that
   shows what the alignment holds asks its routes again. A Viewer with no web
   server skips the broadcast.
+- **The `threshold_changed` event** carries `value`, the score the Viewer's
+  threshold slider is at (the lowest score of the edges it draws). It is broadcast
+  whenever the slider or the threshold box changes it, shortly (about 0.1 s) after
+  the last change of a burst, so a drag sends one event per pause and not one per
+  step, and only while a page is connected. A page that shows what the threshold
+  means follows it through this event, and reads the value when it opens from its
+  own route (Tree View's `/api/tree/data` carries it with the tree); the event
+  names no page. Tree View draws its cut line from it.
 
 The Viewer already broadcasts `selection_changed {indices}` and
 `highlight_row {index}` (`index` is `null` to clear) in Viewer node numbers. A

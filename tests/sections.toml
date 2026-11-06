@@ -71,6 +71,7 @@ modules = [
     "test_network_threshold_edges",
     "test_network_top_edges",
     "test_threshold_tree",
+    "test_viewer_threshold_events",
     "test_prepare_network",
     "test_viewer_caret",
     "test_viewer_command_portal",
