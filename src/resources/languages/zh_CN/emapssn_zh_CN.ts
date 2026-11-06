@@ -13497,7 +13497,12 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已隐藏：{count}</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+4"/>
+        <source>Support: {percent}%</source>
+        <translation type="unfinished">支持度：{percent}%</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Stable in {percent}% of the replicate trees</source>
         <translation type="unfinished">在 {percent}% 的重复树中保持稳定</translation>
     </message>
@@ -13523,7 +13528,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+7"/>
-        <location filename="../../../web_ui/tree_session.js" line="+629"/>
+        <location filename="../../../web_ui/tree_session.js" line="+772"/>
         <source>{count} groups share no kept edge</source>
         <translation type="unfinished">{count} 个组之间没有保留的边</translation>
     </message>
@@ -13558,7 +13563,7 @@ Fedora / RHEL：
         <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="-521"/>
+        <location filename="../../../web_ui/tree_session.js" line="-634"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13604,6 +13609,22 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+5"/>
+        <source>No tree has been opened</source>
+        <translation type="unfinished">尚未打开任何树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open a tree file from the Tree list, drop one on this page, or paste the tree&apos;s text with Ctrl+V. Newick, NEXUS, PhyloXML, NeXML and JSON trees are read, and their leaves are matched to the nodes of the network by full sequence name.</source>
+        <translation type="unfinished">请从“树”列表中打开树文件，把文件拖到此页面，或用 Ctrl+V 粘贴树的文本。可读取 Newick、NEXUS、PhyloXML、NeXML 和 JSON 树，树的叶节点会按完整序列名称与网络的节点匹配。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location filename="../../../web_ui/tree.html" line="+601"/>
+        <source>Open a tree file</source>
+        <translation type="unfinished">打开树文件</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>The tree does not match this network</source>
         <translation type="unfinished">此树与此网络不匹配</translation>
     </message>
@@ -13633,17 +13654,295 @@ Fedora / RHEL：
         <translation type="unfinished">网络阈值树由查看器已加载网络的边构建，而此网络没有边，因此无可合并的内容。</translation>
     </message>
     <message>
+        <location filename="../../../web_ui/tree_open.js" line="+39"/>
+        <source>The Viewer could not read the request.</source>
+        <translation type="unfinished">查看器无法读取该请求。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree is too large for the Viewer to take in one request.</source>
+        <translation type="unfinished">这棵树太大，查看器无法在一次请求中接收。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree has no leaves.</source>
+        <translation type="unfinished">这棵树没有叶节点。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree has fewer than two leaves, so there is nothing to draw.</source>
+        <translation type="unfinished">这棵树的叶节点少于两个，没有可绘制的内容。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree has more than {limit} leaves, which is more than Tree View takes.</source>
+        <translation type="unfinished">这棵树的叶节点多于 {limit} 个，超出了树视图可接受的数量。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The names of the leaves are not text.</source>
+        <translation type="unfinished">叶节点的名称不是文本。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A leaf has no name.</source>
+        <translation type="unfinished">有叶节点没有名称。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A name is longer than {limit} characters.</source>
+        <translation type="unfinished">有名称超过了 {limit} 个字符。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Two leaves are called {label}. A name must name one leaf, so that it can be matched to one node of the network.</source>
+        <translation type="unfinished">有两个叶节点都叫 {label}。一个名称只能对应一个叶节点，这样才能与网络中的一个节点匹配。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree&apos;s numbers are not in a form the Viewer accepts.</source>
+        <translation type="unfinished">这棵树的数值格式不是查看器可接受的形式。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree&apos;s lists do not have one entry for each node.</source>
+        <translation type="unfinished">这棵树的各个列表与节点数目不一致。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree has more nodes than Tree View takes.</source>
+        <translation type="unfinished">这棵树的节点数超出了树视图可接受的数量。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tree&apos;s nodes do not form one tree: a node&apos;s parent must come after it, and the last node must be the root.</source>
+        <translation type="unfinished">这棵树的节点没有构成一棵树：每个节点的父节点必须排在它之后，且最后一个节点必须是根。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The number of names does not match the number of leaves of the tree.</source>
+        <translation type="unfinished">名称的数量与这棵树的叶节点数量不一致。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A branch length is not a finite number of 0 or more.</source>
+        <translation type="unfinished">有分支长度不是不小于 0 的有限数值。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A support value is not a percentage from 0 to 100.</source>
+        <translation type="unfinished">有支持度值不是 0 到 100 的百分数。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>What the tree says of its rooting is not in a form the Viewer accepts.</source>
+        <translation type="unfinished">这棵树关于有根或无根的说明不是查看器可接受的形式。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A name or a note of the file is not text the Viewer accepts.</source>
+        <translation type="unfinished">文件中的某个名称或说明不是查看器可接受的文本。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The notes the reader made are not in a form the Viewer accepts.</source>
+        <translation type="unfinished">读取器生成的提示信息不是查看器可接受的形式。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The names of the clades are not in a form the Viewer accepts.</source>
+        <translation type="unfinished">进化枝的名称不是查看器可接受的形式。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The Viewer did not take the tree: {note}</source>
+        <translation type="unfinished">查看器未接收这棵树：{note}</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>This is not a tree Tree View can read</source>
+        <translation type="unfinished">这不是树视图能读取的树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{name} could not be opened.</source>
+        <translation type="unfinished">无法打开 {name}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+10"/>
+        <source>Open another file</source>
+        <translation type="unfinished">打开其他文件</translation>
+    </message>
+    <message>
+        <location line="-9"/>
+        <location line="+10"/>
+        <location line="+211"/>
+        <location line="+44"/>
+        <source>Back to the tree</source>
+        <translation type="unfinished">返回树</translation>
+    </message>
+    <message>
+        <location line="-258"/>
+        <source>The Viewer did not take this tree</source>
+        <translation type="unfinished">查看器未接收这棵树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{name} was read, but: {reason}</source>
+        <translation type="unfinished">已读取 {name}，但是：{reason}</translation>
+    </message>
+    <message>
+        <location line="+52"/>
+        <source>How the tree matched the network</source>
+        <translation type="unfinished">树与网络的匹配情况</translation>
+    </message>
+    <message>
         <location line="+4"/>
+        <location line="+1"/>
+        <source>Close</source>
+        <translation type="unfinished">关闭</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>{matched} of the {leaves} leaves of {file} are nodes of this network.</source>
+        <translation type="unfinished">{file} 的 {leaves} 个叶节点中，有 {matched} 个是此网络的节点。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Matched by the exact full name: {count}</source>
+        <translation type="unfinished">按完整名称完全一致匹配：{count}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Matched by the name after the Viewer&apos;s header rules: {count}</source>
+        <translation type="unfinished">按查看器的标题规则处理后的名称匹配：{count}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Leaves that are not in the network: {count}</source>
+        <translation type="unfinished">不在网络中的叶节点：{count}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nodes of the network that are not in the tree: {count}</source>
+        <translation type="unfinished">不在树中的网络节点：{count}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Leaves whose name reaches a node that another leaf has too, left unmatched: {count}</source>
+        <translation type="unfinished">名称对应的节点也被另一个叶节点对应，因而未匹配的叶节点：{count}</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <location line="+3"/>
+        <source>Leaves that are not in the network</source>
+        <translation type="unfinished">不在网络中的叶节点</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>... and {count} more</source>
+        <translation type="unfinished">……另有 {count} 个</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Copy the list</source>
+        <translation type="unfinished">复制列表</translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>No leaf of this tree is a node of the network</source>
+        <translation type="unfinished">这棵树没有任何叶节点是网络的节点</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>None of the {leaves} leaves of {file} has the full name of a node of this network, so there is nothing to show beside it. A leaf matches when its name is the node&apos;s whole header, or becomes it under the rules the Viewer writes headers by.</source>
+        <translation type="unfinished">{file} 的 {leaves} 个叶节点中，没有一个与此网络节点的完整名称相同，所以没有可与它并列显示的内容。叶节点的名称等于节点的完整标题，或按查看器书写标题的规则处理后等于它时，才算匹配。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Names in the tree</source>
+        <translation type="unfinished">树中的名称</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Headers in the network</source>
+        <translation type="unfinished">网络中的标题</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Open a tree whose leaves carry the network&apos;s full headers, or compare the two lists: a tree program may have changed the names.</source>
+        <translation type="unfinished">请打开叶节点带有网络完整标题的树，或对照上面两个列表：建树程序可能改动了名称。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open another tree file</source>
+        <translation type="unfinished">打开其他树文件</translation>
+    </message>
+    <message>
+        <location line="+69"/>
+        <location filename="../../../web_ui/tree_session.js" line="+4"/>
         <source>Tree View could not reach the Viewer</source>
         <translation type="unfinished">树视图无法连接到查看器</translation>
     </message>
     <message>
         <location line="+1"/>
+        <location filename="../../../web_ui/tree_session.js" line="+1"/>
         <source>The Viewer did not answer: {reason}</source>
         <translation type="unfinished">查看器没有响应：{reason}</translation>
     </message>
     <message>
         <location line="+1"/>
+        <source>Check that the Viewer is still running, and press Back to the tree.</source>
+        <translation type="unfinished">请确认查看器仍在运行，然后点击“返回树”。</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Tree {number}</source>
+        <translation type="unfinished">树 {number}</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>The tree text is larger than {size} MB.</source>
+        <translation type="unfinished">树文本超过了 {size} MB。</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Choose a tree</source>
+        <translation type="unfinished">选择一棵树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{name} holds {count} trees.</source>
+        <translation type="unfinished">{name} 中有 {count} 棵树。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open this tree</source>
+        <translation type="unfinished">打开这棵树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Double-click a tree, or press Enter, to open it.</source>
+        <translation type="unfinished">双击某棵树或按 Enter 键即可打开。</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>The file is larger than {size} MB.</source>
+        <translation type="unfinished">文件超过了 {size} MB。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The file could not be read: {reason}</source>
+        <translation type="unfinished">无法读取该文件：{reason}</translation>
+    </message>
+    <message>
+        <location line="+77"/>
+        <source>Pasted text</source>
+        <translation type="unfinished">粘贴的文本</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_session.js" line="+1"/>
         <source>Check that the Viewer is still running, and press Check again.</source>
         <translation type="unfinished">请确认查看器仍在运行，然后点击“重新检查”。</translation>
     </message>
@@ -13658,7 +13957,12 @@ Fedora / RHEL：
         <translation type="unfinished">查看器返回了此页面不认识的状态：{status}</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+25"/>
+        <source>The opened tree</source>
+        <translation type="unfinished">已打开的树</translation>
+    </message>
+    <message>
+        <location line="+49"/>
         <source>Mark the leaves of this colour</source>
         <translation type="unfinished">标出此颜色的叶节点</translation>
     </message>
@@ -13699,11 +14003,46 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+2"/>
+        <source>Leaves whose name reaches a node that another leaf has too, left unmatched: {count}.</source>
+        <translation type="unfinished">名称对应的节点也被另一个叶节点对应，因而未匹配的叶节点：{count}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Branches with a negative length, drawn with length 0: {count}.</source>
+        <translation type="unfinished">长度为负的分支（按长度 0 绘制）：{count}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The tree does not end with a ; as a Newick tree should.</source>
+        <translation type="unfinished">这棵树没有按 Newick 格式要求以分号 ; 结尾。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Leaves with no name, which were called unnamed_1, unnamed_2, ...: {count}.</source>
+        <translation type="unfinished">没有名称的叶节点（已命名为 unnamed_1、unnamed_2……）：{count}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Support values above 100, which are no percentage, were ignored: {count}.</source>
+        <translation type="unfinished">已忽略大于 100 的支持度值（不是百分数）：{count}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Leaf names that repeat an earlier one: {count}.</source>
+        <translation type="unfinished">与前面重复的叶节点名称：{count}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>The tree and the Viewer differ in a way this page has no words for: {code}</source>
         <translation type="unfinished">树与查看器之间存在此页面无法描述的差异：{code}</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
+        <source>Drawn from the root the file writes; the tree itself is unrooted.</source>
+        <translation type="unfinished">按文件中写明的根绘制；这棵树本身是无根树。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Drawn from the midpoint root; the tree itself is unrooted.</source>
         <translation type="unfinished">按中点根绘制；树本身是无根的。</translation>
     </message>
@@ -13734,33 +14073,51 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已选择 {count} 个，其中 {leaves} 个在此树中</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+95"/>
+        <location line="+112"/>
+        <source>Support</source>
+        <translation type="unfinished">支持度</translation>
+    </message>
+    <message>
+        <location line="-111"/>
+        <source>The support the file gives each split, as a percentage. The dots show where the tree is zoomed in.</source>
+        <translation type="unfinished">文件给出的每个分裂的支持度，以百分数表示。圆点显示在树被放大的位置。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show the support the file gives each split, as dots on the clades, where the tree is zoomed in</source>
+        <translation type="unfinished">把文件给出的每个分裂的支持度显示为进化枝上的圆点（在树被放大的位置）</translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>This tree</source>
         <translation type="unfinished">此树</translation>
     </message>
     <message>
-        <location line="+27"/>
-        <location line="+59"/>
+        <location line="+31"/>
+        <location line="+117"/>
         <source>Rooted</source>
         <translation type="unfinished">有根</translation>
     </message>
     <message>
-        <location line="-59"/>
+        <location line="-117"/>
         <source>Unrooted (rooted at its midpoint in the file)</source>
         <translation type="unfinished">无根（文件中以中点为根）</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+49"/>
         <source>Rooting not stated</source>
         <translation type="unfinished">未说明是否有根</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-47"/>
+        <location line="+49"/>
         <source>File</source>
         <translation type="unfinished">文件</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-48"/>
         <source>Alignment</source>
         <translation type="unfinished">比对</translation>
     </message>
@@ -13791,50 +14148,157 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location line="+50"/>
+        <location line="+108"/>
         <source>Kind</source>
         <translation type="unfinished">类型</translation>
     </message>
     <message>
-        <location line="-41"/>
-        <location line="+43"/>
+        <location line="-99"/>
+        <location line="+48"/>
+        <location line="+53"/>
         <source>How it fits</source>
         <translation type="unfinished">匹配情况</translation>
     </message>
     <message>
-        <location line="-40"/>
-        <location line="+41"/>
+        <location line="-98"/>
+        <location line="+34"/>
+        <location line="+65"/>
         <source>Leaves</source>
         <translation type="unfinished">叶节点</translation>
     </message>
     <message>
-        <location line="-40"/>
+        <location line="-98"/>
+        <location line="+46"/>
         <source>Leaves in this network</source>
         <translation type="unfinished">在此网络中的叶节点</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-45"/>
+        <location line="+48"/>
         <source>Leaves not in this network</source>
         <translation type="unfinished">不在此网络中的叶节点</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-47"/>
+        <location line="+48"/>
         <source>Network nodes not in the tree</source>
         <translation type="unfinished">不在树中的网络节点</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-47"/>
         <source>Leaves not in the alignment</source>
         <translation type="unfinished">不在比对中的叶节点</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+33"/>
+        <location line="+44"/>
+        <location line="+47"/>
         <source>About this tree</source>
         <translation type="unfinished">关于此树</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-75"/>
+        <source>Rooted (the file says so)</source>
+        <translation type="unfinished">有根（文件中这样说明）</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Rooted (its root has fewer than three branches)</source>
+        <translation type="unfinished">有根（根的分支少于三条）</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unrooted (the file says so)</source>
+        <translation type="unfinished">无根（文件中这样说明）</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Unrooted (its root has three or more branches)</source>
+        <translation type="unfinished">无根（根有三条或更多分支）</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Format</source>
+        <translation type="unfinished">格式</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Notation</source>
+        <translation type="unfinished">记法</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tree name</source>
+        <translation type="unfinished">树名称</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>(none)</source>
+        <translation type="unfinished">（无）</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Rooting</source>
+        <translation type="unfinished">有根或无根</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Branch lengths</source>
+        <translation type="unfinished">分支长度</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location line="+1"/>
+        <source>Yes</source>
+        <translation type="unfinished">有</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>No (drawn as a cladogram)</source>
+        <translation type="unfinished">无（按进化分支图绘制）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No</source>
+        <translation type="unfinished">无</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clade names</source>
+        <translation type="unfinished">进化枝名称</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>None</source>
+        <translation type="unfinished">无</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Matched by the exact name</source>
+        <translation type="unfinished">按完全一致的名称匹配</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Matched by the name after the Viewer&apos;s header rules</source>
+        <translation type="unfinished">按查看器标题规则处理后的名称匹配</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The leaves are matched to the nodes of the network by full sequence name. This tree is kept in the Viewer until it is closed, and is written nowhere.</source>
+        <translation type="unfinished">叶节点按完整序列名称与网络的节点匹配。这棵树保存在查看器中，直到查看器关闭，不会写入任何位置。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>What the reader noted</source>
+        <translation type="unfinished">读取文件时的提示</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>The support is what the file gives each split, not how stable the split is under noise.</source>
+        <translation type="unfinished">支持度是文件给出的每个分裂的数值，不是该分裂在噪声下的稳定程度。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>The best {k} edges of each node, from the kept edges</source>
         <translation type="unfinished">每个节点得分最高的 {k} 条边，来自保留的边</translation>
     </message>
@@ -13924,7 +14388,7 @@ Fedora / RHEL：
         <translation type="unfinished">没有共享保留边的各组挂在最低得分之下的同一个根上；断开的分支表示它们的长度不对应任何得分。</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+88"/>
         <source>No match</source>
         <translation type="unfinished">无匹配</translation>
     </message>
@@ -13945,7 +14409,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+548"/>
+        <location filename="../../../web_ui/tree.html" line="+3"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13960,24 +14424,25 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location filename="../../../web_ui/tree_open.js" line="-334"/>
+        <location filename="../../../web_ui/tree_session.js" line="+57"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location filename="../../../web_ui/tree.html" line="+62"/>
+        <location filename="../../../web_ui/tree_session.js" line="+2"/>
+        <location filename="../../../web_ui/tree.html" line="+66"/>
         <source>Copy the path</source>
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-588"/>
-        <location line="+516"/>
+        <location filename="../../../web_ui/tree.html" line="-648"/>
+        <location line="+568"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+15"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -14023,7 +14488,7 @@ Fedora / RHEL：
         <translation type="unfinished">下一个匹配</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-22"/>
         <source>Tree</source>
         <translation type="unfinished">树</translation>
     </message>
@@ -14043,7 +14508,7 @@ Fedora / RHEL：
         <translation type="unfinished">引导树</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Layout</source>
         <translation type="unfinished">布局</translation>
     </message>
@@ -14103,7 +14568,22 @@ Fedora / RHEL：
         <translation type="unfinished">展开所有已折叠的进化枝</translation>
     </message>
     <message>
+        <location line="-33"/>
+        <source>Open a tree file...</source>
+        <translation type="unfinished">打开树文件……</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>How the leaves of the opened tree matched the nodes of the network</source>
+        <translation type="unfinished">已打开的树的叶节点与网络节点的匹配情况</translation>
+    </message>
+    <message>
         <location line="+0"/>
+        <source>Match</source>
+        <translation type="unfinished">匹配</translation>
+    </message>
+    <message>
+        <location line="+28"/>
         <source>Open all</source>
         <translation type="unfinished">全部展开</translation>
     </message>
@@ -14184,13 +14664,396 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+5"/>
+        <source>How the opened tree matched the network</source>
+        <translation type="unfinished">已打开的树与网络的匹配情况</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Loading the tree...</source>
         <translation type="unfinished">正在加载树…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+6"/>
+        <source>The trees of the file</source>
+        <translation type="unfinished">文件中的树</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Check again</source>
         <translation type="unfinished">重新检查</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_read.js" line="+62"/>
+        <location filename="../../../web_ui/tree_read_json.js" line="+61"/>
+        <source>line {line}</source>
+        <translation type="unfinished">第 {line} 行</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location filename="../../../web_ui/tree_read_json.js" line="+0"/>
+        <source>column {column}</source>
+        <translation type="unfinished">第 {column} 列</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>at {where}</source>
+        <translation type="unfinished">位于 {where}</translation>
+    </message>
+    <message>
+        <location line="+66"/>
+        <location line="+57"/>
+        <source>A quote that never closes</source>
+        <translation type="unfinished">引号没有闭合</translation>
+    </message>
+    <message>
+        <location line="-57"/>
+        <source>A ] with no [ before it</source>
+        <translation type="unfinished">] 之前没有 [</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location filename="../../../web_ui/tree_read_xml.js" line="+132"/>
+        <source>The text cannot be read here</source>
+        <translation type="unfinished">此处的文本无法读取</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <location line="+36"/>
+        <location line="+430"/>
+        <source>A comment in [ ] never closes</source>
+        <translation type="unfinished">[ ] 中的注释没有闭合</translation>
+    </message>
+    <message>
+        <location line="-333"/>
+        <source>The tree has more than {count} nodes</source>
+        <translation type="unfinished">这棵树的节点超过 {count} 个</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>The tree has more than {count} leaves</source>
+        <translation type="unfinished">这棵树的叶节点超过 {count} 个</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <location line="+30"/>
+        <location line="+176"/>
+        <source>A name is longer than {count} characters</source>
+        <translation type="unfinished">有名称超过 {count} 个字符</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>A { } where no node ends</source>
+        <translation type="unfinished">{ } 出现在没有节点结束的位置</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>A ( where no node can start</source>
+        <translation type="unfinished">( 出现在不能开始节点的位置</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The tree has more than {count} nested nodes</source>
+        <translation type="unfinished">这棵树的嵌套节点超过 {count} 层</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A branch length where no node ends, or a leaf with no name</source>
+        <translation type="unfinished">分支长度出现在没有节点结束的位置，或有叶节点没有名称</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <location filename="../../../web_ui/tree_read_json.js" line="+135"/>
+        <location filename="../../../web_ui/tree_read_xml.js" line="+187"/>
+        <location line="+184"/>
+        <source>A branch length is not a number: {value}</source>
+        <translation type="unfinished">分支长度不是数字：{value}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A branch length is not finite: {value}</source>
+        <translation type="unfinished">分支长度不是有限数值：{value}</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A node is missing before {value}</source>
+        <translation type="unfinished">{value} 之前缺少节点</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A , outside any parentheses</source>
+        <translation type="unfinished">括号之外出现了逗号</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A ) with no ( before it</source>
+        <translation type="unfinished">) 之前没有 (</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+24"/>
+        <source>The tree ends before every ( is closed</source>
+        <translation type="unfinished">树在所有 ( 闭合之前就结束了</translation>
+    </message>
+    <message>
+        <location line="-19"/>
+        <source>An = inside the tree</source>
+        <translation type="unfinished">树中出现了 =</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>A name ({value}) where none can be</source>
+        <translation type="unfinished">在不能出现名称的位置出现了名称（{value}）</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>A node is missing at the end of the tree</source>
+        <translation type="unfinished">树的末尾缺少节点</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The tree has no leaves</source>
+        <translation type="unfinished">这棵树没有叶节点</translation>
+    </message>
+    <message>
+        <location line="+44"/>
+        <source>A TRANSLATE command that never ends with ;</source>
+        <translation type="unfinished">TRANSLATE 命令没有以 ; 结束</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A TRANSLATE command must read key name, key name, ...;</source>
+        <translation type="unfinished">TRANSLATE 命令必须写成：键 名称, 键 名称, ...;</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A TRANSLATE key ({value}) has no name</source>
+        <translation type="unfinished">TRANSLATE 的键（{value}）没有名称</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>A TREE command has no tree</source>
+        <translation type="unfinished">TREE 命令后没有树</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A TREE command must read TREE name = tree;</source>
+        <translation type="unfinished">TREE 命令必须写成：TREE 名称 = 树;</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>This page cannot read XML trees</source>
+        <translation type="unfinished">此页面无法读取 XML 树</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This page cannot read JSON trees</source>
+        <translation type="unfinished">此页面无法读取 JSON 树</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The text is empty</source>
+        <translation type="unfinished">文本为空</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The file holds no tree: its TREES block has no TREE command</source>
+        <translation type="unfinished">文件中没有树：其 TREES 块里没有 TREE 命令</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The file looks like FASTA sequences, not a tree: a tree begins with (, &lt;, { or #NEXUS</source>
+        <translation type="unfinished">该文件像是 FASTA 序列，而不是树：树以 (、&lt;、{ 或 #NEXUS 开头</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The file is neither Newick nor NEXUS: a NEXUS file begins with #NEXUS</source>
+        <translation type="unfinished">该文件既不是 Newick 也不是 NEXUS：NEXUS 文件以 #NEXUS 开头</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_read_json.js" line="-140"/>
+        <source>The JSON is not well formed: {problem}</source>
+        <translation type="unfinished">JSON 格式不正确：{problem}</translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>The JSON holds no tree: it needs a &quot;tree&quot; (a nested object, or a Newick string as Jplace has), or a &quot;children&quot; list</source>
+        <translation type="unfinished">JSON 中没有树：需要有 &quot;tree&quot;（嵌套对象，或像 Jplace 那样的 Newick 字符串），或有 &quot;children&quot; 列表</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The Jplace &quot;tree&quot; string is empty</source>
+        <translation type="unfinished">Jplace 的 &quot;tree&quot; 字符串为空</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>{reason}, in the &quot;tree&quot; string</source>
+        <translation type="unfinished">{reason}，位于 &quot;tree&quot; 字符串中</translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>A tree is not an object</source>
+        <translation type="unfinished">树不是对象</translation>
+    </message>
+    <message>
+        <location line="+47"/>
+        <source>&quot;children&quot; is not a list</source>
+        <translation type="unfinished">&quot;children&quot; 不是列表</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>A child is not an object</source>
+        <translation type="unfinished">子节点不是对象</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_read_xml.js" line="-449"/>
+        <source>An &amp; that is not an entity (write &amp;amp;)</source>
+        <translation type="unfinished">&amp; 不是实体（请写成 &amp;amp;）</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The entity &amp;{name}; is not one XML defines</source>
+        <translation type="unfinished">实体 &amp;{name}; 不是 XML 定义的实体</translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <location line="+16"/>
+        <source>Text outside the root element</source>
+        <translation type="unfinished">根元素之外有文本</translation>
+    </message>
+    <message>
+        <location line="-5"/>
+        <source>A comment that never closes</source>
+        <translation type="unfinished">注释没有闭合</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A CDATA section that never closes</source>
+        <translation type="unfinished">CDATA 段没有闭合</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>A DOCTYPE that never closes</source>
+        <translation type="unfinished">DOCTYPE 没有闭合</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>A &lt;? that never closes</source>
+        <translation type="unfinished">&lt;? 没有闭合</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>A closing tag that cannot be read</source>
+        <translation type="unfinished">无法读取的结束标签</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A closing tag &lt;/{name}&gt; with nothing open</source>
+        <translation type="unfinished">结束标签 &lt;/{name}&gt; 之前没有打开的元素</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A closing tag &lt;/{name}&gt; where &lt;/{expected}&gt; was expected</source>
+        <translation type="unfinished">此处应为结束标签 &lt;/{expected}&gt;，却出现了 &lt;/{name}&gt;</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>A tag that cannot be read</source>
+        <translation type="unfinished">无法读取的标签</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>More than one root element</source>
+        <translation type="unfinished">有多个根元素</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>The element &lt;{name}&gt; never closes</source>
+        <translation type="unfinished">元素 &lt;{name}&gt; 没有闭合</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The text holds no element</source>
+        <translation type="unfinished">文本中没有元素</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>The XML is neither PhyloXML nor NeXML: its root element is &lt;{name}&gt;, not &lt;phyloxml&gt; or &lt;nexml&gt;</source>
+        <translation type="unfinished">该 XML 既不是 PhyloXML 也不是 NeXML：其根元素是 &lt;{name}&gt;，不是 &lt;phyloxml&gt; 或 &lt;nexml&gt;</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>The file holds no phylogeny element</source>
+        <translation type="unfinished">文件中没有 phylogeny 元素</translation>
+    </message>
+    <message>
+        <location line="+104"/>
+        <source>A color has a red, green or blue that is not a number from 0 to 255</source>
+        <translation type="unfinished">有颜色的红、绿或蓝分量不是 0 到 255 的数字</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>The phylogeny holds {count} top-level clades; it needs one</source>
+        <translation type="unfinished">phylogeny 中有 {count} 个顶层进化枝，应当只有一个</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>The phylogeny holds no clade</source>
+        <translation type="unfinished">phylogeny 中没有进化枝</translation>
+    </message>
+    <message>
+        <location line="+33"/>
+        <source>The file holds no tree element in a trees element</source>
+        <translation type="unfinished">文件的 trees 元素中没有 tree 元素</translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>A node has no id</source>
+        <translation type="unfinished">有节点没有 id</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Two nodes share the id {id}</source>
+        <translation type="unfinished">有两个节点的 id 都是 {id}</translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>The tree holds no node</source>
+        <translation type="unfinished">这棵树中没有节点</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The edge names a source node that is not in the tree: {id}</source>
+        <translation type="unfinished">边指定的起点节点不在树中：{id}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge names a target node that is not in the tree: {id}</source>
+        <translation type="unfinished">边指定的终点节点不在树中：{id}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge joins a node to itself</source>
+        <translation type="unfinished">边把一个节点连到了它自己</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The node {id} has two parents</source>
+        <translation type="unfinished">节点 {id} 有两个父节点</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>The tree has {count} nodes with no parent; it needs exactly one root</source>
+        <translation type="unfinished">这棵树有 {count} 个没有父节点的节点，应当恰好有一个根</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Every node has a parent: the edges form a cycle</source>
+        <translation type="unfinished">每个节点都有父节点：这些边构成了环</translation>
+    </message>
+    <message>
+        <location line="+43"/>
+        <source>{count} nodes are not joined to the root (a cycle, or a second tree)</source>
+        <translation type="unfinished">有 {count} 个节点没有连到根上（存在环，或有第二棵树）</translation>
     </message>
 </context>
 <context>
@@ -14431,12 +15294,12 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+405"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+798"/>
         <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+409"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>
