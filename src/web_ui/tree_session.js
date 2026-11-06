@@ -31,6 +31,11 @@ window.TreeView = window.TreeView || {};
     // Whether the banner's note on the rooting was dismissed with its x. It lasts as long as this page does and is
     // kept nowhere: opening the page again shows the note again.
     let rootingNoteDismissed = false;
+    // How many times the network's selection changed, and whether the nodes next to it are being asked for: they are
+    // asked for after each change, one request at a time, and an answer to an older selection is not used.
+    let selectionChanges = 0;
+    let connectedBusy = false;
+    let connectedAgain = false;
 
     // ---- Icons -----------------------------------------------------------------------------------------------
 
@@ -206,7 +211,15 @@ window.TreeView = window.TreeView || {};
         showLegend();
     }
 
-    // The colours the Viewer has now, drawn; none (the tree in its own colours) when the Viewer has none to give.
+    // The colours the Viewer outlines its selected nodes and their neighbours in, as the page draws them, and whether it
+    // outlines the neighbours at all.
+    function marksOf(raw) {
+        const css = (rgba) => "rgb(" + rgba.slice(0, 3).join(", ") + ")";
+        return { selected: css(raw.selected), connected: css(raw.connected), connectedOn: !!raw.connected_on };
+    }
+
+    // The colours the Viewer has now, drawn; none (the tree in its own colours) when the Viewer has none to give. The
+    // nodes it has hidden are left out of the tree, which is laid out again without them.
     function applyColors(payload) {
         let colors = null;
         if (payload && payload.status === "ok" && state.model) {
@@ -216,6 +229,8 @@ window.TreeView = window.TreeView || {};
                 colors = null;
             }
         }
+        const marksBefore = JSON.stringify(state.marks);
+        if (payload && payload.marks && payload.marks.selected && payload.marks.connected) state.marks = marksOf(payload.marks);
         // A colour the legend marked that is no longer there marks nothing.
         const marked = state.legendClass;
         state.colors = colors;
@@ -224,9 +239,17 @@ window.TreeView = window.TreeView || {};
             state.matches = new Int32Array(0);
             state.current = -1;
         }
+        // What the search found is found again among the leaves that are left.
+        if (TV.applyRemoved(TV.removedLeaves(colors))) {
+            if (state.query) showSearch(TV.runSearch(state.query));
+            showLayoutControls();
+        }
         showLegend();
+        if (state.pinned < 0) showPinned(-1);
         TV.minimapChanged();
         TV.drawNow();
+        // The neighbours of the selection depend on what the Viewer outlines, which a change of its colours can alter.
+        if (marksBefore !== "null" && marksBefore !== JSON.stringify(state.marks)) TV.loadSelection();
     }
 
     // Ask the Viewer for the colours of the network. A change that comes while one is asked for is asked for after.
@@ -365,15 +388,17 @@ window.TreeView = window.TreeView || {};
             leaves: model.leafCount.toLocaleString(),
             shown: model.counts.leaves_in_network.toLocaleString(),
         });
+        const hidden = state.colors ? state.colors.removedCount : 0;
+        const shown = hidden ? counts + " · " + t("{count} hidden in the network, left out", { count: hidden.toLocaleString() }) : counts;
         const selection = state.selection;
-        if (!selection.count) return counts;
+        if (!selection.count) return shown;
         const chosen = selection.leaves.length;
         const selected = chosen === selection.count
             ? t("{count} selected in the network", { count: chosen.toLocaleString() })
             : t("{count} selected in the network, {leaves} of them in this tree", {
                 count: selection.count.toLocaleString(), leaves: chosen.toLocaleString(),
             });
-        return counts + " · " + selected;
+        return shown + " · " + selected;
     }
 
     // The status line: what is pinned, else the counts.
@@ -416,12 +441,45 @@ window.TreeView = window.TreeView || {};
             if (!response.ok) throw new Error(response.status + " " + response.statusText);
             const payload = await response.json();
             if (before !== selectionEvents || !state.model || payload.status !== "ok") return false;
-            TV.applySelection(TV.typedArray(payload.indices, Int32Array, payload.count, "indices"), payload.focus);
+            const connected = payload.connected_on ? TV.typedArray(payload.connected, Int32Array, payload.connected_count, "connected") : [];
+            TV.applySelection(TV.typedArray(payload.indices, Int32Array, payload.count, "indices"), payload.focus, connected);
             return true;
         } catch (error) {
             return false;
         }
     };
+
+    // Ask the Viewer which nodes are next to the selected ones, which it names while it identifies connected nodes. One
+    // request at a time; a change of the selection while one is out asks again, and the answer to the old one is dropped.
+    async function loadConnected() {
+        if (!state.model) return;
+        if (connectedBusy) {
+            connectedAgain = true;
+            return;
+        }
+        if (!state.selection.count || (state.marks && !state.marks.connectedOn)) {
+            if (state.selection.connected.length) TV.applyConnected([]);
+            return;
+        }
+        connectedBusy = true;
+        const stamp = selectionChanges;
+        try {
+            const response = await fetch("/api/tree/selection", { cache: "no-store" });
+            if (!response.ok) throw new Error(response.status + " " + response.statusText);
+            const payload = await response.json();
+            if (stamp === selectionChanges && state.model && payload.status === "ok") {
+                TV.applyConnected(payload.connected_on ? TV.typedArray(payload.connected, Int32Array, payload.connected_count, "connected") : []);
+            }
+        } catch (error) {
+            // The neighbours are left as they were.
+        } finally {
+            connectedBusy = false;
+            if (connectedAgain) {
+                connectedAgain = false;
+                loadConnected();
+            }
+        }
+    }
 
     // The switch that shows how stable each split is, with the legend that goes with it once it is on: both only for a
     // tree that says how stable its splits are.
@@ -528,6 +586,7 @@ window.TreeView = window.TreeView || {};
         }
         state.model = model;
         state.colors = null;
+        state.removed = null;
         state.legendClass = -1;
         TV.resetFolds();
         // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted.
@@ -658,7 +717,11 @@ window.TreeView = window.TreeView || {};
                 try { message = JSON.parse(event.data); } catch (error) { return; }
                 if (kind[1] === "selection_changed") {
                     selectionEvents++;
-                    if (Array.isArray(message.indices)) TV.applySelection(message.indices);
+                    selectionChanges++;
+                    if (Array.isArray(message.indices)) {
+                        TV.applySelection(message.indices);
+                        loadConnected();
+                    }
                 } else {
                     selectionEvents++;
                     TV.applyFocus(message.index);

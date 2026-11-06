@@ -13442,7 +13442,7 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+567"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+637"/>
         <source>Cluster {id}</source>
         <translation type="unfinished">簇 {id}</translation>
     </message>
@@ -13460,6 +13460,11 @@ Fedora / RHEL：
         <location line="+1"/>
         <source>Selected in the network</source>
         <translation type="unfinished">在网络中已选择</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Next to a selected node of the network</source>
+        <translation type="unfinished">与网络中的已选节点相邻</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -13497,6 +13502,11 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已选择：{count}</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Next to a selected node of the network: {count}</source>
+        <translation type="unfinished">与网络中已选节点相邻：{count}</translation>
+    </message>
+    <message>
         <location line="+4"/>
         <source>Colour of {percent}% of its leaves: {colour}</source>
         <translation type="unfinished">其 {percent}% 叶节点的颜色：{colour}</translation>
@@ -13522,7 +13532,7 @@ Fedora / RHEL：
         <translation type="unfinished">点击折叠此进化枝</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+65"/>
         <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
         <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
@@ -13532,7 +13542,7 @@ Fedora / RHEL：
         <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="+103"/>
+        <location filename="../../../web_ui/tree_session.js" line="+108"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13622,7 +13632,7 @@ Fedora / RHEL：
         <translation type="unfinished">另有 {count} 种颜色</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+130"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished">此树是为比对 {tree} 生成的，但已加载的比对是 {loaded}。</translation>
     </message>
@@ -13673,7 +13683,12 @@ Fedora / RHEL：
         <translation type="unfinished">{leaves} 个叶节点，其中 {shown} 个是此网络的节点</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+5"/>
+        <source>{count} hidden in the network, left out</source>
+        <translation type="unfinished">网络中有 {count} 个已隐藏，已从树中省略</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>{count} selected in the network</source>
         <translation type="unfinished">在网络中已选择 {count} 个</translation>
     </message>
@@ -13683,7 +13698,7 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已选择 {count} 个，其中 {leaves} 个在此树中</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+111"/>
         <source>This tree</source>
         <translation type="unfinished">此树</translation>
     </message>
@@ -13778,7 +13793,7 @@ Fedora / RHEL：
         <translation type="unfinished">关于此树</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+80"/>
         <source>No match</source>
         <translation type="unfinished">无匹配</translation>
     </message>
@@ -13799,7 +13814,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+546"/>
+        <location filename="../../../web_ui/tree.html" line="+540"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13814,7 +13829,7 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+47"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
@@ -13825,8 +13840,8 @@ Fedora / RHEL：
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-586"/>
-        <location line="+522"/>
+        <location filename="../../../web_ui/tree.html" line="-580"/>
+        <location line="+516"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
@@ -14265,7 +14280,7 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+542"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+634"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>

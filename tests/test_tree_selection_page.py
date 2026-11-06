@@ -47,7 +47,7 @@ DRAWING_SPY = """
     proto.strokeRect = function (x, y, w, h) { entry('strokeRect', this, {x, y, w, h}); return original.strokeRect.apply(this, arguments); };
     proto.arc = function (x, y, r) { entry('arc', this, {x, y, r}); return original.arc.apply(this, arguments); };
     const restore = () => Object.assign(proto, original);
-    const selectedRgb = () => TreeView.rgbOf(TreeView.state.palette.selected);
+    const selectedRgb = () => TreeView.rgbOf(TreeView.state.marks.selected);
     const same = (a, b) => a.length === b.length && a.every((value, k) => value === b[k]);
 """
 
@@ -286,7 +286,7 @@ class ShownOnTheTreeTests(SelectionCase):
                     const s = TreeView.state, v = s.view, L = s.layout, m = s.model;
                     const stats = TreeView.drawNow();
                     const at = (k) => { const n = m.leafNode[k]; return fire.pixel(v.ox + L.x[n] * v.sx, v.oy + L.y[n] * v.sy); };
-                    return {marked: stats.selected, wanted: TreeView.rgbOf(s.palette.selected), picked: [3, 4, 5, 6].map(at),
+                    return {marked: stats.selected, wanted: TreeView.rgbOf(s.marks.selected), picked: [3, 4, 5, 6].map(at),
                             others: [0, 12, 25, 39].map(at)};""")
                 self.assertEqual(result["marked"], 4)
                 for pixel in result["picked"]:
@@ -294,12 +294,18 @@ class ShownOnTheTreeTests(SelectionCase):
                 for pixel in result["others"]:
                     self.assertNotEqual(pixel[:3], result["wanted"])
 
-    def test_the_selection_colour_is_the_themes_and_differs_from_the_searchs(self):
+    def test_the_selection_colour_is_the_viewers_and_differs_from_the_searchs(self):
         self.start()
-        palette = self.state("TreeView.state.palette")
-        self.assertNotEqual(palette["selected"], palette["match"])
+        found = self.state("""({marks: TreeView.state.marks, palette: Object.keys(TreeView.state.palette),
+            selected: TreeView.rgbOf(TreeView.state.marks.selected), match: TreeView.rgbOf(TreeView.state.palette.match)})""")
+        # The Viewer outlines what is selected in its highlight colour, and the page has no colour of its own for it.
+        self.assertEqual(found["marks"]["selected"], "rgb(255, 170, 0)")
+        self.assertNotIn("selected", found["palette"])
+        self.assertNotEqual(found["selected"], found["match"])
+        light = self.state("TreeView.state.palette.background")
         self.js("document.documentElement.setAttribute('data-theme', 'dark'); 1")
-        self.wait_for("TreeView.state.palette.selected !== " + json.dumps(palette["selected"]))
+        self.wait_for("TreeView.state.palette.background !== " + json.dumps(light))
+        self.assertEqual(self.state("TreeView.state.marks.selected"), "rgb(255, 170, 0)")
         self.js("document.documentElement.setAttribute('data-theme', 'light'); 1")
 
     def test_the_smallest_clade_is_outlined_dashed_in_every_layout_and_a_single_leaf_has_no_outline(self):
@@ -402,8 +408,8 @@ class ShownOnTheTreeTests(SelectionCase):
         self.start()
         self.choose("rectangular")
         counts = "const found = (canvas, x0, x1) => { const w = canvas.width, h = canvas.height; const d = canvas.getContext('2d').getImageData(0, 0, w, h).data; let n = 0; " \
-                 "const r = TreeView.rgbOf(TreeView.state.palette.selected); for (let y = 0; y < h; y++) for (let x = x0(w); x < x1(w); x++) { const i = (y * w + x) * 4; " \
-                 "if (Math.abs(d[i] - r[0]) < 12 && Math.abs(d[i + 1] - r[1]) < 12 && Math.abs(d[i + 2] - r[2]) < 12) n++; } return n; };"
+                 "const r = TreeView.rgbOf(TreeView.state.marks.selected); for (let y = 0; y < h; y++) for (let x = x0(w); x < x1(w); x++) { const i = (y * w + x) * 4; " \
+                 "if (Math.abs(d[i] - r[0]) < 30 && Math.abs(d[i + 1] - r[1]) < 30 && Math.abs(d[i + 2] - r[2]) < 30) n++; } return n; };"
         probe = counts + "TreeView.drawNow(); return {map: found(document.getElementById('minimap'), w => 0, w => w), ruler: found(document.getElementById('tree-canvas'), w => w - 14, w => w)};"
         self.assertEqual(self.script(probe), {"map": 0, "ruler": 0})
         self.select(self.nodes_of([3, 4, 20, 30]))

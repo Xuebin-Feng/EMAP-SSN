@@ -8,8 +8,12 @@
  * at least nine in ten of the leaves that are shown have it, and else none, so that the overview of a tree of
  * thousands of leaves says at once whether the colours (clusters, say) are clades. Colours are compared in classes,
  * a colour kept to four bits of each channel, so that a gradient (spectrum) forms clades too and a clade is drawn
- * in a few dozen colours, not thousands. The colour a node has until something colours it is plain, and plain
- * is no colour: the tree is drawn in its own colours where nothing has coloured the network.
+ * in a few dozen colours, not thousands. The colour a node has until something colours it is plain: it is a
+ * class like the others and the tree is drawn in it, but it is the network's default, not a choice, so the legend
+ * leaves it out. A clade that is neither plain nor one colour has no class and is drawn in the page's branch colour.
+ *
+ * A node of the network that the Viewer has hidden has no place in the tree at all: `removed` marks its leaf, and
+ * the layout gives it no room.
  *
  * Everything is one pass over the nodes in post-order (children before parents): the colour most of a clade has
  * is found by a majority vote from its children (which finds the colour held by more than half, if there is one),
@@ -21,7 +25,7 @@ window.TreeView = window.TreeView || {};
     "use strict";
 
     // The class of a leaf that has no colour to show (it is not a node of the network, or is hidden), and of a clade
-    // with no colour of its own; and the class of the colour a node has until something colours it.
+    // with no colour of its own; and the class of the colour a node has until something colours it (the plain colour).
     TV.NO_CLASS = 0xFFFF;
     TV.PLAIN_CLASS = 0;
     // The share of a clade's leaves that must have one colour for the clade to be drawn in it.
@@ -76,10 +80,17 @@ window.TreeView = window.TreeView || {};
         const rep = [[plain[0], plain[1], plain[2]]];
         const leafCount = model.leafCount;
         const leafClass = new Uint16Array(leafCount).fill(TV.NO_CLASS);
+        // The leaves whose nodes the Viewer has hidden.
+        const removed = new Uint8Array(leafCount);
+        let removedCount = 0;
         for (let k = 0; k < leafCount; k++) {
             const node = model.viewerNode[k];
             if (node < 0 || node >= count) continue;
-            if ((hiddenBits[node >> 3] >> (node & 7)) & 1) continue;
+            if ((hiddenBits[node >> 3] >> (node & 7)) & 1) {
+                removed[k] = 1;
+                removedCount++;
+                continue;
+            }
             const r = rgba[node * 4];
             const g = rgba[node * 4 + 1];
             const b = rgba[node * 4 + 2];
@@ -103,7 +114,7 @@ window.TreeView = window.TreeView || {};
         for (let k = 0; k < leafCount; k++) if (leafClass[k] !== TV.NO_CLASS) positions[fill[leafClass[k]]++] = k;
 
         const colors = {
-            version: payload.version, count, cluster, leafClass, starts, positions, rep, classCount,
+            version: payload.version, count, cluster, leafClass, starts, positions, rep, classCount, removed, removedCount,
             css: rep.map((rgb) => "rgb(" + rgb.join(", ") + ")"),
             mixCache: new Map(), labelCache: new Map(),
         };
@@ -126,7 +137,7 @@ window.TreeView = window.TreeView || {};
                     present[i] = 1;
                     dominant[i] = cls;
                     purity[i] = 1;
-                    if (cls !== TV.PLAIN_CLASS) nodeClass[i] = cls;
+                    nodeClass[i] = cls;
                 }
                 continue;
             }
@@ -151,7 +162,7 @@ window.TreeView = window.TreeView || {};
                 const share = countInRange(colors, voted, firstLeaf[i], lastLeaf[i]) / shown;
                 dominant[i] = voted;
                 purity[i] = share;
-                if (voted !== TV.PLAIN_CLASS && share >= TV.PURE_SHARE) nodeClass[i] = voted;
+                if (share >= TV.PURE_SHARE) nodeClass[i] = voted;
             }
         }
         Object.assign(colors, { nodeClass, dominant, purity, present });
@@ -194,13 +205,19 @@ window.TreeView = window.TreeView || {};
         return hexOf(colors.rep[cls]);
     };
 
+    // The leaves that have no room in the tree because the Viewer has hidden their nodes (1 for each), or null when
+    // there are none to leave out, or none that would be left: a network with every node hidden shows the whole tree, faded.
+    TV.removedLeaves = function (colors) {
+        return colors && colors.removedCount > 0 && colors.removedCount < colors.removed.length ? colors.removed : null;
+    };
+
     // The leaf numbers (sorted) that have class `cls`.
     TV.leavesOfClass = function (colors, cls) {
         return colors.positions.slice(colors.starts[cls], colors.starts[cls + 1]);
     };
 
     // What the colours of a folded clade are, for the bar along its far edge: { shown, parts: [[class, share], ...]
-    // the colours with the most leaves (not plain), as shares of the leaves shown }. Kept for the colours in hand.
+    // the colours with the most leaves (plain among them), as shares of the leaves shown }. Kept for the colours in hand.
     TV.cladeMix = function (colors, model, i) {
         const known = colors.mixCache.get(i);
         if (known) return known;
@@ -208,7 +225,7 @@ window.TreeView = window.TreeView || {};
         const tally = new Map();
         for (let k = model.firstLeaf[i]; k <= model.lastLeaf[i]; k++) {
             const cls = colors.leafClass[k];
-            if (cls !== TV.NO_CLASS && cls !== TV.PLAIN_CLASS) tally.set(cls, (tally.get(cls) || 0) + 1);
+            if (cls !== TV.NO_CLASS) tally.set(cls, (tally.get(cls) || 0) + 1);
         }
         const parts = [...tally].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, TV.MIX_PARTS).map(([cls, n]) => [cls, n / shown]);
         const mix = { shown, parts };

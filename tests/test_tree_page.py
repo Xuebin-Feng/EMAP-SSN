@@ -1799,9 +1799,10 @@ class OverviewMapTests(LayoutCase):
                 }
                 return n; })()""")
         self.choose("unrooted")
-        self.assertEqual(matching_pixels(), 0)
+        # (The map's frame of the view is in the theme colour too, and the network's plain colour is a blue near it.)
+        before = matching_pixels()
         self.script("TreeView.runSearch('PROT_1'); return 1")
-        self.assertGreater(matching_pixels(), 5)
+        self.assertGreater(matching_pixels(), before + 5)
 
     def test_the_overview_button_hides_and_shows_the_map(self):
         self.js("document.getElementById('overview-btn').click()")
@@ -2167,7 +2168,8 @@ class ColorModelTests(ColorCase):
         found = self.info()
         # Red is class 1, blue 2, green 3 (in the order they are met), plain 0.
         self.assertEqual(found["leafClass"], [1, 1, 1, 1, 2, 2, 3, 0])
-        self.assertEqual(found["nodeClass"], [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, NO_CLASS, NO_CLASS, NO_CLASS, NO_CLASS])
+        # The plain leaf (h) is a class like the others, and (gh), half green and half plain, is neither.
+        self.assertEqual(found["nodeClass"], [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 0, NO_CLASS, NO_CLASS, NO_CLASS])
         self.assertEqual(found["present"], [1, 1, 2, 1, 1, 2, 4, 1, 1, 2, 1, 1, 2, 4, 8])
         # What most of a mixed clade has, and how much of it: (gh) is half green and half plain, the root is half red.
         self.assertEqual((found["dominant"][12], found["purity"][12]), (3, 0.5))
@@ -2175,13 +2177,13 @@ class ColorModelTests(ColorCase):
         self.assertEqual((found["dominant"][14], found["purity"][14]), (1, 0.5))
         self.assertEqual((found["dominant"][6], found["purity"][6]), (1, 1.0))
 
-    def test_plain_is_no_colour_and_the_legend_leaves_it_out(self):
+    def test_plain_is_drawn_but_is_no_choice_so_the_legend_leaves_it_out(self):
         self.open_colored()
         found = self.info()
         self.assertEqual([entry["cls"] for entry in found["legend"]], [1, 2, 3])
         self.assertEqual([entry["count"] for entry in found["legend"]], [4, 2, 1])
         self.assertEqual(found["more"], 0)
-        # Nothing coloured: a tree in its own colours, and no legend.
+        # Nothing coloured: a tree in the plain colour, and no legend.
         self.open_colored({})
         self.assertEqual(self.info()["legend"], [])
         self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
@@ -2257,20 +2259,20 @@ class ColorModelTests(ColorCase):
 class ColorDrawingTests(ColorCase):
     """The colours on the canvas, in each layout, from what is stroked and filled."""
 
-    def test_a_leaf_is_drawn_in_its_colour_a_plain_one_in_the_branch_colour_and_a_hidden_one_faded(self):
+    def test_a_leaf_is_drawn_in_its_colour_a_plain_one_in_the_plain_colour_and_a_hidden_one_not_at_all(self):
         self.open_colored(hidden=[2])
         for kind in ("rectangular", "circular", "unrooted"):
             with self.subTest(kind=kind):
                 self.choose(kind)
                 found = self.spied("""
                     const m = TreeView.state.model, p = TreeView.state.palette, at = (k) => stylesOf(...stemOf(m.leafNode[k]));
-                    return {a: at(0), e: at(4), g: at(6), h: at(7), c: at(2),
-                            branch: TreeView.rgbOf(p.branch), faded: TreeView.rgbOf(p.faded)};""")
+                    return {a: at(0), e: at(4), g: at(6), h: at(7), c: at(2)};""")
                 self.assertEqual(found["a"], [[255, 0, 0]])
                 self.assertEqual(found["e"], [[0, 0, 255]])
                 self.assertEqual(found["g"], [[0, 255, 0]])
-                self.assertEqual(found["h"], [found["branch"]])
-                self.assertEqual(found["c"], [found["faded"]])
+                self.assertEqual(found["h"], [[0x44, 0x88, 0xFF]])
+                # A node the Viewer hides has no branch on the tree (test_tree_appearance_page.py).
+                self.assertEqual(found["c"], [])
 
     def test_the_branches_of_a_clade_that_is_one_colour_are_drawn_in_it_and_a_mixed_clade_in_the_branch_colour(self):
         self.open_colored()
@@ -2327,8 +2329,9 @@ class ColorDrawingTests(ColorCase):
                 tint = TreeView_rgb(found["tint"])
                 self.assertIn(tint, found["fills"])
                 self.assertIn(found["wedge"], found["fills"])
-                # (abcd) a bar in red alone, (efgh) one in blue and green, as long as their shares (a half, a quarter).
-                self.assertEqual(sorted(bar["style"] for bar in found["bars"]), sorted([[255, 0, 0], [0, 0, 255], [0, 255, 0]]))
+                # (abcd) a bar in red alone, (efgh) one in blue, plain and green, as long as their shares (a half, two quarters).
+                self.assertEqual(sorted(bar["style"] for bar in found["bars"]),
+                                 sorted([[255, 0, 0], [0, 0, 255], [0x44, 0x88, 0xFF], [0, 255, 0]]))
 
     def test_the_bar_of_a_folded_rectangular_clade_is_in_pieces_as_long_as_the_shares(self):
         self.open_colored()
@@ -2341,8 +2344,8 @@ class ColorDrawingTests(ColorCase):
             const pieces = drawn.filter(e => e.op === 'stroke' && e.main && e.width === 4).map(e => ({
                 style: e.style, from: (e.parts[0][2] - top) / (bottom - top), to: (e.parts[1][2] - top) / (bottom - top), x: e.parts[0][1] - x}));
             return pieces.sort((a, b) => a.from - b.from);""")
-        self.assertEqual([piece["style"] for piece in found], [[0, 0, 255], [0, 255, 0]])
-        self.assertEqual([(round(piece["from"], 3), round(piece["to"], 3)) for piece in found], [(0.0, 0.5), (0.5, 0.75)])
+        self.assertEqual([piece["style"] for piece in found], [[0, 0, 255], [0x44, 0x88, 0xFF], [0, 255, 0]])
+        self.assertEqual([(round(piece["from"], 3), round(piece["to"], 3)) for piece in found], [(0.0, 0.5), (0.5, 0.75), (0.75, 1.0)])
         self.assertTrue(all(abs(piece["x"]) < 1e-6 for piece in found))
 
     def test_a_leaf_with_room_for_a_dot_has_it_in_its_colour(self):
@@ -2355,10 +2358,10 @@ class ColorDrawingTests(ColorCase):
                     const dots = drawn.filter(e => e.op === 'fill' && e.main && e.parts.some(x => x[0] === 'a'));
                     const at = (k) => { const b = TreeView.nodePixels(TreeView.state, m.leafNode[k]);
                         return dots.filter(d => d.parts.some(x => x[0] === 'a' && Math.abs(x[1] - b.x) < 0.01 && Math.abs(x[2] - b.y) < 0.01)).map(d => d.style); };
-                    return {a: at(0), e: at(4), h: at(7), branch: TreeView.rgbOf(p.branch)};""")
+                    return {a: at(0), e: at(4), h: at(7)};""")
                 self.assertEqual(found["a"], [[255, 0, 0]])
                 self.assertEqual(found["e"], [[0, 0, 255]])
-                self.assertEqual(found["h"], [found["branch"]])
+                self.assertEqual(found["h"], [[0x44, 0x88, 0xFF]])
 
     def test_the_overview_map_is_drawn_in_the_colours_too(self):
         self.open_colored()
@@ -2372,14 +2375,14 @@ class ColorDrawingTests(ColorCase):
                     return n; })()""")
                 self.assertGreater(reddish, 3)
 
-    def test_a_tree_nobody_has_coloured_is_drawn_as_it_was(self):
+    def test_a_tree_nobody_has_coloured_is_drawn_in_the_plain_colour(self):
         self.open_colored({})
         found = self.spied("""
             const m = TreeView.state.model, p = TreeView.state.palette;
             const reds = drawn.filter(e => e.op === 'stroke' && e.main && JSON.stringify(e.style) === JSON.stringify(TreeView.rgbOf(p.branch)));
             return {strokeStyles: new Set(drawn.filter(e => e.op === 'stroke' && e.main).map(e => JSON.stringify(e.style))).size,
                     leaf: stylesOf(...stemOf(m.leafNode[0])), branch: TreeView.rgbOf(p.branch)};""")
-        self.assertEqual(found["leaf"], [found["branch"]])
+        self.assertEqual(found["leaf"], [[0x44, 0x88, 0xFF]])
 
     def test_drawing_with_colours_writes_nothing_to_the_console(self):
         self.open_colored(hidden=[1], clusters=[0, 0, 0, 0, 1, 1, 2, -1])

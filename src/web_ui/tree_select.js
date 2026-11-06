@@ -8,7 +8,9 @@
  * click focus (highlight_row), as numbers of its own nodes. A leaf of the tree stands for one of them (the model's
  * viewerNode), so the selection is found among the leaves in one pass, and the smallest clade that holds all of them
  * is the one whose range of leaves is the first selected leaf to the last. The selection is a layer of its own: the
- * search and the legend mark leaves too, and neither takes the selection's place.
+ * search and the legend mark leaves too, and neither takes the selection's place. The nodes next to the selected ones
+ * (the Viewer outlines them in a colour of their own while it identifies connected nodes) are a layer beside it: the
+ * Viewer's answer names them, never the edges between them, and they are marked in the tree the same way.
  *
  * Tree to network: the page asks the Viewer to select the nodes of some leaves (the tree_select action) or to focus
  * on one (tree_focus), and learns what it came to from the same two events as every other page does, never from the
@@ -25,9 +27,9 @@ window.TreeView = window.TreeView || {};
     // The selection the network has, as the tree sees it (state.selection). leaves: the numbers of the leaves
     // selected, in tree order; clade: the smallest clade that holds them (-1 for none: no leaf, or one); focus: the
     // leaf with the click focus, or -1; count: how many nodes the network says are selected, of which some may not
-    // be leaves of this tree.
+    // be leaves of this tree; connected: the leaves next to the selected nodes of the network, in tree order.
     TV.emptySelection = function () {
-        return { leaves: new Int32Array(0), clade: -1, focus: -1, count: 0 };
+        return { leaves: new Int32Array(0), connected: new Int32Array(0), clade: -1, focus: -1, count: 0 };
     };
 
     // For each node of the network, the number of the leaf that stands for it, or -1: the inverse of viewerNode.
@@ -79,19 +81,30 @@ window.TreeView = window.TreeView || {};
     };
 
     // Take the Viewer's selection as the tree's (the Viewer's node numbers), and with it the click focus (a node number,
-    // null or -1 for none); left out, the focus stays where it was, as the selection changing does not move it.
-    TV.applySelection = function (indices, focus) {
+    // null or -1 for none) and the nodes next to the selection (node numbers, or null to say nothing of them); left out,
+    // the focus stays where it was, as the selection changing does not move it, and the neighbours stay until the
+    // Viewer says which they are now, unless nothing is selected, which has none.
+    TV.applySelection = function (indices, focus, connected) {
         const model = state.model;
         if (!model) return;
         const leaves = TV.leavesOfNodes(model, indices);
         const inverse = TV.leafOfNode(model);
         state.selection = {
             leaves,
+            connected: connected ? TV.leavesOfNodes(model, connected) : indices.length ? state.selection.connected : new Int32Array(0),
             clade: TV.smallestClade(model, leaves),
             focus: focus === undefined ? state.selection.focus
                 : Number.isInteger(focus) && focus >= 0 && focus < inverse.length ? inverse[focus] : -1,
             count: indices.length,
         };
+        TV.selectionChanged();
+    };
+
+    // The nodes next to the selected ones are these (node numbers of the network).
+    TV.applyConnected = function (nodes) {
+        const model = state.model;
+        if (!model) return;
+        state.selection = { ...state.selection, connected: TV.leavesOfNodes(model, nodes) };
         TV.selectionChanged();
     };
 

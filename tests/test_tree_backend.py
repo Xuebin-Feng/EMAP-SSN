@@ -452,7 +452,9 @@ class RouteTests(FolderTestCase):
         import json
 
         status, _headers, body = self.http_get(self.server, tree_backend.COLORS_ROUTE, self.page_headers(self.server))
-        self.assertEqual((status, json.loads(body)), (200, {"status": "no_colors", "version": 0}))
+        answer = json.loads(body)
+        self.assertEqual((status, answer["status"], answer["version"]), (200, "no_colors", 0))
+        self.assertEqual(answer["marks"]["selected"], [0xFF, 0xAA, 0x00, 255])
 
     def test_a_request_for_the_colours_from_another_origin_is_refused(self):
         self.give_colors()
@@ -550,7 +552,10 @@ class ColorStateTests(unittest.TestCase):
                        SimpleNamespace(n_nodes=4, current_colors=np.zeros((4, 3), np.float32)),
                        SimpleNamespace(n_nodes=0, current_colors=np.zeros((0, 4), np.float32))):
             with self.subTest(viewer=vars(viewer).keys()):
-                self.assertEqual(tree_backend.colors_state(viewer), {"status": "no_colors", "version": 0})
+                state = tree_backend.colors_state(viewer)
+                # The marks are the Viewer's settings, and are there with no colours too.
+                self.assertEqual((state["status"], state["version"], sorted(state["marks"])),
+                                 ("no_colors", 0, ["connected", "connected_on", "selected"]))
 
     def test_a_visible_mask_of_the_wrong_length_hides_nothing(self):
         viewer = self.viewer(count=6)
@@ -575,6 +580,12 @@ class ColorStateTests(unittest.TestCase):
                 else:
                     other.cluster_labels[7] = 2
                 self.assertNotEqual(tree_backend.colors_state(other)["version"], base)
+        # The colours the selection is outlined in are sent with them, so a change of those is a change.
+        import EMAPSSN_Config as cfg
+
+        for name in ("HOVER_COLOR", "CONNECTED_NODE_COLOR"):
+            with self.subTest(setting=name), mock.patch.object(cfg, name, "#123456"):
+                self.assertNotEqual(tree_backend.colors_state(viewer)["version"], base)
 
     def test_the_state_is_a_copy_of_what_the_viewer_held(self):
         viewer = self.viewer(count=4)
@@ -592,6 +603,163 @@ class ColorStateTests(unittest.TestCase):
         state = tree_backend.colors_state(viewer)
         self.assertEqual(len(unpack(state["rgba"], np.uint8)), 4 * count)
         self.assertLess(len(json.dumps(state)), 400_000)
+
+
+class MarksTests(unittest.TestCase):
+    """The colours the selected nodes and their neighbours are outlined in are the Viewer's settings, read when asked."""
+
+    def test_they_are_the_highlight_and_connected_node_colours_of_the_viewers_settings(self):
+        import EMAPSSN_Config as cfg
+
+        marks = tree_backend.marks_state(SimpleNamespace())
+        self.assertEqual(marks["selected"], [0xFF, 0xAA, 0x00, 255])
+        self.assertEqual(marks["connected"], [0xFF, 0x00, 0x00, 255])
+        with mock.patch.object(cfg, "HOVER_COLOR", "#102030"), mock.patch.object(cfg, "CONNECTED_NODE_COLOR", "#405060"):
+            marks = tree_backend.marks_state(SimpleNamespace())
+        self.assertEqual((marks["selected"], marks["connected"]), ([0x10, 0x20, 0x30, 255], [0x40, 0x50, 0x60, 255]))
+
+    def test_the_colours_answer_comes_with_them_and_follows_the_settings(self):
+        import EMAPSSN_Config as cfg
+
+        viewer = make_viewer(None, headers_of(4), colors=node_colors(4))
+        self.assertEqual(tree_backend.colors_state(viewer)["marks"]["selected"], [0xFF, 0xAA, 0x00, 255])
+        with mock.patch.object(cfg, "HOVER_COLOR", "#0a0b0c"):
+            self.assertEqual(tree_backend.colors_state(viewer)["marks"]["selected"], [10, 11, 12, 255])
+
+    def test_connected_nodes_are_identified_by_the_viewers_own_rule(self):
+        import EMAPSSN_Config as cfg
+        from EMAPSSN_Viewer import MainViewer
+
+        viewer = make_viewer(None, headers_of(4), colors=node_colors(4))
+        viewer._connected_node_identification_enabled = MainViewer._connected_node_identification_enabled.__get__(viewer)
+        # The boundary colour differs from the connected node colour: on. The same colour: off.
+        self.assertTrue(tree_backend.marks_state(viewer)["connected_on"])
+        with mock.patch.object(cfg, "NODE_BOUNDARY_COLOR", cfg.CONNECTED_NODE_COLOR):
+            self.assertFalse(tree_backend.marks_state(viewer)["connected_on"])
+            self.assertEqual(tree_backend.colors_state(viewer)["marks"]["connected_on"], False)
+        # A Viewer that cannot say, or whose rule fails, is taken not to.
+        self.assertFalse(tree_backend.marks_state(SimpleNamespace())["connected_on"])
+        viewer._connected_node_identification_enabled = mock.Mock(side_effect=RuntimeError("no"))
+        self.assertFalse(tree_backend.marks_state(viewer)["connected_on"])
+
+
+def network_viewer(count, edges, selected=()):
+    """A real MainViewer with just the network a neighbour query reads: nodes, edges and a selection."""
+    from EMAPSSN_Viewer import MainViewer
+
+    viewer = MainViewer.__new__(MainViewer)
+    viewer.n_nodes = count
+    viewer.edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+    viewer.selected_indices = list(selected)
+    viewer.selected_node_idx = None
+    viewer.visible_mask = np.ones(count, dtype=bool)
+    return viewer
+
+
+class ConnectedNodeTests(unittest.TestCase):
+    """The nodes next to the selected ones: what the Viewer outlines in the connected colour, and only those."""
+
+    def test_the_answer_is_the_viewers_own_neighbour_set(self):
+        rng = np.random.default_rng(42)
+        count = 400
+        edges = rng.integers(0, count, size=(1500, 2))
+        for selected in ([], [3], [5, 7, 9], list(rng.choice(count, 60, replace=False)), list(range(count))):
+            with self.subTest(selected=len(selected)):
+                viewer = network_viewer(count, edges, selected)
+                nodes = viewer._selected_node_indices()
+                expected = viewer._connected_to_selected_indices(nodes) if len(nodes) else np.empty(0)
+                found = tree_backend.neighbours_of_nodes(viewer, nodes)
+                self.assertEqual(found.dtype, np.int32)
+                self.assertEqual(list(found), list(expected))
+
+    def test_the_selected_nodes_are_not_among_their_own_neighbours(self):
+        viewer = network_viewer(5, [[0, 1], [1, 2], [2, 3]], [1, 2])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(viewer, [1, 2])), [0, 3])
+
+    def test_a_node_reached_by_many_is_named_once_and_a_node_with_no_edge_has_no_neighbours(self):
+        viewer = network_viewer(6, [[0, 5], [1, 5], [2, 5]], [0, 1, 2, 4])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(viewer, [0, 1, 2, 4])), [5])
+
+    def test_reading_in_pieces_gives_the_same_answer(self):
+        rng = np.random.default_rng(42)
+        edges = rng.integers(0, 300, size=(2000, 2))
+        viewer = network_viewer(300, edges)
+        nodes = np.arange(300)
+        whole = tree_backend.neighbours_of_nodes(viewer, nodes)
+        for chunk in (1, 7, 100, 1000):
+            with self.subTest(chunk=chunk), mock.patch.object(tree_backend, "NEIGHBOUR_CHUNK", chunk):
+                self.assertEqual(list(tree_backend.neighbours_of_nodes(viewer, nodes)), list(whole))
+
+    def test_nodes_out_of_range_and_a_viewer_with_no_index_have_no_neighbours(self):
+        viewer = network_viewer(4, [[0, 1]])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(viewer, [-3, 99])), [])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(viewer, [])), [])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(SimpleNamespace(), [0])), [])
+        self.assertEqual(list(tree_backend.neighbours_of_nodes(network_viewer(4, []), [0, 1])), [])
+
+    def test_it_leaves_the_viewers_own_neighbour_counts_alone(self):
+        # The web server's thread asks; the Viewer's thread keeps its counts as the selection changes.
+        viewer = network_viewer(6, [[0, 1], [1, 2], [2, 3]], [0])
+        viewer._connected_to_selected_indices(viewer._selected_node_indices())
+        tracker = viewer._selection_neighbours
+        before = (tracker.touches.copy(), tracker.selected.copy())
+        tree_backend.neighbours_of_nodes(viewer, [2, 3, 4])
+        self.assertIs(viewer._selection_neighbours, tracker)
+        self.assertTrue(np.array_equal(tracker.touches, before[0]) and np.array_equal(tracker.selected, before[1]))
+
+    def selection(self, viewer, on=True):
+        import EMAPSSN_Config as cfg
+        from EMAPSSN_Viewer import MainViewer
+
+        viewer._connected_node_identification_enabled = MainViewer._connected_node_identification_enabled.__get__(viewer)
+        if on:
+            return tree_backend.selection_state(viewer)
+        with mock.patch.object(cfg, "NODE_BOUNDARY_COLOR", cfg.CONNECTED_NODE_COLOR):
+            return tree_backend.selection_state(viewer)
+
+    def test_the_selection_answer_names_the_neighbours_while_identification_is_on(self):
+        viewer = network_viewer(6, [[0, 1], [1, 2], [2, 3], [4, 5]], [1])
+        state = self.selection(viewer)
+        self.assertEqual((state["connected_on"], state["connected_count"]), (True, 2))
+        self.assertEqual(list(unpack(state["connected"], "<i4")), [0, 2])
+        self.assertEqual(list(unpack(state["indices"], "<i4")), [1])
+
+    def test_with_identification_off_it_names_none_as_the_viewer_outlines_none(self):
+        viewer = network_viewer(6, [[0, 1], [1, 2]], [1])
+        state = self.selection(viewer, on=False)
+        self.assertEqual((state["connected_on"], state["connected_count"], state["connected"]), (False, 0, ""))
+
+    def test_with_nothing_selected_there_are_no_neighbours(self):
+        state = self.selection(network_viewer(6, [[0, 1], [1, 2]]))
+        self.assertEqual((state["connected_on"], state["count"], state["connected_count"]), (True, 0, 0))
+
+    def test_edges_are_never_sent(self):
+        viewer = network_viewer(6, [[0, 1], [1, 2]], [1])
+        state = self.selection(viewer)
+        self.assertEqual(sorted(state), ["connected", "connected_count", "connected_on", "count", "focus", "indices", "status"])
+        # Nodes, four bytes each: the neighbours are as long as their count says.
+        self.assertEqual(len(base64.b64decode(state["connected"])), 4 * state["connected_count"])
+
+    def test_a_viewer_that_cannot_name_neighbours_answers_without_them(self):
+        state = tree_backend.selection_state(FakeSelectingViewer(count=10, selected=[1, 2]))
+        self.assertEqual((state["status"], state["connected_on"], state["connected_count"]), ("ok", False, 0))
+
+    def test_forty_four_thousand_selected_nodes_are_read_in_a_blink(self):
+        count = 44000
+        rng = np.random.default_rng(42)
+        edges = rng.integers(0, count, size=(count * 20, 2))
+        viewer = network_viewer(count, edges, range(count))
+        viewer._adjacency_index()
+        started = time.perf_counter()
+        found = tree_backend.neighbours_of_nodes(viewer, np.arange(count))
+        elapsed = time.perf_counter() - started
+        self.assertEqual(len(found), 0)  # everything selected: nothing is left to be next to
+        viewer.selected_indices = list(range(0, count, 2))
+        started = time.perf_counter()
+        half = tree_backend.neighbours_of_nodes(viewer, np.arange(0, count, 2))
+        elapsed = max(elapsed, time.perf_counter() - started)
+        self.assertGreater(len(half), count // 3)
+        self.assertLess(elapsed, 3.0)
 
 
 class FakeTimer:

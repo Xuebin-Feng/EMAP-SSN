@@ -9121,6 +9121,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Next to a selected node of the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Cluster: {id}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9146,6 +9150,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Selected in the network: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next to a selected node of the network: {count}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9286,6 +9294,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} hidden in the network, left out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

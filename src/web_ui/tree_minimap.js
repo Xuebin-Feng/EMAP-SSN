@@ -56,16 +56,21 @@ window.TreeView = window.TreeView || {};
         const scene = {
             model: state.model, layout: state.layout, view: map, palette: state.palette,
             collapsed: state.collapsed, matches: state.matches, colors: state.colors, selection: state.selection,
+            marks: state.marks,
         };
         TV.paintTree(ctx, scene, width, height, true);
-        // The leaves the network has selected, as points, one to a pixel; the matches go over them.
-        if (state.selection.leaves.length) {
-            ctx.fillStyle = state.palette.selected;
-            const hidden = state.leafHidden;
+        // The leaves the network has selected, and those next to them, as points, one to a pixel; the matches go over them.
+        const marks = TV.markColors(scene);
+        const hidden = state.leafHidden;
+        const live = state.layout.live;
+        const points = (leaves, color) => {
+            if (!leaves.length) return;
+            ctx.fillStyle = color;
             const seen = new Set();
-            for (const leaf of state.selection.leaves) {
+            for (const leaf of leaves) {
                 if (hidden && hidden[leaf]) continue;
                 const node = state.model.leafNode[leaf];
+                if (live && !live[node]) continue;
                 const x = Math.round(map.ox + state.layout.x[node] * map.sx);
                 const y = Math.round(map.oy + state.layout.y[node] * map.sy);
                 const key = (x + 4096) * 1048576 + (y + 4096);
@@ -73,14 +78,16 @@ window.TreeView = window.TreeView || {};
                 seen.add(key);
                 ctx.fillRect(x - 1, y - 1, 2, 2);
             }
-        }
+        };
+        points(state.selection.connected || [], marks.connected);
+        points(state.selection.leaves, marks.selected);
         // A leaf the search found, as a point; a leaf inside a folded clade is in its outlined shape.
         if (state.matches.length) {
             ctx.fillStyle = state.palette.match;
-            const hidden = state.leafHidden;
             for (const leaf of state.matches) {
                 if (hidden && hidden[leaf]) continue;
                 const node = state.model.leafNode[leaf];
+                if (live && !live[node]) continue;
                 ctx.fillRect(map.ox + state.layout.x[node] * map.sx - 1, map.oy + state.layout.y[node] * map.sy - 1, 2, 2);
             }
         }

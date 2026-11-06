@@ -40,8 +40,13 @@ window.TreeView = window.TreeView || {};
         legendClass: -1,
         // The selection the network has, as the tree sees it (tree_select.js), a layer of its own beside the matches;
         // and whether the stability of each split is drawn.
-        selection: { leaves: new Int32Array(0), clade: -1, focus: -1, count: 0 },
+        selection: { leaves: new Int32Array(0), connected: new Int32Array(0), clade: -1, focus: -1, count: 0 },
         showSupport: false,
+        // The colours the Viewer outlines its selected nodes and their neighbours in, as CSS colours, once it has said
+        // ({ selected, connected }); null before.
+        marks: null,
+        // The leaves (1 for each) the layout leaves out because the Viewer has hidden their nodes, or null for none.
+        removed: null,
     };
     TV.canvas = null;
     TV.lastStats = null;
@@ -116,12 +121,75 @@ window.TreeView = window.TreeView || {};
     // What is folded up stays folded, and what is selected stays so: the nodes are the same.
     TV.setLayout = function (kind, mode) {
         if (!state.model) return;
-        state.layout = TV.layoutTree(state.model, kind, mode);
+        state.layout = TV.layoutTree(state.model, kind, mode, state.removed);
         state.kind = kind;
         state.mode = state.layout.mode;
         state.hover = -1;
         TV.minimapChanged();
         TV.fitView();
+    };
+
+    // Whether leaf number k is drawn: a node of the network that the Viewer has hidden is not, once the layout leaves it out.
+    TV.leafIsDrawn = function (k) {
+        const live = state.layout ? state.layout.live : null;
+        return !live || live[state.model.leafNode[k]] === 1;
+    };
+
+    function sameLeaves(a, b) {
+        if (a === b) return true;
+        if (!a || !b || a.length !== b.length) return false;
+        for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
+        return true;
+    }
+
+    // Leave out of the layout the leaves `removed` (1 for each; null for none), as the Viewer hides and shows nodes. The
+    // tree is laid out again without them, and what the view does is this: a view that shows the whole tree shows the
+    // whole of what is left; one that has been zoomed or moved keeps its scale and the leaf nearest its middle where
+    // it was, so that what is being read stays put while the rest closes up. What was hovered or pinned in a clade
+    // that is gone is let go. Returns whether the layout changed.
+    TV.applyRemoved = function (removed) {
+        if (!state.model || !state.layout || sameLeaves(removed, state.removed)) return false;
+        const { model } = state;
+        const before = state.layout;
+        const view = { ...state.view };
+        const wasFitted = state.fitted;
+        let anchor = -1;
+        let at = null;
+        if (!wasFitted && TV.canvas) {
+            const cx = TV.canvas.clientWidth / 2;
+            const cy = TV.canvas.clientHeight / 2;
+            let nearest = Infinity;
+            for (let k = 0; k < model.leafCount; k++) {
+                const node = model.leafNode[k];
+                if ((before.live && !before.live[node]) || (removed && removed[k])) continue;
+                const px = view.ox + before.x[node] * view.sx;
+                const py = view.oy + before.y[node] * view.sy;
+                const distance = Math.hypot(px - cx, py - cy);
+                if (distance < nearest) { nearest = distance; anchor = k; at = [px, py]; }
+            }
+        }
+        state.removed = removed;
+        state.layout = TV.layoutTree(model, state.kind, state.mode, removed);
+        state.mode = state.layout.mode;
+        const live = state.layout.live;
+        if (live) {
+            if (state.hover >= 0 && !live[state.hover]) state.hover = -1;
+            if (state.pinned >= 0 && !live[state.pinned]) state.pinned = -1;
+        }
+        state.current = -1;
+        TV.fitView();
+        if (anchor >= 0) {
+            const node = model.leafNode[anchor];
+            const limit = TV.limits();
+            const sx = clamp(view.sx, limit.sxMin, limit.sxMax);
+            const sy = state.layout.uniform ? sx : clamp(view.sy, limit.syMin, limit.syMax);
+            state.view = { sx, sy, ox: at[0] - state.layout.x[node] * sx, oy: at[1] - state.layout.y[node] * sy };
+            state.fitted = false;
+            keepInView();
+        }
+        TV.minimapChanged();
+        TV.requestDraw();
+        return true;
     };
 
     // Zoom by factors fx and fy about the pixel (px, py). A layout with one scale takes the one factor that is not 1.
@@ -153,7 +221,7 @@ window.TreeView = window.TreeView || {};
     // Bring node i's clade, with the branch that leads to it, to fill the view.
     TV.zoomToNode = function (i) {
         const { model, layout } = state;
-        if (!model || !(i >= 0 && i < model.nodeCount)) return;
+        if (!model || !(i >= 0 && i < model.nodeCount) || (layout.live && !layout.live[i])) return;
         if (model.childCount[i] === 0) {
             TV.focusLeaf(model.leafOrdinal[i]);
             return;
@@ -177,7 +245,7 @@ window.TreeView = window.TreeView || {};
                 oy: height / 2 - (y0 + boxes.y1[i]) / 2 * scale,
             };
         } else {
-            const rows = model.lastLeaf[i] - model.firstLeaf[i] + 1;
+            const rows = boxes.y1[i] - y0;
             const sy = clamp((height - room.top - room.bottom) / rows, limit.syMin, limit.syMax);
             const labelRoom = sy >= TV.LABEL_PX ? Math.min(300, width * 0.3) : 0;
             const span = Math.max(layout.reach[i] - x0, layout.width * 1e-3, 1e-9);
@@ -186,7 +254,7 @@ window.TreeView = window.TreeView || {};
                 sx,
                 sy,
                 ox: room.left - x0 * sx,
-                oy: room.top + (height - room.top - room.bottom - rows * sy) / 2 - model.firstLeaf[i] * sy,
+                oy: room.top + (height - room.top - room.bottom - rows * sy) / 2 - y0 * sy,
             };
         }
         state.fitted = false;
@@ -203,6 +271,7 @@ window.TreeView = window.TreeView || {};
         let count = 0;
         for (let k = 0; k < model.leafCount; k++) {
             const node = model.leafNode[k];
+            if (layout.live && !layout.live[node]) continue;
             const px = view.ox + layout.x[node] * view.sx;
             const py = view.oy + layout.y[node] * view.sy;
             if (px >= 0 && px <= width && py >= 0 && py <= height) count++;
@@ -215,7 +284,7 @@ window.TreeView = window.TreeView || {};
     // inside a folded clade opens the clade.
     TV.focusLeaf = function (k) {
         const { model, layout, view } = state;
-        if (!model) return;
+        if (!model || !TV.leafIsDrawn(k)) return;
         const node = model.leafNode[k];
         TV.expandToShow(node);
         if (layout.uniform) {
@@ -239,7 +308,7 @@ window.TreeView = window.TreeView || {};
         }
         const limit = TV.limits();
         view.sy = clamp(Math.max(view.sy, 16), limit.syMin, limit.syMax);
-        view.oy = TV.canvas.clientHeight / 2 - (k + 0.5) * view.sy;
+        view.oy = TV.canvas.clientHeight / 2 - layout.y[node] * view.sy;
         const tip = view.ox + layout.x[node] * view.sx;
         if (tip < 40 || tip > TV.canvas.clientWidth - 300) {
             view.ox = TV.canvas.clientWidth * 0.5 - layout.x[node] * view.sx;
@@ -460,6 +529,7 @@ window.TreeView = window.TreeView || {};
         const { model, layout, view, collapsed } = state;
         if (!model || !layout) return null;
         const boxes = layout.boxes;
+        const live = layout.live;
         const rectangular = layout.kind === "rectangular";
         const named = namesShown();
         // Whether there is room for dots and names: a row or a slot says it, an unrooted tree has the last frame's word.
@@ -549,7 +619,7 @@ window.TreeView = window.TreeView || {};
             // The square of a clade shows for the one that is hovered or selected, and is a target only then.
             if ((i === state.hover || i === state.pinned) && i !== model.root && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX
                 && Math.abs(px - x) <= TV.HANDLE_PX / 2 + 1 && Math.abs(py - y) <= TV.HANDLE_PX / 2 + 1) offer(i, "handle", -1);
-            for (let k = model.childStart[i]; k < model.childStart[i + 1]; k++) stack.push(model.childList[k]);
+            for (let k = model.childStart[i]; k < model.childStart[i + 1]; k++) if (!live || live[model.childList[k]]) stack.push(model.childList[k]);
         }
         return best;
     };
@@ -576,6 +646,7 @@ window.TreeView = window.TreeView || {};
             title = model.labels[leaf];
             lines.push(model.viewerNode[leaf] >= 0 ? t("A node of this network") : t("Not a node of this network"));
             if (TV.matchesIn(state.selection.leaves, leaf, leaf) > 0) lines.push(t("Selected in the network"));
+            else if (TV.matchesIn(state.selection.connected, leaf, leaf) > 0) lines.push(t("Next to a selected node of the network"));
             const clusters = state.colors && state.colors.cluster;
             if (clusters && model.viewerNode[leaf] >= 0 && clusters[model.viewerNode[leaf]] >= 0) {
                 lines.push(t("Cluster: {id}", { id: clusters[model.viewerNode[leaf]] }));
@@ -590,6 +661,8 @@ window.TreeView = window.TreeView || {};
             }
             const selected = TV.matchesIn(state.selection.leaves, model.firstLeaf[i], model.lastLeaf[i]);
             if (selected > 0) lines.push(t("Selected in the network: {count}", { count: selected.toLocaleString() }));
+            const next = TV.matchesIn(state.selection.connected, model.firstLeaf[i], model.lastLeaf[i]);
+            if (next > 0) lines.push(t("Next to a selected node of the network: {count}", { count: next.toLocaleString() }));
             const colors = state.colors;
             if (colors && colors.present[i] > 0 && colors.dominant[i] !== TV.NO_CLASS && colors.dominant[i] !== TV.PLAIN_CLASS
                 && colors.purity[i] > 0.5) {
@@ -648,13 +721,16 @@ window.TreeView = window.TreeView || {};
             return 0;
         }
         const found = [];
+        // A leaf the layout leaves out is not found: it is not on the page to be gone to.
+        const live = state.layout ? state.layout.live : null;
+        const here = (k) => !live || live[model.leafNode[k]] === 1;
         if (text.length >= 2 && text[0] === "\"" && text[text.length - 1] === "\"") {
             const exact = text.slice(1, -1);
-            for (let k = 0; k < model.leafCount; k++) if (model.labels[k] === exact) found.push(k);
+            for (let k = 0; k < model.leafCount; k++) if (model.labels[k] === exact && here(k)) found.push(k);
         } else {
             if (!model.lowerLabels) model.lowerLabels = model.labels.map((label) => label.toLowerCase());
             const needle = text.toLowerCase();
-            for (let k = 0; k < model.leafCount; k++) if (model.lowerLabels[k].includes(needle)) found.push(k);
+            for (let k = 0; k < model.leafCount; k++) if (model.lowerLabels[k].includes(needle) && here(k)) found.push(k);
         }
         state.matches = Int32Array.from(found);
         return found.length;

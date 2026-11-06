@@ -274,6 +274,42 @@ def _plain_color_bytes():
     return [int(round(value * 255)) for value in mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)]
 
 
+def _color_bytes(name):
+    """The red, green, blue and alpha (0 to 255) of the Viewer's colour setting ``name``, read when asked."""
+    from matplotlib import colors as mcolors
+
+    import EMAPSSN_Config as cfg
+
+    return [int(round(value * 255)) for value in mcolors.to_rgba(getattr(cfg, name))]
+
+
+def connected_identification_on(viewer):
+    """Whether the Viewer outlines the neighbours of the selected nodes: its own rule, asked of it.
+
+    The Viewer does so while the node boundary colour differs from the connected node colour, and that is
+    all this says; a Viewer that cannot say is taken not to.
+    """
+    rule = getattr(viewer, "_connected_node_identification_enabled", None)
+    if not callable(rule):
+        return False
+    try:
+        return bool(rule())
+    except Exception:
+        return False
+
+
+def marks_state(viewer):
+    """The colours the Viewer outlines the nodes it has selected in (``selected``), and their neighbours in
+    (``connected``), each as red, green, blue and alpha (0 to 255), read from its settings when asked; and
+    ``connected_on``, whether it outlines the neighbours at all (connected_identification_on).
+    """
+    return {
+        "selected": _color_bytes("HOVER_COLOR"),
+        "connected": _color_bytes("CONNECTED_NODE_COLOR"),
+        "connected_on": connected_identification_on(viewer),
+    }
+
+
 def colors_snapshot(viewer):
     """What the page is told of the nodes' colours, as arrays, and the version that names it; None when the Viewer has none.
 
@@ -298,11 +334,15 @@ def colors_snapshot(viewer):
     if labels is not None and len(labels) == count:
         cluster = np.array(labels, dtype=np.int64, copy=True)
         cluster = np.clip(cluster, -(2**31), 2**31 - 1).astype(np.int32)
+    marks = marks_state(viewer)
     version = zlib.crc32(rgba.tobytes())
     version = zlib.crc32(hidden.tobytes(), version)
+    version = zlib.crc32(repr(sorted(marks.items())).encode("ascii"), version)
     if cluster is not None:
         version = zlib.crc32(cluster.tobytes(), version)
-    return {"count": count, "rgba": rgba, "hidden": hidden, "cluster": cluster, "version": version & 0xFFFFFFFF}
+    return {
+        "count": count, "rgba": rgba, "hidden": hidden, "cluster": cluster, "marks": marks, "version": version & 0xFFFFFFFF,
+    }
 
 
 def colors_state(viewer):
@@ -310,13 +350,15 @@ def colors_state(viewer):
 
     ``rgba`` holds 4 bytes a node, ``hidden`` one bit a node (set when the node is hidden, least significant bit
     first), ``cluster`` the cluster number of each node (-1 for none) when the Viewer has clusters, in 2 bytes each
-    (``cluster_type`` "i2") unless one of them needs 4 ("i4"), and ``plain`` the colour of a node nothing has coloured.
+    (``cluster_type`` "i2") unless one of them needs 4 ("i4"), ``plain`` the colour of a node nothing has coloured, and
+    ``marks`` the colours the selection and its neighbours are outlined in (marks_state), which the answer for no
+    colours has too.
     The nodes are the Viewer's, in its numbering; the tree's leaves find theirs in the viewer_node array of
     /api/tree/data.
     """
     found = colors_snapshot(viewer)
     if found is None:
-        return {"status": "no_colors", "version": 0}
+        return {"status": "no_colors", "version": 0, "marks": marks_state(viewer)}
     cluster = found["cluster"]
     small = cluster is not None and (int(cluster.min()) >= -(2**15) and int(cluster.max()) < 2**15)
     return {
@@ -324,6 +366,7 @@ def colors_state(viewer):
         "version": found["version"],
         "count": found["count"],
         "plain": _plain_color_bytes(),
+        "marks": found["marks"],
         "rgba": _packed(found["rgba"], "u1"),
         "hidden": _packed(found["hidden"], "u1"),
         "cluster": None if cluster is None else _packed(cluster, "<i2" if small else "<i4"),
@@ -398,12 +441,56 @@ def _is_node_number(value):
     return isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_))
 
 
+# The most neighbour entries gathered at once: a selection of every node of a dense network is read in pieces.
+NEIGHBOUR_CHUNK = 4_000_000
+
+
+def neighbours_of_nodes(viewer, nodes):
+    """The nodes next to ``nodes`` in the Viewer's whole network (not ``nodes`` themselves), ascending, as 4-byte integers.
+
+    The Viewer's own answer (_connected_to_selected_indices) is kept up to date by the Viewer's thread as the
+    selection changes, and this runs on the web server's, so it counts afresh from the Viewer's adjacency index
+    instead of sharing what that thread changes: the cost of the summed degree of ``nodes``, read in pieces. A Viewer
+    that has no adjacency index has no neighbours to name.
+    """
+    nodes = np.unique(np.asarray(nodes, dtype=np.int64))
+    index = getattr(viewer, "_adjacency_index", None)
+    if not nodes.size or not callable(index):
+        return np.empty(0, dtype=np.int32)
+    indptr, indices = index()
+    count = len(indptr) - 1
+    nodes = nodes[(nodes >= 0) & (nodes < count)]
+    if not nodes.size:
+        return np.empty(0, dtype=np.int32)
+    starts = indptr[nodes]
+    degrees = indptr[nodes + 1] - starts
+    ends = np.cumsum(degrees)
+    reached = np.zeros(count, dtype=bool)
+    first = 0
+    while first < nodes.size:
+        before = int(ends[first - 1]) if first else 0
+        last = max(first + 1, int(np.searchsorted(ends, before + NEIGHBOUR_CHUNK, side="right")))
+        piece = degrees[first:last]
+        total = int(piece.sum())
+        if total:
+            # Entry j of node g reads indices[starts[g] + j]: every node's slice, side by side.
+            offsets = np.cumsum(piece) - piece
+            gather = np.arange(total, dtype=np.int64) + np.repeat(starts[first:last] - offsets, piece)
+            reached[indices[gather]] = True
+        first = last
+    reached[nodes] = False
+    return np.flatnonzero(reached).astype(np.int32)
+
+
 def selection_state(viewer):
-    """What /api/tree/selection answers: the nodes selected in the network, and the one with the click focus.
+    """What /api/tree/selection answers: the nodes selected in the network, the ones next to them, and the click focus.
 
     ``indices`` are the Viewer's node numbers, sorted and without repeats, as 4-byte integers (``count`` of them);
-    ``focus`` is the node the network's click focus is on, or None. A page asks for this when it opens, as it hears
-    of later changes through selection_changed and highlight_row.
+    ``focus`` is the node the network's click focus is on, or None. ``connected_on`` is whether the Viewer outlines the
+    neighbours of the selected nodes (connected_identification_on); only then, and with a selection, ``connected``
+    holds those neighbours as ``indices`` does (``connected_count`` of them, the selected nodes not among them): the
+    answer is the nodes, never the edges between them. A page asks for this when it opens and when the selection
+    changes, as it hears of the selection through selection_changed and highlight_row.
     """
     count = int(getattr(viewer, "n_nodes", 0) or 0)
     selected = getattr(viewer, "selected_indices", None)
@@ -414,11 +501,16 @@ def selection_state(viewer):
     focus = getattr(viewer, "selected_node_idx", None)
     if not _is_node_number(focus) or not 0 <= int(focus) < count:
         focus = None
+    connected_on = connected_identification_on(viewer)
+    connected = neighbours_of_nodes(viewer, found) if connected_on and found.size else np.empty(0, dtype=np.int32)
     return {
         "status": "ok",
         "count": int(found.size),
         "indices": _packed(found, "<i4"),
         "focus": None if focus is None else int(focus),
+        "connected_on": connected_on,
+        "connected_count": int(connected.size),
+        "connected": _packed(connected, "<i4"),
     }
 
 
