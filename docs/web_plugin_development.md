@@ -187,6 +187,45 @@ so a plugin does not use it.
 - Static routes may point to an output directory that does not yet exist. Create
   output directories only when the corresponding operation runs.
 
+## Following the network from a page
+
+A page that draws something beside the network (Tree View is the bundled example)
+needs to hear when the network changes, and to change the Viewer's selection. The
+Viewer offers two generic hooks for the first, and the plugin's own actions and
+routes do the rest. Neither hook names a page or a plugin.
+
+- **`viewer.node_update_listeners`** is a list of callables that take no argument.
+  The Viewer calls each at the end of `update_nodes()`, the redraw that follows a
+  change of colour, visibility or selection state. A listener that raises is
+  reported in the Console as a warning and does not stop the others or the
+  drawing. A plugin appends its listener from `register_backend` (once, however
+  often that runs), and the listener should do nothing until a page of the plugin
+  is connected: the redraw is frequent. Tree View's listener fingerprints exactly
+  what its colour route would send, and announces a change only when the
+  fingerprint differs, once, shortly after the last of a burst of redraws.
+- **The `alignment_changed` event** is broadcast to every event client when
+  `load_global_alignment` has loaded an alignment. It carries nothing: a page that
+  shows what the alignment holds asks its routes again. A Viewer with no web
+  server skips the broadcast.
+
+The Viewer already broadcasts `selection_changed {indices}` and
+`highlight_row {index}` (`index` is `null` to clear) in Viewer node numbers. A
+page that follows them reads its events from `/api/events?client=<id>`; the first
+message on that stream is the Viewer's whole state and can be large, so a page
+that needs only a few event types should recognise them by the start of the
+message and leave the rest unparsed.
+
+A page that changes the Viewer registers an action and posts it to
+`/api/action` as JSON (`{"action": "<name>", ...}`). Tree View registers
+`tree_select` (`indices` and a `mode` of `replace`, `add` or `toggle`) and
+`tree_focus` (`index`), which validate every number, drop hidden nodes and
+duplicates, and then do what a box selection or a click on a node does. An action
+is not a command, and a command reads the selection through
+`Command_Engine.command_selection(viewer)`, never `viewer.selected_indices`. What
+only the page needs to read (the tree, the node colours, the current selection)
+is a plugin API route under `/api/<plugin_id>/`, answered as JSON: the page asks
+for the state it needs and the event only says that it changed.
+
 ## What stays central, and why
 
 The plugins declare what is theirs. What protects the Viewer stays in the core,

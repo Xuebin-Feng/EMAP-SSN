@@ -223,9 +223,9 @@ The GUI also features a **Compute Network Statistics** utility that analyzes net
 The main visualization window, `EMAPSSN_Viewer.py`, provides a 2D network canvas
 with mouse and keyboard controls for panning, zooming, selection, and formatting.
 Its in-line command console (HUD) runs analytical operations, highlights residues,
-selects clusters, and exports figures. The `meta`, `esmfold`, and `agent` commands
+selects clusters, and exports figures. The `meta`, `esmfold`, `agent`, and `tree` commands
 open session-specific utilities in the system browser: a metadata table, a Mol*
-structure viewer, and a conversational agent. The Tools documentation panel uses
+structure viewer, a conversational agent, and the guide tree of the loaded alignment. The Tools documentation panel uses
 embedded QtWebEngine.
 
 Dimensionality follows from the viewer: the desktop Configuration and Viewer
@@ -263,7 +263,7 @@ The chosen language covers:
 - the Configuration, Tools and VR Configuration windows, with their tips,
   messages and the Tools help pages;
 - the Viewer's window, Console and dialogs, the text on its canvas (the HUD and
-  the console line), and the Agent, metadata and Fold View pages it opens in the
+  the console line), and the Agent, metadata, Fold View and Tree View pages it opens in the
   browser;
 - the benchmark's text report.
 
@@ -733,7 +733,7 @@ and Tools windows have no Console after they open: read their output there. The 
 and prints the output of its commands, has the **Console** window: the Console button at the bottom of the Viewer,
 beside the info button, or the `console` command opens it, and it shows the output with
 the time of each line, searches and filters it, and opens its log file. A second row under its search holds a
-button for each page you open from the Viewer with its command (`meta`, `agent` and `esmfold`). To see the output in a terminal as before,
+button for each page you open from the Viewer with its command (`meta`, `agent`, `esmfold` and `tree`). To see the output in a terminal as before,
 start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`, or on Linux
 `src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat`
 (on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there. A Viewer started with `--console` keeps no output

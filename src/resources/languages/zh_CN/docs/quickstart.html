@@ -55,6 +55,7 @@
         <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
         <symbol id="i-sheet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/></symbol>
         <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+        <symbol id="i-list-tree" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5h13"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="M3 10a2 2 0 0 0 2 2h3"/><path d="M3 5v12a2 2 0 0 0 2 2h3"/></symbol>
     </svg>
 
     <!-- Top bar, the same on both documentation pages -->
@@ -506,7 +507,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="7e9eb8f4f6c56f29f7ca659638f5a55a644daa675efdd58b09f0124ff3636fde">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="eac0725e076f67842a80f9c17e9227bcea4c9320ded66981a518bc6437f2af26">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -519,7 +520,7 @@
                     <img src="../../../../../docs/assets/emapssn_viewer_gui.png" alt="EMAP-SSN 查看器 GUI 截图" style="max-height: 520px;">
                 </div>
                 <div class="figure-caption">
-                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；以及（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）。信息按钮旁边的<strong>控制台（Console）</strong>按钮会打开控制台窗口，其按钮行可打开元数据（Meta Data）、智能体（Agent）和结构视图（Fold View，Mol* 3D 结构）。
+                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；以及（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）。信息按钮旁边的<strong>控制台（Console）</strong>按钮会打开控制台窗口，其按钮行可打开元数据（Meta Data）、智能体（Agent）、结构视图（Fold View，Mol* 3D 结构）和树视图（Tree View，引导树）。
                 </div>
             </div>
 
@@ -648,7 +649,7 @@
 
                 <h3>4. 控制台按钮与内嵌 Web 工具</h3>
                 <p>
-                    控制台窗口（查看器左下角的<strong>控制台</strong>按钮，图 4）的搜索行下方有第二行按钮。每个按钮都会在浏览器中打开一个基于 Web 的分析工具，这些工具由查看器的本地 Web 服务器提供。某个按钮会在其命令（<code>meta</code>、<code>agent</code> 或 <code>esmfold</code>）运行时加入这一行，在有按钮之前这一行不显示：
+                    控制台窗口（查看器左下角的<strong>控制台</strong>按钮，图 4）的搜索行下方有第二行按钮。每个按钮都会在浏览器中打开一个基于 Web 的分析工具，这些工具由查看器的本地 Web 服务器提供。某个按钮会在其命令（<code>meta</code>、<code>agent</code>、<code>esmfold</code> 或 <code>tree</code>）运行时加入这一行，在有按钮之前这一行不显示：
                 </p>
                 <div class="grid-2">
                     <div class="grid-card">
@@ -675,6 +676,12 @@
                             在该页面中，<strong>着色依据</strong>可按 pLDDT、按结构颜色或按残基图层（如由折叠时查看器中已加载的比对计算出的保守性）为结构着色。将指针悬停在残基上会显示其数值，单击可固定该残基，画布下方的序列条显示相同的残基。工具栏可测量两个残基之间的距离、标注残基，并保存带图例的图片。可通过<strong>会话</strong>菜单添加 PDB 或 mmCIF 文件，也可直接将文件拖放到页面上。
                         </p>
                     </div>
+                    <div class="grid-card" style="grid-column: 1 / -1;">
+                        <h4><svg class="icon" aria-hidden="true"><use href="#i-list-tree"/></svg><span>树视图：引导树</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            点击<strong>树视图</strong>（或运行 <code>tree</code>）会打开 Embedding MSA 工具为查看器中已加载的比对保存的引导树，它根据比对的名称，在比对旁边的 <code>Guide_Trees</code> 文件夹中找到。有根的树以矩形布局打开；无根的树以无根布局打开，页面也可以把它画成环形。树会采用网络的颜色，网络中选中的节点也会在树中显示。右键点击进化枝或叶节点可在网络中选中它，Shift+右键点击可切换它，在空白画布上右键点击可清除选择。
+                        </p>
+                    </div>
                 </div>
 
                 <h3>5. 查看器状态堆叠区</h3>
@@ -690,7 +697,7 @@
             </div>
 
             <!-- SECTION 6: STEP-BY-STEP TUTORIAL -->
-            <div id="hands-on-tutorial" class="section-divider" data-source-sha256="1dc17b1bc3e0220b9dc00661f0d7c74001588f321799798959119c34091186ad">
+            <div id="hands-on-tutorial" class="section-divider" data-source-sha256="893e90f9133556b97a6e42017ae810b5f172b8c40ef502dfac60a69663cd7062">
                 <span>6. 动手实践分步教程</span>
             </div>
 
@@ -739,7 +746,7 @@
                             切换到<em>序列相似性计算</em>选项卡。运行<strong>动态规划 embedding 比对</strong>（<code>Align_Similarity_Matrix.py</code>），或运行<strong>替换矩阵比对</strong>（<code>Align_Substitution_Matrix.py</code>）以进行传统 BLAST。点击<strong>保存并运行</strong>以计算全对全相似性矩阵。
                         </p>
                         <p>
-                            接下来，切换到 <em>Embedding MSA</em> 选项卡，运行 <strong>Embedding 多序列比对</strong>（<code>Embedding_MSA.py</code>），将得分模式设置为 <code>global (Needleman-Wunsch)</code>（“全局（Needleman-Wunsch）”），归一化模式设置为 <code>Alignment Length</code>（“比对长度”）。这会根据网络的得分构建引导树，并利用序列的 embedding 逐步比对成全局 MSA。
+                            接下来，切换到 <em>Embedding MSA</em> 选项卡，运行 <strong>Embedding 多序列比对</strong>（<code>Embedding_MSA.py</code>），将得分模式设置为 <code>global (Needleman-Wunsch)</code>（“全局（Needleman-Wunsch）”），归一化模式设置为 <code>Alignment Length</code>（“比对长度”）。这会根据网络的得分构建引导树，并利用序列的 embedding 逐步比对成全局 MSA。该工具还会把引导树保存在比对旁边的 <code>Guide_Trees</code> 文件夹中，树视图（<code>tree</code> 命令）会绘制它。
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>结果：</strong><code>Input_Files/Networks_EValues/</code> 中的成对网络 HDF5 文件，以及 <code>Input_Files/Multiple_Alignments/</code> 中整合的 MSA 文件。
