@@ -97,7 +97,10 @@ still change before version 1.0.0.
     map in the corner shows the whole tree and where the view is. Clades too small to see are
     drawn as one line, and names appear only where they fit. On high-DPI screens the lines
     are drawn as one-pixel passes, which the browser draws on the GPU, and names are left out
-    while the view moves, so the circular and unrooted layouts stay smooth.
+    while the view moves, so the circular and unrooted layouts stay smooth. Opening the page
+    no longer makes the Viewer build and send its whole state (about 9 MB at 44,000
+    sequences), which the page does not read; a page's manifest says so with
+    `initial_state: False`.
   - **In the network's colours:** each leaf is drawn in its node's colour, and a clade in the
     colour that nine in ten of its shown leaves share, so clusters that form clades stand out
     even in the overview. Nodes nobody has coloured keep the Viewer's node colour. A legend
