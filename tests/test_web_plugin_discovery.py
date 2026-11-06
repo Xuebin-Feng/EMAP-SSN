@@ -436,6 +436,20 @@ class ManifestValidationTests(unittest.TestCase):
             with self.subTest(themed=themed):
                 self.refused_page("themed", themed=themed)
 
+    def test_initial_state_is_a_boolean_that_defaults_to_true(self):
+        for value in ("no", "false", 1, 0):
+            with self.subTest(initial_state=value):
+                self.refused_page("initial_state", initial_state=value)
+        [page] = read_manifest(pages=[page_entry()]).pages
+        self.assertTrue(page.initial_state)
+        [page] = read_manifest(pages=[page_entry(initial_state=False)]).pages
+        self.assertFalse(page.initial_state)
+
+    def test_only_the_tree_page_skips_the_initial_state(self):
+        descriptors, _ = discover_plugin_descriptors(str(BUNDLED_PLUGIN_DIR))
+        flags = {page.client: page.initial_state for d in descriptors for page in d.pages}
+        self.assertEqual(flags, {"tree": False, "agent": True, "meta": True, "esmfold": True})
+
     def test_a_relaxation_the_server_does_not_allow_is_refused(self):
         refused = [
             {"script-src": ["'unsafe-inline'"]},

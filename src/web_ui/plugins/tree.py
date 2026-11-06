@@ -13,6 +13,7 @@ WEB_PLUGIN = {
             "label": "Tree View UI",
             "client": "tree",
             "themed": True,
+            "initial_state": False,
             "i18n": {
                 "context": "TreePage",
                 "files": ["web_ui/tree.html", "web_ui/tree_session.js", "web_ui/tree_nav.js"],

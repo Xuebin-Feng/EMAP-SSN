@@ -645,7 +645,12 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         
         try:
             # Send initial configuration
-            initial_data = self.server.viewer.get_initial_web_state()
+            # A page that declared it does not read the whole state gets an init
+            # without it: the state is megabytes at 44K sequences and building
+            # it holds the GIL.
+            pages = _page_registry(getattr(self.server, "page_registry", None))
+            initial_data = (self.server.viewer.get_initial_web_state()
+                            if pages.wants_initial_state(client_id) else None)
             self.wfile.write(f"data: {json.dumps({'type': 'init', 'data': initial_data}, cls=NumpyEncoder)}\n\n".encode('utf-8'))
             self.wfile.flush()
             

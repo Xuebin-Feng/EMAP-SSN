@@ -171,6 +171,24 @@ class WebOriginTests(unittest.TestCase):
         self.settle()
         self.assertEqual(self.dispatched, [{'action': 'save_molstar_session', 'session': {'planted': True}}] * 3)
 
+    def first_event(self, query):
+        """The first message of an event stream opened with ``query``."""
+        headers = {'Host': f'127.0.0.1:{self.port}', 'Sec-Fetch-Site': 'same-origin'}
+        status, _, raw = self.exchange('GET', '/api/events' + query, headers)
+        self.assertEqual(status, 200)
+        return json.loads(raw.decode().removeprefix('data: '))
+
+    def test_a_page_that_declared_no_initial_state_gets_an_init_without_it(self):
+        self.viewer.get_initial_web_state = mock.Mock(return_value={'rows': [{'Node ID': 'a'}]})
+        self.assertEqual(self.first_event('?client=tree'), {'type': 'init', 'data': None})
+        self.viewer.get_initial_web_state.assert_not_called()
+
+    def test_other_and_unknown_clients_still_get_the_whole_state(self):
+        expected = {'type': 'init', 'data': {'rows': [{'Node ID': 'a', 'Org': 'x'}]}}
+        for query in ('?client=meta', '?client=agent', '?client=nobody', ''):
+            with self.subTest(query=query):
+                self.assertEqual(self.first_event(query), expected)
+
     def test_real_attachment_and_session_payloads_are_accepted(self):
         # The bundled pages legitimately post far more than the inspection
         # endpoints' 64 KiB: agent.html sends base64 PNG attachments (a Viewer

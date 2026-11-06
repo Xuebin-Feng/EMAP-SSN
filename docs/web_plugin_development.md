@@ -58,6 +58,7 @@ every value is checked.
 | `label` | yes | What the opener's console lines and dialogs call the page, in English: up to 80 characters, without braces or line breaks. It is shown translated, as a console `Message`, and the translation update lists it from the manifest. |
 | `client` | yes | The id the page's event stream connects with (`/api/events?client=<id>`): 1 to 64 characters of `a-z`, `0-9`, `_` and `-`. It is how the Viewer tells that the page is open, and how `viewer.open_page` names it. One page has one client. |
 | `themed` | no | `True` for a page that takes the Viewer's Studio theme colour: the server ends its head with the theme's custom properties. Default `False`. |
+| `initial_state` | no | `False` for a page that does not read the Viewer's whole state: the first message of its event stream is then `{"type": "init", "data": null}` instead of the state, which at 44,000 sequences is about 9 MB. Default `True`. |
 | `csp` | no | The relaxations of the base Content-Security-Policy the page needs, as `{directive: [sources]}`. Only the relaxations the Viewer allows are accepted (see below). |
 | `i18n` | no | `{"context": ..., "files": [...]}`: the catalog context of the page's texts, and the files that hold them, relative to `src/`. A name may hold `*` and `?` to name several files, as in `web_ui/example_*.js`. A file belongs to one page, and a context to one plugin. |
 

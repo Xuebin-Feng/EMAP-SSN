@@ -65,7 +65,7 @@ ALLOWED_CSP_RELAXATIONS = {
 }
 
 _PAGE_REQUIRED_KEYS = frozenset({"path", "label", "client"})
-_PAGE_OPTIONAL_KEYS = frozenset({"themed", "csp", "i18n"})
+_PAGE_OPTIONAL_KEYS = frozenset({"themed", "csp", "i18n", "initial_state"})
 _I18N_KEYS = frozenset({"context", "files"})
 # A page's URL: a file of .html in the folder the web layer serves, or in one
 # of its plugin's own static routes. Every segment starts with a letter,
@@ -106,7 +106,9 @@ class WebPageDescriptor:
     path is the page's URL; label names it for people (a manifest's English,
     translated when it is shown); client is the id the page's event stream
     connects with, which tells whether the page is open. themed pages end
-    their head with the Studio theme's colours. csp holds the relaxations
+    their head with the Studio theme's colours. initial_state is False for a
+    page that does not read the Viewer's whole state, so its event stream's
+    first message carries none. csp holds the relaxations
     of the base Content-Security-Policy the page needs, as ((directive,
     (source, ...)), ...), each of them on ALLOWED_CSP_RELAXATIONS. i18n_context
     is the catalog context of the page's texts and i18n_files the files, relative
@@ -119,6 +121,7 @@ class WebPageDescriptor:
     label: str
     client: str
     themed: bool = False
+    initial_state: bool = True
     csp: tuple = ()
     i18n_context: str | None = None
     i18n_files: tuple = ()
@@ -140,6 +143,8 @@ class WebPageDescriptor:
             raise WebPluginError(f"{where}: client must be 1 to 64 characters of a-z, 0-9, _ and -")
         if not isinstance(self.themed, bool):
             raise WebPluginError(f"{where}: themed must be true or false")
+        if not isinstance(self.initial_state, bool):
+            raise WebPluginError(f"{where}: initial_state must be true or false")
         self._check_csp(where)
         self._check_i18n(where)
 
@@ -304,6 +309,7 @@ def _page_from_entry(plugin_id: str, entry) -> WebPageDescriptor:
         label=entry["label"],
         client=entry["client"],
         themed=entry.get("themed", False),
+        initial_state=entry.get("initial_state", True),
         csp=tuple(relaxations),
         i18n_context=context,
         i18n_files=files,
@@ -723,6 +729,11 @@ class WebPluginRegistry:
         """Whether the page in the file filepath declared that it takes the Studio theme."""
         page = self._page_files.get(page_file_key(filepath))
         return page is not None and page.themed
+
+    def wants_initial_state(self, client) -> bool:
+        """Whether the page whose event client is ``client`` reads the Viewer's whole state; True for a client no page registered."""
+        page = self.pages.get(client)
+        return page is None or page.initial_state
 
     def text_context(self, filepath):
         """The catalog context of the texts in the file filepath, or None for a file no page claimed."""

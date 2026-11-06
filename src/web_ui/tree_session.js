@@ -684,7 +684,7 @@ window.TreeView = window.TreeView || {};
     // ---- The Viewer's event stream ---------------------------------------------------------------------------
 
     // Connecting tells the Viewer this page is open (it opens no second one). The first message of a connection is
-    // the Viewer's whole state, which this page does not read, so it is not parsed.
+    // an init message that carries no state (the manifest declares initial_state false), which is how a reconnect is noticed.
     function connectEventStream() {
         const badge = $("connection-status");
         eventSource = new EventSource("/api/events?client=tree");
