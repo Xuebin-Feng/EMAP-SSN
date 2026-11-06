@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2587"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2618"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,7 +619,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2470"/>
+        <location line="-2501"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -4449,7 +4449,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1878"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1909"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -10071,7 +10071,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1506"/>
+        <location line="-1537"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
@@ -10091,7 +10091,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+149"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
@@ -10344,20 +10344,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+554"/>
+        <location line="+581"/>
         <location line="+261"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-815"/>
-        <location line="+555"/>
+        <location line="-842"/>
+        <location line="+582"/>
         <location line="+261"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-814"/>
+        <location line="-841"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -10923,7 +10923,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+848"/>
+        <location line="+875"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -10951,7 +10951,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1856"/>
+        <location line="-1883"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11002,7 +11002,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">所在磁盘剩余 {free}。</translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+497"/>
         <source>The raw FASTA sequence database to clean.</source>
         <translation type="unfinished">要清理（sanitize）的原始 FASTA 序列库。</translation>
     </message>
@@ -12237,8 +12237,8 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+78"/>
-        <location line="+199"/>
+        <location line="+83"/>
+        <location line="+194"/>
         <location line="+112"/>
         <location line="+243"/>
         <source>CPU Workers:</source>
@@ -12246,8 +12246,8 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="-627"/>
-        <location line="+78"/>
-        <location line="+311"/>
+        <location line="+83"/>
+        <location line="+306"/>
         <source>Batch Size:</source>
         <translation type="unfinished">批大小：</translation>
     </message>
@@ -12285,23 +12285,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">替换矩阵：</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <location line="+54"/>
+        <location line="+12"/>
+        <location line="+49"/>
         <source>Score:</source>
         <translation type="unfinished">得分：</translation>
     </message>
     <message>
-        <location line="-49"/>
+        <location line="-44"/>
         <source>Hardware &amp; Workspace Settings:</source>
         <translation type="unfinished">硬件与工作区设置：</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="-12"/>
         <source>BLASTP Directory:</source>
         <translation type="unfinished">BLASTP 目录：</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+31"/>
         <source>Parse External BLAST Output:</source>
         <translation type="unfinished">解析外部 BLAST 输出：</translation>
     </message>
@@ -12333,7 +12333,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">BLAST 列格式：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+10"/>
         <source>Query Column:</source>
         <translation type="unfinished">查询序列列：</translation>
     </message>
@@ -12348,12 +12348,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">期望值列：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-15"/>
         <source>Bit Score Column:</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+31"/>
         <source>Use Sequence Filter:</source>
         <translation type="unfinished">使用序列过滤：</translation>
     </message>
@@ -12698,12 +12698,12 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+10"/>
         <location line="+509"/>
-        <location line="+1061"/>
+        <location line="+1090"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1567"/>
+        <location line="-1596"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
@@ -12845,14 +12845,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1525"/>
+        <location line="+1554"/>
         <location line="+465"/>
         <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2028"/>
+        <location line="-2057"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -12928,7 +12928,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">设置：{name}</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+278"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -12944,7 +12944,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">无法确定网络类型：{error}</translation>
     </message>
     <message>
-        <location line="+381"/>
+        <location line="+388"/>
         <source>Save &amp;&amp; Run</source>
         <translation type="unfinished">保存并运行</translation>
     </message>
@@ -12973,7 +12973,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">⏱️ 基准测试</translation>
     </message>
     <message>
-        <location line="+271"/>
+        <location line="+284"/>
         <location line="+57"/>
         <source>Run Benchmark</source>
         <translation type="unfinished">运行基准测试</translation>
@@ -13177,17 +13177,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5077"/>
+        <location line="-5133"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
-        <location line="-125"/>
+        <location line="-162"/>
         <source>FP32 (Full Precision)</source>
         <translation type="unfinished">FP32（全精度）</translation>
     </message>
     <message>
-        <location line="+126"/>
+        <location line="+163"/>
         <source>Sparse MSA Converter</source>
         <translation type="unfinished">稀疏 MSA 转换器</translation>
     </message>
@@ -13352,7 +13352,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+892"/>
+        <location line="+919"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
@@ -13414,12 +13414,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+165"/>
-        <location line="+1391"/>
+        <location line="+1420"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1376"/>
+        <location line="-1405"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -13429,7 +13429,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1963"/>
+        <location line="+1992"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

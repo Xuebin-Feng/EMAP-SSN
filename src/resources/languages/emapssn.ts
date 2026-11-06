@@ -8511,15 +8511,15 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>BLASTP Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Score:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Hardware &amp; Workspace Settings:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>BLASTP Directory:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8549,6 +8549,10 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Bit Score Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Query Column:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8558,10 +8562,6 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>EValue Column:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Bit Score Column:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
