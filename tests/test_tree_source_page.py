@@ -107,7 +107,9 @@ class ChooserTests(SourceCase):
                     source: TreeView.state.source, score: TreeView.state.model.score !== null, leaves: TreeView.state.model.leafCount}; })()""")
         self.assertEqual(found["value"], "guide")
         self.assertFalse(found["disabled"])
-        self.assertEqual(found["options"], [["threshold", "Network threshold tree", False], ["guide", "Guide tree", False]])
+        # The last entry opens a tree file: it is no tree, and is always there.
+        self.assertEqual(found["options"], [["threshold", "Network threshold tree", False], ["guide", "Guide tree", False],
+                                            ["open", "Open a tree file...", False]])
         self.assertEqual((found["source"], found["score"], found["leaves"]), ("guide", False, COUNT))
         self.assertEqual(self.console_errors(), [])
 
@@ -145,7 +147,7 @@ class ChooserTests(SourceCase):
             options: Array.from(document.getElementById('source-select').options).map(o => o.disabled)})""")
         self.assertEqual(found["title"], "No guide tree was found for this alignment")
         self.assertFalse(found["disabled"])
-        self.assertEqual(found["options"], [True, True])
+        self.assertEqual(found["options"], [True, True, False])
 
     def test_a_network_with_no_edges_says_so_when_its_tree_is_asked_for(self):
         self.start()

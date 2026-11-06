@@ -471,6 +471,11 @@ class ReportTests(OpenCase):
         self.assertIn("does not end with a ;", banner)
         # The negative length was sent as 0.
         self.assertEqual(float(self.viewer._tree_upload.length.min()), 0.0)
+        # The Details say what the reader noted, too.
+        self.script("document.getElementById('details-btn').click(); return 1")
+        details = self.state("document.getElementById('details').textContent")
+        self.assertIn("What the reader noted", details)
+        self.assertIn("Branches with a negative length, drawn with length 0: 1.", details)
 
 
 class DrawingTests(OpenCase):

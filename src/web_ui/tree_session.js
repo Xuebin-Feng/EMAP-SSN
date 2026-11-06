@@ -600,12 +600,12 @@ window.TreeView = window.TreeView || {};
         $("support-body").hidden = !(usable && state.showSupport);
         // The guide tree's dots say how stable a split is under noise; a tree from a file gives support of its own.
         const own = !!(state.model && state.model.source === "uploaded");
-        $("support-title").textContent = own ? t("Support") : supportWords.title;
+        $("support-title").textContent = own ? t("Support") : supportWords.heading;
         $("support-note").textContent = own ? t("The support the file gives each split, as a percentage. The dots show where the tree is zoomed in.") : supportWords.note;
         $("support-btn").title = own ? t("Show the support the file gives each split, as dots on the clades, where the tree is zoomed in") : supportWords.tip;
     }
     // What the legend says for the guide tree, as the page was served.
-    const supportWords = { title: "", note: "", tip: "" };
+    const supportWords = { heading: "", note: "", tip: "" };
 
     // The legend's ramp, in the palette's five steps.
     function showSupportRamp() {
@@ -733,6 +733,17 @@ window.TreeView = window.TreeView || {};
         paragraph.className = "note";
         paragraph.textContent = t("The leaves are matched to the nodes of the network by full sequence name. This tree is kept in the Viewer until it is closed, and is written nowhere.");
         panel.appendChild(paragraph);
+        // What the reader noted of the file, which the banner says too.
+        const noted = model.warnings.filter((warning) => !["leaves_not_in_network", "network_nodes_not_in_tree", "ambiguous_names"].includes(warning.code));
+        if (noted.length) {
+            addTitle(t("What the reader noted"));
+            for (const warning of noted) {
+                const line = document.createElement("p");
+                line.className = "note";
+                line.textContent = warningText(warning);
+                panel.appendChild(line);
+            }
+        }
         if (TV.hasSupport(model)) {
             const support = document.createElement("p");
             support.className = "note";
@@ -975,17 +986,17 @@ window.TreeView = window.TreeView || {};
     }
 
     document.addEventListener("DOMContentLoaded", () => {
+        // What the page was served with, in the Viewer's language, which a tree that has other words puts back.
+        retryLabel = $("empty-retry").querySelector("span").textContent;
+        supportWords.heading = $("support-title").textContent;
+        supportWords.note = $("support-note").textContent;
+        supportWords.tip = $("support-btn").title;
         TV.canvas = $("tree-canvas");
         state.palette = TV.readPalette();
         TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: (node) => { showPinned(node); syncFocus(node); } });
         showSupportRamp();
         $("hints").textContent = TV.hintText();
         show("loading");
-
-        retryLabel = $("empty-retry").querySelector("span").textContent;
-        supportWords.title = $("support-title").textContent;
-        supportWords.note = $("support-note").textContent;
-        supportWords.tip = $("support-btn").title;
 
         TV.attachMinimap($("minimap"));
         $("fit-btn").addEventListener("click", () => TV.fitView());
