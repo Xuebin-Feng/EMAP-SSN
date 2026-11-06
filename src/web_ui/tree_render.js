@@ -203,6 +203,8 @@ window.TreeView = window.TreeView || {};
         return text.length > TV.MAX_LABEL_CHARACTERS ? text.slice(0, TV.MAX_LABEL_CHARACTERS - 1) + "…" : text;
     }
 
+    TV.shortenedName = shortened;
+
     // The first index of the sorted array `values` whose value is at least `bound`.
     function lowerBound(values, bound) {
         let low = 0;

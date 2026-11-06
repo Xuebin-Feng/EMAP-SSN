@@ -3136,5 +3136,185 @@ class TextAndSafetyTests(TreePageMixin, unittest.TestCase):
         self.assertFalse(self.server.has_event_client("tree"))
 
 
+
+class FitNamesTests(LayoutCase):
+    """At the fitted view the leaf names that are drawn are all inside the canvas: the fit leaves room for them."""
+
+    COUNT = 40
+
+    def setUp(self):
+        # Names of a length a leaf can carry: 18 characters, in a view where the rows are tall enough for them.
+        TreePageMixin.setUp(self)
+        self.headers = [f"leaf{i:03d} protein {i % 10}" for i in range(self.COUNT)]
+        self.serve_headers(self.headers, **nj_options(self.COUNT))
+        self.open_page()
+
+    # Every name a frame draws: its box in canvas pixels (the corners of its text rectangle under the transform in use).
+    NAME_BOXES = """(() => {
+        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText, boxes = [];
+        proto.fillText = function (text, x, y) {
+            const m = this.getTransform(), width = this.measureText(text).width;
+            const size = parseFloat(this.font), left = this.textAlign === 'right' ? x - width : x;
+            const ratio = TreeView.canvas.width / TreeView.canvas.clientWidth;
+            const corners = [[left, y - size * 0.6], [left + width, y - size * 0.6], [left, y + size * 0.6], [left + width, y + size * 0.6]]
+                .map(([px, py]) => [(m.a * px + m.c * py + m.e) / ratio, (m.b * px + m.d * py + m.f) / ratio]);
+            boxes.push({text, x0: Math.min(...corners.map(c => c[0])), x1: Math.max(...corners.map(c => c[0])),
+                        y0: Math.min(...corners.map(c => c[1])), y1: Math.max(...corners.map(c => c[1]))});
+            return original.apply(this, arguments);
+        };
+        try { TreeView.drawNow(); } finally { proto.fillText = original; }
+        const canvas = TreeView.canvas;
+        return {boxes, width: canvas.clientWidth, height: canvas.clientHeight, ruler: TreeView.RULER_WIDTH,
+                fitted: TreeView.state.fitted, sy: TreeView.state.view.sy, sx: TreeView.state.view.sx};
+    })()"""
+
+    def fit_names(self, kind=None):
+        if kind:
+            self.script(f"TreeView.setLayout({json.dumps(kind)}, 'lengths'); return 1")
+        self.script("TreeView.fitView(); return 1")
+        return self.state(self.NAME_BOXES)
+
+    def assert_inside(self, frame, kind):
+        self.assertTrue(frame["fitted"])
+        self.assertGreater(len(frame["boxes"]), 0, kind)
+        right = frame["width"] - (frame["ruler"] if kind == "rectangular" else 0)
+        for box in frame["boxes"]:
+            self.assertGreaterEqual(box["x0"], 0, (kind, box))
+            self.assertLessEqual(box["x1"], right, (kind, box))
+            self.assertGreaterEqual(box["y0"], 0, (kind, box))
+            self.assertLessEqual(box["y1"], frame["height"], (kind, box))
+
+    def test_every_name_drawn_at_fit_is_inside_the_canvas_and_left_of_the_ruler(self):
+        frame = self.fit_names("rectangular")
+        self.assert_inside(frame, "rectangular")
+        # Every leaf is named: the room was made, not the names dropped.
+        self.assertEqual(len(frame["boxes"]), self.COUNT)
+
+    def test_the_circular_and_unrooted_fit_is_the_one_without_room_for_names(self):
+        for kind in ("circular", "unrooted"):
+            with self.subTest(kind=kind):
+                info = self.script(f"""
+                    TreeView.setLayout({json.dumps(kind)}, 'lengths');
+                    const layout = TreeView.state.layout, b = layout.bounds, c = TreeView.canvas, v = TreeView.state.view;
+                    let bare = Math.min((c.clientWidth - 48) / (b.maxX - b.minX), (c.clientHeight - 32) / (b.maxY - b.minY));
+                    if (kind === 'circular') bare = Math.min(bare, 40 / (layout.reach[layout.reach.length - 1] * layout.slot));
+                    return {{sx: v.sx, sy: v.sy, bare, ox: v.ox, oy: v.oy, cx: c.clientWidth / 2 - (b.minX + b.maxX) / 2 * bare,
+                             cy: c.clientHeight / 2 - (b.minY + b.maxY) / 2 * bare, labels: TreeView.drawNow().labels}};""".replace("kind ===", json.dumps(kind) + " ==="))
+                self.assertGreater(info["labels"], 0)
+                for got, want in (("sx", "bare"), ("sy", "bare"), ("ox", "cx"), ("oy", "cy")):
+                    self.assertAlmostEqual(info[got], info[want], delta=1e-9)
+
+    def test_names_of_a_dark_theme_or_a_long_name_keep_the_same_promise(self):
+        # The longest name decides the room; a longer one than the rest takes more of it.
+        long_name = "x" * 90
+        self.script(f"TreeView.state.model.labels = TreeView.state.model.labels.map((t, k) => k === 7 ? {json.dumps(long_name)} : t); return 1")
+        frame = self.fit_names("rectangular")
+        self.assert_inside(frame, "rectangular")
+        self.assertIn(long_name, [box["text"] for box in frame["boxes"]])
+
+    def test_a_name_longer_than_the_share_of_the_canvas_is_given_that_share_only(self):
+        self.fit_names("rectangular")
+        self.script("TreeView.state.model.labels = TreeView.state.model.labels.map((t, k) => k === 7 ? 'W'.repeat(150) : t); return 1")
+        frame = self.fit_names("rectangular")
+        room = frame["width"] - 24 - 24 - frame["ruler"] - frame["sx"] * self.state("TreeView.state.layout.width")
+        self.assertAlmostEqual(room, 0.4 * frame["width"], delta=1)
+
+    def test_rows_too_thin_for_names_keep_the_full_width_fit(self):
+        self.script("TreeView.setLayout('rectangular', 'lengths'); return 1")
+        self.view.resize(1300, 500)
+        self.wait_for("document.getElementById('tree-canvas').clientHeight < 600")
+        self.script("TreeView.fitView(); return 1")
+        frame = self.state(self.NAME_BOXES)
+        self.assertLess(frame["sy"], 12)
+        self.assertEqual(frame["boxes"], [])
+        full = (frame["width"] - 24 - 24 - frame["ruler"]) / self.state("TreeView.state.layout.width")
+        self.assertAlmostEqual(frame["sx"], full, delta=1e-6)
+
+    def test_a_resize_refits_with_room_for_the_names(self):
+        self.script("TreeView.setLayout('rectangular', 'lengths'); return 1")
+        for width, height in ((900, 800), (700, 820), (1500, 900)):
+            with self.subTest(size=(width, height)):
+                self.view.resize(width, height)
+                self.wait_for(f"document.getElementById('tree-canvas').clientWidth > {width - 400} && "
+                              f"document.getElementById('tree-canvas').clientWidth < {width + 1}")
+                self.pump(0.4)
+                frame = self.state(self.NAME_BOXES)
+                self.assertTrue(frame["fitted"])
+                self.assertEqual(len(frame["boxes"]), self.COUNT)
+                self.assert_inside(frame, "rectangular")
+
+    def test_hiding_nodes_refits_with_room_for_the_names_that_are_left(self):
+        # The longest name is hidden: the rows grow and the room follows the names that remain.
+        self.script("TreeView.state.model.labels = TreeView.state.model.labels.map((t, k) => k === 3 ? 'L'.repeat(100) : t); return 1")
+        before = self.fit_names("rectangular")
+        self.assertIn("L" * 100, [box["text"] for box in before["boxes"]])
+        self.script("""const hidden = new Uint8Array(TreeView.state.model.leafCount); hidden[3] = 1;
+            TreeView.applyRemoved(hidden); return 1""")
+        after = self.state(self.NAME_BOXES)
+        self.assertTrue(after["fitted"])
+        self.assertNotIn("L" * 100, [box["text"] for box in after["boxes"]])
+        self.assert_inside(after, "rectangular")
+        self.assertGreater(after["sx"], before["sx"])
+
+    def test_zoom_pan_and_the_ruler_are_measured_from_the_fit_that_made_room(self):
+        self.script("TreeView.setLayout('rectangular', 'lengths'); return 1")
+        fit = self.state("TreeView.state.fit")
+        self.assertEqual(fit, self.state("TreeView.state.view"))
+        self.script("fire.wheel(-200, 400, 300); return 1")
+        self.script("fire.key('0'); return 1")
+        self.assertEqual(self.state("TreeView.state.view"), fit)
+        # The ruler strip is not covered by the tips: the tree's far edge is left of the names' room.
+        frame = self.state(self.NAME_BOXES)
+        tips = fit["ox"] + fit["sx"] * self.state("TreeView.state.layout.width")
+        self.assertLess(tips, frame["width"] - frame["ruler"])
+
+    def test_names_are_measured_once_for_a_tree_and_not_at_all_where_none_are_drawn(self):
+        # A frame of 3000 leaves at fit has no names, so the fit measures none of them.
+        counts = self.script("""
+            const proto = CanvasRenderingContext2D.prototype, original = proto.measureText;
+            let calls = 0;
+            proto.measureText = function () { calls++; return original.apply(this, arguments); };
+            try {
+                TreeView.state.model.labels = TreeView.state.model.labels.slice();
+                TreeView.setLayout('rectangular', 'lengths');
+                const first = calls; TreeView.fitView();
+                const second = calls; TreeView.fitView();
+                return {first, second: second - first, third: calls - second};
+            } finally { proto.measureText = original; }""")
+        self.assertGreater(counts["first"], 0)
+        self.assertEqual(counts["third"], 0)
+
+
+class FitNamesThinTreeTests(TreePageMixin, unittest.TestCase):
+    COUNT = 300
+
+    def test_a_tree_of_thin_rows_is_fitted_to_the_full_width_and_measures_no_name(self):
+        headers = headers_of(self.COUNT)
+        self.serve_headers(headers, **nj_options(self.COUNT))
+        self.open_page()
+        info = self.script("""
+            const proto = CanvasRenderingContext2D.prototype, original = proto.measureText;
+            let calls = 0;
+            proto.measureText = function () { calls++; return original.apply(this, arguments); };
+            try {
+                TreeView.setLayout('rectangular', 'lengths');
+                const view = TreeView.state.view, layout = TreeView.state.layout;
+                return {calls, sy: view.sy, sx: view.sx, full: (TreeView.canvas.clientWidth - 48 - TreeView.RULER_WIDTH) / layout.width};
+            } finally { proto.measureText = original; }""")
+        self.assertLess(info["sy"], 12)
+        self.assertEqual(info["calls"], 0)
+        self.assertAlmostEqual(info["sx"], info["full"], delta=1e-9)
+        # With more leaves than are ever named, the others are fitted as they were, and name nothing.
+        for kind in ("circular", "unrooted"):
+            with self.subTest(kind=kind):
+                frame = self.script(f"""
+                    TreeView.setLayout({json.dumps(kind)}, 'lengths');
+                    const layout = TreeView.state.layout, b = layout.bounds, c = TreeView.canvas;
+                    const bare = Math.min((c.clientWidth - 48) / (b.maxX - b.minX), (c.clientHeight - 32) / (b.maxY - b.minY));
+                    return {{scale: TreeView.state.view.sx, bare, labels: TreeView.drawNow().labels}};""")
+                self.assertEqual(frame["labels"], 0)
+                self.assertAlmostEqual(frame["scale"], frame["bare"], delta=1e-9)
+
+
 if __name__ == "__main__":
     unittest.main()

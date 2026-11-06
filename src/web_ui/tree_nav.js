@@ -88,10 +88,73 @@ window.TreeView = window.TreeView || {};
         view.oy = clamp(view.oy, 60 - bounds.maxY * view.sy, height - 60 - bounds.minY * view.sy);
     }
 
+    // ---- Room for the names the fit will draw ------------------------------------------------------------------
+
+    // The share of the canvas that names may be given at the fit: longer names run on past it, as zoomed in.
+    const NAME_SHARE = 0.4;
+    // Room kept clear after the longest name, in pixels.
+    const NAME_PAD = 8;
+    // Widths of the names at a font of this size, in pixels, by model; scaled to the size a view draws them in.
+    const NAME_REFERENCE_PX = 13;
+    const nameWidths = new WeakMap();
+
+    // The size the page draws leaf names in, and the gap between a tip and its name, for rows `size` pixels tall
+    // (a row); paintTree draws with the same rules.
+    function nameFont(size) {
+        return Math.min(13, Math.max(9, size * 0.8));
+    }
+
+    function nameGap(size) {
+        return Math.min(3.2, Math.max(1.1, size * 0.25)) + 4;
+    }
+
+    // The width of leaf k's name at NAME_REFERENCE_PX; each is measured once per model, its names and the font.
+    function referenceWidth(k) {
+        const font = state.palette ? state.palette.font : "sans-serif";
+        let cache = nameWidths.get(state.model);
+        if (!cache || cache.font !== font || cache.labels !== state.model.labels) {
+            cache = { font, labels: state.model.labels, widths: new Float32Array(state.model.leafCount).fill(-1) };
+            nameWidths.set(state.model, cache);
+        }
+        if (cache.widths[k] < 0) {
+            measure.font = NAME_REFERENCE_PX + "px " + font;
+            cache.widths[k] = measure.measureText(TV.shortenedName(state.model.labels[k])).width;
+        }
+        return cache.widths[k];
+    }
+
+    // The leaves a layout draws, as leaf numbers; null when there are more than `limit` (a canvas names far fewer).
+    function drawnLeaves(layout, limit) {
+        const model = state.model;
+        if (model.leafCount > limit && !layout.live) return null;
+        const leaves = [];
+        for (let k = 0; k < model.leafCount; k++) {
+            if (layout.live && !layout.live[model.leafNode[k]]) continue;
+            leaves.push(k);
+            if (leaves.length > limit) return null;
+        }
+        return leaves;
+    }
+
+    // The width the names of the rows of a rectangular tree at the fit take, in pixels, past a tip: 0 where the rows
+    // are too thin to carry names. The longest of the names drawn, kept to NAME_SHARE of the canvas.
+    function rectangularNameRoom(layout, sy, width) {
+        if (sy < TV.LABEL_PX) return 0;
+        // Rows of at least LABEL_PX leave a canvas no more than a few hundred of them.
+        const leaves = drawnLeaves(layout, 20000);
+        if (!leaves || !leaves.length) return 0;
+        let longest = 0;
+        for (const k of leaves) longest = Math.max(longest, referenceWidth(k));
+        const text = longest * nameFont(sy) / NAME_REFERENCE_PX * 1.02 + 2;
+        return Math.min(NAME_SHARE * width, nameGap(sy) + text + NAME_PAD);
+    }
+
     // The view that shows the whole tree: a rectangular tree from the left, centred when it is short; the others
-    // centred, in one scale.
+    // centred, in one scale. Where a rectangular tree's rows have room for names, the fit leaves room for them to the right. The legend, which overlays the top right corner and can be folded,
+    // is not allowed for.
     TV.fitView = function () {
         if (!state.layout || !TV.canvas) return;
+        if (!state.palette) state.palette = TV.readPalette();
         const layout = state.layout;
         const bounds = layout.bounds;
         const width = TV.canvas.clientWidth;
@@ -109,8 +172,9 @@ window.TreeView = window.TreeView || {};
             };
         } else {
             const span = layout.width > 0 ? layout.width : 1;
-            const sx = Math.max(1e-6, (width - PAD.left - PAD.right - TV.RULER_WIDTH) / span);
             const sy = clamp((height - PAD.top - PAD.bottom) / layout.height, 1e-6, 28);
+            const names = rectangularNameRoom(layout, sy, width);
+            const sx = Math.max(1e-6, (width - PAD.left - PAD.right - TV.RULER_WIDTH - names) / span);
             state.view = { sx, sy, ox: PAD.left, oy: Math.max(PAD.top, (height - sy * layout.height) / 2) };
         }
         state.fit = { ...state.view };
