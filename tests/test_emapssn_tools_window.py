@@ -202,11 +202,12 @@ class TooltipRoutingTests(unittest.TestCase):
             "custom_columns",
         )
 
-    def test_custom_blast_column_controls_are_merged_into_one_row(self):
+    def test_custom_blast_column_controls_are_merged_into_three_rows(self):
         container = QWidget()
         form = QFormLayout(container)
         row_widgets = {}
-        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"):
+        for name in ("INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT", "BITSCORE_COLUMN",
+                     "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"):
             label = QLabel(name)
             widget = QSpinBox()
             form.addRow(label, widget)
@@ -216,9 +217,10 @@ class TooltipRoutingTests(unittest.TestCase):
             form, "Parse_BLAST_Output.py", row_widgets
         )
 
-        self.assertEqual(form.rowCount(), 1)
-        field = form.itemAt(0, QFormLayout.ItemRole.SpanningRole).widget()
-        self.assertEqual(field.property("compactColumnRatio"), "1:1:1:1")
+        self.assertEqual(form.rowCount(), 3)
+        ratios = [form.itemAt(row, QFormLayout.ItemRole.SpanningRole).widget()
+                  .property("compactColumnRatio") for row in range(3)]
+        self.assertEqual(ratios, ["2:1", "2:1", "1:1:1"])
 
 
 class ToolExportGuiTests(unittest.TestCase):

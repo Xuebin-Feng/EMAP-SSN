@@ -261,10 +261,10 @@ class ToolEntryPointTests(unittest.TestCase):
             '"var_name": "INPUT_FASTA"',
             '"var_name": "SCORE_METRIC"',
             '"var_name": "BLAST_LAYOUT"',
+            '"var_name": "BITSCORE_COLUMN"',
             '"var_name": "QUERY_COLUMN"',
             '"var_name": "SUBJECT_COLUMN"',
             '"var_name": "EVALUE_COLUMN"',
-            '"var_name": "BITSCORE_COLUMN"',
         )
         positions = [panel.index(token) for token in expected_order]
         self.assertEqual(positions, sorted(positions))
