@@ -82,7 +82,7 @@ still change before version 1.0.0.
     imputed on sparse networks. The alignment itself is unchanged.
 - **Tree View, a Viewer page for trees of the network.** The `tree` command, or the Tree View
   button it adds to the Console, opens it in the browser.
-  - **Two trees to choose from,** in the Tree selector at the top of the page:
+  - **Three trees to choose from,** in the Tree selector at the top of the page:
     - **The guide tree** of the loaded alignment: the page reads
       `Guide_Trees/<name>_guide_tree.nex` beside `<name>_alignment.fasta`, and follows the
       alignment when another one is loaded. It opens first when there is one.
@@ -93,6 +93,16 @@ still change before version 1.0.0.
       the tree and follows the slider. Groups that share no kept edge hang from one root on
       broken branches. It needs no alignment, and with a UMAP or PaCMAP layout it is built
       from the edges that layout keeps.
+    - **A tree of your own:** "Open a tree file..." in the selector, or drop or paste one on
+      the page. Newick (with NHX, paired support values such as IQ-TREE's, RAxML support and
+      Jplace edge numbers), NEXUS (with TRANSLATE tables and BEAST, MrBayes or FigTree
+      annotations), PhyloXML, NeXML and JSON (Auspice, nested, Jplace) are read. A leaf
+      belongs to a node when its name is the node's full header, or becomes it under the
+      Viewer's header rules; there is no matching by accession or case. A report counts
+      the matches and lists the leaves that are not in the network, which are drawn faded,
+      and when no leaf matches it shows the tree's names beside the network's headers. Two
+      leaves with one name refuse the tree. The tree is kept until the Viewer closes, and
+      is never written to disk.
   - **Three layouts:** rectangular, circular and unrooted, each drawn with branch lengths
     (phylogram) or without (cladogram). A rooted tree opens rectangular and an unrooted tree
     opens unrooted; either can be switched to any layout. An unrooted tree drawn rectangular
