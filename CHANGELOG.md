@@ -106,8 +106,10 @@ still change before version 1.0.0.
     even in the overview. Nodes nobody has coloured keep the Viewer's node colour. A legend
     names the colours (by cluster where one matches) and marks a colour's leaves, in the
     theme colour, when clicked. Hidden nodes are left out, and the tree closes up around the
-    rest with its branch lengths kept. The tree follows the Viewer when colours, clusters or
-    hidden nodes change, and when another alignment is loaded.
+    rest with its branch lengths kept. A branch point left with one shown branch is then no
+    clade: hovering or clicking it acts on the leaf or clade below, and a clade's details
+    count its shown and its hidden leaves. The tree follows the Viewer when colours, clusters
+    or hidden nodes change, and when another alignment is loaded.
   - **Selection, both ways:** nodes selected in the network are marked in the tree in the
     Viewer's selection colour, with the smallest clade that holds them outlined, and their
     neighbours in the network in its connected-node colour while the Viewer marks them.
