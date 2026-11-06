@@ -9281,6 +9281,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Hide this note</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
         <translation type="unfinished"></translation>
     </message>

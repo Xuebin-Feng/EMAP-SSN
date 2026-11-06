@@ -13532,7 +13532,7 @@ Fedora / RHEL：
         <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="+100"/>
+        <location filename="../../../web_ui/tree_session.js" line="+103"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13662,7 +13662,13 @@ Fedora / RHEL：
         <translation type="unfinished">按中点根绘制；树本身是无根的。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+25"/>
+        <location line="+1"/>
+        <source>Hide this note</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
         <translation type="unfinished">{leaves} 个叶节点，其中 {shown} 个是此网络的节点</translation>
     </message>
@@ -13793,7 +13799,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+542"/>
+        <location filename="../../../web_ui/tree.html" line="+546"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13819,8 +13825,8 @@ Fedora / RHEL：
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-582"/>
-        <location line="+518"/>
+        <location filename="../../../web_ui/tree.html" line="-586"/>
+        <location line="+522"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>

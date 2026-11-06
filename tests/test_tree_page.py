@@ -28,7 +28,8 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from PySide6.QtCore import QUrl  # noqa: E402
+from PySide6.QtCore import QUrl, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 
 from tests.tree_page_harness import TreePageMixin, http_get, page_headers, server_viewer  # noqa: E402
 from tests.tree_fixtures import (  # noqa: E402
@@ -2620,7 +2621,7 @@ class RootingNoteTests(TreePageMixin, unittest.TestCase):
             const detail = document.getElementById('details-rooting');
             return {banner: document.getElementById('banner').classList.contains('shown'), kind: TreeView.state.kind,
                     items: [...document.querySelectorAll('#warning-list li')].map(li => li.textContent),
-                    noted: [...document.querySelectorAll('#warning-list li.rooting-note use')].map(use => use.getAttribute('href')),
+                    noted: [...document.querySelectorAll('#warning-list li.rooting-note > svg use')].map(use => use.getAttribute('href')),
                     detail: detail.hidden ? null : detail.textContent};""")
 
     def test_the_note_is_shown_for_exactly_an_unrooted_tree_in_a_layout_that_has_a_root(self):
@@ -2661,6 +2662,146 @@ class RootingNoteTests(TreePageMixin, unittest.TestCase):
         self.assertEqual(len(found["items"]), 2)
         self.assertTrue(found["banner"])
         self.assertNotIn(self.NOTE, found["items"])
+
+    # ---- The x on the note: it hides the note for the life of this page and is remembered nowhere ----------------
+
+    def close_button(self):
+        return self.script("""const buttons = [...document.querySelectorAll('#warning-list .note-close')];
+            return buttons.map(b => ({tag: b.tagName, type: b.type, parent: b.parentElement.className, label: b.getAttribute('aria-label'),
+                title: b.title, tabIndex: b.tabIndex, disabled: b.disabled, icon: b.querySelector('use').getAttribute('href'),
+                last: b.parentElement.lastElementChild === b}));""")
+
+    def press(self, key):
+        """A real key press on the page (not a script's event): a button answers it only if it is a real button."""
+        QTest.keyClick(self.view.focusProxy() or self.view, key)
+        self.pump(0.1)
+
+    def click_close(self):
+        self.script("document.querySelector('#warning-list .note-close').click(); return 1")
+
+    def test_the_x_is_there_exactly_when_the_note_is_and_is_a_labelled_icon_button(self):
+        self.open_tree("[&U] ", headers=list("abcd"), network=["a", "b", "c", "zz"])
+        for kind, wanted in (("rectangular", 1), ("unrooted", 0), ("circular", 1)):
+            with self.subTest(layout=kind):
+                self.choose(kind)
+                buttons = self.close_button()
+                self.assertEqual(len(buttons), wanted)
+                if wanted:
+                    self.assertEqual(buttons, [{"tag": "BUTTON", "type": "button", "parent": "rooting-note", "label": "Hide this note",
+                                                "title": "Hide this note", "tabIndex": 0, "disabled": False, "icon": "#i-x", "last": True}])
+        # Warnings have none: only the note has an x.
+        self.assertEqual(self.state("document.querySelectorAll('#warning-list li').length"), 3)
+        self.assertEqual(self.state("document.querySelectorAll('#warning-list button').length"), 1)
+        # A rooted tree has no note, so no x.
+        self.open_tree("[&R] ")
+        self.choose("rectangular")
+        self.assertEqual(self.close_button(), [])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_click_removes_the_note_and_keeps_the_warnings(self):
+        self.open_tree("[&U] ", headers=list("abcd"), network=["a", "b", "c", "zz"])
+        self.choose("rectangular")
+        self.assertEqual(len(self.shown()["items"]), 3)
+        self.click_close()
+        found = self.shown()
+        self.assertEqual(len(found["items"]), 2)
+        self.assertNotIn(self.NOTE, found["items"])
+        self.assertTrue(found["banner"])
+        self.assertEqual(self.close_button(), [])
+        # The Details panel keeps its copy.
+        self.assertEqual(found["detail"], self.NOTE)
+
+    def test_a_click_on_a_banner_of_the_note_alone_hides_the_banner_and_refits_the_drawing(self):
+        self.open_tree("[&U] ")
+        self.choose("rectangular")
+        self.wait_for("TreeView.state.fitted")
+        self.wait_for("document.getElementById('banner').classList.contains('shown')")
+        before = self.state("document.getElementById('tree-canvas').clientHeight")
+        spread = "(() => { const s = TreeView.state, v = s.view; let m = -1e9; for (let i = 0; i < s.model.nodeCount; i++) m = Math.max(m, v.oy + s.layout.y[i] * v.sy); return m; })()"
+        low = self.state(spread)
+        self.click_close()
+        found = self.shown()
+        self.assertEqual((found["banner"], found["items"], found["detail"]), (False, [], self.NOTE))
+        self.wait_for(f"document.getElementById('tree-canvas').clientHeight > {before}")
+        self.wait_for("TreeView.state.fitted")
+        # Refitted at once, to the room there is now (not left for the resize observer): the whole tree is inside it.
+        info = self.script("""const s = TreeView.state, v = s.view, L = s.layout, c = document.getElementById('tree-canvas');
+            let maxY = -1e9, minY = 1e9;
+            for (let i = 0; i < s.model.nodeCount; i++) { const y = v.oy + L.y[i] * v.sy; maxY = Math.max(maxY, y); minY = Math.min(minY, y); }
+            return {minY, maxY, height: c.clientHeight};""")
+        self.assertGreaterEqual(info["minY"], 0)
+        self.assertLessEqual(info["maxY"], info["height"])
+        self.assertGreater(info["maxY"], low)
+
+    def test_the_refit_is_made_by_the_click_itself(self):
+        # The resize observer would refit too, a frame later: fitView is watched to see that the click asks for it.
+        self.open_tree("[&U] ")
+        self.choose("rectangular")
+        self.wait_for("TreeView.state.fitted")
+        self.script("window.__fits = 0; const fit = TreeView.fitView; TreeView.fitView = function () { window.__fits++; return fit.apply(this, arguments); }; return 1")
+        # Click and count in one script run, so that nothing the observer does a frame later is counted.
+        fits = self.script("document.querySelector('#warning-list .note-close').click(); return window.__fits")
+        self.assertGreaterEqual(fits, 1)
+
+    def test_the_note_stays_gone_across_layouts_and_a_new_alignment_payload(self):
+        self.open_tree("[&U] ", headers=list("abcd"), network=["a", "b", "c", "zz"])
+        self.choose("rectangular")
+        self.click_close()
+        for kind in ("circular", "unrooted", "rectangular", "circular"):
+            with self.subTest(layout=kind):
+                self.choose(kind)
+                found = self.shown()
+                self.assertNotIn(self.NOTE, found["items"])
+                self.assertEqual(self.close_button(), [])
+                # Details still repeats it where the layout calls for it.
+                self.assertEqual(found["detail"], None if kind == "unrooted" else self.NOTE)
+        self.assertTrue(self.script("return await TreeView.loadTree()"))
+        self.viewer.broadcast_event({"type": "alignment_changed"})
+        self.pump(0.5)
+        self.wait_for("document.body.dataset.view === 'tree'")
+        # A new payload opens its tree by its rooting again; the layouts that have a root must still show no note.
+        for kind in ("rectangular", "circular"):
+            self.choose(kind)
+            found = self.shown()
+            self.assertNotIn(self.NOTE, found["items"])
+            self.assertEqual(self.close_button(), [])
+            self.assertEqual(found["detail"], self.NOTE)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_reload_brings_the_note_back_and_nothing_is_stored(self):
+        self.open_tree("[&U] ")
+        self.js("(() => { try { localStorage.clear(); sessionStorage.clear(); } catch (error) {} return 1; })()")
+        self.choose("rectangular")
+        self.click_close()
+        self.assertEqual(self.shown()["items"], [])
+        stored = self.script("""const keys = {local: [], session: []};
+            try { for (let i = 0; i < localStorage.length; i++) keys.local.push(localStorage.key(i)); } catch (error) {}
+            try { for (let i = 0; i < sessionStorage.length; i++) keys.session.push(sessionStorage.key(i)); } catch (error) {}
+            return {keys, cookie: document.cookie};""")
+        self.assertEqual(stored, {"keys": {"local": [], "session": []}, "cookie": ""})
+        self.open_page()
+        self.choose("rectangular")
+        self.assertEqual(self.shown()["items"], [self.NOTE])
+        self.assertEqual(len(self.close_button()), 1)
+
+    def test_the_x_is_reached_by_tab_and_answered_by_enter_and_space(self):
+        for key in (Qt.Key_Return, Qt.Key_Space):
+            with self.subTest(key=int(key)):
+                self.open_tree("[&U] ")
+                self.choose("rectangular")
+                self.script("document.querySelector('#warning-list .note-close').focus(); return 1")
+                self.assertEqual(self.state("document.activeElement.className"), "note-close")
+                self.press(key)
+                self.wait_for("document.querySelectorAll('#warning-list .note-close').length === 0")
+                self.assertEqual(self.shown()["items"], [])
+        # Tab reaches it: from the search box on, through the controls, in the page's order.
+        self.open_tree("[&U] ")
+        self.choose("rectangular")
+        order = self.script("""const x = document.querySelector('#warning-list .note-close');
+            const focusable = [...document.querySelectorAll('button, input, select, canvas[tabindex], [tabindex]')]
+                .filter(e => !e.disabled && e.tabIndex >= 0 && e.offsetParent !== null);
+            return {reachable: focusable.includes(x), banner: document.getElementById('banner').compareDocumentPosition(x)};""")
+        self.assertTrue(order["reachable"])
 
     def test_the_drawing_fits_the_room_that_is_left_under_the_note(self):
         self.open_tree("[&U] ")

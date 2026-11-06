@@ -28,6 +28,9 @@ window.TreeView = window.TreeView || {};
     // events it has not heard of is not taken over them.
     let postedFocus = -1;
     let selectionEvents = 0;
+    // Whether the banner's note on the rooting was dismissed with its x. It lasts as long as this page does and is
+    // kept nowhere: opening the page again shows the note again.
+    let rootingNoteDismissed = false;
 
     // ---- Icons -----------------------------------------------------------------------------------------------
 
@@ -329,13 +332,31 @@ window.TreeView = window.TreeView || {};
         };
         for (const warning of state.model.warnings) add(icon("triangle-alert"), warningText(warning));
         const note = rootingNote();
-        if (note) add(icon("info"), note, "rooting-note");
+        if (note && !rootingNoteDismissed) {
+            add(icon("info"), note, "rooting-note");
+            const close = document.createElement("button");
+            close.type = "button";
+            close.className = "note-close";
+            close.title = t("Hide this note");
+            close.setAttribute("aria-label", t("Hide this note"));
+            close.appendChild(icon("x"));
+            close.addEventListener("click", dismissRootingNote);
+            list.lastChild.appendChild(close);
+        }
         $("banner").classList.toggle("shown", list.children.length > 0);
         const detail = $("details-rooting");
         if (detail) {
             detail.textContent = note || "";
             detail.hidden = !note;
         }
+    }
+
+    // The x of the note: take it out of the banner for the rest of this page's life, and give the drawing the room.
+    function dismissRootingNote() {
+        rootingNoteDismissed = true;
+        showBanner();
+        if (state.fitted) TV.fitView();
+        TV.drawNow();
     }
 
     // The counts, as the status line says them, and how many nodes the network has selected.
