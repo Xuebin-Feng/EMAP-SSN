@@ -74,6 +74,31 @@ window.TreeView = window.TreeView || {};
         return node;
     };
 
+    // The clade to outline for `selection` in what `layout` draws: the smallest clade that holds the selected leaves that are
+    // left in the tree, or -1 for none, or one leaf. With no leaf left out it is the selection's own clade. The lowest node
+    // that holds two leaves that are left has two children that are left, so it is a clade, never a pass-through point; the
+    // leaves that are left out are not counted, so that a selection that still names a node the Viewer has just hidden
+    // leaves the outline where it belongs. Worked out once for each selection and layout.
+    const outlines = new WeakMap();
+    TV.outlineClade = function (model, layout, selection) {
+        if (!layout || !layout.live) return selection.clade;
+        const leaves = selection.leaves;
+        const kept = outlines.get(leaves);
+        if (kept && kept.layout === layout) return kept.clade;
+        const shown = (leaf) => layout.live[model.leafNode[leaf]] === 1;
+        let low = 0;
+        let high = leaves.length - 1;
+        while (low <= high && !shown(leaves[low])) low++;
+        while (high >= low && !shown(leaves[high])) high--;
+        let clade = -1;
+        if (high > low) {
+            clade = model.leafNode[leaves[low]];
+            while (model.lastLeaf[clade] < leaves[high]) clade = model.parent[clade];
+        }
+        outlines.set(leaves, { layout, clade });
+        return clade;
+    };
+
     // Whether the tree says how stable any of its splits is.
     TV.hasSupport = function (model) {
         if (model.hasSupport === undefined) model.hasSupport = model.support.some((value) => value >= 0);

@@ -13442,7 +13442,7 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+637"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+755"/>
         <source>Cluster {id}</source>
         <translation type="unfinished">簇 {id}</translation>
     </message>
@@ -13472,7 +13472,7 @@ Fedora / RHEL：
         <translation type="unfinished">簇：{id}</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+8"/>
         <source>The root of the tree</source>
         <translation type="unfinished">树的根</translation>
     </message>
@@ -13490,6 +13490,11 @@ Fedora / RHEL：
         <location line="+1"/>
         <source>Of them in this network: {count}</source>
         <translation type="unfinished">其中在此网络中的：{count}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Hidden in the network: {count}</source>
+        <translation type="unfinished">在网络中已隐藏：{count}</translation>
     </message>
     <message>
         <location line="+2"/>

@@ -9145,6 +9145,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Hidden in the network: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Stable in {percent}% of the replicate trees</source>
         <translation type="unfinished"></translation>
     </message>

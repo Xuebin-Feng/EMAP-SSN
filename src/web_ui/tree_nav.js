@@ -34,6 +34,8 @@ window.TreeView = window.TreeView || {};
         // Which clades are folded up (1 at the clade's root), how many, and which leaves are inside one.
         collapsed: null,
         collapsedCount: 0,
+        // Bumped whenever the folds change, for what is kept about them (TV.cladeBelow).
+        foldVersion: 0,
         leafHidden: null,
         // The colours of the network (tree_color.js), or null; and the colour class whose leaves the legend marks, or -1.
         colors: null,
@@ -238,9 +240,13 @@ window.TreeView = window.TreeView || {};
         state.mode = state.layout.mode;
         const live = state.layout.live;
         if (live) {
-            if (state.hover >= 0 && !live[state.hover]) state.hover = -1;
-            if (state.pinned >= 0 && !live[state.pinned]) state.pinned = -1;
+            // A node that is gone, or is left a pass-through point, is no clade to hover or pin.
+            const gone = (node) => !live[node] || TV.isThrough(state.layout, state.collapsed, node);
+            if (state.hover >= 0 && gone(state.hover)) state.hover = -1;
+            if (state.pinned >= 0 && gone(state.pinned)) state.pinned = -1;
         }
+        // Which folded clades hide their leaves depends on how many leaves are shown.
+        if (state.collapsedCount) foldedLeaves();
         state.current = -1;
         TV.fitView();
         if (anchor >= 0) {
@@ -358,7 +364,9 @@ window.TreeView = window.TreeView || {};
                 return;
             }
             let around = model.parent[node];
-            while (around >= 0 && TV.leavesUnder(model, around) < 16 && model.parent[around] >= 0) around = model.parent[around];
+            // The leaves that are drawn: a clade with most of its leaves hidden is smaller than it was.
+            const drawn = (a) => layout.shown ? layout.shown[a] : TV.leavesUnder(model, a);
+            while (around >= 0 && drawn(around) < 16 && model.parent[around] >= 0) around = model.parent[around];
             TV.zoomToNode(around >= 0 ? around : model.root);
             // A clade of sixteen leaves can reach across the whole tree, and its leaves still be specks.
             if (TV.leavesInView() > READABLE_LEAVES) {
@@ -409,12 +417,15 @@ window.TreeView = window.TreeView || {};
 
     // Which leaves are inside a folded clade, from the clades folded.
     function foldedLeaves() {
-        const { model, collapsed } = state;
+        const { model, collapsed, layout } = state;
         const difference = new Int32Array(model.leafCount + 1);
         let count = 0;
+        state.foldVersion++;
         for (let i = 0; i < model.nodeCount; i++) {
             if (!collapsed[i]) continue;
             count++;
+            // A fold with one leaf left to show is drawn as the leaf: it hides nothing.
+            if (layout && layout.shown && layout.shown[i] < 2) continue;
             difference[model.firstLeaf[i]]++;
             difference[model.lastLeaf[i] + 1]--;
         }
@@ -433,6 +444,30 @@ window.TreeView = window.TreeView || {};
         state.collapsed = state.model ? new Uint8Array(state.model.nodeCount) : null;
         state.collapsedCount = 0;
         state.leafHidden = null;
+        state.foldVersion++;
+    };
+
+    // The node that a pass-through point of the layout stands for: the first node below it that is a clade (or a leaf).
+    // The stretch of branch through a chain of such points belongs to that node. Any other node is its own. Kept for each
+    // layout and set of folds, so that the pointer costs one lookup a node.
+    TV.cladeBelow = function (i) {
+        const { model, layout, collapsed } = state;
+        if (!layout || !layout.through || !TV.isThrough(layout, collapsed, i)) return i;
+        let cache = state.belowCache;
+        if (!cache || cache.layout !== layout || cache.collapsed !== collapsed || cache.version !== state.foldVersion) {
+            cache = state.belowCache = { layout, collapsed, version: state.foldVersion, below: new Int32Array(model.nodeCount).fill(-1) };
+        }
+        const below = cache.below;
+        const chain = [];
+        let j = i;
+        for (;;) {
+            if (below[j] >= 0) { j = below[j]; break; }
+            if (!TV.isThrough(layout, collapsed, j)) break;
+            chain.push(j);
+            j = layout.liveChild[j];
+        }
+        for (const p of chain) below[p] = j;
+        return j;
     };
 
     // Whether node d is inside the clade of node i (its own subtree is the block of nodes that ends at i).
@@ -444,6 +479,7 @@ window.TreeView = window.TreeView || {};
     TV.toggleFold = function (i) {
         const { model } = state;
         if (!model || i < 0 || i === model.root || model.childCount[i] === 0) return false;
+        if (state.layout && state.layout.through && TV.isThrough(state.layout, state.collapsed, i)) return false;
         state.collapsed[i] = state.collapsed[i] ? 0 : 1;
         foldedLeaves();
         // What was selected or pointed at inside a clade that is now one shape is the shape.
@@ -473,7 +509,8 @@ window.TreeView = window.TreeView || {};
         if (!model || !state.collapsedCount) return false;
         let opened = false;
         for (let a = model.parent[d]; a >= 0; a = model.parent[a]) {
-            if (state.collapsed[a]) {
+            // A fold drawn as its one leaf is no shape to open: it is kept for when more is shown.
+            if (state.collapsed[a] && TV.foldedNow(state.layout, state.collapsed, a)) {
                 state.collapsed[a] = 0;
                 opened = true;
             }
@@ -598,12 +635,14 @@ window.TreeView = window.TreeView || {};
     // The node at the pixel (px, py) and which part of it is there, or null: { node, part } with part "leaf" (its
     // branch, dot or name), "branch", "connector" (the line that joins a clade's children), "clade" (a clade drawn as
     // one shape), or "handle" (the square that folds a clade up or opens it). Goes down only into the clades whose box
-    // holds the point, and takes the nearest line.
+    // holds the point, and takes the nearest line. A pass-through point (a node left with one child while nodes are hidden)
+    // is no clade: the stretch of branch through it belongs to the first clade or leaf below it, which is what is found there.
     TV.hitTest = function (px, py) {
         const { model, layout, view, collapsed } = state;
         if (!model || !layout) return null;
         const boxes = layout.boxes;
         const live = layout.live;
+        const throughNodes = layout.through;
         const rectangular = layout.kind === "rectangular";
         const named = namesShown();
         // Whether there is room for dots and names: a row or a slot says it, an unrooted tree has the last frame's word.
@@ -672,17 +711,22 @@ window.TreeView = window.TreeView || {};
                 continue;
             }
 
+            // A pass-through point offers what it has to its owner: the first clade or leaf below it.
+            const through = throughNodes && TV.isThrough(layout, collapsed, i);
+            const owner = through ? TV.cladeBelow(i) : i;
+            const ownerIsLeaf = model.childCount[owner] === 0;
+
             // The clade drawn as one shape (folded up, or too small to be more): the shape, and a handle to open it.
-            const folded = collapsed && collapsed[i];
+            const folded = !through && TV.foldedNow(layout, collapsed, i);
             if (folded || layout.tiny(i, view.sx, view.sy, TV.COLLAPSE_PX)) {
                 layout.wedge(i, out);
-                offer(i, "clade", wedgeDistance(out, px, py, view));
+                offer(owner, ownerIsLeaf ? "leaf" : "clade", wedgeDistance(out, px, py, view));
                 if (folded && Math.abs(px - x) <= TV.HANDLE_PX / 2 + 1 && Math.abs(py - y) <= TV.HANDLE_PX / 2 + 1) offer(i, "handle", -1);
-                offer(i, "branch", segmentDistance(px, py, x0, y0, x, y));
+                offer(owner, ownerIsLeaf ? "leaf" : "branch", segmentDistance(px, py, x0, y0, x, y));
                 continue;
             }
 
-            offer(i, "branch", segmentDistance(px, py, x0, y0, x, y));
+            offer(owner, ownerIsLeaf ? "leaf" : "branch", segmentDistance(px, py, x0, y0, x, y));
             layout.join(i, out);
             if (out[0] === 1) {
                 offer(i, "connector", segmentDistance(px, py, view.ox + out[1] * view.sx, view.oy + out[2] * view.sy,
@@ -691,7 +735,7 @@ window.TreeView = window.TreeView || {};
                 offer(i, "connector", arcDistance(px, py, view.ox, view.oy, out[1] * view.sx, out[2], out[3]));
             }
             // The square of a clade shows for the one that is hovered or selected, and is a target only then.
-            if ((i === state.hover || i === state.pinned) && i !== model.root && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX
+            if (!through && (i === state.hover || i === state.pinned) && i !== model.root && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX
                 && Math.abs(px - x) <= TV.HANDLE_PX / 2 + 1 && Math.abs(py - y) <= TV.HANDLE_PX / 2 + 1) offer(i, "handle", -1);
             for (let k = model.childStart[i]; k < model.childStart[i + 1]; k++) if (!live || live[model.childList[k]]) stack.push(model.childList[k]);
         }
@@ -726,10 +770,15 @@ window.TreeView = window.TreeView || {};
                 lines.push(t("Cluster: {id}", { id: clusters[model.viewerNode[leaf]] }));
             }
         } else {
-            const count = TV.leavesUnder(model, i);
+            // While the Viewer hides nodes, a clade is the leaves that are shown, and the hidden ones are told apart.
+            const layout = state.layout;
+            const all = TV.leavesUnder(model, i);
+            const count = layout && layout.shown ? layout.shown[i] : all;
+            const hidden = all - count;
             title = i === model.root ? t("The root of the tree") : t("A clade");
             lines.push(t("Leaves in this clade: {count}", { count: count.toLocaleString() }));
-            lines.push(t("Of them in this network: {count}", { count: TV.shownUnder(model, i).toLocaleString() }));
+            lines.push(t("Of them in this network: {count}", { count: (TV.shownUnder(model, i) - hidden).toLocaleString() }));
+            if (hidden > 0) lines.push(t("Hidden in the network: {count}", { count: hidden.toLocaleString() }));
             if (model.support[i] >= 0) {
                 lines.push(t("Stable in {percent}% of the replicate trees", { percent: model.support[i] }));
             }
@@ -744,7 +793,7 @@ window.TreeView = window.TreeView || {};
                     percent: Math.round(colors.purity[i] * 100), colour: TV.classLabel(colors.dominant[i]),
                 }));
             }
-            if (state.collapsed && state.collapsed[i]) lines.push(t("Folded up: click it to open it"));
+            if (TV.foldedNow(state.layout, state.collapsed, i)) lines.push(t("Folded up: click it to open it"));
         }
         if (model.hasLengths && i !== model.root) lines.push(t("Branch length: {length}", { length: formatLength(model.length[i]) }));
         return { title, lines };
@@ -760,7 +809,7 @@ window.TreeView = window.TreeView || {};
         name.textContent = description.title;
         tooltip.appendChild(name);
         const lines = part === "handle"
-            ? [state.collapsed && state.collapsed[node] ? t("Click to open this clade") : t("Click to fold this clade up"), ...description.lines]
+            ? [TV.foldedNow(state.layout, state.collapsed, node) ? t("Click to open this clade") : t("Click to fold this clade up"), ...description.lines]
             : description.lines;
         for (const text of lines) {
             const line = document.createElement("div");
@@ -915,7 +964,7 @@ window.TreeView = window.TreeView || {};
             const [px, py] = local(event);
             const hit = TV.hitTest(px, py);
             // A square folds its clade up, and a folded clade opens when it is clicked.
-            if (hit && (hit.part === "handle" || (hit.part === "clade" && state.collapsed && state.collapsed[hit.node]))) {
+            if (hit && (hit.part === "handle" || (hit.part === "clade" && TV.foldedNow(state.layout, state.collapsed, hit.node)))) {
                 TV.toggleFold(hit.node);
                 hoverPoint = [px, py];
                 TV.hideTooltip(ui.tooltip);

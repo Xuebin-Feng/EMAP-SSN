@@ -34,7 +34,8 @@
  * then the tree of the leaves that are left: a clade none of whose leaves are left is not there, a node left with one
  * child has no join and its branch runs straight on to the child's, and every path between two leaves that are left
  * keeps its length. The leaves left take the rows (or the angles) between them, and a layout answers `live` (1 for each
- * node that is drawn) besides. Without `removed` nothing here costs more than it did.
+ * node that is drawn) besides, and `through` (1 for each such node left with one child: a pass-through point, no clade)
+ * and `shown` (the leaves left below each node). Without `removed` nothing here costs more than it did.
  *
  * Nothing recurses, and a layout of 44,000 leaves takes a few milliseconds.
  */
@@ -89,6 +90,33 @@ window.TreeView = window.TreeView || {};
             }
         }
         return { live, first, last, ordinal, firstChild, lastChild, children, count, leafOfRow };
+    };
+
+    // What a layout of a tree with leaves left out says of the nodes that are not clades any more. A node left with
+    // exactly one child that is drawn joins nothing: it is a pass-through point, where its branch runs straight on into
+    // its child's, and it is no clade (`through`: 1 for each such node). `shown`: how many leaves are left below each node.
+    // Both are made when the leaves left out change, not for each frame. A layout of the whole tree has neither (null).
+    function throughOf(model, vis) {
+        const n = model.nodeCount;
+        const through = new Uint8Array(n);
+        const shown = new Int32Array(n);
+        for (let i = 0; i < n; i++) {
+            if (!vis.live[i]) continue;
+            shown[i] = vis.last[i] - vis.first[i] + 1;
+            if (model.childCount[i] > 0 && vis.children[i] === 1) through[i] = 1;
+        }
+        return { through, shown };
+    }
+
+    // Whether clade i is folded up as it is drawn: a folded clade (`collapsed`, 1 for each) with a single leaf left is
+    // drawn as that leaf, and keeps its fold for when more of its leaves are shown.
+    TV.foldedNow = function (layout, collapsed, i) {
+        return !!collapsed && !!collapsed[i] && !(layout && layout.shown && layout.shown[i] < 2);
+    };
+
+    // Whether node i is a pass-through point of the layout, which has no clade, tooltip, square or dot of its own.
+    TV.isThrough = function (layout, collapsed, i) {
+        return !!layout && !!layout.through && layout.through[i] === 1 && !TV.foldedNow(layout, collapsed, i);
     };
 
     // The distance of each node from the root, as a branch-length sum ("lengths") or in steps with the leaves all
@@ -408,9 +436,18 @@ window.TreeView = window.TreeView || {};
     // (1 for each) that are left out: the layout is of the tree of those that are not (see the head of this file).
     TV.layoutTree = function (model, kind, mode, removed) {
         const vis = TV.visibleTree(model, removed || null);
-        if (kind === "unrooted") return unrooted(model, mode, vis);
-        const { depth, mode: used } = nodeDepths(model, mode, vis ? vis.live : null);
-        return kind === "circular" ? circular(model, depth, used, vis) : rectangular(model, depth, used, vis);
+        let layout;
+        if (kind === "unrooted") {
+            layout = unrooted(model, mode, vis);
+        } else {
+            const { depth, mode: used } = nodeDepths(model, mode, vis ? vis.live : null);
+            layout = kind === "circular" ? circular(model, depth, used, vis) : rectangular(model, depth, used, vis);
+        }
+        layout.through = null;
+        layout.shown = null;
+        layout.liveChild = null;
+        if (vis) Object.assign(layout, throughOf(model, vis), { liveChild: vis.firstChild });
+        return layout;
     };
 
     TV.layoutRectangular = function (model, mode) {

@@ -1682,6 +1682,371 @@ class FoldingTests(LayoutCase):
         self.assertGreater(info["away"], 60)
 
 
+class PassThroughTests(LayoutCase):
+    """While the Viewer hides nodes, a node left with one child that is shown is no clade: it joins nothing, and its branch
+    runs straight on into its child's. The stretch through a chain of such nodes belongs to the first clade or leaf below."""
+
+    COUNT = 100
+    KINDS = ("rectangular", "circular", "unrooted")
+
+    def clade(self, low=12, high=30):
+        return self.state(clade_of(low, high))
+
+    def blank_names(self):
+        """Give every leaf a one-character name, so that where a stretch is pointed at no other leaf's name is in the way."""
+        self.script("TreeView.state.model.labels = TreeView.state.model.labels.map(() => '.'); return 1")
+
+    def hide_all_but(self, clade, extra=0, zoom=False):
+        """Hide every leaf of ``clade`` but its first (and the next ``extra``): the clade's chain of nodes down to it is left
+        with one child each. Returns the kept leaf, the node of it, and the nodes that are pass-through points. With ``zoom``
+        the view is on the clade, so that its stretch is long and no other leaf is near it."""
+        return self.script(f"""const s = TreeView.state, m = s.model;
+            const keep = m.firstLeaf[{clade}];
+            const removed = new Uint8Array(m.leafCount);
+            for (let k = m.firstLeaf[{clade}]; k <= m.lastLeaf[{clade}]; k++) if (k > keep + {extra}) removed[k] = 1;
+            TreeView.applyRemoved(removed);
+            if ({'true' if zoom else 'false'}) TreeView.zoomToNode({clade});
+            TreeView.drawNow();
+            const through = [];
+            for (let i = 0; i < m.nodeCount; i++) if (s.layout.through[i]) through.push(i);
+            return {{keep, node: m.leafNode[keep], through}};""")
+
+    def stretch_points(self, nodes):
+        """The middle of each node's stem in the canvas's pixels, for the stems that are long enough to be pointed at."""
+        return self.state(f"""(() => {{ const s = TreeView.state, v = s.view, o = new Float64Array(8), points = [];
+            for (const i of {json.dumps(nodes)}) {{
+                s.layout.stem(i, o);
+                const length = Math.hypot((o[2] - o[0]) * v.sx, (o[3] - o[1]) * v.sy);
+                if (length > 14) points.push([i, v.ox + (o[0] + o[2]) / 2 * v.sx, v.oy + (o[1] + o[3]) / 2 * v.sy]);
+            }}
+            return points; }})()""")
+
+    def test_a_layout_of_the_whole_tree_has_no_pass_through_points(self):
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.assertEqual(self.state("[TreeView.state.layout.through, TreeView.state.layout.shown, TreeView.state.layout.live]"),
+                                 [None, None, None])
+
+    def test_the_nodes_left_with_one_child_are_the_pass_through_points(self):
+        clade = self.clade()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.hide_all_but(clade)
+                expected = self.state(f"""(() => {{ const m = TreeView.state.model, out = [];
+                    for (let i = 0; i < m.nodeCount; i++) {{
+                        if (m.childCount[i] > 0 && i !== m.root && TreeView.isInside(m.leafNode[{info['keep']}], i) && m.size[i] <= m.size[{clade}]) out.push(i);
+                    }}
+                    return out; }})()""")
+                self.assertTrue(expected)
+                self.assertEqual(info["through"], expected)
+                self.script("TreeView.applyRemoved(null); return 1")
+                self.assertEqual(self.state("TreeView.state.layout.through"), None)
+
+    def test_a_pass_through_point_is_no_hit_target_and_its_stretch_belongs_to_the_node_below(self):
+        clade = self.clade()
+        self.blank_names()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.hide_all_but(clade, zoom=True)
+                points = self.stretch_points(info["through"])
+                self.assertTrue(points, kind)
+                for node, x, y in points:
+                    hit = self.state(f"TreeView.hitTest({x}, {y})")
+                    self.assertEqual(hit, {"node": info["node"], "part": "leaf"}, (kind, node))
+                # Nowhere on the canvas is a pass-through point found, whatever the pointer is over.
+                found = self.script("""const s = TreeView.state, found = new Set();
+                    for (let x = 4; x < TreeView.canvas.clientWidth; x += 9) for (let y = 4; y < TreeView.canvas.clientHeight; y += 9) {
+                        const hit = TreeView.hitTest(x, y);
+                        if (hit) found.add(hit.node);
+                    }
+                    return Array.from(found).filter(i => s.layout.through[i]);""")
+                self.assertEqual(found, [])
+
+    def test_the_stretch_of_a_clade_with_several_leaves_left_belongs_to_that_clade(self):
+        clade = self.clade(12, 30)
+        self.blank_names()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                # Three leaves are left in it: the first two form a clade of the shown tree, the chain above that is pass-through.
+                info = self.hide_all_but(clade, extra=2, zoom=True)
+                real = self.state(f"""(() => {{ const s = TreeView.state, m = s.model; let i = m.leafNode[{info['keep']}];
+                    while (s.layout.through[i] || m.childCount[i] === 0) i = m.parent[i];
+                    return i; }})()""")
+                points = [p for p in self.stretch_points(info["through"]) if p[0] != real]
+                for node, x, y in points:
+                    below = self.state(f"TreeView.cladeBelow({node})")
+                    hit = self.state(f"TreeView.hitTest({x}, {y})")
+                    self.assertFalse(self.state(f"TreeView.state.layout.through[{below}]"))
+                    self.assertEqual(hit["node"], below, (kind, node, hit))
+                    self.assertIn(hit["part"], ("branch", "leaf"))
+
+    def test_hovering_the_stretch_describes_the_node_below_and_highlights_the_whole_stretch(self):
+        clade = self.clade()
+        self.blank_names()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.hide_all_but(clade, zoom=True)
+                points = self.stretch_points(info["through"])
+                self.assertTrue(points)
+                node, x, y = points[0]
+                self.script(f"TreeView.drawNow(); return 1")
+                quiet = self.state(f"fire.pixel({x}, {y})")
+                self.script(f"fire.move({x}, {y}); return 1")
+                self.wait_for(f"TreeView.state.hover === {info['node']}")
+                self.assertIn("A node of this network", self.state("document.getElementById('tooltip').textContent"))
+                self.assertNotIn("A clade", self.state("document.getElementById('tooltip').textContent"))
+                self.script("TreeView.drawNow(); return 1")
+                # The line under the pointer is drawn in the highlight's colour now, though it is a pass-through point's.
+                self.assertNotEqual(self.state(f"fire.pixel({x}, {y})"), quiet)
+
+    def test_a_pass_through_point_has_no_square_folds_nothing_and_is_not_zoomed_to_by_a_gesture(self):
+        clade = self.clade()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.hide_all_but(clade)
+                top = max(info["through"])
+                self.assertEqual(self.script(f"return TreeView.toggleFold({top})"), False)
+                self.assertEqual(self.state("TreeView.state.collapsedCount"), 0)
+                self.script(f"TreeView.state.hover = {top}; TreeView.state.pinned = {top}; return 1")
+                self.assertEqual(self.drawn()["handles"], 0)
+                self.assertEqual(self.state(f"TreeView.state.model.parent[{top}] >= 0"), True)
+                # A double-click on the stretch zooms to the node below, which is a leaf.
+                x, y = self.stretch_points([top])[0][1:]
+                self.script(f"TreeView.state.hover = -1; TreeView.state.pinned = -1; fire.dblclick({x}, {y}); return 1")
+                self.assertEqual(self.state("TreeView.state.pinned"), -1)
+
+    def test_hiding_lets_go_of_a_pass_through_point_that_was_hovered_or_pinned(self):
+        clade = self.clade()
+        self.choose("rectangular")
+        self.script(f"TreeView.state.hover = {clade}; TreeView.state.pinned = {clade}; return 1")
+        self.hide_all_but(clade)
+        self.assertEqual(self.state("[TreeView.state.hover, TreeView.state.pinned]"), [-1, -1])
+
+    def test_a_pass_through_point_has_no_stability_dot_and_a_clade_keeps_its_value(self):
+        clade = self.clade(12, 30)
+        self.script("""const m = TreeView.state.model;
+            m.support = new Int16Array(m.nodeCount).fill(70); m.hasSupport = true;
+            TreeView.state.showSupport = true; return 1""")
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                whole = self.drawn()["supports"]
+                self.assertGreater(whole, 0)
+                info = self.hide_all_but(clade, extra=1)
+                # Dots only where there is a clade: counted from the shown tree's nodes with two or more children.
+                expected = self.script("""const s = TreeView.state, m = s.model, b = s.layout.boxes, v = s.view;
+                    let count = 0;
+                    const stack = [m.root];
+                    while (stack.length) {
+                        const i = stack.pop();
+                        if (m.childCount[i] === 0) continue;
+                        if (s.layout.tiny(i, v.sx, v.sy, TreeView.COLLAPSE_PX) || s.collapsed[i]) continue;
+                        const w = (b.x1[i] - b.x0[i]) * v.sx, h = (b.y1[i] - b.y0[i]) * v.sy;
+                        if (!s.layout.through[i] && i !== m.root && Math.min(w, h) >= TreeView.SUPPORT_CLADE_PX) count++;
+                        for (let k = m.childStart[i]; k < m.childStart[i + 1]; k++) if (s.layout.live[m.childList[k]]) stack.push(m.childList[k]);
+                    }
+                    return count;""")
+                self.assertEqual(self.drawn()["supports"], expected)
+                self.assertLess(expected, whole)
+                real = self.state(f"""(() => {{ const s = TreeView.state, m = s.model; let i = m.leafNode[{info['keep']}];
+                    while (s.layout.through[i] || m.childCount[i] === 0) i = m.parent[i];
+                    return i; }})()""")
+                lines = self.state(f"TreeView.describeNode({real}).lines")
+                self.assertIn("Stable in 70% of the replicate trees", lines)
+                self.script("TreeView.applyRemoved(null); return 1")
+
+    def test_a_clade_counts_the_leaves_that_are_shown_and_says_how_many_are_hidden(self):
+        clade = self.clade(12, 30)
+        size = self.state(f"TreeView.leavesUnder(TreeView.state.model, {clade})")
+        whole = self.state(f"TreeView.describeNode({clade}).lines")
+        self.assertIn(f"Leaves in this clade: {size}", whole)
+        self.assertIn(f"Of them in this network: {size}", whole)
+        self.assertFalse([line for line in whole if line.startswith("Hidden")])
+        self.script(f"""const m = TreeView.state.model, removed = new Uint8Array(m.leafCount);
+            removed[m.firstLeaf[{clade}]] = 1; removed[m.firstLeaf[{clade}] + 1] = 1; removed[m.lastLeaf[{clade}]] = 1;
+            TreeView.applyRemoved(removed); return 1""")
+        lines = self.state(f"TreeView.describeNode({clade}).lines")
+        self.assertIn(f"Leaves in this clade: {size - 3}", lines)
+        self.assertIn(f"Of them in this network: {size - 3}", lines)
+        self.assertIn("Hidden in the network: 3", lines)
+        # The root counts the same way.
+        root = self.state("TreeView.describeNode(TreeView.state.model.root).lines")
+        self.assertIn("Hidden in the network: 3", root)
+        self.script("TreeView.applyRemoved(null); return 1")
+        self.assertEqual(self.state(f"TreeView.describeNode({clade}).lines"), whole)
+
+    def test_hidden_leaves_that_are_not_nodes_of_the_network_are_not_counted_among_its_nodes(self):
+        # Of the leaves shown, those that are nodes of the network are counted as before: only hidden ones leave the count.
+        clade = self.clade(12, 30)
+        before = self.state(f"TreeView.shownUnder(TreeView.state.model, {clade})")
+        self.script(f"""const m = TreeView.state.model, removed = new Uint8Array(m.leafCount);
+            removed[m.firstLeaf[{clade}]] = 1; TreeView.applyRemoved(removed); return 1""")
+        self.assertIn(f"Of them in this network: {before - 1}", self.state(f"TreeView.describeNode({clade}).lines"))
+
+    def select_and_hide(self, kind, extra_selected=False):
+        """Select two leaves in one half of a clade G and one in the other half, then hide the other half of G."""
+        self.choose(kind)
+        return self.script(f"""const s = TreeView.state, m = s.model;
+            let g = -1;
+            for (let i = 0; i < m.nodeCount && g < 0; i++) {{
+                if (m.childCount[i] !== 2 || i === m.root) continue;
+                const a = m.childList[m.childStart[i]], b = m.childList[m.childStart[i] + 1];
+                if (m.lastLeaf[a] - m.firstLeaf[a] >= 3 && m.lastLeaf[b] - m.firstLeaf[b] >= 3) g = i;
+            }}
+            const left = m.childList[m.childStart[g]], right = m.childList[m.childStart[g] + 1];
+            const a = m.firstLeaf[left], b = m.lastLeaf[left], c = m.firstLeaf[right];
+            TreeView.applySelection([m.viewerNode[a], m.viewerNode[b], m.viewerNode[c]]);
+            const before = s.selection.clade;
+            const removed = new Uint8Array(m.leafCount);
+            for (let k = m.firstLeaf[right]; k <= m.lastLeaf[right]; k++) removed[k] = 1;
+            TreeView.applyRemoved(removed);
+            TreeView.drawNow();
+            let node = m.leafNode[a];
+            while (m.lastLeaf[node] < b) node = m.parent[node];
+            return {{g, left, right, a, b, c, before, pair: node,
+                     outline: TreeView.outlineClade(m, s.layout, s.selection),
+                     throughG: s.layout.through[g] === 1, throughOutline: s.layout.through[TreeView.outlineClade(m, s.layout, s.selection)] === 1}};""")
+
+    def test_the_outline_of_the_selection_never_lands_on_a_pass_through_point(self):
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                info = self.select_and_hide(kind)
+                # The network still named a hidden node (as a hide and a selection arriving in turn can): the clade of all
+                # three is G, which the hiding has left with one child.
+                self.assertEqual(info["before"], info["g"])
+                self.assertTrue(info["throughG"])
+                self.assertEqual(info["outline"], info["pair"])
+                self.assertFalse(info["throughOutline"])
+                self.assertEqual(self.drawn()["selected"], 2)
+
+    def test_a_selection_with_one_leaf_shown_has_no_outline(self):
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.script("""const s = TreeView.state, m = s.model;
+                    TreeView.applySelection([m.viewerNode[0], m.viewerNode[1]]);
+                    const removed = new Uint8Array(m.leafCount); removed[1] = 1;
+                    TreeView.applyRemoved(removed); TreeView.drawNow();
+                    return {outline: TreeView.outlineClade(m, s.layout, s.selection), clade: s.selection.clade};""")
+                self.assertEqual(info["outline"], -1)
+
+    def test_without_hidden_nodes_the_outline_is_the_selections_clade(self):
+        self.choose("rectangular")
+        info = self.script("""const s = TreeView.state, m = s.model;
+            TreeView.applySelection([m.viewerNode[3], m.viewerNode[9]]);
+            return {outline: TreeView.outlineClade(m, s.layout, s.selection), clade: s.selection.clade};""")
+        self.assertGreaterEqual(info["clade"], 0)
+        self.assertEqual(info["outline"], info["clade"])
+
+    def test_the_viewer_never_keeps_a_hidden_node_in_its_selection(self):
+        # What the page is told of the selection is the Viewer's, and the Viewer drops what it hides (commands/hide.py).
+        source = (PROJECT_ROOT / "src" / "commands" / "hide.py").read_text(encoding="utf-8")
+        self.assertIn("The Viewer never keeps a hidden node selected", source)
+
+    def folded_with_one_shown(self, kind):
+        self.choose(kind)
+        clade = self.clade(12, 30)
+        self.script(f"TreeView.toggleFold({clade}); return 1")
+        return clade
+
+    def test_a_folded_clade_with_one_leaf_shown_is_drawn_as_the_leaf_and_is_folded_again_when_more_are_shown(self):
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                clade = self.folded_with_one_shown(kind)
+                size = self.state(f"TreeView.leavesUnder(TreeView.state.model, {clade})")
+                self.assertEqual(self.drawn()["collapsed"], 1)
+                info = self.hide_all_but(clade)
+                self.assertIn(clade, info["through"])
+                frame = self.drawn()
+                self.assertEqual(frame["collapsed"], 0)
+                # The fold is kept, but it hides nothing: its leaf has a tip, and can be found and named.
+                self.assertEqual(self.state(f"[TreeView.state.collapsed[{clade}], TreeView.state.collapsedCount]"), [1, 1])
+                self.assertEqual(self.state("TreeView.state.leafHidden.reduce((a, b) => a + b, 0)"), 0)
+                self.assertEqual(self.state(f"TreeView.leafIsDrawn({info['keep']})"), True)
+                tip = self.state(f"(() => {{ const s = TreeView.state, b = TreeView.nodePixels(s, {info['node']}); return [b.x, b.y]; }})()")
+                self.assertEqual(self.state(f"TreeView.hitTest({tip[0]}, {tip[1]})"), {"node": info["node"], "part": "leaf"})
+                # Focusing the leaf leaves the fold alone.
+                self.script(f"TreeView.focusLeaf({info['keep']}); return 1")
+                self.assertEqual(self.state(f"TreeView.state.collapsed[{clade}]"), 1)
+                # More of its leaves shown: two are enough for the fold to be the shape of the clade again.
+                self.hide_all_but(clade, extra=1)
+                self.assertEqual(self.drawn()["collapsed"], 1)
+                self.assertEqual(self.state("TreeView.state.leafHidden.reduce((a, b) => a + b, 0)"), size)
+                self.script("TreeView.applyRemoved(null); return 1")
+                self.assertEqual(self.drawn()["collapsed"], 1)
+                self.assertEqual(self.state("TreeView.state.leafHidden.reduce((a, b) => a + b, 0)"), size)
+                self.script(f"TreeView.toggleFold({clade}); return 1")
+
+    def test_a_fold_that_is_a_clade_of_the_shown_tree_has_its_stretch_and_its_square(self):
+        # A folded clade left with two leaves is still a clade, so the pass-through points above it belong to it.
+        clade = self.folded_with_one_shown("rectangular")
+        self.hide_all_but(clade, extra=1)
+        self.assertEqual(self.state(f"TreeView.state.layout.through[{clade}] === 1 || TreeView.state.layout.shown[{clade}] >= 2"), True)
+        self.assertEqual(self.state(f"TreeView.isThrough(TreeView.state.layout, TreeView.state.collapsed, {clade})"), False)
+        parent = self.state(f"TreeView.state.model.parent[{clade}]")
+        if self.state(f"TreeView.state.layout.through[{parent}] === 1"):
+            self.assertEqual(self.state(f"TreeView.cladeBelow({parent})"), clade)
+
+    def test_a_chain_of_pass_through_points_is_followed_in_one_step_for_each_node(self):
+        clade = self.clade()
+        self.choose("rectangular")
+        info = self.hide_all_but(clade)
+        below = self.state(f"""(() => {{ const out = []; for (const i of {json.dumps(info['through'])}) out.push(TreeView.cladeBelow(i)); return out; }})()""")
+        self.assertEqual(below, [info["node"]] * len(info["through"]))
+        # A node that is a clade is its own.
+        self.assertEqual(self.state(f"TreeView.cladeBelow({info['node']})"), info["node"])
+        self.assertEqual(self.state("TreeView.cladeBelow(TreeView.state.model.root)"), self.state("TreeView.state.model.root"))
+
+    def test_nothing_changes_for_the_tree_when_nothing_is_hidden_again(self):
+        clade = self.clade()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script(f"TreeView.toggleFold({self.clade(5, 10)}); TreeView.state.showSupport = true; return 1")
+                before = self.script("""const frame = TreeView.drawNow();
+                    return {frame, image: TreeView.canvas.toDataURL(), view: TreeView.state.view,
+                            hit: [TreeView.hitTest(300, 200), TreeView.hitTest(600, 400), TreeView.hitTest(900, 300)]};""")
+                self.hide_all_but(clade)
+                after = self.script("""TreeView.applyRemoved(null);
+                    const frame = TreeView.drawNow();
+                    return {frame, image: TreeView.canvas.toDataURL(), view: TreeView.state.view,
+                            hit: [TreeView.hitTest(300, 200), TreeView.hitTest(600, 400), TreeView.hitTest(900, 300)]};""")
+                for key in ("visited", "bars", "collapsed", "labels", "dots", "handles", "supports"):
+                    self.assertEqual(after["frame"][key], before["frame"][key], (kind, key))
+                self.assertEqual(after["view"], before["view"])
+                self.assertEqual(after["hit"], before["hit"])
+                self.assertEqual(after["image"], before["image"])
+                self.script(f"TreeView.state.collapsed.fill(0); TreeView.state.collapsedCount = 0; TreeView.state.leafHidden = null; return 1")
+
+    def test_node_numbers_stay_those_of_the_whole_tree_through_a_hide_and_an_unhide(self):
+        clade = self.clade()
+        self.choose("circular")
+        self.script(f"TreeView.toggleFold({clade}); TreeView.state.pinned = {clade}; return 1")
+        self.script("""const m = TreeView.state.model;
+            TreeView.applySelection([m.viewerNode[m.firstLeaf[%d]], m.viewerNode[m.lastLeaf[%d]]]); return 1""" % (clade, clade))
+        before = self.state("[TreeView.state.selection.clade, Array.from(TreeView.state.collapsed).reduce((a, b) => a + b, 0), TreeView.state.pinned]")
+        self.hide_all_but(self.clade(40, 100))
+        self.script("TreeView.applyRemoved(null); return 1")
+        self.assertEqual(self.state("[TreeView.state.selection.clade, Array.from(TreeView.state.collapsed).reduce((a, b) => a + b, 0), TreeView.state.pinned]"),
+                         before)
+        self.assertEqual(self.state("TreeView.outlineClade(TreeView.state.model, TreeView.state.layout, TreeView.state.selection)"), before[0])
+
+    def test_the_overview_map_and_the_page_draw_a_hidden_tree_without_error(self):
+        clade = self.clade()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.hide_all_but(clade)
+                self.script("TreeView.minimapChanged(); TreeView.drawMinimap(); return 1")
+        self.assertEqual(self.console_errors(), [])
+
+
 class OverviewMapTests(LayoutCase):
     COUNT = 100
 

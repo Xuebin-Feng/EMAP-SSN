@@ -377,6 +377,10 @@ window.TreeView = window.TreeView || {};
         const markColors = TV.markColors(scene);
         // What the layout leaves out is not drawn, nor visited.
         const live = layout.live;
+        // The nodes left with one child (pass-through points) and how many leaves are left under each, while nodes are
+        // hidden: such a point is no clade, so it has no square and no dot, and a fold with one leaf left is drawn as the leaf.
+        const throughNodes = layout.through;
+        const shownBelow = layout.shown;
         // The dots that show how stable a split is, a path for each of the palette's steps.
         const support = scene.showSupport && !mini ? model.support : null;
         const supportDots = support ? palette.support.map(() => new Path2D()) : null;
@@ -459,7 +463,7 @@ window.TreeView = window.TreeView || {};
             if (childCount[i] === 0) {
                 addStem(shownLeaf(leafOrdinal[i]) ? inkOf(cls) : faded, out, view, snap);
                 leaves.push(i);
-            } else if (collapsed && collapsed[i]) {
+            } else if (collapsed && collapsed[i] && !(shownBelow && shownBelow[i] < 2)) {
                 addStem(inkOf(cls), out, view, snap);
                 wedgeOf(i);
                 stats.collapsed++;
@@ -474,12 +478,13 @@ window.TreeView = window.TreeView || {};
                 addStem(lines, out, view, snap);
                 layout.join(i, out);
                 addJoin(lines, out, view, snap);
-                if (!mini && (i === scene.hover || i === scene.pinned) && i !== model.root
+                const pass = throughNodes && throughNodes[i] === 1;
+                if (!pass && !mini && (i === scene.hover || i === scene.pinned) && i !== model.root
                     && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX) {
                     handles.push([i, nodeX, nodeY, false]);
                 }
                 // A clade with room round it shows how stable its split is.
-                if (support && i !== model.root && support[i] >= 0 && stats.supports < TV.SUPPORT_MAX
+                if (support && !pass && i !== model.root && support[i] >= 0 && stats.supports < TV.SUPPORT_MAX
                     && Math.min(right - left, bottom - top) >= TV.SUPPORT_CLADE_PX) {
                     const dots = supportDots[Math.min(supportDots.length - 1, Math.floor(support[i] / 20))];
                     dots.moveTo(nodeX + TV.SUPPORT_RADIUS, nodeY);
@@ -639,7 +644,11 @@ window.TreeView = window.TreeView || {};
         if (layout.kind === "rectangular") {
             const box = TV.nodePixels(scene, node);
             const named = view.sy >= TV.LABEL_PX;
-            ctx.fillRect(box.x0, box.top, Math.max(2, box.reach - box.x0) + (named ? LABEL_REACH_PX : 6), Math.max(2, box.bottom - box.top));
+            // The band starts where the node's stretch of branch does, through the pass-through points above it.
+            let start = node;
+            while (model.parent[start] >= 0 && TV.isThrough(layout, scene.collapsed, model.parent[start])) start = model.parent[start];
+            const x0 = start === node ? box.x0 : view.ox + layout.boxes.x0[start] * view.sx;
+            ctx.fillRect(x0, box.top, Math.max(2, box.reach - x0) + (named ? LABEL_REACH_PX : 6), Math.max(2, box.bottom - box.top));
             return;
         }
         if (model.childCount[node] === 0) {
@@ -675,7 +684,7 @@ window.TreeView = window.TreeView || {};
         stats.height = height;
 
         // The hovered branch, and the search's matches, over the lines.
-        if (scene.hover !== undefined && scene.hover >= 0 && !(scene.collapsed && scene.collapsed[scene.hover])) {
+        if (scene.hover !== undefined && scene.hover >= 0 && !TV.foldedNow(layout, scene.collapsed, scene.hover)) {
             ctx.strokeStyle = palette.accent;
             ctx.lineWidth = 2;
             const path = new Path2D();
@@ -684,6 +693,11 @@ window.TreeView = window.TreeView || {};
             addStem(path, scratch, view, snap);
             layout.join(scene.hover, scratch);
             addJoin(path, scratch, view, snap);
+            // The stretch of branch that runs on through pass-through points above it is the node's too.
+            for (let p = model.parent[scene.hover]; p >= 0 && TV.isThrough(layout, scene.collapsed, p); p = model.parent[p]) {
+                layout.stem(p, scratch);
+                addStem(path, scratch, view, snap);
+            }
             ctx.stroke(path);
         }
         TV.drawMatches(ctx, scene, width, height);
@@ -702,7 +716,8 @@ window.TreeView = window.TreeView || {};
         const { model, layout, view, palette } = scene;
         const hidden = scene.leafHidden;
         const live = layout.live;
-        if (selection.clade >= 0 && !(live && !live[selection.clade])) drawCladeMark(ctx, scene, selection.clade, width, height);
+        const outlined = TV.outlineClade(model, layout, selection);
+        if (outlined >= 0 && !(live && !live[outlined])) drawCladeMark(ctx, scene, outlined, width, height);
 
         // The neighbours of the selected nodes first, so that a node that is both is drawn as selected, as the Viewer does.
         const colors = TV.markColors(scene);
@@ -786,7 +801,7 @@ window.TreeView = window.TreeView || {};
     function drawCladeMark(ctx, scene, node, width, height) {
         const { model, layout, view, collapsed } = scene;
         let shown = node;
-        if (collapsed) for (let i = node; i >= 0; i = model.parent[i]) if (collapsed[i]) shown = i;
+        if (collapsed) for (let i = node; i >= 0; i = model.parent[i]) if (TV.foldedNow(layout, collapsed, i)) shown = i;
         ctx.strokeStyle = TV.markColors(scene).selected;
         ctx.lineWidth = 2;
         // A wedge many screens across has an outline thousands of times the view long, and a dash for every few pixels of
