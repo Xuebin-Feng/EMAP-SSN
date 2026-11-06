@@ -186,6 +186,11 @@ still change before version 1.0.0.
 - **`meta` succeeds when its page is already open.** It used to fail with "The metadata
   interface is already open in your browser."; it now succeeds with that note, as `tree`,
   `esmfold` and `agent` do. A request that has nothing to change is not an error.
+- **The Tools window's BLAST cards are tidier.** In Substitution Matrix Alignment, BLASTP
+  Directory sits beside Score, under Sequence Set and Substitution Matrix. In Parse BLAST
+  Output, Score sits beside Sequence Set and Bit Score Column beside BLAST Layout, above
+  the Query, Subject and EValue columns. In a wide window the right-hand fields line up
+  in one column, and Tab follows the rows.
 
 ### Fixed
 
