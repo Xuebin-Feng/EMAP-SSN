@@ -61,6 +61,8 @@ ICONS = (
     # The Viewer's Console button, at the foot of its window (desktop/Viewer_Widgets.py; the Console
     # window's own buttons use copy, download, trash-2, file-text, folder-open and the chevrons, above)
     "square-terminal",
+    # Viewer web page tree.html (Tree View)
+    "list-tree",
 )
 
 ALLOWED_ELEMENTS = {"svg", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"}

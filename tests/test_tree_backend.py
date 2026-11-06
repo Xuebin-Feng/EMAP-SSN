@@ -1025,7 +1025,7 @@ class RegistrationTests(unittest.TestCase):
         arguments = viewer.add_console_button.call_args.kwargs
         self.assertEqual(arguments["name"], "treeViewBtn")
         self.assertEqual(arguments["label"], "Tree View")
-        self.assertEqual(arguments["icon"], "layers")
+        self.assertEqual(arguments["icon"], "list-tree")
         arguments["callback"]()
         viewer.open_page.assert_called_once_with("tree")
 

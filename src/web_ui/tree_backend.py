@@ -542,7 +542,7 @@ def activate(viewer):
             label=translate("Viewer", "Tree View"),
             callback=lambda: viewer.open_page("tree"),
             tooltip=translate("Viewer", "Open the guide tree of the loaded alignment in browser"),
-            icon="layers",
+            icon="list-tree",
         )
         if not hasattr(viewer, "sidebar_buttons_to_persist"):
             viewer.sidebar_buttons_to_persist = []

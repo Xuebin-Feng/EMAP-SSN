@@ -9381,52 +9381,52 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location filename="../../../commands/tree.py" line="-25"/>
         <source>No alignment is loaded, so there is no guide tree to show.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未加载比对，因此没有可显示的引导树。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The loaded alignment, {alignment}, was not named by the Embedding MSA tool, so it has no guide tree.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已加载的比对 {alignment} 不是以 Embedding MSA 工具的命名方式命名的，因此没有引导树。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>No guide tree was found for the loaded alignment; Tree View looks for {path}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未找到已加载比对的引导树；树视图查找的文件是 {path}。</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：tree 不接受参数，不能是“{argument}”。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Registered Tree View.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已注册树视图。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Opened Tree View.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已打开树视图。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Tree View is already open in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图已在浏览器中打开。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A Viewer with no window opens no browser page; Tree View is served at {address}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有窗口的查看器不会打开浏览器页面；树视图的地址是 {address}。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Could not open Tree View.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法打开树视图。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/plugins/tree.py" line="+13"/>
         <source>Tree View UI</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图界面</translation>
     </message>
 </context>
 <context>
@@ -13444,272 +13444,272 @@ Fedora / RHEL：
     <message>
         <location filename="../../../web_ui/tree_nav.js" line="+567"/>
         <source>Cluster {id}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">簇 {id}</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>A node of this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此网络的节点</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Not a node of this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不是此网络的节点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Selected in the network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在网络中已选择</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Cluster: {id}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">簇：{id}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The root of the tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树的根</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>A clade</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">一个进化枝</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leaves in this clade: {count}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此进化枝的叶节点数：{count}</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Of them in this network: {count}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其中在此网络中的：{count}</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Stable in {percent}% of the replicate trees</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在 {percent}% 的重复树中保持稳定</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Selected in the network: {count}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在网络中已选择：{count}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Colour of {percent}% of its leaves: {colour}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其 {percent}% 叶节点的颜色：{colour}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Folded up: click it to open it</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已折叠：点击可展开</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Branch length: {length}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">分支长度：{length}</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Click to open this clade</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">点击展开此进化枝</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Click to fold this clade up</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">点击折叠此进化枝</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/tree_session.js" line="+100"/>
         <source>No alignment is loaded</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未加载比对</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tree View shows the guide tree of the alignment that is loaded in the Viewer. Load an alignment, and its tree appears here.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图显示查看器中已加载比对的引导树。加载一个比对后，它的树会出现在这里。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This alignment has no guide tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此比对没有引导树</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{alignment} was not named by the Embedding MSA tool, which saves a guide tree for each alignment it makes, beside it, in a file named after the alignment: a name like Set_[model]_alignment.fasta. A renamed or external alignment has none.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{alignment} 不是以 Embedding MSA 工具的命名方式命名的。该工具会为它生成的每个比对在其旁边保存一个以该比对命名的引导树文件，比对名形如 Set_[model]_alignment.fasta。被重命名的或外部的比对没有引导树。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No guide tree was found for this alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未找到此比对的引导树</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The guide tree of {alignment} should be the file below, which the Embedding MSA tool saves in the Guide_Trees folder beside the alignment. It is not there.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{alignment} 的引导树应是下面的文件，Embedding MSA 工具会把它保存在该比对旁边的 Guide_Trees 文件夹中。但它不在那里。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Run the Embedding MSA tool again to make it, and press Check again.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">请再次运行 Embedding MSA 工具生成它，然后点击“重新检查”。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The guide tree could not be read</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法读取引导树</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The file is there, but this page cannot read it as a guide tree: {reason}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">文件存在，但此页面无法将其作为引导树读取：{reason}</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The tree does not match this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树与此网络不匹配</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树的 {leaves} 个叶节点没有一个是网络的节点，因此没有可与之并列显示的内容。树和网络可能来自不同的序列集。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Tree View could not reach the Viewer</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图无法连接到查看器</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The Viewer did not answer: {reason}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">查看器没有响应：{reason}</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Check that the Viewer is still running, and press Check again.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">请确认查看器仍在运行，然后点击“重新检查”。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Tree View could not read the Viewer&apos;s answer</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图无法读取查看器的响应</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The Viewer answered with a status this page does not know: {status}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">查看器返回了此页面不认识的状态：{status}</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Mark the leaves of this colour</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">标出此颜色的叶节点</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>{count} more colours</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">另有 {count} 种颜色</translation>
     </message>
     <message>
         <location line="+112"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树是为比对 {tree} 生成的，但已加载的比对是 {loaded}。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This tree was made for {tree}, but the loaded alignment is for {loaded}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树是为 {tree} 生成的，但已加载的比对对应的是 {loaded}。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The loaded alignment is older than this tree, so the alignment step of the run that made the tree may not have finished.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已加载的比对比此树更旧，因此生成此树的那次运行的比对步骤可能没有完成。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Leaves that are not nodes of this network: {count}. They are drawn faded.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不是此网络节点的叶节点：{count}。它们以淡色绘制。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nodes of this network that are not leaves of the tree: {count}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不是此树叶节点的网络节点：{count}。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Leaves whose sequence is not in the loaded alignment: {count}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列不在已加载比对中的叶节点：{count}。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The tree and the Viewer differ in a way this page has no words for: {code}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树与查看器之间存在此页面无法描述的差异：{code}</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Drawn from the midpoint root; the tree itself is unrooted.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">按中点根绘制；树本身是无根的。</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{leaves} 个叶节点，其中 {shown} 个是此网络的节点</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>{count} selected in the network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在网络中已选择 {count} 个</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{count} selected in the network, {leaves} of them in this tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在网络中已选择 {count} 个，其中 {leaves} 个在此树中</translation>
     </message>
     <message>
         <location line="+78"/>
         <source>This tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Rooted</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">有根</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Unrooted (rooted at its midpoint in the file)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无根（文件中以中点为根）</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Rooting not stated</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未说明是否有根</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>File</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">文件</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">比对</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Saved</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">保存时间</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -13729,62 +13729,62 @@ Fedora / RHEL：
     <message>
         <location line="+1"/>
         <source>Tree method</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">建树方法</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Kind</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">类型</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>How it fits</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">匹配情况</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Leaves</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">叶节点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leaves in this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在此网络中的叶节点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leaves not in this network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不在此网络中的叶节点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Network nodes not in the tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不在树中的网络节点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leaves not in the alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">不在比对中的叶节点</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>About this tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">关于此树</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>No match</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无匹配</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{count} found</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">找到 {count} 个</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{current} of {count}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">第 {current} 个，共 {count} 个</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -13816,13 +13816,13 @@ Fedora / RHEL：
         <location line="+2"/>
         <location filename="../../../web_ui/tree.html" line="+62"/>
         <source>Copy the path</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">复制路径</translation>
     </message>
     <message>
         <location filename="../../../web_ui/tree.html" line="-582"/>
         <location line="+518"/>
         <source>EMAP-SSN Tree View</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -13832,193 +13832,193 @@ Fedora / RHEL：
     <message>
         <location line="+7"/>
         <source>Find a header</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">查找标题行</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Find a header. Put it in double quotes to match it exactly.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">查找标题行。加双引号可精确匹配。</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Find a header in the tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在树中查找标题行</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+0"/>
         <source>Clear the search</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">清除搜索</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Previous match (Shift+Enter)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">上一个匹配（Shift+Enter）</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Previous match</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">上一个匹配</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Next match (Enter)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">下一个匹配（Enter）</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Next match</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">下一个匹配</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Layout</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>How the tree is laid out</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树的布局方式</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rectangular</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">矩形</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Circular</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">环形</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unrooted</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无根</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>How the branches are drawn</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">分支的绘制方式</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Draw each branch as long as its length</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">按分支长度绘制每条分支</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Phylogram</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">系统发育图</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Draw the branches only to show who is next to whom</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">绘制分支只为显示谁与谁相邻</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cladogram</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">支序图</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在树放大时，用进化枝上的圆点显示每个分裂在距离噪声下的稳定程度</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>Open every clade that is folded up</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">展开所有已折叠的进化枝</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Open all</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">全部展开</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show or hide the overview map</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">显示或隐藏概览图</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Overview</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">概览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show the whole tree (Home)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">显示整棵树（Home）</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Fit</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">适合窗口</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>How this tree was made, and how it fits the alignment and the network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此树的生成方式，以及它与比对和网络的匹配情况</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Details</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">详细信息</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Guide tree of the loaded alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已加载比对的引导树</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The whole tree. Press or drag to move there.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">整棵树。按下或拖动可移动到该处。</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Overview of the whole tree</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">整棵树的概览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The colours of the network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">网络的颜色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show or hide the list of colours</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">显示或隐藏颜色列表</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Colours</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">颜色</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The stability of the splits</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">分裂的稳定性</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Split stability</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">分裂稳定性</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">距离噪声下的稳定性，不是 bootstrap 支持率。圆点在树放大时显示。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Loading the tree...</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">正在加载树…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Check again</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">重新检查</translation>
     </message>
 </context>
 <context>
@@ -14261,12 +14261,12 @@ Fedora / RHEL：
     <message>
         <location filename="../../../web_ui/tree_backend.py" line="+542"/>
         <source>Tree View</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">树视图</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open the guide tree of the loaded alignment in browser</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在浏览器中打开已加载比对的引导树</translation>
     </message>
 </context>
 <context>
