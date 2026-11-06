@@ -4896,6 +4896,14 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Opened Tree View on the network threshold tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opened Tree View on the tree you opened earlier, {file}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No alignment is loaded, so there is no guide tree to show.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4905,6 +4913,14 @@ Command-line usage:
     </message>
     <message>
         <source>No guide tree was found for the loaded alignment; Tree View looks for {path}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network is loaded, so there is no threshold tree either.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The network has no edges, so there is no threshold tree either.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -4848,7 +4848,7 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
         <location filename="../../../commands/subcluster.py" line="+233"/>
-        <location filename="../../../commands/tree.py" line="+111"/>
+        <location filename="../../../commands/tree.py" line="+130"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -9379,7 +9379,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法保存 {path}：另一个程序一直占用着该文件（例如病毒扫描程序或同步客户端）。系统报告：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/tree.py" line="-25"/>
+        <location filename="../../../commands/tree.py" line="-40"/>
+        <source>Opened Tree View on the network threshold tree.</source>
+        <translation type="unfinished">已打开树视图，显示网络阈值树。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Opened Tree View on the tree you opened earlier, {file}.</source>
+        <translation type="unfinished">已打开树视图，显示你之前打开的树 {file}。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>No alignment is loaded, so there is no guide tree to show.</source>
         <translation type="unfinished">未加载比对，因此没有可显示的引导树。</translation>
     </message>
@@ -9394,7 +9404,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">未找到已加载比对的引导树；树视图查找的文件是 {path}。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+3"/>
+        <source>No network is loaded, so there is no threshold tree either.</source>
+        <translation type="unfinished">未加载网络，因此也没有阈值树。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The network has no edges, so there is no threshold tree either.</source>
+        <translation type="unfinished">网络没有边，因此也没有阈值树。</translation>
+    </message>
+    <message>
+        <location line="+22"/>
         <source>Error: tree takes no arguments, not &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：tree 不接受参数，不能是“{argument}”。</translation>
     </message>
@@ -15298,12 +15318,12 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+798"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+830"/>
         <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
     </message>
     <message>
-        <location line="+409"/>
+        <location line="+401"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>
