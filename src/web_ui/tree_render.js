@@ -682,6 +682,8 @@ window.TreeView = window.TreeView || {};
         const stats = TV.paintTree(ctx, scene, width, height, false);
         stats.width = width;
         stats.height = height;
+        stats.breaks = TV.drawForestBreaks(ctx, scene, width, height);
+        stats.cut = TV.drawCutLine(ctx, scene, width, height);
 
         // The hovered branch, and the search's matches, over the lines.
         if (scene.hover !== undefined && scene.hover >= 0 && !TV.foldedNow(layout, scene.collapsed, scene.hover)) {
@@ -704,6 +706,99 @@ window.TreeView = window.TreeView || {};
         stats.selected = TV.drawSelection(ctx, scene, width, height);
         if (layout.kind === "rectangular") TV.drawRuler(ctx, scene, width, height);
         return stats;
+    };
+
+    // The cut line of a tree built from the network's scores (model.score): where the Viewer's threshold slider is. A
+    // rectangular tree has it as a vertical line, a circular one as a circle about the root, an unrooted one not at all
+    // (it has no scale), and a cladogram neither (its distances are steps, not scores). A node's distance from the root
+    // is its score less the root's, so the score `cut` is that far from it. Drawn in the theme's accent colour, with the
+    // score beside it. Returns where it was drawn, { x } or { radius }, or null for none.
+    TV.drawCutLine = function (ctx, scene, width, height) {
+        const { model, layout, view, palette } = scene;
+        const cut = scene.cut;
+        if (!model || !model.score || !model.threshold || !layout || layout.mode !== "lengths") return null;
+        if (cut === null || cut === undefined || !Number.isFinite(cut)) return null;
+        if (layout.kind !== "rectangular" && layout.kind !== "circular") return null;
+        const distance = cut - model.threshold.root_score;
+        if (!(distance >= 0)) return null;
+        let path = new Path2D();
+        let result;
+        let labelX;
+        let labelY;
+        if (layout.kind === "rectangular") {
+            const x = Math.round((view.ox + distance * view.sx) * 2) / 2;
+            if (x < -2 || x > width + 2) return null;
+            path.moveTo(x, 0);
+            path.lineTo(x, height);
+            result = { x };
+            labelX = x + 4;
+            labelY = 14;
+        } else {
+            const radius = distance * view.sx;
+            if (radius < 1 || radius > 4 * Math.max(width, height)) return null;
+            path.arc(view.ox, view.oy, radius, 0, 2 * Math.PI);
+            result = { radius };
+            labelX = view.ox + 4;
+            labelY = view.oy - radius - 4;
+        }
+        ctx.save();
+        ctx.strokeStyle = palette.accent;
+        ctx.fillStyle = palette.accent;
+        ctx.lineWidth = 1.5;
+        strokeLines(ctx, path);
+        const text = String(Number(cut.toPrecision(4)));
+        ctx.font = "11px " + palette.font;
+        ctx.textBaseline = "alphabetic";
+        if (labelX > -50 && labelX < width && labelY > 4 && labelY < height) ctx.fillText(text, labelX, labelY);
+        ctx.restore();
+        return result;
+    };
+
+    // The branches of a forest's root (groups that share no kept edge) are drawn broken: a small gap with two slanted
+    // ticks across the middle of each branch, wherever it is long enough to carry one. The root is the last node, and its
+    // branches are the ones to its children. Only a tree with a forest (model.threshold.forest) has them. Returns how
+    // many were drawn.
+    TV.drawForestBreaks = function (ctx, scene, width, height) {
+        const { model, layout, view, palette } = scene;
+        if (!model || !model.threshold || !model.threshold.forest || !layout) return 0;
+        const root = model.root;
+        const out = new Float64Array(8);
+        const live = layout.live;
+        const gap = new Path2D();
+        const ticks = new Path2D();
+        let drawn = 0;
+        for (let k = model.childStart[root]; k < model.childStart[root + 1]; k++) {
+            const child = model.childList[k];
+            if (live && !live[child]) continue;
+            layout.stem(child, out);
+            const x0 = view.ox + out[0] * view.sx, y0 = view.oy + out[1] * view.sy;
+            const x1 = view.ox + out[2] * view.sx, y1 = view.oy + out[3] * view.sy;
+            const length = Math.hypot(x1 - x0, y1 - y0);
+            if (length < 18) continue;
+            const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+            if (mx < -8 || mx > width + 8 || my < -8 || my > height + 8) continue;
+            const ux = (x1 - x0) / length, uy = (y1 - y0) / length;
+            const px = -uy, py = ux;
+            gap.moveTo(mx - ux * 4.5, my - uy * 4.5);
+            gap.lineTo(mx + ux * 4.5, my + uy * 4.5);
+            for (const side of [-1, 1]) {
+                const cx = mx + ux * 3 * side, cy = my + uy * 3 * side;
+                ticks.moveTo(cx - px * 4 - ux * 2, cy - py * 4 - uy * 2);
+                ticks.lineTo(cx + px * 4 + ux * 2, cy + py * 4 + uy * 2);
+            }
+            drawn++;
+        }
+        if (!drawn) return 0;
+        ctx.save();
+        ctx.lineCap = "butt";
+        ctx.strokeStyle = palette.background;
+        ctx.lineWidth = 5;
+        ctx.stroke(gap);
+        ctx.strokeStyle = palette.branch;
+        ctx.lineWidth = 1;
+        ctx.stroke(ticks);
+        ctx.restore();
+        return drawn;
     };
 
     // The selection the network has, over the tree: the smallest clade that holds it, outlined; a solid dot (or a short

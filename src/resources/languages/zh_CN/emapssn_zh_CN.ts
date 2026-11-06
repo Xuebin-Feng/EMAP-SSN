@@ -6992,7 +6992,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1667"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1668"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7019,7 +7019,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+627"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+636"/>
         <source>Continued: type the rest and press Enter.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
@@ -13442,7 +13442,7 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+755"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+760"/>
         <source>Cluster {id}</source>
         <translation type="unfinished">簇 {id}</translation>
     </message>
@@ -13522,12 +13522,23 @@ Fedora / RHEL：
         <translation type="unfinished">已折叠：点击可展开</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+7"/>
+        <location filename="../../../web_ui/tree_session.js" line="+629"/>
+        <source>{count} groups share no kept edge</source>
+        <translation type="unfinished">{count} 个组之间没有保留的边</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Groups join at score {score}</source>
+        <translation type="unfinished">各组在得分 {score} 处合并</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Branch length: {length}</source>
         <translation type="unfinished">分支长度：{length}</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+15"/>
         <source>Click to open this clade</source>
         <translation type="unfinished">点击展开此进化枝</translation>
     </message>
@@ -13547,7 +13558,7 @@ Fedora / RHEL：
         <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="+108"/>
+        <location filename="../../../web_ui/tree_session.js" line="-521"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13603,6 +13614,26 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+5"/>
+        <source>No network is loaded</source>
+        <translation type="unfinished">未加载网络</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The network threshold tree is built from the edges of the network the Viewer has loaded, and none is loaded.</source>
+        <translation type="unfinished">网络阈值树由查看器已加载网络的边构建，而当前未加载任何网络。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This network has no edges</source>
+        <translation type="unfinished">此网络没有边</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The network threshold tree is built from the edges of the network the Viewer has loaded, and this network has none, so there is nothing to join.</source>
+        <translation type="unfinished">网络阈值树由查看器已加载网络的边构建，而此网络没有边，因此无可合并的内容。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Tree View could not reach the Viewer</source>
         <translation type="unfinished">树视图无法连接到查看器</translation>
     </message>
@@ -13627,7 +13658,7 @@ Fedora / RHEL：
         <translation type="unfinished">查看器返回了此页面不认识的状态：{status}</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+51"/>
         <source>Mark the leaves of this colour</source>
         <translation type="unfinished">标出此颜色的叶节点</translation>
     </message>
@@ -13708,12 +13739,13 @@ Fedora / RHEL：
         <translation type="unfinished">此树</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+27"/>
+        <location line="+59"/>
         <source>Rooted</source>
         <translation type="unfinished">有根</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-59"/>
         <source>Unrooted (rooted at its midpoint in the file)</source>
         <translation type="unfinished">无根（文件中以中点为根）</translation>
     </message>
@@ -13759,21 +13791,24 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
+        <location line="+50"/>
         <source>Kind</source>
         <translation type="unfinished">类型</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-41"/>
+        <location line="+43"/>
         <source>How it fits</source>
         <translation type="unfinished">匹配情况</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-40"/>
+        <location line="+41"/>
         <source>Leaves</source>
         <translation type="unfinished">叶节点</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-40"/>
         <source>Leaves in this network</source>
         <translation type="unfinished">在此网络中的叶节点</translation>
     </message>
@@ -13794,11 +13829,102 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+5"/>
+        <location line="+33"/>
         <source>About this tree</source>
         <translation type="unfinished">关于此树</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="-17"/>
+        <source>The best {k} edges of each node, from the kept edges</source>
+        <translation type="unfinished">每个节点得分最高的 {k} 条边，来自保留的边</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>All the edges of the network</source>
+        <translation type="unfinished">网络的全部边</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Edges scoring at least {cutoff}</source>
+        <translation type="unfinished">得分不低于 {cutoff} 的边</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Source</source>
+        <translation type="unfinished">来源</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>This network&apos;s edges (single linkage)</source>
+        <translation type="unfinished">此网络的边（单连接聚类）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Score</source>
+        <translation type="unfinished">得分</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>BLAST score</source>
+        <translation type="unfinished">BLAST 得分</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Similarity</source>
+        <translation type="unfinished">相似度</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Kept edges</source>
+        <translation type="unfinished">保留的边</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Edges</source>
+        <translation type="unfinished">边数</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Highest score</source>
+        <translation type="unfinished">最高得分</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lowest score where groups join</source>
+        <translation type="unfinished">各组合并处的最低得分</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Separate groups</source>
+        <translation type="unfinished">相互分离的组</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>One: every node is joined</source>
+        <translation type="unfinished">一个：所有节点均已连通</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Built in</source>
+        <translation type="unfinished">构建用时</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>{seconds} s</source>
+        <translation type="unfinished">{seconds} 秒</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Each branch point is where two groups of nodes first share an edge, at that edge&apos;s score. Cutting the tree at the threshold gives the groups of nodes the Viewer shows joined.</source>
+        <translation type="unfinished">每个分支点是两组节点首次共享一条边的位置，高度为该边的得分。在阈值处切割此树，即得到查看器中显示为相连的各组节点。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Groups that share no kept edge hang from one root below the lowest score; the broken branches show that their lengths are no score.</source>
+        <translation type="unfinished">没有共享保留边的各组挂在最低得分之下的同一个根上；断开的分支表示它们的长度不对应任何得分。</translation>
+    </message>
+    <message>
+        <location line="+84"/>
         <source>No match</source>
         <translation type="unfinished">无匹配</translation>
     </message>
@@ -13819,7 +13945,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+540"/>
+        <location filename="../../../web_ui/tree.html" line="+548"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -13834,7 +13960,7 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+57"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
@@ -13845,13 +13971,13 @@ Fedora / RHEL：
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-580"/>
+        <location filename="../../../web_ui/tree.html" line="-588"/>
         <location line="+516"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+11"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -13897,7 +14023,27 @@ Fedora / RHEL：
         <translation type="unfinished">下一个匹配</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-18"/>
+        <source>Tree</source>
+        <translation type="unfinished">树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Which tree is shown</source>
+        <translation type="unfinished">显示哪一棵树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network threshold tree</source>
+        <translation type="unfinished">网络阈值树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Guide tree</source>
+        <translation type="unfinished">引导树</translation>
+    </message>
+    <message>
+        <location line="+18"/>
         <source>Layout</source>
         <translation type="unfinished">布局</translation>
     </message>
@@ -14118,7 +14264,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2277"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2286"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -14183,7 +14329,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2079"/>
+        <location line="+2088"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -14285,7 +14431,12 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+634"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+405"/>
+        <source>Tree View does not know a tree called {name}.</source>
+        <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
+    </message>
+    <message>
+        <location line="+397"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>

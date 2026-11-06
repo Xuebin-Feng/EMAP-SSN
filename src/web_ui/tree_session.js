@@ -132,6 +132,16 @@ window.TreeView = window.TreeView || {};
                     body: t("None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.", { leaves: ((payload.counts || {}).leaves || 0).toLocaleString() }),
                     path: payload.tree_path,
                 };
+            case "no_network":
+                return {
+                    title: t("No network is loaded"),
+                    body: t("The network threshold tree is built from the edges of the network the Viewer has loaded, and none is loaded."),
+                };
+            case "no_edges":
+                return {
+                    title: t("This network has no edges"),
+                    body: t("The network threshold tree is built from the edges of the network the Viewer has loaded, and this network has none, so there is nothing to join."),
+                };
             case "unreachable":
                 return {
                     title: t("Tree View could not reach the Viewer"),
@@ -144,6 +154,32 @@ window.TreeView = window.TreeView || {};
                     body: t("The Viewer answered with a status this page does not know: {status}", { status: String(payload.status) }),
                 };
         }
+    }
+
+    // ---- Which tree is shown -----------------------------------------------------------------------------------
+
+    // Fill in the chooser from the trees the Viewer offers (payload.sources): each is listed, one that cannot be shown is
+    // disabled and says why when the pointer rests on it, and the one in use is selected. The chooser stays on while the
+    // Viewer is reachable, so that another tree can be chosen when this one has nothing to draw.
+    function showSources(payload) {
+        const select = $("source-select");
+        if (Array.isArray(payload.sources)) state.sources = payload.sources;
+        if (payload.source) state.source = payload.source;
+        for (const option of select.options) {
+            const entry = state.sources.find((item) => item.id === option.value);
+            option.disabled = !!entry && !entry.available;
+            option.title = entry && !entry.available && entry.reason ? emptyCard({ status: entry.reason, alignment: payload.alignment }).title : "";
+        }
+        select.value = state.source;
+        select.disabled = !state.sources.length;
+    }
+
+    // Choose another tree: the Viewer keeps the choice for the session. What is folded and where the view is start over,
+    // as they do for any new tree; the colours, the selection and the nodes the network hides come through the nodes the
+    // leaves stand for, so they carry over to it.
+    function chooseSource(value) {
+        if (value === state.source && state.model) return;
+        TV.loadTree(value).then((ok) => { $("source-select").value = state.source; return ok; });
     }
 
     // ---- The colours of the network ----------------------------------------------------------------------------
@@ -528,6 +564,10 @@ window.TreeView = window.TreeView || {};
             panel.appendChild(title);
         };
 
+        if (model.score && model.threshold) {
+            showThresholdDetails(panel, model, addRows, addTitle);
+            return;
+        }
         const notes = model.notes;
         const kind = model.rooted === true ? t("Rooted") : model.rooted === false ? t("Unrooted (rooted at its midpoint in the file)") : t("Rooting not stated");
         addRows([
@@ -569,10 +609,47 @@ window.TreeView = window.TreeView || {};
         }
     }
 
+    // The Details of the tree built from the network's edges: what it is, which score and which edges, and how it falls
+    // into groups; the words are the page's, the numbers the Viewer's.
+    function showThresholdDetails(panel, model, addRows, addTitle) {
+        const info = model.threshold;
+        const score = (value) => (value === null || value === undefined ? undefined : String(Number(value.toPrecision(5))));
+        const kept = info.kept === "top_k"
+            ? t("The best {k} edges of each node, from the kept edges", { k: Number(info.k).toLocaleString() })
+            : info.cutoff === null || info.cutoff === undefined
+                ? t("All the edges of the network")
+                : t("Edges scoring at least {cutoff}", { cutoff: score(info.cutoff) });
+        addRows([
+            [t("Source"), t("This network's edges (single linkage)")],
+            [t("Score"), info.score_kind === "blast" ? t("BLAST score") : t("Similarity")],
+            [t("Kept edges"), kept],
+            [t("Edges"), info.edges.toLocaleString()],
+            [t("Highest score"), score(info.top)],
+            [t("Lowest score where groups join"), score(info.bottom)],
+            [t("Separate groups"), info.forest ? t("{count} groups share no kept edge", { count: info.groups.toLocaleString() }) : t("One: every node is joined")],
+            [t("Built in"), t("{seconds} s", { seconds: String(info.build_seconds) })],
+            [t("Kind"), t("Rooted")],
+        ]);
+        addTitle(t("How it fits"));
+        addRows([[t("Leaves"), model.counts.leaves.toLocaleString()]]);
+        addTitle(t("About this tree"));
+        const words = [
+            t("Each branch point is where two groups of nodes first share an edge, at that edge's score. Cutting the tree at the threshold gives the groups of nodes the Viewer shows joined."),
+        ];
+        if (info.forest) words.push(t("Groups that share no kept edge hang from one root below the lowest score; the broken branches show that their lengths are no score."));
+        for (const sentence of words) {
+            const paragraph = document.createElement("p");
+            paragraph.className = "note";
+            paragraph.textContent = sentence;
+            panel.appendChild(paragraph);
+        }
+    }
+
     // ---- Loading ---------------------------------------------------------------------------------------------
 
     // Draw the tree of a payload, or say why there is none.
     TV.applyPayload = function (payload) {
+        showSources(payload);
         if (payload.status !== "ok") {
             showEmpty(emptyCard(payload));
             return false;
@@ -585,6 +662,8 @@ window.TreeView = window.TreeView || {};
             return false;
         }
         state.model = model;
+        // Where the threshold slider is, for the cut line of a tree built from the network's scores.
+        state.cut = model.threshold && Number.isFinite(model.threshold.current) ? model.threshold.current : null;
         state.colors = null;
         state.removed = null;
         state.legendClass = -1;
@@ -614,13 +693,15 @@ window.TreeView = window.TreeView || {};
         return true;
     };
 
-    // Ask the Viewer for the tree of the loaded alignment, and show it.
-    TV.loadTree = async function () {
+    // Ask the Viewer for a tree, and show it: the one named (it keeps the choice), else the one it has kept, else its default
+    // (the guide tree when the loaded alignment has one, else the tree of the network's edges).
+    TV.loadTree = async function (source) {
         if (loading) return false;
         loading = true;
         show("loading");
         try {
-            const response = await fetch("/api/tree/data", { cache: "no-store" });
+            const query = typeof source === "string" ? "?source=" + encodeURIComponent(source) : "";
+            const response = await fetch("/api/tree/data" + query, { cache: "no-store" });
             if (!response.ok) throw new Error(response.status + " " + response.statusText);
             return TV.applyPayload(await response.json());
         } catch (error) {
@@ -706,8 +787,18 @@ window.TreeView = window.TreeView || {};
             }
             // Only the events that matter here are read: the first message of a connection is the Viewer's whole state,
             // and most of what follows is for other pages.
-            const kind = /^\{"type":\s*"(tree_colors_changed|alignment_changed|selection_changed|highlight_row)"/.exec(event.data);
+            const kind = /^\{"type":\s*"(tree_colors_changed|alignment_changed|selection_changed|highlight_row|threshold_changed)"/.exec(event.data);
             if (!kind) return;
+            if (kind[1] === "threshold_changed") {
+                // The Viewer's threshold slider moved: the cut line goes with it, and nothing else is drawn again.
+                let value = null;
+                try { value = JSON.parse(event.data).value; } catch (error) { return; }
+                if (typeof value === "number" && Number.isFinite(value)) {
+                    state.cut = value;
+                    if (state.model && state.model.score) TV.requestDraw();
+                }
+                return;
+            }
             if (kind[1] === "alignment_changed") {
                 TV.loadTree();
                 return;
@@ -757,6 +848,7 @@ window.TreeView = window.TreeView || {};
 
         TV.attachMinimap($("minimap"));
         $("fit-btn").addEventListener("click", () => TV.fitView());
+        $("source-select").addEventListener("change", (event) => chooseSource(event.target.value));
         $("layout-select").addEventListener("change", (event) => chooseLayout(event.target.value, state.mode));
         $("phylogram-btn").addEventListener("click", () => chooseLayout(state.kind, "lengths"));
         $("cladogram-btn").addEventListener("click", () => chooseLayout(state.kind, "cladogram"));

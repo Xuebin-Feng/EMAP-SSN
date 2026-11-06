@@ -34,6 +34,7 @@ from tests.tree_fixtures import (  # noqa: E402
     ALIGNMENT_NAME,
     TREE_NAME,
     headers_of,
+    give_edges,
     http_get,
     make_alignment_folder,
     make_viewer,
@@ -126,11 +127,11 @@ class WhichTreeTests(FolderTestCase):
         self.assertTrue(np.all((support == -1) | ((support >= 0) & (support <= 100))))
 
     def test_no_alignment_loaded_has_no_tree(self):
-        self.assertEqual(tree_backend.tree_state(SimpleNamespace(alignment=None)), {"status": "no_alignment"})
-        self.assertEqual(tree_backend.tree_state(SimpleNamespace()), {"status": "no_alignment"})
+        self.assertEqual(tree_backend.guide_state(SimpleNamespace(alignment=None)), {"status": "no_alignment"})
+        self.assertEqual(tree_backend.guide_state(SimpleNamespace()), {"status": "no_alignment"})
         for msa in (None, "", "   "):
             with self.subTest(msa=msa):
-                self.assertEqual(tree_backend.tree_state(make_viewer(msa, ["a"])), {"status": "no_alignment"})
+                self.assertEqual(tree_backend.guide_state(make_viewer(msa, ["a"])), {"status": "no_alignment"})
 
     def test_an_alignment_that_failed_to_load_is_not_one(self):
         # The tree follows the alignment the Viewer holds: a failed one holds nothing, though its path is set.
@@ -143,7 +144,7 @@ class WhichTreeTests(FolderTestCase):
             with self.subTest(name=name):
                 msa = self.folder / name
                 msa.write_text(">x\nA\n", encoding="utf-8")
-                self.assertEqual(tree_backend.tree_state(make_viewer(msa, ["a"])),
+                self.assertEqual(tree_backend.guide_state(make_viewer(msa, ["a"])),
                                  {"status": "unnamed_alignment", "alignment": name})
 
     def test_the_names_a_tree_is_not_guessed_from_are_not_tried(self):
@@ -157,7 +158,7 @@ class WhichTreeTests(FolderTestCase):
     def test_a_missing_tree_says_which_file_it_looked_for(self):
         headers = headers_of(10)
         viewer, msa, _tree = self.viewer_for(headers, tree=None)
-        state = tree_backend.tree_state(viewer)
+        state = tree_backend.guide_state(viewer)
         self.assertEqual(state, {
             "status": "no_tree",
             "alignment": ALIGNMENT_NAME,
@@ -417,6 +418,24 @@ class RouteTests(FolderTestCase):
         self.assertEqual(headers["Cache-Control"], "no-store")
         payload = json.loads(body)
         self.assertEqual((payload["status"], payload["counts"]["leaves"]), ("ok", 30))
+
+    def test_the_source_is_chosen_in_the_query_and_a_bad_one_is_a_bad_request(self):
+        import json
+
+        give_edges(self.viewer, [(n, n + 1) for n in range(29)], np.arange(29, 0, -1))
+        route = tree_backend.DATA_ROUTE
+        status, _headers, body = self.http_get(self.server, route + "?source=threshold", self.page_headers(self.server))
+        payload = json.loads(body)
+        self.assertEqual((status, payload["status"], payload["source"]), (200, "ok", "threshold"))
+        status, _headers, body = self.http_get(self.server, route, self.page_headers(self.server))
+        self.assertEqual(json.loads(body)["source"], "threshold")
+        for query in ("?source=upload", "?source=", "?source=guide%00"):
+            with self.subTest(query=query):
+                status, _headers, body = self.http_get(self.server, route + query, self.page_headers(self.server))
+                self.assertEqual(status, 400)
+                self.assertIn("error", json.loads(body))
+        status, _headers, body = self.http_get(self.server, route + "?source=guide", self.page_headers(self.server))
+        self.assertEqual(json.loads(body)["source"], "guide")
 
     def test_a_request_from_another_origin_is_refused(self):
         status, _headers, _body = self.http_get(
@@ -1214,6 +1233,167 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("tree", viewer.web_plugin_registry.registered_plugins)
         self.assertIn(("GET", tree_backend.DATA_ROUTE), viewer.web_plugin_registry.api_routes)
         viewer.add_console_button.assert_called_once()
+
+
+class TreeSourceTests(FolderTestCase):
+    """The trees the page can choose from: the guide tree, and the tree of the network's own edges (single linkage)."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.dict(tree_backend._THRESHOLD_CACHE, {"order": None, "count": 0, "built": None})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def network(self, count=12, **options):
+        """A Viewer with a network of count nodes in a chain (scores falling along it) and no alignment."""
+        headers = headers_of(count)
+        pairs = [(node, node + 1) for node in range(count - 1)]
+        scores = np.arange(count - 1, 0, -1, dtype=np.float32)
+        return give_edges(SimpleNamespace(full_headers=headers, n_nodes=count, alignment=None), pairs, scores, **options)
+
+    def test_without_a_guide_tree_the_default_is_the_tree_of_the_edges(self):
+        viewer = self.network()
+        state = tree_backend.tree_state(viewer)
+        self.assertEqual((state["status"], state["source"]), ("ok", "threshold"))
+        self.assertEqual([(s["id"], s["available"], s["reason"]) for s in state["sources"]],
+                         [("threshold", True, None), ("guide", False, "no_alignment")])
+        counts = state["counts"]
+        self.assertEqual((counts["leaves"], counts["nodes"], counts["leaves_in_network"]), (12, 23, 12))
+        self.assertIs(state["rooted"], True)
+        self.assertEqual(state["warnings"], [])
+        self.assertTrue(np.all(unpack(state["support"], "i1") == -1))
+
+    def test_the_leaves_say_which_node_of_the_network_each_is(self):
+        viewer = self.network()
+        state = tree_backend.tree_state(viewer)
+        node = unpack(state["viewer_node"], "<i4")
+        self.assertEqual(sorted(node.tolist()), list(range(12)))
+        self.assertEqual(state["labels"], [viewer.full_headers[n] for n in node])
+        parent = unpack(state["parent"], "<i4")
+        self.assertTrue(np.all(parent[:-1] > np.arange(len(parent) - 1)))
+        self.assertEqual(int(parent[-1]), -1)
+        score = unpack(state["score"], "<f4")
+        length = unpack(state["length"], "<f4")
+        self.assertEqual(len(score), len(parent))
+        self.assertTrue(np.allclose(length[:-1], score[:-1] - score[parent[:-1]]))
+        self.assertEqual(float(score[0]), 11.0)  # leaves stand at the highest score
+        self.assertEqual(float(score[-1]), 1.0)  # the root joins at the lowest
+
+    def test_the_details_say_what_the_tree_is_built_from(self):
+        viewer = self.network(threshold=4.5)
+        info = tree_backend.tree_state(viewer)["threshold"]
+        self.assertEqual((info["edges"], info["groups"], info["forest"]), (11, 1, False))
+        self.assertEqual((info["top"], info["bottom"], info["current"]), (11.0, 1.0, 4.5))
+        self.assertEqual((info["kept"], info["cutoff"], info["score_kind"]), ("threshold", 1.0, "similarity"))
+        self.assertGreaterEqual(info["build_seconds"], 0)
+        self.assertEqual(tree_backend.tree_state(self.network(evalue=True))["threshold"]["score_kind"], "blast")
+
+    def test_a_manifold_layout_says_the_tree_is_of_the_kept_edges(self):
+        import EMAPSSN_Config as cfg
+
+        viewer = self.network()
+        with mock.patch.object(cfg, "UMAP_MODE", True), mock.patch.object(cfg, "UMAP_NEIGHBORS", 7):
+            info = tree_backend.tree_state(viewer)["threshold"]
+        self.assertEqual((info["kept"], info["k"]), ("top_k", 7))
+        self.assertNotIn("cutoff", info)
+
+    def test_nodes_that_share_no_edge_make_a_forest_the_page_is_told_of(self):
+        viewer = give_edges(SimpleNamespace(full_headers=headers_of(6), n_nodes=6, alignment=None),
+                            [(0, 1), (2, 3)], [5, 3])
+        state = tree_backend.tree_state(viewer)
+        info = state["threshold"]
+        self.assertEqual((info["forest"], info["groups"]), (True, 4))
+        self.assertLess(info["root_score"], info["bottom"])
+
+    def test_a_network_without_edges_has_no_threshold_tree(self):
+        for edge_layer, reason in ((None, "no_edges"), (SimpleNamespace(order=None), "no_edges")):
+            with self.subTest(reason=reason):
+                viewer = SimpleNamespace(full_headers=headers_of(5), n_nodes=5, alignment=None, edge_layer=edge_layer)
+                state = tree_backend.tree_state(viewer)
+                self.assertEqual(state["status"], "no_alignment")  # both unavailable: the guide's words
+                self.assertEqual(tree_backend.tree_state(viewer, "threshold")["status"], reason)
+                self.assertEqual(state["sources"][0], {"id": "threshold", "available": False, "reason": reason})
+        self.assertEqual(tree_backend.tree_state(SimpleNamespace(alignment=None), "threshold")["status"], "no_network")
+
+    def test_a_guide_tree_is_the_default_when_the_alignment_has_one(self):
+        headers = headers_of(20)
+        viewer, _msa, _tree = self.viewer_for(headers)
+        give_edges(viewer, [(n, n + 1) for n in range(19)], np.arange(19, 0, -1))
+        state = tree_backend.tree_state(viewer)
+        self.assertEqual((state["status"], state["source"]), ("ok", "guide"))
+        self.assertEqual([(s["id"], s["available"]) for s in state["sources"]], [("threshold", True), ("guide", True)])
+        self.assertEqual(state["name"], "guide_tree")
+
+    def test_the_source_asked_for_is_kept_for_the_session(self):
+        headers = headers_of(20)
+        viewer, _msa, _tree = self.viewer_for(headers)
+        give_edges(viewer, [(n, n + 1) for n in range(19)], np.arange(19, 0, -1))
+        self.assertEqual(tree_backend.tree_state(viewer, "threshold")["source"], "threshold")
+        self.assertEqual(tree_backend.tree_state(viewer)["source"], "threshold")
+        self.assertEqual(tree_backend.tree_state(viewer, "guide")["source"], "guide")
+        self.assertEqual(tree_backend.tree_state(viewer)["source"], "guide")
+
+    def test_a_kept_source_that_cannot_be_shown_any_more_gives_way_to_the_default(self):
+        viewer = self.network()
+        self.assertEqual(tree_backend.tree_state(viewer, "threshold")["source"], "threshold")
+        viewer.edge_layer = None
+        state = tree_backend.tree_state(viewer)
+        self.assertEqual(state["status"], "no_alignment")
+        self.assertEqual(state["source"], "guide")
+
+    def test_a_source_asked_for_that_cannot_be_shown_says_why_and_is_not_kept(self):
+        viewer = self.network()
+        state = tree_backend.tree_state(viewer, "guide")
+        self.assertEqual((state["status"], state["source"]), ("no_alignment", "guide"))
+        self.assertEqual(tree_backend.tree_state(viewer)["source"], "threshold")
+
+    def test_an_unknown_source_fails_and_changes_nothing(self):
+        viewer = self.network()
+        tree_backend.tree_state(viewer, "threshold")
+        for bad in ("upload", "", "Threshold", "threshold ", "../guide", 5):
+            with self.subTest(source=bad), self.assertRaises(ValueError):
+                tree_backend.tree_state(viewer, bad)
+        self.assertEqual(viewer._tree_source, "threshold")
+
+    def test_the_tree_is_built_once_for_a_network_and_again_for_a_new_one(self):
+        from utilities import Threshold_Tree
+
+        viewer = self.network()
+        with mock.patch.object(Threshold_Tree, "threshold_tree", wraps=Threshold_Tree.threshold_tree) as build:
+            first = tree_backend.tree_state(viewer)
+            second = tree_backend.tree_state(viewer)
+            self.assertEqual(build.call_count, 1)
+            self.assertIs(first["labels"], second["labels"])
+            # The slider moves without a new tree: only what the page reads of it changes.
+            viewer.current_slider_threshold = 7.0
+            self.assertEqual(tree_backend.tree_state(viewer)["threshold"]["current"], 7.0)
+            self.assertEqual(build.call_count, 1)
+            give_edges(viewer, [(0, 1)], [3.0])
+            tree_backend.tree_state(viewer)
+            self.assertEqual(build.call_count, 2)
+
+    def test_the_cache_does_not_keep_a_replaced_networks_edges_alive(self):
+        import gc
+
+        viewer = self.network()
+        tree_backend.tree_state(viewer)
+        reference = tree_backend._THRESHOLD_CACHE["order"]
+        viewer.edge_layer = None
+        gc.collect()
+        self.assertIsNone(reference())
+
+    def test_a_44000_node_network_is_built_within_the_budget(self):
+        count, edge_count = 44000, 3_000_000
+        rng = np.random.default_rng(42)
+        pairs = rng.integers(0, count, (edge_count, 2))
+        scores = rng.random(edge_count).astype(np.float32)
+        viewer = give_edges(SimpleNamespace(full_headers=headers_of(count), n_nodes=count, alignment=None), pairs, scores)
+        started = time.perf_counter()
+        state = tree_backend.tree_state(viewer)
+        elapsed = time.perf_counter() - started
+        self.assertEqual(state["status"], "ok")
+        self.assertEqual(state["counts"]["leaves"], count)
+        self.assertLess(elapsed, 3.0)
 
 
 if __name__ == "__main__":

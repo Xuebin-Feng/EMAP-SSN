@@ -44,6 +44,8 @@ window.TreeView = window.TreeView || {};
         const length = typedArray(payload.length, Float32Array, nodeCount, "length");
         const support = typedArray(payload.support, Int8Array, nodeCount, "support");
         const viewerNode = typedArray(payload.viewer_node, Int32Array, leafCount, "viewer_node");
+        // A tree built from the network's scores says the score of each node (its height); a guide tree has none.
+        const score = payload.score ? typedArray(payload.score, Float32Array, nodeCount, "score") : null;
         const labels = payload.labels;
         if (!Array.isArray(labels) || labels.length !== leafCount) throw new Error("the leaf names do not match the leaves");
 
@@ -92,7 +94,9 @@ window.TreeView = window.TreeView || {};
         for (let k = 0; k < leafCount; k++) shownBefore[k + 1] = shownBefore[k] + (viewerNode[k] >= 0 ? 1 : 0);
 
         return {
-            nodeCount, leafCount, root, parent, length, support, viewerNode, labels,
+            nodeCount, leafCount, root, parent, length, support, viewerNode, labels, score,
+            source: payload.source || "guide",
+            threshold: payload.threshold || null,
             childCount, childStart, childList, size, firstLeaf, lastLeaf, leafOrdinal, leafNode, shownBefore,
             hasLengths: !!payload.has_lengths,
             rooted: payload.rooted === true ? true : payload.rooted === false ? false : null,

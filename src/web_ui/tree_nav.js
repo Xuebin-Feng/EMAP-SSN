@@ -50,6 +50,11 @@ window.TreeView = window.TreeView || {};
         marks: null,
         // The leaves (1 for each) the layout leaves out because the Viewer has hidden their nodes, or null for none.
         removed: null,
+        // Which tree is shown ("threshold" or "guide"), the trees the chooser offers, and the score the Viewer's threshold
+        // slider is at (null for none): the cut line of a tree built from the network's scores is drawn there.
+        source: "guide",
+        sources: [],
+        cut: null,
     };
     TV.canvas = null;
     TV.lastStats = null;
@@ -795,7 +800,17 @@ window.TreeView = window.TreeView || {};
             }
             if (TV.foldedNow(state.layout, state.collapsed, i)) lines.push(t("Folded up: click it to open it"));
         }
-        if (model.hasLengths && i !== model.root) lines.push(t("Branch length: {length}", { length: formatLength(model.length[i]) }));
+        if (model.score) {
+            // A tree of the network's scores: a branch point is where groups first share an edge, and its height is that
+            // edge's score; a branch's length is no more than the scores it spans, so it is not said.
+            if (model.childCount[i] > 0) {
+                const forest = model.threshold && model.threshold.forest && i === model.root;
+                if (forest) lines.push(t("{count} groups share no kept edge", { count: model.threshold.groups.toLocaleString() }));
+                else lines.push(t("Groups join at score {score}", { score: formatLength(model.score[i]) }));
+            }
+        } else if (model.hasLengths && i !== model.root) {
+            lines.push(t("Branch length: {length}", { length: formatLength(model.length[i]) }));
+        }
         return { title, lines };
     };
 

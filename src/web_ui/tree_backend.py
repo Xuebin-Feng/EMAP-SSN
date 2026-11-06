@@ -43,7 +43,10 @@ import base64
 import datetime
 import os
 import threading
+import time
+import weakref
 import zlib
+from urllib.parse import parse_qs
 
 import numpy as np
 
@@ -60,6 +63,12 @@ SELECT_MODES = ("replace", "add", "toggle")
 COLORS_EVENT = "tree_colors_changed"
 # A colour change is announced this long after the last one seen, so that a command that draws in a burst sends one event.
 COLOR_COALESCE_SECONDS = 0.15
+
+# The trees Tree View can show, and the one it shows when it is not asked for another: the guide tree when the loaded
+# alignment has one, else the one built from the network's edges.
+SOURCE_THRESHOLD = "threshold"
+SOURCE_GUIDE = "guide"
+SOURCES = (SOURCE_THRESHOLD, SOURCE_GUIDE)
 
 # A tree is saved before the alignment is merged, so a finished alignment is as new as its tree, or newer. This
 # many seconds of difference are the file system's and the clocks', not a sign that the alignment is older.
@@ -207,8 +216,8 @@ def locate_tree(viewer):
     return {"status": "present" if os.path.exists(tree_path) else "no_tree", **base}
 
 
-def tree_state(viewer):
-    """What the Tree View page is sent: the tree of the loaded alignment, or why there is none to draw.
+def guide_state(viewer):
+    """What the Tree View page is sent for the guide tree: the tree of the loaded alignment, or why there is none to draw.
 
     ``status`` is "ok" (everything below is there), "no_alignment" (none loaded), "unnamed_alignment" (the
     alignment's name is not the tool's, so it has no tree), "no_tree" (the file the name leads to is not
@@ -257,9 +266,168 @@ def tree_state(viewer):
     }
 
 
+# ---- The threshold tree: single linkage over the network's edges --------------------------------------------------
+
+# The threshold tree last built, kept for as long as the network's edge order is: it is the same object until the
+# network is drawn again, so a new network (or a new score) builds a new tree. A weak reference, so that the tree
+# does not keep a replaced network's edges alive.
+_THRESHOLD_CACHE = {"order": None, "count": 0, "built": None}
+_THRESHOLD_LOCK = threading.Lock()
+
+
+def edge_order_of(viewer):
+    """The Viewer's edges by descending score (desktop.Viewer_Edges.EdgeOrder), or None when it has no edges."""
+    layer = getattr(viewer, "edge_layer", None)
+    return getattr(layer, "order", None) if layer is not None else None
+
+
+def threshold_unavailable(viewer):
+    """Why the threshold tree cannot be built, as a status ("no_network", "no_edges"), or None when it can."""
+    if not getattr(viewer, "full_headers", None):
+        return "no_network"
+    order = edge_order_of(viewer)
+    if order is None or not len(order):
+        return "no_edges"
+    return None
+
+
+def _kept_edges(viewer):
+    """How the edges the network keeps were chosen: ``{"kept": "threshold", "cutoff"}`` for a layout that keeps the
+    edges at or above a cutoff, or ``{"kept": "top_k", "k"}`` for one that keeps each node's best k (UMAP, PaCMAP)."""
+    from desktop.Viewer_State import knn_topology_layout, strongest_edge_limit
+
+    import EMAPSSN_Config as cfg
+
+    if knn_topology_layout(cfg):
+        return {"kept": "top_k", "k": int(strongest_edge_limit(cfg))}
+    cutoff = getattr(viewer, "min_threshold", None)
+    return {"kept": "threshold", "cutoff": None if cutoff is None else float(cutoff)}
+
+
+def _build_threshold(order, headers):
+    """The page's payload for the threshold tree of ``order`` and the facts about it, built once (threshold_state)."""
+    from utilities.Threshold_Tree import threshold_tree
+
+    started = time.perf_counter()
+    count = len(headers)
+    tree = threshold_tree(order.edges, order.scores, count, check=False)
+    labels = [str(headers[node]) for node in tree.leaf_order]
+    payload = {
+        "status": "ok",
+        "source": SOURCE_THRESHOLD,
+        "name": None,
+        "rooted": True,
+        "has_lengths": True,
+        "notes": {},
+        "counts": {
+            "leaves": count, "nodes": tree.node_count, "leaves_in_network": count, "leaves_not_in_network": 0,
+            "network_nodes": count, "network_nodes_not_in_tree": 0,
+        },
+        "warnings": [],
+        "parent": _packed(tree.parent, "<i4"),
+        "length": _packed(tree.length, "<f4"),
+        "support": _packed(np.full(tree.node_count, -1), "i1"),
+        "viewer_node": _packed(tree.leaf_order, "<i4"),
+        "score": _packed(tree.height, "<f4"),
+        "labels": labels,
+    }
+    details = {
+        "edges": int(len(order)),
+        "groups": tree.groups,
+        "top": tree.top,
+        "bottom": tree.bottom,
+        "root_score": tree.root_score,
+        "forest": tree.groups > 1,
+        "build_seconds": round(time.perf_counter() - started, 3),
+    }
+    return payload, details
+
+
+def threshold_state(viewer):
+    """What the Tree View page is sent for the tree of the network's own edges: single linkage over them, strongest first.
+
+    ``status`` is "ok", or "no_network" / "no_edges" when there is nothing to build it from. Built the first time it
+    is asked for and kept for as long as the Viewer keeps that network's edge order. The leaves are the network's
+    nodes, in the tree's leaf order (``viewer_node`` says which), and ``score`` is each tree node's height, the score
+    at which its groups first share an edge, in the same post-order as ``parent``. ``threshold`` holds what the page
+    says about the tree: the score the Viewer's slider is at now (``current``), the highest score of the edges
+    (``top``, where the leaves stand) and the lowest join (``bottom``), whether the network falls into separate
+    groups (``forest``, ``groups``; the forest's root is at ``root_score``), how the kept edges were chosen
+    (``kept``, with ``cutoff`` or ``k``), the kind of score, and the seconds the build took.
+    """
+    reason = threshold_unavailable(viewer)
+    if reason is not None:
+        return {"status": reason, "source": SOURCE_THRESHOLD}
+    order = edge_order_of(viewer)
+    headers = list(viewer.full_headers)
+    with _THRESHOLD_LOCK:
+        cache = _THRESHOLD_CACHE
+        reference = cache["order"]
+        if reference is None or reference() is not order or cache["count"] != len(headers):
+            cache["built"] = _build_threshold(order, headers)
+            cache["order"], cache["count"] = weakref.ref(order), len(headers)
+        payload, details = cache["built"]
+    current = getattr(viewer, "current_slider_threshold", None)
+    info = {
+        **details,
+        **_kept_edges(viewer),
+        "score_kind": "blast" if getattr(viewer, "is_evalue", False) else "similarity",
+        "current": None if current is None else float(current),
+    }
+    return {**payload, "threshold": info}
+
+
+# ---- Which tree is shown ----------------------------------------------------------------------------------------
+
+
+def source_choices(viewer, guide):
+    """The trees the page's chooser offers, each ``{"id", "available", "reason"}``: ``reason`` is the status the
+    tree cannot be shown for (the same words an empty card says), None when it can. ``guide`` is guide_state(viewer)."""
+    threshold_reason = threshold_unavailable(viewer)
+    guide_reason = None if guide.get("status") == "ok" else guide.get("status")
+    return [
+        {"id": SOURCE_THRESHOLD, "available": threshold_reason is None, "reason": threshold_reason},
+        {"id": SOURCE_GUIDE, "available": guide_reason is None, "reason": guide_reason},
+    ]
+
+
+def tree_state(viewer, source=None):
+    """What the Tree View page is sent: one tree, or why there is none to draw, and the trees it can choose from.
+
+    ``source`` is "threshold" (the tree of the network's own edges), "guide" (the guide tree of the loaded
+    alignment) or None. A source that is asked for is the one the Viewer keeps for the session, when it can be shown;
+    without one, the kept source is used while it can be shown, else the guide tree when the loaded alignment has
+    one, else the threshold tree. The answer says which it is (``source``) and lists them (``sources``). A source
+    that is asked for and cannot be shown gets the card that says why, and is not kept. An unknown source raises
+    ValueError, which the web server answers as a bad request.
+    """
+    if source is not None and source not in SOURCES:
+        raise ValueError(translate("Viewer", "Tree View does not know a tree called {name}.").format(name=str(source)[:60]))
+    guide = guide_state(viewer)
+    sources = source_choices(viewer, guide)
+    available = {entry["id"] for entry in sources if entry["available"]}
+    if source is not None:
+        chosen = source
+        if source in available:
+            viewer._tree_source = source
+    else:
+        kept = getattr(viewer, "_tree_source", None)
+        if kept in available:
+            chosen = kept
+        elif SOURCE_GUIDE in available:
+            chosen = SOURCE_GUIDE
+        elif SOURCE_THRESHOLD in available:
+            chosen = SOURCE_THRESHOLD
+        else:
+            chosen = SOURCE_GUIDE
+    answer = threshold_state(viewer) if chosen == SOURCE_THRESHOLD else {**guide, "source": SOURCE_GUIDE}
+    return {**answer, "sources": sources}
+
+
 def handle_tree_data(viewer, request):
-    """GET /api/tree/data: the page's whole picture of the tree (tree_state). The web server has checked the request's origin."""
-    return 200, tree_state(viewer)
+    """GET /api/tree/data[?source=threshold|guide]: the page's whole picture of the tree (tree_state). The web server has checked the request's origin."""
+    values = parse_qs(request.query or "", keep_blank_values=True).get("source", [])
+    return 200, tree_state(viewer, values[0] if values else None)
 
 
 # ---- The colours of the network ---------------------------------------------------------------------------------

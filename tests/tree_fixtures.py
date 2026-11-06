@@ -181,6 +181,19 @@ def make_viewer(msa_path, headers, *, aligned=None, loaded=True, colors=None, hi
     return viewer
 
 
+def give_edges(viewer, pairs, scores, *, threshold=None, evalue=False):
+    """Give a Viewer the edges the threshold tree is built from: an edge layer holding the real EdgeOrder (the edges
+    by descending score), the slider's threshold, and the kind of score. Returns the viewer."""
+    from desktop.Viewer_Edges import EdgeOrder
+
+    scores = np.asarray(scores, dtype=np.float32)
+    viewer.edge_layer = SimpleNamespace(order=EdgeOrder(np.asarray(pairs, dtype=np.int32), scores))
+    viewer.min_threshold = float(scores.min()) if len(scores) else 0.0
+    viewer.current_slider_threshold = viewer.min_threshold if threshold is None else threshold
+    viewer.is_evalue = evalue
+    return viewer
+
+
 class TemporaryTreeFolder:
     """A temporary folder, removed with the test that made it (use with addCleanup)."""
 

@@ -537,6 +537,14 @@
     <header>
         <h1><svg class="icon" aria-hidden="true"><use href="#i-list-tree"/></svg><span data-i18n>EMAP-SSN Tree View</span></h1>
         <div class="header-actions">
+            <!-- Which tree is shown. The options are filled in by the page from the trees the Viewer offers; a tree the user
+                 opens from a file will be one more option here, listed by its file name. -->
+            <label class="field" for="source-select"><span data-i18n>Tree</span>
+                <select id="source-select" title="Which tree is shown" disabled>
+                    <option value="threshold" data-i18n>Network threshold tree</option>
+                    <option value="guide" data-i18n>Guide tree</option>
+                </select>
+            </label>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>

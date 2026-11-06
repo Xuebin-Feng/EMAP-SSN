@@ -9169,6 +9169,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{count} groups share no kept edge</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Groups join at score {score}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Branch length: {length}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9230,6 +9238,22 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network is loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The network threshold tree is built from the edges of the network the Viewer has loaded, and none is loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This network has no edges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The network threshold tree is built from the edges of the network the Viewer has loaded, and this network has none, so there is nothing to join.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9389,6 +9413,78 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The best {k} edges of each node, from the kept edges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All the edges of the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edges scoring at least {cutoff}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This network&apos;s edges (single linkage)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Similarity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Kept edges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Highest score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lowest score where groups join</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Separate groups</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One: every node is joined</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Built in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{seconds} s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each branch point is where two groups of nodes first share an edge, at that edge&apos;s score. Cutting the tree at the threshold gives the groups of nodes the Viewer shows joined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Groups that share no kept edge hang from one root below the lowest score; the broken branches show that their lengths are no score.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No match</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9426,6 +9522,22 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>EMAP-SSN Tree View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Which tree is shown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network threshold tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guide tree</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9741,6 +9853,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Open Metadata Spreadsheet in browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
