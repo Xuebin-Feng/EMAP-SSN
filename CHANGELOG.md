@@ -100,6 +100,13 @@ still change before version 1.0.0.
     even in the overview. A legend names the colours (by cluster where one matches) and marks
     a colour's leaves when clicked. Hidden nodes are faded. The tree follows the Viewer when
     colours, clusters or hidden nodes change, and when another alignment is loaded.
+  - **Selection, both ways:** nodes selected in the network are marked in the tree, with the
+    smallest clade that holds them outlined. Right-clicking a clade or a leaf selects its
+    nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
+    space clears the selection. Clicking a leaf focuses its node in the network.
+  - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
+    zoomed in, by the percentage of replicates that contain its split. It measures stability
+    under distance noise, not bootstrap support.
   - **The Details panel** names the file, says how the tree was built, and counts how its
     leaves match the network and the alignment. A tree saved for another alignment, an
     alignment older than its tree (an unfinished run), and leaves missing from the network
