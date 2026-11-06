@@ -84,7 +84,8 @@ class ViewerCase(unittest.TestCase):
 
     def build(self, size=(1400, 900), *, fps=False, toggle=False):
         viewer = make_viewer()
-        viewer.canvas = SimpleNamespace(native=QWidget(), size=size, update=mock.Mock())
+        update = mock.Mock()
+        viewer.canvas = SimpleNamespace(native=QWidget(), size=size, update=update, update_mock=update)
         viewer.update_console_background = mock.Mock()
         viewer._update_hud_elements = lambda: None
         viewer._build_main_window()
@@ -240,7 +241,7 @@ class PlacementTests(ViewerCase):
                     viewer.reposition_expand_btn()
                     overlay.refresh()                 # its next tick
                     self.assertEqual(overlay.rate_only, rate_only)
-                    self.assertEqual(overlay.text(), "40 fps" if rate_only else "40 fps · GPU 2.5 ms · edges 1/16")
+                    self.assertEqual(overlay.text(), "40/s" if rate_only else "40 new/s · GPU 2.5 ms · edges 1/16")
                     self.assertGreaterEqual(viewer._command_line_right() - left, COMMAND_LINE_MIN_WIDTH)
                     self.check(viewer, fps=True, toggle=False)
 
@@ -626,7 +627,7 @@ class NeverMovesTests(ViewerCase):
             self.assertEqual(self.state(viewer), (undo, redo))
         for method in guards:
             method.assert_not_called()
-        viewer.canvas.update.assert_not_called()
+        viewer.canvas.update_mock.assert_not_called()
         self.assertEqual(self.geometries(viewer), before)
 
     def test_every_place_that_changes_the_history_moves_nothing(self):

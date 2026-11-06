@@ -218,6 +218,7 @@ from desktop.Viewer_Caret import CommandCaret
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
+from desktop.Viewer_Vsync import apply_window_swap_interval, vsync_enabled
 from desktop.Viewer_History import HistoryButtons, history_availability
 from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, ViewerJobs, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
@@ -1072,6 +1073,9 @@ class MainViewer:
             show=False,
             title=f"{VIEWER_DISPLAY_NAME} (Live)",
             bgcolor='white',
+            # The canvas's own format; the window's swap interval, which paces the screen, is set
+            # in _build_main_window (desktop.Viewer_Vsync; SSN_VIEWER_VSYNC=0 turns it off).
+            vsync=vsync_enabled(),
             # The edges' overdraw limit counts in the stencil buffer
             # (desktop.Viewer_Edges.EdgeStencilLimit, which checks what it got).
             config=dict(stencil_size=8),
@@ -1617,7 +1621,8 @@ class MainViewer:
 
         # Set the Vispy canvas directly as the central widget
         self.main_window.setCentralWidget(self.canvas.native)
-        
+        apply_window_swap_interval(self.main_window, vsync_enabled())
+
         # Collapsible right panel over the canvas.native: a card with round
         # corners, clear of the canvas's top, right and bottom edges, so its
         # right margin holds that inset too.
@@ -3943,7 +3948,16 @@ class MainViewer:
             if visual is None or not layer.visible:
                 return 1
             return getattr(visual, 'detail', 1)
-        self.fps_overlay = FpsOverlay(self.canvas, edge_detail)
+        def picture_state():
+            """What the picture depends on besides the scene nodes' own redraw requests: the camera's
+            view, the canvas's size and background, and the edge layer's state."""
+            rect = self.view.camera.rect
+            visual = getattr(getattr(self, 'edge_layer', None), 'visual', None)
+            edges = None if visual is None else (
+                getattr(visual, 'generation', 0), bool(visual.visible), getattr(visual, 'detail', 1))
+            return (tuple(rect.pos), tuple(rect.size), tuple(self.canvas.size),
+                    tuple(self.canvas.bgcolor.rgba), edges)
+        self.fps_overlay = FpsOverlay(self.canvas, edge_detail, picture_state=picture_state)
         self.fps_overlay.attach()
         self.fps_overlay.show()
         self.reposition_expand_btn()

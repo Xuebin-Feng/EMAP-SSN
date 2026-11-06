@@ -10,16 +10,31 @@ captures, the edge cache's pictures) draws the scene only, so it is never in
 a picture.
 
 A frame counts when the canvas has drawn its scene into the window (not into
-a framebuffer object pushed for canvas.render()) and the window has then
-shown it (the QOpenGLWidget's frameSwapped). The window also composes when a
-widget over the canvas repaints, this label's new text included; those
-compositions drew nothing and are not counted, so the display never feeds
-itself.
+a framebuffer object pushed for canvas.render()), the picture differs from
+that of the last frame counted, and the window has then shown it (the
+QOpenGLWidget's frameSwapped). The window also composes when a widget over
+the canvas repaints, this label's new text included; those compositions drew
+nothing and are not counted, so the display never feeds itself. A redraw of
+a picture identical to the last counted one is not counted either.
 
-The rate is that of the frames shown in the FPS_WINDOW_S before the last
-one. The text changes every FPS_UPDATE_MS while frames come; once none has
-come for FPS_IDLE_S (or twice the last frame interval, for a slow pan) it
-reads Idle and its timer stops, so an idle Viewer runs nothing for it.
+"Identical" is a fingerprint taken once per drawn frame: the number of times
+a scene node asked for a redraw since the last frame (every visual's change
+goes through that request: the nodes, the edges, the selection rings and the
+overlays in the scene), and the Viewer's picture_state (the camera's
+rectangle, the canvas size and background, the edge layer's generation,
+visibility and motion thinning step). It can miss a change that neither
+sees (one made in GL state alone, with no node asked to redraw), and the
+display then reads low. It can count a redraw a node asked for that changed
+nothing (set_data with the same data), and then reads high. It cannot see
+the screen's refresh: of two pictures drawn within one refresh the screen
+presents one, and both count.
+
+The rate is the new pictures per second shown in the FPS_WINDOW_S before the
+last one, and the slowest is the longest gap between two of them in that
+window, which a stutter the average hides shows in. The text changes every
+FPS_UPDATE_MS while frames come; once none has come for FPS_IDLE_S (or twice
+the last frame interval, for a slow pan) it reads Idle and its timer stops,
+so an idle Viewer runs nothing for it.
 
 With the rate go the graphics card's time for a recent frame (GL
 timestamps around the scene's draw, desktop.Viewer_Motion.GpuTimer, read a
@@ -53,17 +68,30 @@ FPS_IDLE_S = 0.5
 FPS_GAP = 8
 # The display's height, the toggle's.
 FPS_HEIGHT = 30
-# The text that sets the room the command line leaves the display; the rate alone when that is all it shows.
-_WIDEST = (888.0, 888.8, 64)
+# The text that sets the room the command line leaves the display (rate, GPU ms, thinning step, slowest ms);
+# the rate alone when that is all it shows.
+_WIDEST = (888.0, 888.8, 64, 888.0)
 _WIDEST_RATE = (888.0,)
 
 
-def fps_text(rate, gpu_ms=None, detail=1):
-    """What the display reads: the rate, the GPU time and the thinning, or Idle (rate None)."""
+def fps_rate_text(rate):
+    """The display in a narrow window: the rate alone, as short as the old frames-a-second text, or Idle."""
+    if rate is None:
+        return QtCore.QCoreApplication.translate("ViewerFps", "Idle")
+    return QtCore.QCoreApplication.translate("ViewerFps", "{fps}/s").format(
+        fps=f"{rate:.0f}" if rate >= 10 else f"{rate:.1f}")
+
+
+def fps_text(rate, gpu_ms=None, detail=1, slowest_ms=None):
+    """What the display reads: the rate of new pictures, the slowest gap between two, the GPU time and
+    the thinning, or Idle (rate None)."""
     translate = QtCore.QCoreApplication.translate
     if rate is None:
         return translate("ViewerFps", "Idle")
-    parts = [translate("ViewerFps", "{fps} fps").format(fps=f"{rate:.0f}" if rate >= 10 else f"{rate:.1f}")]
+    parts = [translate("ViewerFps", "{fps} new/s").format(fps=f"{rate:.0f}" if rate >= 10 else f"{rate:.1f}")]
+    if slowest_ms is not None:
+        parts.append(translate("ViewerFps", "slowest {ms} ms").format(
+            ms=f"{slowest_ms:.0f}" if slowest_ms >= 10 else f"{slowest_ms:.1f}"))
     if gpu_ms is not None:
         parts.append(translate("ViewerFps", "GPU {ms} ms").format(
             ms=f"{gpu_ms:.2f}" if gpu_ms < 1 else f"{gpu_ms:.1f}"))
@@ -73,17 +101,24 @@ def fps_text(rate, gpu_ms=None, detail=1):
 
 
 class FrameRate:
-    """The frames the canvas drew into the window and the window showed."""
+    """The new pictures the canvas drew into the window and the window showed."""
 
     def __init__(self, clock=time.perf_counter):
         self._clock = clock
         self._times = deque()
         self._pending = None          # the step of a frame drawn but not yet shown
+        self._picture = None          # the fingerprint of the last picture drawn as new
         self.detail = 1               # the step the last frame shown was drawn with
         self.gpu_ms = None            # the GPU time of a recent frame
 
-    def drew(self, detail=1):
-        """The canvas drew a frame into the window, with every detail-th edge."""
+    def drew(self, detail=1, picture=None):
+        """The canvas drew a frame into the window, with every detail-th edge. picture is the fingerprint
+        of what it shows: equal to the last new picture's, the frame is a redraw and is not counted.
+        None (no fingerprint) always counts."""
+        if picture is not None:
+            if picture == self._picture:
+                return
+            self._picture = picture
         self._pending = int(detail or 1)
 
     def shown(self):
@@ -111,6 +146,13 @@ class FrameRate:
             return None
         return (len(self._times) - 1) / max(self._times[-1] - self._times[0], 1e-6)
 
+    def slowest_ms(self):
+        """The longest gap between two counted frames in the window, in ms (None before two)."""
+        if len(self._times) < 2:
+            return None
+        times = list(self._times)
+        return 1000.0 * max(b - a for a, b in zip(times, times[1:]))
+
 
 class FpsOverlay(QLabel):
     """The frame-rate display: a small card at the canvas's top right, left of the Undo and Redo buttons
@@ -121,11 +163,16 @@ class FpsOverlay(QLabel):
     draws and shown frames; place() puts it by the buttons.
     """
 
-    def __init__(self, canvas, edge_detail=None, *, clock=time.perf_counter, gpu_timer=None):
+    def __init__(self, canvas, edge_detail=None, *, clock=time.perf_counter, gpu_timer=None,
+                 picture_state=None):
         super().__init__(canvas.native)
         self.setObjectName("fpsOverlay")
         self.canvas = canvas
         self.edge_detail = edge_detail or (lambda: 1)
+        # What else the picture depends on, as a comparable tuple (camera, size, edge state); with None
+        # only the scene nodes' redraw requests tell a new picture.
+        self.picture_state = picture_state
+        self._redraws = 0             # redraws scene nodes asked for outside a draw
         self.frames = FrameRate(clock)
         self._gpu = gpu_timer
         self.rate_only = False        # a narrow window: the rate, without the GPU time and the thinning
@@ -155,6 +202,7 @@ class FpsOverlay(QLabel):
         swapped = getattr(native, "frameSwapped", None)
         if swapped is not None:
             swapped.connect(self.frame_shown)
+        self._count_node_updates()
         draw_scene = getattr(self.canvas, "_draw_scene", None)
         if draw_scene is None:
             return
@@ -167,8 +215,32 @@ class FpsOverlay(QLabel):
             if not Viewer_Edges._draws_into_window(self.canvas):
                 return draw_scene(*args, **kwargs)   # canvas.render(): not a frame
             self._gpu.time(lambda: draw_scene(*args, **kwargs), "frame", self._gpu_result)
-            self.frames.drew(self.edge_detail())
+            self.frames.drew(self.edge_detail(), self.picture())
         self.canvas._draw_scene = counted_draw_scene
+
+    def _count_node_updates(self):
+        """Count the redraws scene nodes ask for (Node.update calls canvas.update(node=...)): a change to
+        any visual in the scene goes through that, whatever the picture_state lists. A request made during
+        a draw (a visual preparing itself) is no change."""
+        update = getattr(self.canvas, "update", None)
+        if update is None:
+            return
+
+        def counted_update(*args, **kwargs):
+            if (args or kwargs.get("node") is not None) and not getattr(self.canvas, "_drawing", False):
+                self._redraws += 1
+            return update(*args, **kwargs)
+        self.canvas.update = counted_update
+
+    def picture(self):
+        """The fingerprint of what the canvas shows now: the node redraw count and the picture_state."""
+        state = None
+        if self.picture_state is not None:
+            try:
+                state = self.picture_state()
+            except Exception:
+                state = object()      # never equal: a picture that cannot be read counts as new
+        return (self._redraws, state)
 
     def _gpu_result(self, _tag, gpu_ms):
         self.frames.gpu_ms = gpu_ms
@@ -185,11 +257,11 @@ class FpsOverlay(QLabel):
         rate = self.frames.rate()
         if rate is None:
             self.timer.stop()
-        self.show_text(self.text_for(rate, self.frames.gpu_ms, self.frames.detail))
+        self.show_text(self.text_for(rate, self.frames.gpu_ms, self.frames.detail, self.frames.slowest_ms()))
 
-    def text_for(self, rate, gpu_ms=None, detail=1):
+    def text_for(self, rate, gpu_ms=None, detail=1, slowest_ms=None):
         """What the display reads for this rate (None: Idle): fps_text, the rate alone while rate_only."""
-        return fps_text(rate) if self.rate_only else fps_text(rate, gpu_ms, detail)
+        return fps_rate_text(rate) if self.rate_only else fps_text(rate, gpu_ms, detail, slowest_ms)
 
     def show_rate_only(self, rate_only):
         """Show the rate alone (True: the window is narrow) or with the GPU time and the thinning."""
@@ -215,7 +287,7 @@ class FpsOverlay(QLabel):
             probe.setFont(self.font())
             probe.setStyleSheet(self.styleSheet())
             widths = []
-            for text in (fps_text(*(_WIDEST_RATE if rate_only else _WIDEST)), fps_text(None)):
+            for text in (fps_rate_text(*_WIDEST_RATE) if rate_only else fps_text(*_WIDEST), fps_text(None)):
                 probe.setText(text)
                 probe.ensurePolished()
                 widths.append(probe.sizeHint().width())

@@ -39,7 +39,7 @@ if str(SRC) not in sys.path:
 import EMAPSSN_Config as cfg  # noqa: E402
 import EMAPSSN_Viewer  # noqa: E402
 from EMAPSSN_Viewer import MainViewer, _sidebar_room  # noqa: E402
-from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QWidget  # noqa: E402
 from desktop import Viewer_Edges, Viewer_State  # noqa: E402
 from desktop.Viewer_Fps import FPS_GAP, FPS_IDLE_S, FpsOverlay, FrameRate, fps_text  # noqa: E402
 from desktop.Viewer_Motion import MotionDetail  # noqa: E402
@@ -608,10 +608,52 @@ class FrameRateTests(unittest.TestCase):
 
     def test_the_texts(self):
         self.assertEqual(fps_text(None), "Idle")
-        self.assertEqual(fps_text(58.4, 3.14), "58 fps · GPU 3.1 ms")
-        self.assertEqual(fps_text(4.26, None, 16), "4.3 fps · edges 1/16")
-        self.assertEqual(fps_text(60.0, None, 1), "60 fps")
-        self.assertEqual(fps_text(240.0, 0.042), "240 fps · GPU 0.04 ms")
+        self.assertEqual(fps_text(58.4, 3.14), "58 new/s · GPU 3.1 ms")
+        self.assertEqual(fps_text(4.26, None, 16), "4.3 new/s · edges 1/16")
+        self.assertEqual(fps_text(60.0, None, 1), "60 new/s")
+        self.assertEqual(fps_text(240.0, 0.042), "240 new/s · GPU 0.04 ms")
+
+    def test_the_texts_with_the_slowest_gap(self):
+        self.assertEqual(fps_text(59.0, None, 1, 34.2), "59 new/s · slowest 34 ms")
+        self.assertEqual(fps_text(59.0, 3.14, 16, 8.46), "59 new/s · slowest 8.5 ms · GPU 3.1 ms · edges 1/16")
+        self.assertEqual(fps_text(None, 3.14, 16, 8.46), "Idle")
+
+    def test_identical_redraws_are_not_counted(self):
+        picture = ("camera", 1)
+        for _ in range(10):
+            self.now[0] += 1 / 60
+            self.frames.drew(1, picture)       # the same picture drawn again and again
+            self.frames.shown()
+        self.assertIsNone(self.frames.rate())  # only the first counted
+        self.assertFalse(self.frames.shown())
+        for number in range(60):
+            self.now[0] += 1 / 60
+            self.frames.drew(1, ("camera", number))
+            self.assertTrue(self.frames.shown())
+            self.frames.drew(1, ("camera", number))    # a redraw of what was just counted
+            self.assertFalse(self.frames.shown())
+        self.assertAlmostEqual(self.frames.rate(), 60.0, delta=0.5)
+        # A frame without a fingerprint always counts.
+        self.frames.drew(1)
+        self.frames.drew(1)
+        self.assertTrue(self.frames.shown())
+
+    def test_the_slowest_gap_of_the_window(self):
+        self.assertIsNone(self.frames.slowest_ms())
+        self.run_frames(30, 1 / 60)
+        self.assertAlmostEqual(self.frames.slowest_ms(), 1000 / 60, delta=0.1)
+        self.run_frames(1, 0.034)
+        self.run_frames(10, 1 / 60)
+        self.assertAlmostEqual(self.frames.slowest_ms(), 34.0, delta=0.1)
+        # Once the gap is further back than the window it no longer counts.
+        self.run_frames(80, 1 / 60)
+        self.assertAlmostEqual(self.frames.slowest_ms(), 1000 / 60, delta=0.1)
+
+    def test_idle_has_no_slowest_gap(self):
+        self.run_frames(30, 1 / 60)
+        self.now[0] += 2.0
+        self.assertIsNone(self.frames.rate())
+        self.assertIsNone(self.frames.slowest_ms())
 
 
 class FakeGpuTimer:
@@ -633,7 +675,8 @@ class FpsOverlayTests(unittest.TestCase):
         apply_theme_for_class(cls, cls.app)
 
     def overlay(self, **kwargs):
-        canvas = SimpleNamespace(native=QWidget(), update=mock.Mock(), size=self.CANVAS_SIZE, **kwargs)
+        update = mock.Mock()
+        canvas = SimpleNamespace(native=QWidget(), update=update, update_mock=update, size=self.CANVAS_SIZE, **kwargs)
         self.addCleanup(canvas.native.deleteLater)
         self.now = [10.0]
         overlay = FpsOverlay(canvas, lambda: 16, clock=lambda: self.now[0], gpu_timer=FakeGpuTimer())
@@ -652,13 +695,13 @@ class FpsOverlayTests(unittest.TestCase):
             overlay.frame_shown()
         self.assertTrue(overlay.timer.isActive())
         overlay.refresh()
-        self.assertTrue(overlay.text().startswith("40 fps"), overlay.text())
+        self.assertTrue(overlay.text().startswith("40 new/s"), overlay.text())
         self.assertIn("edges 1/16", overlay.text())
         self.now[0] += 1.0
         overlay.refresh()
         self.assertEqual(overlay.text(), "Idle")
         self.assertFalse(overlay.timer.isActive())   # nothing runs while idle
-        canvas.update.assert_not_called()
+        canvas.update_mock.assert_not_called()
 
     def test_captures_are_not_frames(self):
         drawn = []
@@ -673,6 +716,63 @@ class FpsOverlayTests(unittest.TestCase):
         self.assertEqual(drawn, [1, 1])
         self.assertEqual(overlay.frames._pending, 16)
         self.assertEqual(overlay.frames.gpu_ms, 2.5)
+
+    def test_only_new_pictures_count_and_the_slowest_gap_shows(self):
+        drawn = []
+        state = [("view", 0)]
+        canvas, overlay = self.overlay(_draw_scene=lambda *a, **k: drawn.append(1))
+        overlay.picture_state = lambda: state[0]
+        with mock.patch.object(Viewer_Edges, "_draws_into_window", return_value=True):
+            def frame(interval):
+                self.now[0] += interval
+                canvas._draw_scene()
+                overlay.frame_shown()
+            for _ in range(30):                  # the same picture 30 times: one frame
+                frame(1 / 60)
+            overlay.refresh()
+            self.assertEqual(overlay.text(), "Idle")
+            for number in range(1, 40):          # the view moves
+                state[0] = ("view", number)
+                frame(1 / 60)
+            state[0] = ("view", 99)
+            frame(0.050)                         # one slow frame
+            overlay.refresh()
+            self.assertRegex(overlay.text(), r"^\d+ new/s · slowest 50 ms · GPU 2\.5 ms · edges 1/16$")
+            # A scene node asking for a redraw is a change; so is a request for a redraw by a mouse.
+            before = overlay.frames._picture
+            canvas.update(node=object())
+            frame(1 / 60)
+            self.assertNotEqual(overlay.frames._picture, before)
+            counted = len(overlay.frames._times)
+            canvas.update()                      # no node: nothing in the scene changed
+            frame(1 / 60)
+            self.assertEqual(len(overlay.frames._times), counted)
+            # A request made while the canvas draws (a visual preparing itself) is no change.
+            canvas._drawing = True
+            canvas.update(node=object())
+            canvas._drawing = False
+            frame(1 / 60)
+            self.assertEqual(len(overlay.frames._times), counted)
+        self.assertEqual(canvas.update.__name__, "counted_update")
+        self.assertEqual(len(drawn), 30 + 39 + 1 + 1 + 1 + 1)
+
+    def test_the_narrow_form_is_the_rate_alone_and_the_room_has_the_slowest_gap(self):
+        _canvas, overlay = self.overlay()
+        self.assertEqual(overlay.text_for(59.0, 3.0, 16, 34.0), "59 new/s · slowest 34 ms · GPU 3.0 ms · edges 1/16")
+        overlay.rate_only = True
+        self.assertEqual(overlay.text_for(59.0, 3.0, 16, 34.0), "59/s")
+        self.assertEqual(overlay.text_for(None, 3.0, 16, 34.0), "Idle")
+        full, narrow = overlay.widest_width(rate_only=False), overlay.widest_width(rate_only=True)
+        probe = QLabel()
+        probe.setFont(overlay.font())
+        probe.setStyleSheet(overlay.styleSheet())
+        probe.setObjectName("fpsOverlay")
+        probe.setText(fps_text(888.0, 888.8, 64, 888.0))
+        probe.ensurePolished()
+        self.assertEqual(full, probe.sizeHint().width())
+        self.assertGreater(full, narrow)
+        probe.setText(fps_text(888.0, 888.8, 64))   # without the slowest gap: narrower
+        self.assertLess(probe.sizeHint().width(), full)
 
     # --- in the Viewer ---------------------------------------------------
 

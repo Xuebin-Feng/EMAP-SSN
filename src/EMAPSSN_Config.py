@@ -2623,9 +2623,10 @@ if __name__ == "__main__":
                 ),
                 "SHOW_FPS": Tip(
                     translate("Config", "Shows the Viewer's frame rate at its top right."),
-                    details=(translate("Config", "It counts the frames drawn to the screen over the last second, with the graphics card's time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn."),),
+                    details=(translate("Config", "It counts the new pictures drawn to the screen over the last second (a redraw of a picture that has not changed is not counted), with the slowest gap between two of them, the graphics card's time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn."),),
                     notes=(
                         TipNote("info", translate("Config", "It is never part of prints or captures.")),
+                        TipNote("info", translate("Config", "The Viewer syncs to the screen's refresh; the environment variable `SSN_VIEWER_VSYNC=0` turns that off, to compare panning.")),
                     ),
                 ),
                 "LAYOUT_DEVICE_SELECTION": Tip(
