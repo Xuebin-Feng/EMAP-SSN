@@ -124,8 +124,11 @@ class OpeningTests(TreeViewerTestCase):
 class NoTreeTests(TreeViewerTestCase):
     """With no tree to show the page opens all the same, and the result says what is missing."""
 
-    def run_tree(self, **options):
+    def run_tree(self, edges=True, **options):
         fake = self.viewer(**options)
+        if edges:
+            fake.full_headers = ["a", "b"]
+            fake.edge_layer = SimpleNamespace(order=[0])
         succeeded, failed, _printed = run_command(tree_command, fake, [])
         failed.assert_not_called()
         fake.open_page.assert_called_once_with("tree")
@@ -133,18 +136,59 @@ class NoTreeTests(TreeViewerTestCase):
 
     def test_no_alignment_loaded(self):
         _fake, said = self.run_tree(alignment=None)
-        self.assertEqual(said, "Opened Tree View. No alignment is loaded, so there is no guide tree to show.")
+        self.assertEqual(said, "Opened Tree View on the network threshold tree. No alignment is loaded, so there is no guide tree to show.")
 
     def test_an_alignment_the_tool_did_not_name(self):
         _fake, said = self.run_tree(alignment="unnamed")
-        self.assertEqual(said, "Opened Tree View. The loaded alignment, mafft_result.fasta, was not named by the Embedding "
-                               "MSA tool, so it has no guide tree.")
+        self.assertEqual(said, "Opened Tree View on the network threshold tree. The loaded alignment, mafft_result.fasta, "
+                               "was not named by the Embedding MSA tool, so it has no guide tree.")
 
     def test_an_alignment_with_no_tree_file_names_the_file_the_page_looks_for(self):
         fake, said = self.run_tree(alignment="no tree")
-        self.assertEqual(said, "Opened Tree View. No guide tree was found for the loaded alignment; Tree View looks for "
-                               f"{fake.expected_tree}.")
+        self.assertEqual(said, "Opened Tree View on the network threshold tree. No guide tree was found for the loaded "
+                               f"alignment; Tree View looks for {fake.expected_tree}.")
         self.assertTrue(os.path.isabs(fake.expected_tree))
+
+    def test_no_guide_tree_and_no_network_says_why_nothing_can_be_shown(self):
+        _fake, said = self.run_tree(alignment=None, edges=False)
+        self.assertEqual(said, "Opened Tree View. No alignment is loaded, so there is no guide tree to show. "
+                               "No network is loaded, so there is no threshold tree either.")
+
+    def test_no_guide_tree_and_a_network_with_no_edges(self):
+        fake = self.viewer(alignment="no tree")
+        fake.full_headers = ["a", "b"]
+        fake.edge_layer = None
+        succeeded, failed, _printed = run_command(tree_command, fake, [])
+        failed.assert_not_called()
+        self.assertEqual(str(succeeded.call_args.args[1]), "Opened Tree View. No guide tree was found for the loaded "
+                         f"alignment; Tree View looks for {fake.expected_tree}. The network has no edges, so there is no "
+                         "threshold tree either.")
+
+    def test_a_tree_opened_earlier_is_named_by_its_file(self):
+        fake = self.viewer(alignment="no tree")
+        fake.full_headers = ["a", "b"]
+        fake.edge_layer = SimpleNamespace(order=[0])
+        fake._tree_upload = SimpleNamespace(name="mine.nwk")
+        fake._tree_source = "uploaded"
+        succeeded, failed, _printed = run_command(tree_command, fake, [])
+        failed.assert_not_called()
+        self.assertEqual(str(succeeded.call_args.args[1]), "Opened Tree View on the tree you opened earlier, mine.nwk.")
+
+    def test_the_threshold_tree_kept_from_the_session_is_named_without_a_reason_when_there_is_a_guide_tree(self):
+        fake = self.viewer(alignment="with tree")
+        fake.full_headers = ["a", "b"]
+        fake.edge_layer = SimpleNamespace(order=[0])
+        fake._tree_source = "threshold"
+        succeeded, _failed, _printed = run_command(tree_command, fake, [])
+        self.assertEqual(str(succeeded.call_args.args[1]), "Opened Tree View on the network threshold tree.")
+
+    def test_the_command_chooses_as_the_page_does(self):
+        from web_ui import tree_backend
+        for kept, available, expected in (
+            (None, {"guide", "threshold"}, "guide"), ("threshold", {"guide", "threshold"}, "threshold"),
+            ("uploaded", {"guide"}, "guide"), (None, {"threshold"}, "threshold"), (None, set(), "guide"),
+        ):
+            self.assertEqual(tree_backend.default_source(kept, available), expected)
 
     def test_a_tree_that_is_there_has_no_note_whatever_it_holds(self):
         # Whether it can be read is for the page to say: reading it here would parse it on the Viewer's thread.
@@ -157,7 +201,8 @@ class NoTreeTests(TreeViewerTestCase):
             succeeded, failed, _printed = run_command(tree_command, fake, [])
         failed.assert_not_called()
         self.assertEqual(str(succeeded.call_args.args[1]), "Tree View is already open in your browser. No guide tree was "
-                         f"found for the loaded alignment; Tree View looks for {fake.expected_tree}.")
+                         f"found for the loaded alignment; Tree View looks for {fake.expected_tree}. No network is loaded, so there "
+                         "is no threshold tree either.")
 
     def test_a_viewer_with_no_window_says_so_and_what_is_missing(self):
         fake = self.viewer(opens=False, alignment=None)
@@ -167,7 +212,8 @@ class NoTreeTests(TreeViewerTestCase):
             succeeded, failed, _printed = run_command(tree_command, fake, [])
         failed.assert_not_called()
         self.assertEqual(str(succeeded.call_args.args[1]), "A Viewer with no window opens no browser page; Tree View is "
-                         "served at http://127.0.0.1:1/tree.html. No alignment is loaded, so there is no guide tree to show.")
+                         "served at http://127.0.0.1:1/tree.html. No alignment is loaded, so there is no guide tree to show. "
+                         "No network is loaded, so there is no threshold tree either.")
 
     def test_registering_the_button_says_nothing_of_the_tree(self):
         fake = self.viewer(alignment=None)

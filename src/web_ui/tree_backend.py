@@ -784,6 +784,38 @@ def source_choices(viewer, guide):
     return choices
 
 
+def default_source(kept, available):
+    """The tree the page opens on when it asks for none: the source the Viewer kept for the session while it can be
+    shown, else the guide tree when it can, else the threshold tree; with none to show, the guide tree (whose card says
+    why). ``available`` is the set of sources that can be shown."""
+    if kept in available:
+        return kept
+    if SOURCE_GUIDE in available:
+        return SOURCE_GUIDE
+    if SOURCE_THRESHOLD in available:
+        return SOURCE_THRESHOLD
+    return SOURCE_GUIDE
+
+
+def opening_source(viewer):
+    """Which tree the page opens on now, said without reading any tree file: ``(source, guide, threshold_reason)``.
+
+    ``source`` is what default_source chooses. ``guide`` is locate_tree(viewer): the guide tree counts as available
+    when its file is there, whether it can be read is for the page to say. ``threshold_reason`` is
+    threshold_unavailable(viewer) ("no_network", "no_edges" or None).
+    """
+    guide = locate_tree(viewer)
+    threshold_reason = threshold_unavailable(viewer)
+    available = set()
+    if guide["status"] == "present":
+        available.add(SOURCE_GUIDE)
+    if threshold_reason is None:
+        available.add(SOURCE_THRESHOLD)
+    if stored_upload(viewer) is not None:
+        available.add(SOURCE_UPLOADED)
+    return default_source(getattr(viewer, "_tree_source", None), available), guide, threshold_reason
+
+
 def tree_state(viewer, source=None):
     """What the Tree View page is sent: one tree, or why there is none to draw, and the trees it can choose from.
 
@@ -804,15 +836,7 @@ def tree_state(viewer, source=None):
         if source in available:
             viewer._tree_source = source
     else:
-        kept = getattr(viewer, "_tree_source", None)
-        if kept in available:
-            chosen = kept
-        elif SOURCE_GUIDE in available:
-            chosen = SOURCE_GUIDE
-        elif SOURCE_THRESHOLD in available:
-            chosen = SOURCE_THRESHOLD
-        else:
-            chosen = SOURCE_GUIDE
+        chosen = default_source(getattr(viewer, "_tree_source", None), available)
     if chosen == SOURCE_THRESHOLD:
         answer = threshold_state(viewer)
     elif chosen == SOURCE_UPLOADED:
