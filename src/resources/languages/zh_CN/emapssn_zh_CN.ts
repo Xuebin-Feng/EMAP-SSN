@@ -4848,7 +4848,7 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
         <location filename="../../../commands/subcluster.py" line="+233"/>
-        <location filename="../../../commands/tree.py" line="+109"/>
+        <location filename="../../../commands/tree.py" line="+111"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -14558,7 +14558,12 @@ Fedora / RHEL：
         <translation type="unfinished">支序图</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+12"/>
+        <source>Tree beside the network</source>
+        <translation type="unfinished">网络旁的树</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in</source>
         <translation type="unfinished">在树放大时，用进化枝上的圆点显示每个分裂在距离噪声下的稳定程度</translation>
     </message>
@@ -14618,12 +14623,11 @@ Fedora / RHEL：
         <translation type="unfinished">详细信息</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>Guide tree of the loaded alignment</source>
-        <translation type="unfinished">已加载比对的引导树</translation>
+        <translation type="obsolete">已加载比对的引导树</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+7"/>
         <source>The whole tree. Press or drag to move there.</source>
         <translation type="unfinished">整棵树。按下或拖动可移动到该处。</translation>
     </message>
@@ -15305,8 +15309,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+2"/>
+        <source>Open Tree View in browser: the guide tree, the network threshold tree or a tree file</source>
+        <translation type="unfinished">在浏览器中打开树视图：引导树、网络阈值树或树文件</translation>
+    </message>
+    <message>
         <source>Open the guide tree of the loaded alignment in browser</source>
-        <translation type="unfinished">在浏览器中打开已加载比对的引导树</translation>
+        <translation type="obsolete">在浏览器中打开已加载比对的引导树</translation>
     </message>
 </context>
 <context>

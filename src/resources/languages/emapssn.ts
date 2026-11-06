@@ -10305,7 +10305,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Guide tree of the loaded alignment</source>
+        <source>Tree beside the network</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10528,7 +10528,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Open the guide tree of the loaded alignment in browser</source>
+        <source>Open Tree View in browser: the guide tree, the network threshold tree or a tree file</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

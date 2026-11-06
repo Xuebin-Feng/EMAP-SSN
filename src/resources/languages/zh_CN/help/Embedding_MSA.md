@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_MSA.md, sha256 56e4bfefde359ab98be119f60a4c33e9da22ca1fd23a26d662382a8e76eb7c57 -->
+<!-- Translation of Embedding_MSA.md, sha256 c81edbf93f9b3b0f92aaef9f28ad3964409587b9563f2b7fb290f457eb822077 -->
 # Embedding 多序列比对 (`Embedding_MSA.py`)
 
 该脚本使用蛋白质语言模型（pLM）embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
