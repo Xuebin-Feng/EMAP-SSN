@@ -403,6 +403,27 @@ class ReportTests(OpenCase):
         self.assertEqual(self.console_errors(), [])
         self.shot("report-card.png")
 
+    def test_the_toolbar_is_one_row_at_1300_pixels_in_every_state(self):
+        self.start(guide=True)
+        rows = """(() => { const bar = document.querySelector('.toolbar');
+            const tops = new Set(Array.from(bar.children).filter(e => e.offsetParent !== null && e.getBoundingClientRect().width > 2).map(e => { const r = e.getBoundingClientRect(); return Math.round((r.top + r.bottom) / 2 / 20); }));
+            const header = document.querySelector('header').getBoundingClientRect().height;
+            return {tops: Array.from(tops), width: window.innerWidth, header}; })()"""
+        self.assertEqual(self.state("window.innerWidth"), 1300)
+        for label, action in (
+            ("guide", lambda: None),
+            ("threshold", lambda: self.script("await TreeView.loadTree('threshold'); return 1")),
+            ("uploaded", lambda: (self.open_text(text_of("primates.nwk"), "p.nwk"), self.wait_uploaded())),
+            ("empty", lambda: (self.open_text(">x\nAC", "x.fa"), self.wait_for("document.body.dataset.view === 'empty'"))),
+        ):
+            with self.subTest(label):
+                action()
+                self.pump(0.3)
+                found = self.state(rows)
+                self.assertEqual(len(found["tops"]), 1, found)
+        # With a tree open the Match button is in the header, beside the Tree list.
+        self.assertEqual(self.state("document.getElementById('report-btn').closest('header') !== null"), True)
+
     def test_the_list_of_leaves_that_are_not_in_the_network_is_copyable_whole(self):
         self.start()
         names = [f"Missing_{k}" for k in range(5030)]

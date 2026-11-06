@@ -599,6 +599,8 @@
                 </select>
             </label>
             <input type="file" id="file-input" hidden aria-label="Open a tree file">
+            <!-- In the header, beside the Tree list, so that the toolbar keeps one row. -->
+            <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" hidden disabled><span data-i18n>Match</span></button>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
@@ -629,7 +631,6 @@
         <button class="btn" id="unfold-btn" title="Open every clade that is folded up" disabled><span data-i18n>Open all</span></button>
         <button class="btn" id="overview-btn" aria-pressed="true" title="Show or hide the overview map" disabled><span data-i18n>Overview</span></button>
         <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
-        <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" hidden disabled><span data-i18n>Match</span></button>
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
 
