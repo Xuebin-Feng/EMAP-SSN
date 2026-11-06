@@ -98,11 +98,15 @@ still change before version 1.0.0.
     drawn as one line, and names appear only where they fit.
   - **In the network's colours:** each leaf is drawn in its node's colour, and a clade in the
     colour that nine in ten of its shown leaves share, so clusters that form clades stand out
-    even in the overview. A legend names the colours (by cluster where one matches) and marks
-    a colour's leaves when clicked. Hidden nodes are faded. The tree follows the Viewer when
-    colours, clusters or hidden nodes change, and when another alignment is loaded.
-  - **Selection, both ways:** nodes selected in the network are marked in the tree, with the
-    smallest clade that holds them outlined. Right-clicking a clade or a leaf selects its
+    even in the overview. Nodes nobody has coloured keep the Viewer's node colour. A legend
+    names the colours (by cluster where one matches) and marks a colour's leaves, in the
+    theme colour, when clicked. Hidden nodes are left out, and the tree closes up around the
+    rest with its branch lengths kept. The tree follows the Viewer when colours, clusters or
+    hidden nodes change, and when another alignment is loaded.
+  - **Selection, both ways:** nodes selected in the network are marked in the tree in the
+    Viewer's selection colour, with the smallest clade that holds them outlined, and their
+    neighbours in the network in its connected-node colour while the Viewer marks them.
+    These colours are the ones set in Config. Right-clicking a clade or a leaf selects its
     nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
     space clears the selection. Clicking a leaf focuses its node in the network.
   - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
