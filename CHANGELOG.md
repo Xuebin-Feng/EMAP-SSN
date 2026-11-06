@@ -80,10 +80,19 @@ still change before version 1.0.0.
     not bootstrap support.
   - It is a guide tree, not a phylogeny: its distances are inverted alignment scores, partly
     imputed on sparse networks. The alignment itself is unchanged.
-- **Tree View, a Viewer page for the guide tree.** The `tree` command, or the Tree View
-  button it adds to the Console, opens the guide tree of the loaded alignment in the browser.
-  - **There is no tree to choose.** The page reads `Guide_Trees/<name>_guide_tree.nex` beside
-    `<name>_alignment.fasta`, and follows the alignment when another one is loaded.
+- **Tree View, a Viewer page for trees of the network.** The `tree` command, or the Tree View
+  button it adds to the Console, opens it in the browser.
+  - **Two trees to choose from,** in the Tree selector at the top of the page:
+    - **The guide tree** of the loaded alignment: the page reads
+      `Guide_Trees/<name>_guide_tree.nex` beside `<name>_alignment.fasta`, and follows the
+      alignment when another one is loaded. It opens first when there is one.
+    - **The network threshold tree,** built from the edges of the network the Viewer has
+      loaded, in about 0.15 s at 44,000 sequences with 5% of pairs. Each branch point is where
+      two groups of nodes first share an edge, at that edge's score, so cutting the tree at
+      the threshold gives the groups the Viewer shows joined. A line marks the threshold on
+      the tree and follows the slider. Groups that share no kept edge hang from one root on
+      broken branches. It needs no alignment, and with a UMAP or PaCMAP layout it is built
+      from the edges that layout keeps.
   - **Three layouts:** rectangular, circular and unrooted, each drawn with branch lengths
     (phylogram) or without (cladogram). A rooted tree opens rectangular and an unrooted tree
     opens unrooted; either can be switched to any layout. An unrooted tree drawn rectangular
