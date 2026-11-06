@@ -81,7 +81,8 @@ still change before version 1.0.0.
   - It is a guide tree, not a phylogeny: its distances are inverted alignment scores, partly
     imputed on sparse networks. The alignment itself is unchanged.
 - **Tree View, a Viewer page for trees of the network.** The `tree` command, or the Tree View
-  button it adds to the Console, opens it in the browser.
+  button it adds to the Console, opens it in the browser. The command's result names the
+  tree the page opens on, and says why there is no guide tree when there is none.
   - **Three trees to choose from,** in the Tree selector at the top of the page:
     - **The guide tree** of the loaded alignment: the page reads
       `Guide_Trees/<name>_guide_tree.nex` beside `<name>_alignment.fasta`, and follows the
