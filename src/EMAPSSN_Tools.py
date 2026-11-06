@@ -205,7 +205,8 @@ INLINE_FIELD_GROUPS = {
     ],
     "Parse_BLAST_Output.py": [
         ("INPUT_FASTA", "SCORE_METRIC"),
-        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"),
+        ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
+        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"),
     ],
     "Sanitize_Sequences.py": [
         ("INPUT_FASTA", "OVER_WRITE"),
@@ -237,19 +238,29 @@ INLINE_FIELD_RATIOS = {
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
     ("INPUT_FASTA", "MATRIX"): (2, 1),
     ("BLASTP_DIR", "SCORE_METRIC"): (2, 1),
-    # Three of the four columns of the row of column fields below it.
-    ("INPUT_FASTA", "SCORE_METRIC"): (3, 1),
-    ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"): (1, 1, 1, 1),
+    # Two of the three columns of the row of column fields below them.
+    ("INPUT_FASTA", "SCORE_METRIC"): (2, 1),
+    ("BLAST_LAYOUT", "BITSCORE_COLUMN"): (2, 1),
+    ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"): (1, 1, 1),
 }
 # Ratios that count the columns of a row of that many equal fields.
 INLINE_FIELD_GRID_GROUPS = {
     ("INPUT_FASTA", "SCORE_METRIC"),
+    ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
+}
+# Rows that are side by side or stacked together, at the widest width any needs.
+STACK_TOGETHER_GROUPS = {
+    "Parse_BLAST_Output.py": [(
+        ("INPUT_FASTA", "SCORE_METRIC"),
+        ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
+        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"),
+    )],
 }
 # Labels that take one width, so their fields start at one x as well as the
 # labels: the second column of one row over the last column of another.
 ALIGNED_LABEL_GROUPS = {
     "Align_Substitution_Matrix.py": [("MATRIX", "SCORE_METRIC")],
-    "Parse_BLAST_Output.py": [("BITSCORE_COLUMN", "SCORE_METRIC")],
+    "Parse_BLAST_Output.py": [("SCORE_METRIC", "BITSCORE_COLUMN", "EVALUE_COLUMN")],
 }
 # The order of the fields as the card shows them, where the field list differs.
 TAB_ORDERS = {
@@ -259,7 +270,7 @@ TAB_ORDERS = {
     ),
     "Parse_BLAST_Output.py": (
         "INPUT_BLAST_TABULAR", "INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT",
-        "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN",
+        "BITSCORE_COLUMN", "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN",
     ),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
@@ -2531,6 +2542,11 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "BLAST Layout:")
                         },
                         {
+                            "var_name": "BITSCORE_COLUMN",
+                            "type": "number",
+                            "display": translate("Tools", "Bit Score Column:")
+                        },
+                        {
                             "var_name": "QUERY_COLUMN",
                             "type": "number",
                             "display": translate("Tools", "Query Column:")
@@ -2544,11 +2560,6 @@ class ToolsGUI(QMainWindow):
                             "var_name": "EVALUE_COLUMN",
                             "type": "number",
                             "display": translate("Tools", "EValue Column:")
-                        },
-                        {
-                            "var_name": "BITSCORE_COLUMN",
-                            "type": "number",
-                            "display": translate("Tools", "Bit Score Column:")
                         }
                     ]
                 }
@@ -4477,6 +4488,7 @@ class ToolsGUI(QMainWindow):
 
     @staticmethod
     def _merge_responsive_rows(layout, script_name, row_widgets, groups, inline=False):
+        merged_layouts = {}
         for variable_group in groups.get(script_name, []):
             if any(name not in row_widgets for name in variable_group):
                 continue
@@ -4514,6 +4526,11 @@ class ToolsGUI(QMainWindow):
                 grid=variable_group in INLINE_FIELD_GRID_GROUPS,
             )
             layout.insertRow(min(positions), group)
+            merged_layouts[variable_group] = group.layout()
+        for peer_groups in STACK_TOGETHER_GROUPS.get(script_name, []):
+            peers = [merged_layouts[g] for g in peer_groups if g in merged_layouts]
+            for row_layout in peers:
+                row_layout.stack_peers = peers
 
     @staticmethod
     def _merge_compact_rows(layout, script_name, row_widgets):

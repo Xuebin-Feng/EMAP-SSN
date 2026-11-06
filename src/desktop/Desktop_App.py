@@ -828,6 +828,9 @@ class ResponsiveFieldLayout(QLayout):
         # spans r of them with their gaps. Beside a row of sum(ratios) fields
         # the last column then starts exactly where that row's last one does.
         self.grid = grid
+        # Rows that are wide or stacked together: each takes the widest width
+        # any of them needs. The row itself is among them.
+        self.stack_peers = None
         self.stacked_label_width = stacked_label_width
         self.wrap_labels = wrap_labels
         self.pairs = pairs
@@ -903,6 +906,11 @@ class ResponsiveFieldLayout(QLayout):
                 for label, control in self.pairs]
 
     def _wide_width(self):
+        if self.stack_peers:
+            return max(peer._own_wide_width() for peer in self.stack_peers)
+        return self._own_wide_width()
+
+    def _own_wide_width(self):
         if self.column_width_provider is not None:
             return self.column_width_provider(None)
         minima = self._column_minima()

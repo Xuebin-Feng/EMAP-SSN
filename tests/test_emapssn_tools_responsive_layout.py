@@ -173,8 +173,9 @@ class ResponsiveToolsTests(unittest.TestCase):
                 self.assertEqual(inputs[name]["widget"].isEnabled(), checked, name)
         self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
 
-    def test_parse_blast_puts_the_four_column_fields_on_one_row_and_follows_the_score(self):
-        names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN")
+    def test_parse_blast_puts_the_three_column_fields_on_one_row_and_follows_the_score(self):
+        names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")
+        all_columns = names + ("BITSCORE_COLUMN",)
         path = next(path for path in self.window.script_data
                     if path.endswith("Parse_BLAST_Output.py"))
         inputs = self.window.script_data[path]["inputs"]
@@ -189,7 +190,7 @@ class ResponsiveToolsTests(unittest.TestCase):
             self.resize_panel(width)
             with self.subTest(width=width):
                 self.assert_layout_geometry(self.window.tabs.widget(tab).widget())
-                # The fields stack once the row is too narrow for four of them.
+                # The fields stack once the row is too narrow for them.
                 self.assertEqual(row.property("stacked"), width == 600)
         # Only the layout and the score decide which of the columns are read.
         layout = inputs["BLAST_LAYOUT"]["widget"]
@@ -204,7 +205,7 @@ class ResponsiveToolsTests(unittest.TestCase):
             with self.subTest(layout=layout_value, score=score_value):
                 layout.setCurrentIndex(layout.findData(layout_value))
                 score.setCurrentIndex(score.findData(score_value))
-                self.assertEqual({name for name in names if inputs[name]["widget"].isEnabled()},
+                self.assertEqual({name for name in all_columns if inputs[name]["widget"].isEnabled()},
                                  enabled)
 
     @staticmethod
@@ -251,20 +252,34 @@ class ResponsiveToolsTests(unittest.TestCase):
         # The hardware section keeps the batch size and the workers.
         self.assertIsNotNone(self.window.findChild(QWidget, "compactRow_BATCH_SIZE_NUM_THREADS"))
 
-        # Score sits on the Sequence Set row and starts where Bit Score Column does.
-        (fasta_row, column_row), card = rows(
+        # Score, Bit Score Column and EValue Column, the last columns of three rows, start
+        # at one x, label and field alike. The rows are side by side or stacked together.
+        (fasta_row, layout_row, column_row), card = rows(
             "Parse_BLAST_Output.py", ("INPUT_FASTA", "SCORE_METRIC"),
-            ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"))
-        self.assertLess(fasta_row.mapTo(card, QPoint(0, 0)).y(),
-                        column_row.mapTo(card, QPoint(0, 0)).y())
-        for width in (1500, 1800, 2200):
+            ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
+            ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"))
+        ys = [row.mapTo(card, QPoint(0, 0)).y() for row in (fasta_row, layout_row, column_row)]
+        self.assertEqual(ys, sorted(set(ys)))
+        last = [(fasta_row, parse["SCORE_METRIC"]["widget"]),
+                (layout_row, parse["BITSCORE_COLUMN"]["widget"]),
+                (column_row, parse["EVALUE_COLUMN"]["widget"])]
+        for width in (1250, 1800, 2200):
             self.resize_panel(width)
             with self.subTest(script="Parse_BLAST_Output", width=width):
-                self.assertFalse(fasta_row.property("stacked"))
-                self.assertFalse(column_row.property("stacked"))
-                self.assertEqual(self.column_starts(fasta_row, parse["SCORE_METRIC"]["widget"], card),
-                                 self.column_starts(column_row, parse["BITSCORE_COLUMN"]["widget"], card))
+                for row in (fasta_row, layout_row, column_row):
+                    self.assertFalse(row.property("stacked"))
+                starts = {self.column_starts(row, control, card) for row, control in last}
+                self.assertEqual(len(starts), 1, starts)
                 self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
+        # No width has some of the three side by side and the others stacked.
+        widest = max(row.layout()._own_wide_width() for row in (fasta_row, layout_row, column_row))
+        for row in (fasta_row, layout_row, column_row):
+            self.assertEqual(row.layout()._wide_width(), widest)
+        for width in range(900, 1300, 25):
+            self.resize_panel(width)
+            with self.subTest(script="Parse_BLAST_Output", stacking=width):
+                self.assertEqual(len({bool(row.property("stacked"))
+                                      for row in (fasta_row, layout_row, column_row)}), 1)
 
     def test_tab_follows_the_rows_of_the_two_blast_tools(self):
         for script, order in (
@@ -272,7 +287,7 @@ class ResponsiveToolsTests(unittest.TestCase):
              ("INPUT_FASTA", "MATRIX", "BLASTP_DIR", "SCORE_METRIC", "BATCH_SIZE", "NUM_THREADS")),
             ("Parse_BLAST_Output.py",
              ("INPUT_BLAST_TABULAR", "INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT",
-              "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN")),
+              "BITSCORE_COLUMN", "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")),
         ):
             path = next(path for path in self.window.script_data if path.endswith(script))
             inputs = self.window.script_data[path]["inputs"]
