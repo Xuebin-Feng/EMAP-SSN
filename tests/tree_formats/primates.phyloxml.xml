@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phyloxml xmlns="http://www.phyloxml.org" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <phylogeny rooted="true">
+    <name>Primates and others</name>
+    <clade>
+      <name>Mammals</name>
+      <clade branch_length="0.05">
+        <confidence type="bootstrap">88</confidence>
+        <confidence type="probability">0.91</confidence>
+        <color><red>204</red><green>0</green><blue>0</blue></color>
+        <clade branch_length="0.12">
+          <taxonomy><scientific_name>Homo sapiens</scientific_name><code>HOMSA</code><common_name>human</common_name></taxonomy>
+        </clade>
+        <clade>
+          <branch_length>0.13</branch_length>
+          <name>Pan_troglodytes</name>
+          <sequence><accession source="UniProtKB">P69905</accession></sequence>
+        </clade>
+      </clade>
+      <clade branch_length="0.08">
+        <confidence type="bootstrap">70</confidence>
+        <confidence type="probability">0.8</confidence>
+        <clade branch_length="0.30"><name>Mus musculus &amp; relatives</name><color><red>0</red><green>0</green><blue>204</blue></color></clade>
+        <clade branch_length="0.28"><name>Rattus_norvegicus</name></clade>
+      </clade>
+      <clade branch_length="0.40"><taxonomy><code>BOVTA</code></taxonomy></clade>
+    </clade>
+  </phylogeny>
+  <phylogeny rooted="false">
+    <name>Second</name>
+    <clade>
+      <clade branch_length="1"><name>X1</name></clade>
+      <clade branch_length="2"><name>X2</name></clade>
+      <clade branch_length="3"><name>X3</name></clade>
+    </clade>
+  </phylogeny>
+</phyloxml>

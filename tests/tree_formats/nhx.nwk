@@ -1,0 +1,1 @@
+((Homo_sapiens:0.12[&&NHX:S=human:T=9606],Pan_troglodytes:0.13[&&NHX:S=chimp:T=9598])[&&NHX:B=88:D=N]:0.05,(Mus_musculus:0.30[&&NHX:S=mouse:T=10090],Rattus_norvegicus:0.28[&&NHX:S=rat])[&&NHX:B=70:D=Y]:0.08,Bos_taurus:0.40[&&NHX:S=cow]);

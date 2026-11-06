@@ -97,6 +97,10 @@ window.TreeView = window.TreeView || {};
             nodeCount, leafCount, root, parent, length, support, viewerNode, labels, score,
             source: payload.source || "guide",
             threshold: payload.threshold || null,
+            // What the Viewer says of a tree the user opened (its file, format, notation) and how its leaves matched the
+            // network's nodes; null for the other trees.
+            uploaded: payload.uploaded || null,
+            match: payload.match || null,
             childCount, childStart, childList, size, firstLeaf, lastLeaf, leafOrdinal, leafNode, shownBefore,
             hasLengths: !!payload.has_lengths,
             rooted: payload.rooted === true ? true : payload.rooted === false ? false : null,

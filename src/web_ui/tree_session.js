@@ -2,8 +2,9 @@
  * Author affiliation: University of Toronto
  * SPDX-License-Identifier: Apache-2.0
  *
- * Tree View's page: it asks the Viewer for the tree of the loaded alignment, says why when there is none to draw,
- * says how the tree fits the alignment and the network, and wires the search, the buttons and the theme.
+ * Tree View's page: it asks the Viewer for the tree it shows (the guide tree of the loaded alignment, the tree of the
+ * network's own edges, or a tree the user opened: tree_open.js), says why when there is none to draw, says how the tree
+ * fits the alignment and the network, and wires the search, the buttons and the theme.
  *
  * The Viewer sends facts, never sentences: a status, counts and warning codes. Every word the page shows is
  * written here, through t(), in the Viewer's language. A header, a path or a note of the file is shown as it is,
@@ -54,6 +55,7 @@ window.TreeView = window.TreeView || {};
     function setIcon(svg, name) {
         svg.querySelector("use").setAttribute("href", "#i-" + name);
     }
+    TV.icon = icon;
 
     // ---- What the page shows ---------------------------------------------------------------------------------
 
@@ -63,21 +65,28 @@ window.TreeView = window.TreeView || {};
         $("loading").classList.toggle("shown", which === "loading");
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
-        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn"]) $(id).disabled = !hasTree;
+        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn", "report-btn"]) $(id).disabled = !hasTree;
         showSupportControl(hasTree);
         $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
             for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) $(id).disabled = true;
+            // Nothing is drawn, so nothing is matched: the button of the match's card waits for a tree the user opened.
+            $("report-btn").hidden = true;
             $("search-count").textContent = "";
             $("details").classList.remove("shown");
+            $("match-report").classList.remove("shown");
             $("banner").classList.remove("shown");
             $("summary").textContent = "";
             TV.hideTooltip($("tooltip"));
         }
         document.body.dataset.view = which;
     }
+    TV.show = show;
 
-    // The card that says why there is no tree. spec: { title, body, path, more }, path shown as a path to copy.
+    // The card that says why there is no tree. spec: { title, body, path, more }, path shown as a path to copy. A card can also
+    // hold a list to choose from (choices: the labels, selected: the one to start on), more to read (build(container) fills a
+    // box), a main button (open: its label) and its own label for the button that asks the Viewer again (retry).
+    let retryLabel = "";
     function showEmpty(spec) {
         state.model = null;
         state.layout = null;
@@ -94,9 +103,30 @@ window.TreeView = window.TreeView || {};
         more.hidden = !spec.more;
         more.textContent = spec.more || "";
         $("empty-copy").hidden = !spec.path;
+        const choice = $("empty-choice");
+        choice.hidden = !spec.choices;
+        choice.replaceChildren();
+        if (spec.choices) {
+            spec.choices.forEach((label, index) => {
+                const option = document.createElement("option");
+                option.value = String(index);
+                option.textContent = label;
+                choice.appendChild(option);
+            });
+            choice.selectedIndex = Math.min(spec.selected || 0, spec.choices.length - 1);
+        }
+        const report = $("empty-report");
+        report.replaceChildren();
+        report.hidden = !spec.build;
+        if (spec.build) spec.build(report);
+        $("empty-open").hidden = !spec.open;
+        $("empty-open-label").textContent = spec.open || "";
+        $("empty-retry").querySelector("span").textContent = spec.retry || retryLabel;
         show("empty");
         TV.drawNow();
+        if (spec.choices) choice.focus();
     }
+    TV.showCard = showEmpty;
 
     // What to say for each status the Viewer gives when there is nothing to draw. payload: the Viewer's answer, with
     // reason added when this page could not use the tree it was sent.
@@ -126,7 +156,14 @@ window.TreeView = window.TreeView || {};
                     body: t("The file is there, but this page cannot read it as a guide tree: {reason}", { reason: payload.reason || "" }),
                     path: payload.tree_path,
                 };
+            case "no_upload":
+                return {
+                    title: t("No tree has been opened"),
+                    body: t("Open a tree file from the Tree list, drop one on this page, or paste the tree's text with Ctrl+V. Newick, NEXUS, PhyloXML, NeXML and JSON trees are read, and their leaves are matched to the nodes of the network by full sequence name."),
+                    open: t("Open a tree file"),
+                };
             case "no_overlap":
+                if (payload.source === "uploaded") return TV.noMatchCard(payload);
                 return {
                     title: t("The tree does not match this network"),
                     body: t("None of the {leaves} leaves of this tree is a node of the network, so there is nothing to show beside it. The tree and the network may come from different sequence sets.", { leaves: ((payload.counts || {}).leaves || 0).toLocaleString() }),
@@ -165,10 +202,27 @@ window.TreeView = window.TreeView || {};
         const select = $("source-select");
         if (Array.isArray(payload.sources)) state.sources = payload.sources;
         if (payload.source) state.source = payload.source;
+        // The tree the user opened is listed by its file's name, before the entry that opens another.
+        const opened = state.sources.find((item) => item.id === "uploaded");
+        let option = select.querySelector('option[value="uploaded"]');
+        if (opened && !option) {
+            option = document.createElement("option");
+            option.value = "uploaded";
+            select.insertBefore(option, select.querySelector('option[value="open"]'));
+        } else if (!opened && option) {
+            option.remove();
+        }
+        if (opened) {
+            option.textContent = opened.name || t("The opened tree");
+            option.title = opened.name || "";
+        }
         for (const option of select.options) {
+            if (option.value === "open") continue;
             const entry = state.sources.find((item) => item.id === option.value);
             option.disabled = !!entry && !entry.available;
-            option.title = entry && !entry.available && entry.reason ? emptyCard({ status: entry.reason, alignment: payload.alignment }).title : "";
+            if (option.value !== "uploaded") {
+                option.title = entry && !entry.available && entry.reason ? emptyCard({ status: entry.reason, alignment: payload.alignment }).title : "";
+            }
         }
         select.value = state.source;
         select.disabled = !state.sources.length;
@@ -178,6 +232,12 @@ window.TreeView = window.TreeView || {};
     // as they do for any new tree; the colours, the selection and the nodes the network hides come through the nodes the
     // leaves stand for, so they carry over to it.
     function chooseSource(value) {
+        if (value === "open") {
+            // The entry that opens a file is no tree: the list goes back to the tree shown, and the file chooser opens.
+            $("source-select").value = state.source;
+            TV.chooseFile();
+            return;
+        }
         if (value === state.source && state.model) return;
         TV.loadTree(value).then((ok) => { $("source-select").value = state.source; return ok; });
     }
@@ -360,6 +420,18 @@ window.TreeView = window.TreeView || {};
                 return t("Nodes of this network that are not leaves of the tree: {count}.", { count: Number(warning.count).toLocaleString() });
             case "leaves_not_in_alignment":
                 return t("Leaves whose sequence is not in the loaded alignment: {count}.", { count: Number(warning.count).toLocaleString() });
+            case "ambiguous_names":
+                return t("Leaves whose name reaches a node that another leaf has too, left unmatched: {count}.", { count: Number(warning.count).toLocaleString() });
+            case "negative_lengths":
+                return t("Branches with a negative length, drawn with length 0: {count}.", { count: Number(warning.count).toLocaleString() });
+            case "no_semicolon":
+                return t("The tree does not end with a ; as a Newick tree should.");
+            case "unnamed_leaves":
+                return t("Leaves with no name, which were called unnamed_1, unnamed_2, ...: {count}.", { count: Number(warning.count).toLocaleString() });
+            case "support_out_of_range":
+                return t("Support values above 100, which are no percentage, were ignored: {count}.", { count: Number(warning.count).toLocaleString() });
+            case "duplicate_names":
+                return t("Leaf names that repeat an earlier one: {count}.", { count: Number(warning.count).toLocaleString() });
             default:
                 return t("The tree and the Viewer differ in a way this page has no words for: {code}", { code: String(warning.code) });
         }
@@ -371,6 +443,8 @@ window.TreeView = window.TreeView || {};
     function rootingNote() {
         const model = state.model;
         if (!model || model.rooted === true || state.kind === "unrooted") return null;
+        // A tree opened from a file is drawn from the root its file writes; the guide tree's is its midpoint.
+        if (model.source === "uploaded") return t("Drawn from the root the file writes; the tree itself is unrooted.");
         return t("Drawn from the midpoint root; the tree itself is unrooted.");
     }
 
@@ -524,7 +598,14 @@ window.TreeView = window.TreeView || {};
         $("support-legend").hidden = !usable;
         $("support-btn").setAttribute("aria-pressed", String(usable && state.showSupport));
         $("support-body").hidden = !(usable && state.showSupport);
+        // The guide tree's dots say how stable a split is under noise; a tree from a file gives support of its own.
+        const own = !!(state.model && state.model.source === "uploaded");
+        $("support-title").textContent = own ? t("Support") : supportWords.title;
+        $("support-note").textContent = own ? t("The support the file gives each split, as a percentage. The dots show where the tree is zoomed in.") : supportWords.note;
+        $("support-btn").title = own ? t("Show the support the file gives each split, as dots on the clades, where the tree is zoomed in") : supportWords.tip;
     }
+    // What the legend says for the guide tree, as the page was served.
+    const supportWords = { title: "", note: "", tip: "" };
 
     // The legend's ramp, in the palette's five steps.
     function showSupportRamp() {
@@ -568,6 +649,10 @@ window.TreeView = window.TreeView || {};
             showThresholdDetails(panel, model, addRows, addTitle);
             return;
         }
+        if (model.source === "uploaded" && model.uploaded) {
+            showUploadedDetails(panel, model, addRows, addTitle);
+            return;
+        }
         const notes = model.notes;
         const kind = model.rooted === true ? t("Rooted") : model.rooted === false ? t("Unrooted (rooted at its midpoint in the file)") : t("Rooting not stated");
         addRows([
@@ -606,6 +691,53 @@ window.TreeView = window.TreeView || {};
                 paragraph.textContent = sentence;
                 panel.appendChild(paragraph);
             }
+        }
+    }
+
+    // The Details of a tree the user opened: its file and what the file says of it, and how its leaves matched the network.
+    function showUploadedDetails(panel, model, addRows, addTitle) {
+        const info = model.uploaded;
+        const match = model.match;
+        const stated = !!info.root_stated;
+        const kind = model.rooted === true
+            ? (stated ? t("Rooted (the file says so)") : t("Rooted (its root has fewer than three branches)"))
+            : model.rooted === false
+                ? (stated ? t("Unrooted (the file says so)") : t("Unrooted (its root has three or more branches)"))
+                : t("Rooting not stated");
+        addRows([
+            [t("File"), info.file],
+            [t("Format"), info.format],
+            [t("Notation"), (info.dialects || []).join(", ")],
+            [t("Tree name"), info.tree_name || t("(none)")],
+            [t("Leaves"), model.leafCount.toLocaleString()],
+            [t("Rooting"), kind],
+            [t("Branch lengths"), model.hasLengths ? t("Yes") : t("No (drawn as a cladogram)")],
+            [t("Support"), TV.hasSupport(model) ? (info.support_name || t("Yes")) : t("No")],
+            [t("Clade names"), info.clade_names ? Number(info.clade_names).toLocaleString() : t("None")],
+        ]);
+        const rooting = document.createElement("p");
+        rooting.className = "note";
+        rooting.id = "details-rooting";
+        rooting.hidden = true;
+        panel.appendChild(rooting);
+        addTitle(t("How it fits"));
+        addRows([
+            [t("Leaves in this network"), match.matched.toLocaleString()],
+            [t("Matched by the exact name"), match.exact.toLocaleString()],
+            [t("Matched by the name after the Viewer's header rules"), match.sanitized.toLocaleString()],
+            [t("Leaves not in this network"), match.unmatched.toLocaleString()],
+            [t("Network nodes not in the tree"), match.network_nodes_not_in_tree.toLocaleString()],
+        ]);
+        addTitle(t("About this tree"));
+        const paragraph = document.createElement("p");
+        paragraph.className = "note";
+        paragraph.textContent = t("The leaves are matched to the nodes of the network by full sequence name. This tree is kept in the Viewer until it is closed, and is written nowhere.");
+        panel.appendChild(paragraph);
+        if (TV.hasSupport(model)) {
+            const support = document.createElement("p");
+            support.className = "note";
+            support.textContent = t("The support is what the file gives each split, not how stable the split is under noise.");
+            panel.appendChild(support);
         }
     }
 
@@ -662,6 +794,7 @@ window.TreeView = window.TreeView || {};
             return false;
         }
         state.model = model;
+        model.source = payload.source || "guide";
         // Where the threshold slider is, for the cut line of a tree built from the network's scores.
         state.cut = model.threshold && Number.isFinite(model.threshold.current) ? model.threshold.current : null;
         state.colors = null;
@@ -687,6 +820,9 @@ window.TreeView = window.TreeView || {};
         showBanner();
         showPinned(-1);
         showLegend();
+        // A tree the user opened has the report of its match; the card shows after an opening (tree_open.js), not at every load.
+        $("report-btn").hidden = !model.uploaded;
+        $("match-report").classList.remove("shown");
         TV.drawNow();
         TV.loadColors();
         TV.loadSelection();
@@ -846,6 +982,11 @@ window.TreeView = window.TreeView || {};
         $("hints").textContent = TV.hintText();
         show("loading");
 
+        retryLabel = $("empty-retry").querySelector("span").textContent;
+        supportWords.title = $("support-title").textContent;
+        supportWords.note = $("support-note").textContent;
+        supportWords.tip = $("support-btn").title;
+
         TV.attachMinimap($("minimap"));
         $("fit-btn").addEventListener("click", () => TV.fitView());
         $("source-select").addEventListener("change", (event) => chooseSource(event.target.value));
@@ -864,7 +1005,11 @@ window.TreeView = window.TreeView || {};
             $("minimap").hidden = !overviewOn;
             if (overviewOn) TV.requestDraw();
         });
-        $("details-btn").addEventListener("click", () => $("details").classList.toggle("shown"));
+        $("details-btn").addEventListener("click", () => {
+            $("match-report").classList.remove("shown");
+            $("details").classList.toggle("shown");
+        });
+        $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown")));
         $("legend-toggle").addEventListener("click", () => {
             legendOpen = !legendOpen;
             showLegend();

@@ -503,6 +503,57 @@
             overflow: hidden;
         }
         .statusbar span { overflow: hidden; text-overflow: ellipsis; }
+
+        /* A file held over the page: the whole stage takes it */
+        body.dropping .stage::after {
+            content: "";
+            position: absolute;
+            inset: 8px;
+            z-index: 9;
+            border: 2px dashed var(--accent);
+            border-radius: var(--radius-card);
+            background-color: var(--accent-soft);
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* The card of the trees a file holds, and of how an opened tree matched the network */
+        .empty-card select#empty-choice {
+            width: 100%;
+            margin: 0 0 12px;
+            padding: 4px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            color: var(--input-text);
+            background-color: var(--input-bg);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+        }
+        .empty-card select#empty-choice:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); outline: none; }
+        .empty-card select#empty-choice[hidden], .empty-card #empty-report[hidden], .empty-card .path[hidden], .btn[hidden] { display: none; }
+        .report { width: 460px; }
+        .report .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .report .head h2 { margin: 0 0 8px; }
+        .report .head .btn { margin-bottom: 8px; }
+        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 12px; color: var(--text-soft); }
+        .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 12px; }
+        .report-lists h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+        .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-soft); overflow-wrap: anywhere; }
+        .report-lists li { padding: 1px 0; }
+        .report textarea, .empty-card textarea {
+            width: 100%;
+            box-sizing: border-box;
+            height: 110px;
+            margin: 4px 0 6px;
+            padding: 6px 8px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--input-text);
+            background-color: var(--input-bg);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            resize: vertical;
+        }
     </style>
     <!-- The theme chosen on this page or the Agent page (all keep it as ssn_theme), else the system's, set
          before the page is drawn so a dark page never shows light first. -->
@@ -529,6 +580,7 @@
         <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
         <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
         <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+        <symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
         <symbol id="i-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
         <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
         <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
@@ -537,14 +589,16 @@
     <header>
         <h1><svg class="icon" aria-hidden="true"><use href="#i-list-tree"/></svg><span data-i18n>EMAP-SSN Tree View</span></h1>
         <div class="header-actions">
-            <!-- Which tree is shown. The options are filled in by the page from the trees the Viewer offers; a tree the user
-                 opens from a file will be one more option here, listed by its file name. -->
+            <!-- Which tree is shown. The page fills in the trees the Viewer offers; the tree the user opened from a file is one
+                 more option before "Open a tree file...", listed by its file name (tree_session.js showSources). -->
             <label class="field" for="source-select"><span data-i18n>Tree</span>
                 <select id="source-select" title="Which tree is shown" disabled>
                     <option value="threshold" data-i18n>Network threshold tree</option>
                     <option value="guide" data-i18n>Guide tree</option>
+                    <option value="open" data-i18n>Open a tree file...</option>
                 </select>
             </label>
+            <input type="file" id="file-input" hidden aria-label="Open a tree file">
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
@@ -575,6 +629,7 @@
         <button class="btn" id="unfold-btn" title="Open every clade that is folded up" disabled><span data-i18n>Open all</span></button>
         <button class="btn" id="overview-btn" aria-pressed="true" title="Show or hide the overview map" disabled><span data-i18n>Overview</span></button>
         <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
+        <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" hidden disabled><span data-i18n>Match</span></button>
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
 
@@ -589,24 +644,28 @@
             <div class="legend-more" id="legend-more" hidden></div>
         </aside>
         <aside class="support-legend" id="support-legend" hidden aria-label="The stability of the splits">
-            <button class="head" id="support-btn" aria-pressed="false" title="Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in"><span data-i18n>Split stability</span></button>
+            <button class="head" id="support-btn" aria-pressed="false" title="Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in"><span id="support-title" data-i18n>Split stability</span></button>
             <div class="body" id="support-body" hidden>
                 <div class="ramp" id="support-ramp"></div>
                 <div class="ends"><span>0%</span><span>100%</span></div>
-                <div class="note" data-i18n>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</div>
+                <div class="note" id="support-note" data-i18n>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</div>
             </div>
         </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details"></div>
+        <div class="details report" id="match-report" role="status" aria-label="How the opened tree matched the network"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
         <div class="empty" id="empty">
             <div class="empty-card">
                 <h2 id="empty-title"></h2>
                 <p id="empty-body"></p>
                 <code class="path" id="empty-path" hidden></code>
+                <select id="empty-choice" size="8" hidden aria-label="The trees of the file"></select>
+                <div id="empty-report" hidden></div>
                 <p id="empty-more" hidden></p>
                 <div class="actions">
-                    <button class="btn btn-primary" id="empty-retry"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg><span data-i18n>Check again</span></button>
+                    <button class="btn btn-primary" id="empty-open" hidden><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span id="empty-open-label"></span></button>
+                    <button class="btn" id="empty-retry"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg><span data-i18n>Check again</span></button>
                     <button class="btn" id="empty-copy" hidden><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n>Copy the path</span></button>
                 </div>
             </div>
@@ -625,6 +684,10 @@
     <script src="/tree_nav.js"></script>
     <script src="/tree_select.js"></script>
     <script src="/tree_minimap.js"></script>
+    <script src="/tree_read.js"></script>
+    <script src="/tree_read_xml.js"></script>
+    <script src="/tree_read_json.js"></script>
     <script src="/tree_session.js"></script>
+    <script src="/tree_open.js"></script>
 </body>
 </html>

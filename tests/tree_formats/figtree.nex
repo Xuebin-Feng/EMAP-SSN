@@ -1,0 +1,12 @@
+#NEXUS
+begin taxa;
+	dimensions ntax=4;
+	taxlabels Alpha Beta Gamma Delta;
+end;
+begin trees;
+	tree tree1 = [&R] ((Alpha[&!color=#cc0000]:1,Beta[&!color=#cc0000]:1)[&!color=#cc0000]:1,(Gamma:1,Delta[&!color=#0000cc]:1)[&!name="clade",support=0.9]:1);
+end;
+begin figtree;
+	set appearance.backgroundColorAttribute="Default";
+	set tree.rootAngle=0;
+end;

@@ -1167,7 +1167,7 @@ class RegistrationOfSelectionTests(unittest.TestCase):
         registry = WebPluginRegistry(viewer)
         tree_backend.register_backend(registry, viewer)
         self.assertEqual(registry.api_routes[("GET", "/api/tree/selection")].plugin_id, "tree")
-        self.assertEqual(sorted(name for name in registry.actions if name.startswith("tree_")), ["tree_focus", "tree_select"])
+        self.assertEqual(sorted(name for name in registry.actions if name.startswith("tree_")), ["tree_focus", "tree_select", "tree_upload"])
         # The registered handler is the one for this viewer, given the posted dict.
         registry.actions["tree_select"]({"action": "tree_select", "indices": [2], "mode": "replace"})
         self.assertEqual(viewer.selected_indices, [2])

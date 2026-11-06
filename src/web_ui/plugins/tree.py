@@ -16,7 +16,10 @@ WEB_PLUGIN = {
             "initial_state": False,
             "i18n": {
                 "context": "TreePage",
-                "files": ["web_ui/tree.html", "web_ui/tree_session.js", "web_ui/tree_nav.js"],
+                "files": [
+                    "web_ui/tree.html", "web_ui/tree_session.js", "web_ui/tree_nav.js", "web_ui/tree_open.js",
+                    "web_ui/tree_read.js", "web_ui/tree_read_xml.js", "web_ui/tree_read_json.js",
+                ],
             },
         },
     ],

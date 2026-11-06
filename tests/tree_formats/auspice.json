@@ -1,0 +1,19 @@
+{
+  "version": "v2",
+  "meta": { "title": "Tiny outbreak", "updated": "2026-11-06" },
+  "tree": {
+    "name": "NODE_0000000",
+    "node_attrs": { "div": 0 },
+    "children": [
+      { "name": "Isolate_A", "node_attrs": { "div": 0.012, "country": { "value": "Canada" }, "num_date": { "value": 2020.5 } } },
+      {
+        "name": "NODE_0000001",
+        "node_attrs": { "div": 0.005, "bootstrap": 88 },
+        "children": [
+          { "name": "Isolate_B", "node_attrs": { "div": 0.02, "country": { "value": "USA" } } },
+          { "name": "Isolate_C", "node_attrs": { "div": 0.031, "country": { "value": "Mexico" } } }
+        ]
+      }
+    ]
+  }
+}

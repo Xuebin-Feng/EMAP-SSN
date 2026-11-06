@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "fields": ["edge_num", "likelihood", "like_weight_ratio", "distal_length", "pendant_length"],
+  "tree": "((Homo_sapiens:0.12{0},Pan_troglodytes:0.13{1}):0.05{2},(Mus_musculus:0.30{3},Rattus_norvegicus:0.28{4}):0.08{5},Bos_taurus:0.40{6}){7};",
+  "placements": [
+    { "p": [[0, -100.0, 0.9, 0.01, 0.02], [2, -102.0, 0.1, 0.02, 0.02]], "n": ["query1"] }
+  ],
+  "metadata": { "invocation": "pplacer -c primates.refpkg query.fa" }
+}

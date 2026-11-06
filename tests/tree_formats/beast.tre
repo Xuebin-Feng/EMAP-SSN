@@ -1,0 +1,15 @@
+#NEXUS
+Begin taxa;
+	Dimensions ntax=5;
+	Taxlabels Alpha Beta Gamma Delta Epsilon;
+End;
+Begin trees;
+	Translate
+		1 Alpha,
+		2 Beta,
+		3 Gamma,
+		4 Delta,
+		5 Epsilon
+		;
+tree STATE_0 [&lnP=-1234.5,posterior=-1200.2] = [&R] ((1[&rate=0.9,height=0.0]:1.0,2[&rate=1.1,height=0.0]:1.0)[&posterior=0.99,height_95%_HPD={1.2,3.4},rate=1.0,height=1.0]:0.5,(3[&rate=0.8]:1.0,(4:0.5,5:0.5)[&posterior=0.6,height=0.5]:0.5)[&posterior=0.85,height=1.5]:0.5)[&posterior=1.0,height=2.0];
+End;

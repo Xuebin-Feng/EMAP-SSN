@@ -1,0 +1,9 @@
+#NEXUS
+begin trees;
+	translate
+		1 Alpha,
+		2 Beta,
+		3 Gamma,
+		4 Delta;
+	tree con_50_majrule = [&U] ((1:0.1,2:0.1)[&prob=0.98,prob_stddev=0.01,prob_range={0.97,0.99},prob(percent)="98",prob+-sd="98+-1"]:0.05,3:0.2,4:0.3);
+end;

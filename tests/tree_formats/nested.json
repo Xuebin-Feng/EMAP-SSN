@@ -1,0 +1,11 @@
+{
+  "name": "root",
+  "children": [
+    { "name": "Alpha", "length": 1.5, "host": "bat" },
+    { "support": 91, "branch_length": 0.5, "children": [
+        { "name": "Beta", "length": 1 },
+        { "name": "Gamma", "length": 2, "host": "pangolin" }
+    ] },
+    { "name": "Delta", "length": 3 }
+  ]
+}

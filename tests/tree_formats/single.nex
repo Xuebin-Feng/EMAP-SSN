@@ -1,0 +1,4 @@
+#NEXUS
+BEGIN TREES;
+  TREE one = [&R] (((Alpha:1,Beta:1)0.9:1,Gamma:2)Group_X:1,Delta:3);
+END;

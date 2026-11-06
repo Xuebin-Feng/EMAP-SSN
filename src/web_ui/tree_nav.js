@@ -50,7 +50,7 @@ window.TreeView = window.TreeView || {};
         marks: null,
         // The leaves (1 for each) the layout leaves out because the Viewer has hidden their nodes, or null for none.
         removed: null,
-        // Which tree is shown ("threshold" or "guide"), the trees the chooser offers, and the score the Viewer's threshold
+        // Which tree is shown ("threshold", "guide" or "uploaded"), the trees the chooser offers, and the score the Viewer's threshold
         // slider is at (null for none): the cut line of a tree built from the network's scores is drawn there.
         source: "guide",
         sources: [],
@@ -785,7 +785,10 @@ window.TreeView = window.TreeView || {};
             lines.push(t("Of them in this network: {count}", { count: (TV.shownUnder(model, i) - hidden).toLocaleString() }));
             if (hidden > 0) lines.push(t("Hidden in the network: {count}", { count: hidden.toLocaleString() }));
             if (model.support[i] >= 0) {
-                lines.push(t("Stable in {percent}% of the replicate trees", { percent: model.support[i] }));
+                // A tree opened from a file has the support the file gives; the guide tree's is how stable the split is.
+                lines.push(model.source === "uploaded"
+                    ? t("Support: {percent}%", { percent: model.support[i] })
+                    : t("Stable in {percent}% of the replicate trees", { percent: model.support[i] }));
             }
             const selected = TV.matchesIn(state.selection.leaves, model.firstLeaf[i], model.lastLeaf[i]);
             if (selected > 0) lines.push(t("Selected in the network: {count}", { count: selected.toLocaleString() }));

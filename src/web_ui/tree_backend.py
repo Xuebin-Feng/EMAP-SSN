@@ -41,22 +41,27 @@ selection or a click does; the page learns what came of it from the same two eve
 
 import base64
 import datetime
+import json
 import os
 import threading
 import time
 import weakref
 import zlib
+from types import SimpleNamespace
 from urllib.parse import parse_qs
 
 import numpy as np
 
 from desktop.Desktop_App import translate
-from utilities.Guide_Tree_File import GuideTreeError, guide_tree_path_for_alignment, read_guide_tree
+from utilities.Guide_Tree_File import (
+    MAX_LABEL_CHARACTERS, MAX_LEAVES, GuideTreeError, guide_tree_path_for_alignment, read_guide_tree,
+)
 from web_ui.Plugin_Manager import ensure_registry
 
 DATA_ROUTE = "/api/tree/data"
 COLORS_ROUTE = "/api/tree/colors"
 SELECTION_ROUTE = "/api/tree/selection"
+UPLOAD_ROUTE = "/api/tree/upload"
 # The ways a tree_select request combines its nodes with the selection the network has.
 SELECT_MODES = ("replace", "add", "toggle")
 # The event that says the colours (or which nodes are hidden, or the clusters) are not what the page was sent.
@@ -68,7 +73,8 @@ COLOR_COALESCE_SECONDS = 0.15
 # alignment has one, else the one built from the network's edges.
 SOURCE_THRESHOLD = "threshold"
 SOURCE_GUIDE = "guide"
-SOURCES = (SOURCE_THRESHOLD, SOURCE_GUIDE)
+SOURCE_UPLOADED = "uploaded"
+SOURCES = (SOURCE_THRESHOLD, SOURCE_GUIDE, SOURCE_UPLOADED)
 
 # A tree is saved before the alignment is merged, so a finished alignment is as new as its tree, or newer. This
 # many seconds of difference are the file system's and the clocks', not a sign that the alignment is older.
@@ -377,29 +383,416 @@ def threshold_state(viewer):
     return {**payload, "threshold": info}
 
 
+# ---- An uploaded tree: a tree the user opened in the page, matched to the network by full sequence name ----------------
+
+# The most of the report's lists the page is sent: the labels that could not be matched uniquely, and the examples shown
+# beside each other when nothing matched. The page has every label itself, so it lists the unmatched ones in full.
+MAX_REPORTED_LABELS = 1000
+MAX_EXAMPLES = 5
+# What of a file's own words the Viewer keeps: its name, its format, a tree's name, and the notations it used.
+MAX_TEXT, MAX_WARNINGS, MAX_DIALECTS = 260, 20, 20
+# The notes of a refused upload; the page says each in its own words.
+UPLOAD_REFUSALS = (
+    "bad_request", "too_large", "no_leaves", "too_few_leaves", "too_many_leaves", "bad_labels", "empty_label", "label_too_long",
+    "duplicate_label", "bad_arrays", "size_mismatch", "too_many_nodes", "not_post_order", "leaf_count_mismatch", "bad_length",
+    "bad_support", "bad_rooted", "bad_text", "bad_warnings", "bad_clade_names",
+)
+
+_UPLOAD_LOCK = threading.Lock()
+
+
+class UploadRefused(ValueError):
+    """An upload that is not a tree the Viewer takes: ``note`` is one of UPLOAD_REFUSALS, ``detail`` the facts a sentence needs."""
+
+    def __init__(self, note, **detail):
+        super().__init__(note)
+        self.note = note
+        self.detail = detail
+
+
+def _action_limit():
+    """The largest request body the web server reads: an upload is no larger."""
+    from web_ui import Web_Server
+
+    return int(Web_Server.MAX_ACTION_BYTES)
+
+
+def _text_of(value, *, limit=MAX_TEXT):
+    """A file's own word (a name, a format) as one line of at most ``limit`` characters; a value that is no text refuses the upload."""
+    if not isinstance(value, str):
+        raise UploadRefused("bad_text")
+    return "".join(" " if character.isspace() or ord(character) < 32 else character for character in value).strip()[:limit]
+
+
+def _array_of(value, name, kinds, element_size):
+    """The array a payload names ``name``: a list of numbers, or the base64 of their little-endian bytes (``element_size``
+    bytes each). Returns a NumPy array; anything else, or a list holding anything but numbers of ``kinds``, refuses."""
+    if isinstance(value, str):
+        try:
+            raw = base64.b64decode(value.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError):
+            raise UploadRefused("bad_arrays", array=name) from None
+        if len(raw) % element_size:
+            raise UploadRefused("size_mismatch", array=name)
+        dtype = {"parent": "<i4", "length": "<f4", "support": "i1"}[name]
+        return np.frombuffer(raw, dtype=dtype)
+    if not isinstance(value, list):
+        raise UploadRefused("bad_arrays", array=name)
+    try:
+        array = np.asarray(value)
+    except (ValueError, OverflowError):
+        raise UploadRefused("bad_arrays", array=name) from None
+    if array.ndim != 1 or array.dtype.kind not in kinds:
+        # An empty list is a list of nothing, whatever dtype NumPy gives it.
+        if not (array.ndim == 1 and array.size == 0):
+            raise UploadRefused("bad_arrays", array=name)
+    return array
+
+
+def _clade_names_of(value, parent, internal):
+    """The names of internal nodes: {node: name} from a dict (keys are node numbers, in text) or a list of [node, name]."""
+    if value is None:
+        return {}
+    pairs = value.items() if isinstance(value, dict) else value
+    if not isinstance(value, (dict, list)):
+        raise UploadRefused("bad_clade_names")
+    names = {}
+    for pair in pairs:
+        try:
+            node, name = pair
+            node = int(node) if isinstance(node, str) and node.lstrip("-").isdigit() else node
+        except (TypeError, ValueError):
+            raise UploadRefused("bad_clade_names") from None
+        if not _is_node_number(node) or not 0 <= int(node) < len(parent) or not internal[int(node)] or not isinstance(name, str):
+            raise UploadRefused("bad_clade_names")
+        if len(name) > MAX_LABEL_CHARACTERS:
+            raise UploadRefused("label_too_long", limit=MAX_LABEL_CHARACTERS)
+        names[int(node)] = name
+    return names
+
+
+def validate_upload(data):
+    """The tree a ``tree_upload`` request holds, checked from nothing (the page is never trusted), or UploadRefused.
+
+    ``data`` is {"name", "labels", "parent", "length", "support", "rooted"} and, optionally, "format", "tree_name",
+    "clade_names", "dialects", "support_name", "root_stated", "has_lengths" and "warnings" (each of the reader's {"code", "count"}).
+    ``root_stated`` says whether the file said it (else the root's branches decided ``rooted``). ``parent``, ``length`` and ``support`` are lists of numbers or the base64 of their bytes ("<i4", "<f4", "i1"), one
+    entry for each node of the tree. A tree is accepted when:
+    its size is within the web server's limit for a request, and it has 2 to MAX_LEAVES leaves and at most twice as many
+    nodes; every label is a text of 1 to MAX_LABEL_CHARACTERS characters and no two are the same; the three arrays have one
+    entry for each node; the nodes are in post-order, every parent after its child and the last node the one root, so
+    that the nodes form one tree and no cycle; the number of leaves (nodes with no child) is the number of labels; every
+    length is finite, not negative and fits 4 bytes; every support is -1 or 0 to 100; and ``rooted`` is true, false or null.
+    Returns a SimpleNamespace of what is kept: the texts, ``labels``, ``parent`` (int32), ``length`` (float32), ``support``
+    (int8), ``rooted``, ``has_lengths``, ``clade_names``, ``warnings`` and ``fingerprint``.
+    """
+    leaf_limit, label_limit = MAX_LEAVES, MAX_LABEL_CHARACTERS
+    if not isinstance(data, dict):
+        raise UploadRefused("bad_request")
+    labels = data.get("labels")
+    if not isinstance(labels, list):
+        raise UploadRefused("bad_labels")
+    if len(labels) > leaf_limit:
+        raise UploadRefused("too_many_leaves", limit=leaf_limit)
+    # What the request weighs, as near as can be told without writing it out again: the largest the server reads.
+    weight = sum(len(label) + 4 for label in labels if isinstance(label, str))
+    for key in ("parent", "length", "support"):
+        value = data.get(key)
+        weight += len(value) if isinstance(value, str) else 12 * len(value) if isinstance(value, list) else 0
+    if weight > _action_limit():
+        raise UploadRefused("too_large", limit=_action_limit())
+
+    name = _text_of(data.get("name", ""))
+    file_format = _text_of(data.get("format", ""), limit=40)
+    tree_name = _text_of(data.get("tree_name", ""))
+    support_name = _text_of(data.get("support_name", ""), limit=60)
+    rooted = data.get("rooted")
+    if rooted is not None and not isinstance(rooted, bool):
+        raise UploadRefused("bad_rooted")
+    root_stated = data.get("root_stated", False)
+    if not isinstance(root_stated, bool):
+        raise UploadRefused("bad_rooted")
+
+    if len(labels) < 1:
+        raise UploadRefused("no_leaves")
+    if len(labels) < 2:
+        raise UploadRefused("too_few_leaves")
+    seen = {}
+    for index, label in enumerate(labels):
+        if not isinstance(label, str):
+            raise UploadRefused("bad_labels")
+        if not label:
+            raise UploadRefused("empty_label", leaf=index)
+        if len(label) > label_limit:
+            raise UploadRefused("label_too_long", leaf=index, limit=label_limit)
+        if label in seen:
+            raise UploadRefused("duplicate_label", label=label[:120], first=seen[label], second=index)
+        seen[label] = index
+
+    parent = _array_of(data.get("parent"), "parent", "iu", 4)
+    length = _array_of(data.get("length"), "length", "iuf", 4)
+    support = _array_of(data.get("support"), "support", "iu", 1)
+    count = len(parent)
+    if len(length) != count or len(support) != count:
+        raise UploadRefused("size_mismatch", nodes=count, lengths=len(length), supports=len(support))
+    if count > 2 * leaf_limit:
+        raise UploadRefused("too_many_nodes", limit=2 * leaf_limit)
+    if count < len(labels):
+        raise UploadRefused("leaf_count_mismatch", leaves=len(labels), found=0)
+
+    parent = parent.astype(np.int64, copy=False)
+    # Post-order: every node but the last has a parent that comes after it, and the last has none. So following parents
+    # only ever goes up the numbers, ends at the last node, and there is one root and no cycle.
+    if parent[-1] != -1:
+        raise UploadRefused("not_post_order", node=count - 1)
+    if count > 1:
+        above = parent[:-1]
+        bad = np.flatnonzero((above <= np.arange(count - 1)) | (above >= count))
+        if bad.size:
+            raise UploadRefused("not_post_order", node=int(bad[0]))
+    child_counts = np.bincount(parent[:-1], minlength=count) if count > 1 else np.zeros(count, dtype=np.int64)
+    leaves = int(np.count_nonzero(child_counts == 0))
+    if leaves != len(labels):
+        raise UploadRefused("leaf_count_mismatch", leaves=len(labels), found=leaves)
+
+    length = length.astype(np.float64, copy=False)
+    if not np.all(np.isfinite(length)) or np.any(length < 0) or np.any(length > np.finfo(np.float32).max):
+        raise UploadRefused("bad_length")
+    support = support.astype(np.int64, copy=False)
+    if np.any(support < -1) or np.any(support > 100):
+        raise UploadRefused("bad_support")
+
+    dialects = data.get("dialects", [])
+    if not isinstance(dialects, list) or len(dialects) > MAX_DIALECTS:
+        raise UploadRefused("bad_text")
+    dialects = [_text_of(item, limit=40) for item in dialects]
+    warnings = data.get("warnings", [])
+    if not isinstance(warnings, list) or len(warnings) > MAX_WARNINGS:
+        raise UploadRefused("bad_warnings")
+    kept = []
+    for warning in warnings:
+        if not isinstance(warning, dict) or not isinstance(warning.get("code"), str) or len(warning["code"]) > 40:
+            raise UploadRefused("bad_warnings")
+        number = warning.get("count")
+        if number is not None and not (_is_node_number(number) and 0 <= number <= 2**31):
+            raise UploadRefused("bad_warnings")
+        kept.append({"code": warning["code"]} if number is None else {"code": warning["code"], "count": int(number)})
+    has_lengths = data.get("has_lengths")
+    if has_lengths is None:
+        has_lengths = bool(np.any(length > 0))
+    elif not isinstance(has_lengths, bool):
+        raise UploadRefused("bad_text")
+    clade_names = _clade_names_of(data.get("clade_names"), parent, child_counts > 0)
+
+    parent32, length32, support8 = parent.astype("<i4"), length.astype("<f4"), support.astype("i1")
+    fingerprint = zlib.crc32(parent32.tobytes())
+    fingerprint = zlib.crc32(length32.tobytes(), fingerprint)
+    fingerprint = zlib.crc32(support8.tobytes(), fingerprint)
+    fingerprint = zlib.crc32("\n".join(labels).encode("utf-8", "surrogatepass"), fingerprint)
+    fingerprint = zlib.crc32(repr((name, file_format, tree_name, rooted, root_stated, has_lengths)).encode("utf-8", "surrogatepass"), fingerprint)
+    return SimpleNamespace(
+        name=name, format=file_format, tree_name=tree_name, support_name=support_name, dialects=dialects, warnings=kept,
+        labels=labels, parent=parent32, length=length32, support=support8, rooted=rooted, root_stated=root_stated,
+        has_lengths=has_lengths, clade_names=clade_names, fingerprint=fingerprint,
+    )
+
+
+def match_labels(labels, headers):
+    """Which node of the network each leaf label names, by full sequence name: (viewer_node, report).
+
+    A label names a node when (1) it equals the node's header exactly, else (2) the label after the Viewer's own
+    sanitize_header (the rules the headers were written by) equals the header. Nothing else: no accession, no case
+    folding, no underscore for space. A node can be one leaf's: when two labels reach the same header by step 2, or one
+    reaches by step 2 a header a label already has exactly, none of them is matched and they are listed (``ambiguous``).
+    ``viewer_node`` holds the node number for each label or -1. ``report`` counts what happened: ``matched``, ``exact``,
+    ``sanitized``, ``unmatched`` (leaves of no node, ambiguous ones among them) and ``ambiguous`` with ``ambiguous_labels``
+    (at most MAX_REPORTED_LABELS), and ``network_nodes`` with ``network_nodes_not_in_tree``.
+    """
+    from utilities.Sequence_Utils import sanitize_header
+
+    node_of = {}
+    for node, header in enumerate(headers):
+        node_of.setdefault(str(header), node)
+    count = len(labels)
+    viewer_node = np.full(count, -1, dtype=np.int32)
+    exact = 0
+    pending = []
+    for leaf, label in enumerate(labels):
+        node = node_of.get(label)
+        if node is None:
+            pending.append(leaf)
+        else:
+            viewer_node[leaf] = node
+            exact += 1
+    taken = set(viewer_node[viewer_node >= 0].tolist())
+    reached = {}
+    for leaf in pending:
+        node = node_of.get(sanitize_header(labels[leaf])[0])
+        if node is not None:
+            reached.setdefault(node, []).append(leaf)
+    sanitized, ambiguous = 0, []
+    for node, leaves in reached.items():
+        if len(leaves) > 1 or node in taken:
+            ambiguous.extend(leaves)
+        else:
+            viewer_node[leaves[0]] = node
+            sanitized += 1
+    ambiguous.sort()
+    matched = exact + sanitized
+    report = {
+        "leaves": count,
+        "matched": matched,
+        "exact": exact,
+        "sanitized": sanitized,
+        "unmatched": count - matched,
+        "ambiguous": len(ambiguous),
+        "ambiguous_labels": [labels[leaf][:MAX_LABEL_CHARACTERS] for leaf in ambiguous[:MAX_REPORTED_LABELS]],
+        "network_nodes": len(headers),
+        "network_nodes_not_in_tree": len(headers) - len(set(viewer_node[viewer_node >= 0].tolist())),
+    }
+    return viewer_node, report
+
+
+def stored_upload(viewer):
+    """The tree the user opened in the page, as validate_upload kept it, or None; kept for the Viewer's session."""
+    with _UPLOAD_LOCK:
+        return getattr(viewer, "_tree_upload", None)
+
+
+def uploaded_state(viewer):
+    """What the Tree View page is sent for the tree the user opened: the tree and how it matches the network, or why not.
+
+    ``status`` is "ok", "no_upload" (none was opened) or "no_overlap" (none of its leaves is a node of the network: the
+    answer has the report and a few labels beside a few headers, so that a renamed export is easy to see). The match is
+    made against the network the Viewer holds when it is asked, by match_labels. ``uploaded`` holds what the page says
+    of the tree: its file, format, tree name, notations, the support's name, and the number of names of clades; ``match``
+    the report; ``warnings`` the reader's, then those of the match.
+    """
+    upload = stored_upload(viewer)
+    if upload is None:
+        return {"status": "no_upload", "source": SOURCE_UPLOADED}
+    headers = list(getattr(viewer, "full_headers", ()) or ())
+    viewer_node, report = match_labels(upload.labels, headers)
+    leaves = len(upload.labels)
+    counts = {
+        "leaves": leaves,
+        "nodes": int(len(upload.parent)),
+        "leaves_in_network": report["matched"],
+        "leaves_not_in_network": report["unmatched"],
+        "network_nodes": len(headers),
+        "network_nodes_not_in_tree": report["network_nodes_not_in_tree"],
+    }
+    info = {
+        "file": upload.name,
+        "format": upload.format,
+        "tree_name": upload.tree_name,
+        "dialects": list(upload.dialects),
+        "root_stated": upload.root_stated,
+        "support_name": upload.support_name,
+        "clade_names": len(upload.clade_names),
+    }
+    base = {"source": SOURCE_UPLOADED, "counts": counts, "match": report, "uploaded": info}
+    if not report["matched"]:
+        report = {**report, "tree_examples": list(upload.labels[:MAX_EXAMPLES]), "network_examples": [str(h) for h in headers[:MAX_EXAMPLES]]}
+        return {"status": "no_overlap", **base, "match": report}
+    warnings = [dict(item) for item in upload.warnings]
+    if report["unmatched"]:
+        warnings.append({"code": "leaves_not_in_network", "count": report["unmatched"]})
+    if report["ambiguous"]:
+        warnings.append({"code": "ambiguous_names", "count": report["ambiguous"]})
+    if report["network_nodes_not_in_tree"]:
+        warnings.append({"code": "network_nodes_not_in_tree", "count": report["network_nodes_not_in_tree"]})
+    return {
+        "status": "ok",
+        **base,
+        "name": upload.tree_name or None,
+        "rooted": upload.rooted,
+        "has_lengths": upload.has_lengths,
+        "notes": {},
+        "warnings": warnings,
+        "parent": _packed(upload.parent, "<i4"),
+        "length": _packed(upload.length, "<f4"),
+        "support": _packed(upload.support, "i1"),
+        "viewer_node": _packed(viewer_node, "<i4"),
+        "labels": upload.labels,
+    }
+
+
+def handle_tree_upload(viewer, data):
+    """The ``tree_upload`` action: keep a tree the user opened in the page, and make it the tree Tree View shows.
+
+    The tree is checked from nothing (validate_upload) and nothing is changed unless all of it is well formed: a
+    refusal answers {"ok": False, "changed": False, "note": <one of UPLOAD_REFUSALS>, "detail": {...}} and leaves the tree
+    that was kept, and the choice of source, as they were. A tree is kept in the Viewer's memory only, for as long as the
+    Viewer runs, and replaces the one before. The same tree again is no change: it succeeds with the note "unchanged",
+    and is shown all the same. Else {"ok": True, "changed": True, "note": None}, with ``status`` ("ok", or "no_overlap"
+    when no leaf is a node of the network) and ``counts``, ``match`` of uploaded_state.
+    """
+    try:
+        upload = validate_upload(data)
+    except UploadRefused as refusal:
+        return {"ok": False, "changed": False, "note": refusal.note, "detail": refusal.detail}
+    with _UPLOAD_LOCK:
+        before = getattr(viewer, "_tree_upload", None)
+        unchanged = before is not None and before.fingerprint == upload.fingerprint
+        if not unchanged:
+            viewer._tree_upload = upload
+        viewer._tree_source = SOURCE_UPLOADED
+    state = uploaded_state(viewer)
+    return {
+        "ok": True,
+        "changed": not unchanged,
+        "note": "unchanged" if unchanged else None,
+        "status": state["status"],
+        "counts": state["counts"],
+        "match": state["match"],
+    }
+
+
+def handle_tree_upload_request(viewer, request):
+    """POST /api/tree/upload: the ``tree_upload`` action answered at once, with the tree it made the page's (``state``).
+
+    An action is answered with nothing but its acceptance; the page that sends a tree needs to know what came of it.
+    The web server has checked the request's origin, its size and its Content-Type.
+    """
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return 200, {"ok": False, "changed": False, "note": "bad_request", "detail": {}}
+    result = handle_tree_upload(viewer, data)
+    if result["ok"]:
+        result["state"] = tree_state(viewer, SOURCE_UPLOADED)
+    return 200, result
+
+
 # ---- Which tree is shown ----------------------------------------------------------------------------------------
 
 
 def source_choices(viewer, guide):
     """The trees the page's chooser offers, each ``{"id", "available", "reason"}``: ``reason`` is the status the
-    tree cannot be shown for (the same words an empty card says), None when it can. ``guide`` is guide_state(viewer)."""
+    tree cannot be shown for (the same words an empty card says), None when it can. ``guide`` is guide_state(viewer).
+    The tree the user opened in the page, once there is one, is a third entry, with the name of its file (``name``)."""
     threshold_reason = threshold_unavailable(viewer)
     guide_reason = None if guide.get("status") == "ok" else guide.get("status")
-    return [
+    choices = [
         {"id": SOURCE_THRESHOLD, "available": threshold_reason is None, "reason": threshold_reason},
         {"id": SOURCE_GUIDE, "available": guide_reason is None, "reason": guide_reason},
     ]
+    upload = stored_upload(viewer)
+    if upload is not None:
+        choices.append({"id": SOURCE_UPLOADED, "available": True, "reason": None, "name": upload.name})
+    return choices
 
 
 def tree_state(viewer, source=None):
     """What the Tree View page is sent: one tree, or why there is none to draw, and the trees it can choose from.
 
     ``source`` is "threshold" (the tree of the network's own edges), "guide" (the guide tree of the loaded
-    alignment) or None. A source that is asked for is the one the Viewer keeps for the session, when it can be shown;
-    without one, the kept source is used while it can be shown, else the guide tree when the loaded alignment has
-    one, else the threshold tree. The answer says which it is (``source``) and lists them (``sources``). A source
-    that is asked for and cannot be shown gets the card that says why, and is not kept. An unknown source raises
-    ValueError, which the web server answers as a bad request.
+    alignment), "uploaded" (the tree the user opened in the page) or None. A source that is asked for is the one the
+    Viewer keeps for the session, when it can be shown; without one, the kept source is used while it can be shown,
+    else the guide tree when the loaded alignment has one, else the threshold tree. The answer says which it is
+    (``source``) and lists them (``sources``). A source that is asked for and cannot be shown gets the card that says
+    why, and is not kept. An unknown source raises ValueError, which the web server answers as a bad request.
     """
     if source is not None and source not in SOURCES:
         raise ValueError(translate("Viewer", "Tree View does not know a tree called {name}.").format(name=str(source)[:60]))
@@ -420,12 +813,17 @@ def tree_state(viewer, source=None):
             chosen = SOURCE_THRESHOLD
         else:
             chosen = SOURCE_GUIDE
-    answer = threshold_state(viewer) if chosen == SOURCE_THRESHOLD else {**guide, "source": SOURCE_GUIDE}
+    if chosen == SOURCE_THRESHOLD:
+        answer = threshold_state(viewer)
+    elif chosen == SOURCE_UPLOADED:
+        answer = uploaded_state(viewer)
+    else:
+        answer = {**guide, "source": SOURCE_GUIDE}
     return {**answer, "sources": sources}
 
 
 def handle_tree_data(viewer, request):
-    """GET /api/tree/data[?source=threshold|guide]: the page's whole picture of the tree (tree_state). The web server has checked the request's origin."""
+    """GET /api/tree/data[?source=threshold|guide|uploaded]: the page's whole picture of the tree (tree_state). The web server has checked the request's origin."""
     values = parse_qs(request.query or "", keep_blank_values=True).get("source", [])
     return 200, tree_state(viewer, values[0] if values else None)
 
@@ -791,6 +1189,13 @@ def register_backend(registry, viewer):
     registry.register_api_route("tree", SELECTION_ROUTE, lambda request: handle_tree_selection(viewer, request))
     registry.register_action("tree", "tree_select", lambda data: handle_tree_select(viewer, data))
     registry.register_action("tree", "tree_focus", lambda data: handle_tree_focus(viewer, data))
+    registry.register_action("tree", "tree_upload", lambda data: handle_tree_upload(viewer, data))
+    from web_ui import Web_Server
+
+    registry.register_api_route(
+        "tree", UPLOAD_ROUTE, lambda request: handle_tree_upload_request(viewer, request), ("POST",),
+        max_body=Web_Server.MAX_ACTION_BYTES, content_types=("application/json",),
+    )
     follow_colors(viewer)
 
 
