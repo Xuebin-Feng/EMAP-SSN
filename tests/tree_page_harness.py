@@ -168,6 +168,52 @@ class TreePageMixin:
         self.viewer, self.msa, self.tree_file = viewer, msa, tree
         return self.start_page_server(viewer)
 
+    def enable_selection(self):
+        """Give the served Viewer the selection and the click focus a real one has, as far as the page can tell.
+
+        What the Viewer does with a selection is draw it and tell every page (selection_changed); with a click focus
+        it is highlight_row. A web action reaches the handler the plugin registered, on this thread (the Qt signal
+        the server emits is queued to it), and what it answered is kept in ``viewer.action_results``. ``viewer.select``
+        is what a command's selecting does: it sets the selection and tells the pages.
+        """
+        viewer = self.viewer
+        count = viewer.n_nodes
+        if getattr(viewer, "visible_mask", None) is None or len(viewer.visible_mask) != count:
+            viewer.visible_mask = tree_fixtures.np.ones(count, dtype=bool)
+        viewer.selected_indices = []
+        viewer.selected_node_idx = None
+        viewer.hand_selections = 0
+        viewer.action_results = []
+
+        def update_selection_visual(broadcast=True):
+            viewer.broadcast_event({"type": "selection_changed", "indices": viewer.selected_indices})
+
+        def note_hand_selection():
+            viewer.hand_selections += 1
+
+        def apply_left_click_focus(index):
+            viewer.selected_node_idx = int(index)
+            viewer.broadcast_event({"type": "highlight_row", "index": int(index)})
+
+        def clear_left_click_focus():
+            viewer.selected_node_idx = None
+            viewer.broadcast_event({"type": "highlight_row", "index": None})
+
+        def select(indices):
+            viewer.selected_indices = [int(index) for index in indices]
+            update_selection_visual()
+
+        def handle_web_action(data):
+            handler = viewer.web_plugin_registry.actions.get(data.get("action"))
+            viewer.action_results.append((data.get("action"), handler(data) if handler else None))
+
+        viewer.update_selection_visual = update_selection_visual
+        viewer._note_hand_selection = note_hand_selection
+        viewer.apply_left_click_focus = apply_left_click_focus
+        viewer.clear_left_click_focus = clear_left_click_focus
+        viewer.select = select
+        viewer.handle_web_action = handle_web_action
+
     def pump(self, seconds):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:

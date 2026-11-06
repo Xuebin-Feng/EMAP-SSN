@@ -121,6 +121,7 @@ description = "Tree View page: the guide tree in Qt WebEngine over the real web 
 seconds = 60
 modules = [
     "test_tree_page",
+    "test_tree_selection_page",
 ]
 
 # The Fold View page tests (tests/esmfold_page_harness.py) open esmfold.html in Qt WebEngine over the real

@@ -23,6 +23,11 @@ window.TreeView = window.TreeView || {};
     let copiedTimer = null;
     // Whether the overview map is wanted (it is shown only with a tree).
     let overviewOn = true;
+    // The node of the network this page last asked the Viewer to focus on (-1 for none), so that it asks again only
+    // when the pinned leaf changes; and how many selection events came, so that a selection asked for before the
+    // events it has not heard of is not taken over them.
+    let postedFocus = -1;
+    let selectionEvents = 0;
 
     // ---- Icons -----------------------------------------------------------------------------------------------
 
@@ -51,6 +56,7 @@ window.TreeView = window.TreeView || {};
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
         for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn"]) $(id).disabled = !hasTree;
+        showSupportControl(hasTree);
         $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
             for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) $(id).disabled = true;
@@ -69,6 +75,8 @@ window.TreeView = window.TreeView || {};
         state.layout = null;
         state.hover = state.pinned = -1;
         state.matches = new Int32Array(0);
+        state.selection = TV.emptySelection();
+        postedFocus = -1;
         $("empty-title").textContent = spec.title;
         $("empty-body").textContent = spec.body;
         const path = $("empty-path");
@@ -330,15 +338,24 @@ window.TreeView = window.TreeView || {};
         }
     }
 
-    // The counts, as the status line says them.
+    // The counts, as the status line says them, and how many nodes the network has selected.
     function summaryText(model) {
-        return t("{leaves} leaves, {shown} of them nodes of this network", {
+        const counts = t("{leaves} leaves, {shown} of them nodes of this network", {
             leaves: model.leafCount.toLocaleString(),
             shown: model.counts.leaves_in_network.toLocaleString(),
         });
+        const selection = state.selection;
+        if (!selection.count) return counts;
+        const chosen = selection.leaves.length;
+        const selected = chosen === selection.count
+            ? t("{count} selected in the network", { count: chosen.toLocaleString() })
+            : t("{count} selected in the network, {leaves} of them in this tree", {
+                count: selection.count.toLocaleString(), leaves: chosen.toLocaleString(),
+            });
+        return counts + " · " + selected;
     }
 
-    // The status line: what is selected, else the counts.
+    // The status line: what is pinned, else the counts.
     function showPinned(node) {
         if (!state.model) return;
         if (node < 0) {
@@ -347,6 +364,62 @@ window.TreeView = window.TreeView || {};
         }
         const description = TV.describeNode(node);
         $("summary").textContent = [description.title, ...description.lines].join(" · ");
+    }
+
+    // ---- The network's selection and focus, and the stability of the splits ------------------------------------
+
+    // The network's click focus follows the leaf that is pinned: pinning a leaf focuses on its node in the network,
+    // and unpinning it, or pinning anything else, takes the focus off it. It is asked only when the leaf changes.
+    function syncFocus(node) {
+        const model = state.model;
+        if (!model) return;
+        const leaf = node >= 0 && model.childCount[node] === 0 ? model.leafOrdinal[node] : -1;
+        const target = leaf >= 0 ? model.viewerNode[leaf] : -1;
+        if (target === postedFocus) return;
+        postedFocus = target;
+        TV.focusNode(target >= 0 ? target : null);
+    }
+
+    // The selection changed in the network: the status line says how many nodes, unless it shows a pinned node.
+    TV.onSelectionChanged = function () {
+        if (state.model && state.pinned < 0) showPinned(-1);
+    };
+
+    // Ask the Viewer which nodes are selected and which one has the focus, as a page opened later than the selection
+    // must. A selection event that came meanwhile is newer than the answer, and is kept.
+    TV.loadSelection = async function () {
+        if (!state.model) return false;
+        const before = selectionEvents;
+        try {
+            const response = await fetch("/api/tree/selection", { cache: "no-store" });
+            if (!response.ok) throw new Error(response.status + " " + response.statusText);
+            const payload = await response.json();
+            if (before !== selectionEvents || !state.model || payload.status !== "ok") return false;
+            TV.applySelection(TV.typedArray(payload.indices, Int32Array, payload.count, "indices"), payload.focus);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    };
+
+    // The switch that shows how stable each split is, with the legend that goes with it once it is on: both only for a
+    // tree that says how stable its splits are.
+    function showSupportControl(hasTree) {
+        const usable = !!(hasTree && state.model && TV.hasSupport(state.model));
+        $("support-legend").hidden = !usable;
+        $("support-btn").setAttribute("aria-pressed", String(usable && state.showSupport));
+        $("support-body").hidden = !(usable && state.showSupport);
+    }
+
+    // The legend's ramp, in the palette's five steps.
+    function showSupportRamp() {
+        const ramp = $("support-ramp");
+        ramp.replaceChildren();
+        for (const color of state.palette.support) {
+            const step = document.createElement("span");
+            step.style.backgroundColor = color;
+            ramp.appendChild(step);
+        }
     }
 
     // The Details panel: the file, how the run made the tree, and the counts.
@@ -444,6 +517,8 @@ window.TreeView = window.TreeView || {};
         state.hover = state.pinned = -1;
         state.matches = new Int32Array(0);
         state.current = -1;
+        state.selection = TV.emptySelection();
+        postedFocus = -1;
         $("search-input").value = "";
         $("search-box").classList.remove("has-text");
         show("tree");
@@ -455,6 +530,7 @@ window.TreeView = window.TreeView || {};
         showLegend();
         TV.drawNow();
         TV.loadColors();
+        TV.loadSelection();
         return true;
     };
 
@@ -520,6 +596,7 @@ window.TreeView = window.TreeView || {};
         setIcon(themeIcon, dark ? "sun" : "moon");
         // The canvas draws in the theme's colours, read again whenever it changes.
         state.palette = TV.readPalette();
+        if ($("support-ramp")) showSupportRamp();
         TV.minimapChanged();
         TV.requestDraw();
     }
@@ -547,12 +624,24 @@ window.TreeView = window.TreeView || {};
                 TV.loadTree();
                 return;
             }
-            // Only the two small events that matter here are read: the first message of a connection is the Viewer's
-            // whole state, and most of what follows is for other pages.
-            const kind = /^\{"type":\s*"(tree_colors_changed|alignment_changed)"/.exec(event.data);
+            // Only the events that matter here are read: the first message of a connection is the Viewer's whole state,
+            // and most of what follows is for other pages.
+            const kind = /^\{"type":\s*"(tree_colors_changed|alignment_changed|selection_changed|highlight_row)"/.exec(event.data);
             if (!kind) return;
             if (kind[1] === "alignment_changed") {
                 TV.loadTree();
+                return;
+            }
+            if (kind[1] === "selection_changed" || kind[1] === "highlight_row") {
+                let message = null;
+                try { message = JSON.parse(event.data); } catch (error) { return; }
+                if (kind[1] === "selection_changed") {
+                    selectionEvents++;
+                    if (Array.isArray(message.indices)) TV.applySelection(message.indices);
+                } else {
+                    selectionEvents++;
+                    TV.applyFocus(message.index);
+                }
                 return;
             }
             let version = null;
@@ -577,7 +666,8 @@ window.TreeView = window.TreeView || {};
     document.addEventListener("DOMContentLoaded", () => {
         TV.canvas = $("tree-canvas");
         state.palette = TV.readPalette();
-        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: showPinned });
+        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: (node) => { showPinned(node); syncFocus(node); } });
+        showSupportRamp();
         $("hints").textContent = TV.hintText();
         show("loading");
 
@@ -587,6 +677,11 @@ window.TreeView = window.TreeView || {};
         $("phylogram-btn").addEventListener("click", () => chooseLayout(state.kind, "lengths"));
         $("cladogram-btn").addEventListener("click", () => chooseLayout(state.kind, "cladogram"));
         $("unfold-btn").addEventListener("click", () => TV.openAll());
+        $("support-btn").addEventListener("click", () => {
+            state.showSupport = !state.showSupport;
+            showSupportControl(true);
+            TV.requestDraw();
+        });
         $("overview-btn").addEventListener("click", () => {
             overviewOn = !overviewOn;
             $("overview-btn").setAttribute("aria-pressed", String(overviewOn));

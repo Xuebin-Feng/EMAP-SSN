@@ -48,8 +48,11 @@ from utilities.Guide_Tree_File import read_guide_tree  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
-PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_minimap.js",
-              "tree_session.js"]
+PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_select.js",
+              "tree_minimap.js", "tree_session.js"]
+
+# The legend's sentence about the split stability, the one place the page uses the word.
+LEGEND_NOT_BOOTSTRAP = "Stability under distance noise, not bootstrap support."
 
 
 def clade_of(size_low, size_high):
@@ -2804,7 +2807,8 @@ class TextAndSafetyTests(TreePageMixin, unittest.TestCase):
                     with self.subTest(file=name, forbidden=forbidden):
                         self.assertNotIn(forbidden, source)
             with self.subTest(file=name, word="bootstrap"):
-                self.assertNotIn("bootstrap", source.lower())
+                # The legend says, once, what the stability is not; nothing is ever labelled with the word.
+                self.assertNotIn("bootstrap", source.replace(LEGEND_NOT_BOOTSTRAP, "").lower())
 
     def test_the_page_asks_the_viewer_for_the_tree_and_never_names_a_file(self):
         requested = self.state("performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname)")

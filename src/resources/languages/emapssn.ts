@@ -9117,6 +9117,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Selected in the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Cluster: {id}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9138,6 +9142,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Stable in {percent}% of the replicate trees</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selected in the network: {count}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9274,6 +9282,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} selected in the network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} selected in the network, {leaves} of them in this tree</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9522,6 +9538,22 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The stability of the splits</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Split stability</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

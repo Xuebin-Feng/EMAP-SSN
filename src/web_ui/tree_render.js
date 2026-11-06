@@ -36,6 +36,13 @@ window.TreeView = window.TreeView || {};
     // shown for a clade that is folded, hovered or selected, not for every clade at once.
     TV.HANDLE_PX = 9;
     TV.HANDLE_CLADE_PX = 12;
+    // A split's stability is drawn as a dot on a clade this many pixels across or more, and on no more than this
+    // many clades in a frame, so that it shows only where there is room.
+    TV.SUPPORT_CLADE_PX = 28;
+    TV.SUPPORT_MAX = 4000;
+    TV.SUPPORT_RADIUS = 3.5;
+    // The outline of the selected clade is dashed unless the clade is wider than this many pixels.
+    TV.DASH_LIMIT_PX = 6000;
 
     // The red, green and blue (0 to 255) of a CSS colour, as the canvas reads it.
     const reader = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
@@ -73,6 +80,10 @@ window.TreeView = window.TreeView || {};
             accent: get("--accent", "#5b5bd6"),
             selection: get("--selection", "rgba(91, 91, 214, 0.1)"),
             match: get("--highlight-ring", "#f59e0b"),
+            // The nodes the network has selected: a colour of their own, apart from the search's amber.
+            selected: get("--tree-selected", "#0e7490"),
+            // How stable a split is, five steps from pale to the accent colour.
+            support: [0.2, 0.4, 0.6, 0.8, 1].map((share) => TV.mixColors(get("--accent", "#5b5bd6"), background, share)),
             matchSoft: get("--highlight-bg", "rgba(245, 158, 11, 0.15)"),
             ruler: get("--bg-muted", "#f4f4f5"),
             thumb: get("--scroll-hover", "#a1a1aa"),
@@ -262,7 +273,7 @@ window.TreeView = window.TreeView || {};
     // what was drawn: { visited, bars, collapsed, labels, dots, handles }, and in `pieces` what the callers add to.
     TV.paintTree = function (ctx, scene, width, height, mini) {
         const { model, layout, view, palette, collapsed } = scene;
-        const stats = { visited: 0, bars: 0, collapsed: 0, labels: 0, dots: 0, handles: 0 };
+        const stats = { visited: 0, bars: 0, collapsed: 0, labels: 0, dots: 0, handles: 0, supports: 0 };
         const { sx, sy, ox, oy } = view;
         const boxes = layout.boxes;
         const { parent, childCount, childStart, childList, firstLeaf, lastLeaf, leafOrdinal, viewerNode } = model;
@@ -276,6 +287,17 @@ window.TreeView = window.TreeView || {};
         const padRight = rectangular ? 0 : padOut;
         const limit = mini ? 2 : TV.COLLAPSE_PX;
         const matches = scene.matches;
+        // The selection the network has: its leaves, and the leaf with the click focus; a folded clade or a tiny one
+        // that holds any is outlined, as for a match.
+        const chosen = scene.selection && scene.selection.leaves.length ? scene.selection.leaves : null;
+        const focused = scene.selection && scene.selection.focus >= 0 ? Int32Array.of(scene.selection.focus) : null;
+        const chosenPath = new Path2D();
+        const focusPath = new Path2D();
+        let chosenUsed = false;
+        let focusUsed = false;
+        // The dots that show how stable a split is, a path for each of the palette's steps.
+        const support = scene.showSupport && !mini ? model.support : null;
+        const supportDots = support ? palette.support.map(() => new Path2D()) : null;
         drawW = width;
         drawH = height;
         // The colours of the network, when they are for this tree: a node's class says what it is drawn in (NO_CLASS
@@ -316,6 +338,8 @@ window.TreeView = window.TreeView || {};
             if (!fill) wedgeFills.set(cls, fill = new Path2D());
             addWedge(fill, out, view);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addWedge(matched, out, view);
+            if (chosen && TV.matchesIn(chosen, firstLeaf[i], lastLeaf[i])) { addWedge(chosenPath, out, view); chosenUsed = true; }
+            if (focused && TV.matchesIn(focused, firstLeaf[i], lastLeaf[i])) { addWedge(focusPath, out, view); focusUsed = true; }
             if (colors) addMixBar(mixBars, out, view, TV.cladeMix(colors, model, i));
         };
         const markOf = (i) => {
@@ -327,6 +351,8 @@ window.TreeView = window.TreeView || {};
             layout.mark(i, out);
             addStem(entry.path, out, view, snap);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addStem(matched, out, view, snap);
+            if (chosen && TV.matchesIn(chosen, firstLeaf[i], lastLeaf[i])) { addStem(chosenPath, out, view, snap); chosenUsed = true; }
+            if (focused && TV.matchesIn(focused, firstLeaf[i], lastLeaf[i])) { addStem(focusPath, out, view, snap); focusUsed = true; }
         };
 
         const stack = [model.root];
@@ -367,6 +393,14 @@ window.TreeView = window.TreeView || {};
                     && Math.max(right - left, bottom - top) >= TV.HANDLE_CLADE_PX) {
                     handles.push([i, nodeX, nodeY, false]);
                 }
+                // A clade with room round it shows how stable its split is.
+                if (support && i !== model.root && support[i] >= 0 && stats.supports < TV.SUPPORT_MAX
+                    && Math.min(right - left, bottom - top) >= TV.SUPPORT_CLADE_PX) {
+                    const dots = supportDots[Math.min(supportDots.length - 1, Math.floor(support[i] / 20))];
+                    dots.moveTo(nodeX + TV.SUPPORT_RADIUS, nodeY);
+                    dots.arc(nodeX, nodeY, TV.SUPPORT_RADIUS, 0, 2 * Math.PI);
+                    stats.supports++;
+                }
                 for (let k = childStart[i]; k < childStart[i + 1]; k++) stack.push(childList[k]);
             }
         }
@@ -406,7 +440,21 @@ window.TreeView = window.TreeView || {};
         ctx.lineWidth = mini ? 1.5 : 2;
         ctx.strokeStyle = palette.match;
         ctx.stroke(matched);
+        if (chosenUsed) {
+            ctx.strokeStyle = palette.selected;
+            ctx.stroke(chosenPath);
+        }
+        if (focusUsed) {
+            ctx.strokeStyle = palette.label;
+            ctx.stroke(focusPath);
+        }
         if (mini) return stats;
+        if (supportDots) {
+            for (let step = 0; step < supportDots.length; step++) {
+                ctx.fillStyle = palette.support[step];
+                ctx.fill(supportDots[step]);
+            }
+        }
 
         // The leaves drawn on their own: a dot where there is room, a name where there is more.
         const detail = TV.leafDetail(layout, view, leaves.length);
@@ -549,9 +597,101 @@ window.TreeView = window.TreeView || {};
             ctx.stroke(path);
         }
         TV.drawMatches(ctx, scene, width, height);
+        stats.selected = TV.drawSelection(ctx, scene, width, height);
         if (layout.kind === "rectangular") TV.drawRuler(ctx, scene, width, height);
         return stats;
     };
+
+    // The selection the network has, over the tree: the smallest clade that holds it, outlined; a solid dot (or a short
+    // tick where the rows are thin) at the tip of each selected leaf that is in view; a ring round the leaf with the
+    // click focus. A leaf inside a folded clade has no tip: the clade's shape is outlined instead (paintTree).
+    // Returns how many leaves were marked.
+    TV.drawSelection = function (ctx, scene, width, height) {
+        const selection = scene.selection;
+        if (!selection || !scene.layout || !scene.model) return 0;
+        const { model, layout, view, palette } = scene;
+        const rectangular = layout.kind === "rectangular";
+        const hidden = scene.leafHidden;
+        if (selection.clade >= 0) drawCladeMark(ctx, scene, selection.clade, width, height);
+
+        const leaves = selection.leaves;
+        let marked = 0;
+        if (leaves.length) {
+            const first = rectangular ? lowerBound(leaves, Math.floor((-4 - view.oy) / view.sy)) : 0;
+            const thin = rectangular ? view.sy < 6 : leaves.length > 1500;
+            const size = rectangular ? view.sy : TV.leafDetail(layout, view, 1).size;
+            const radius = Math.min(8, Math.max(3.5, size * 0.45));
+            const path = new Path2D();
+            // Thin marks that would land on the same pixel are drawn once: 44,000 selected leaves cost a screenful.
+            const seen = new Set();
+            for (let m = first; m < leaves.length; m++) {
+                const leaf = leaves[m];
+                if (hidden && hidden[leaf]) continue;
+                const node = model.leafNode[leaf];
+                const y = view.oy + layout.y[node] * view.sy;
+                if (rectangular && y > height + 8) break;
+                const x = view.ox + layout.x[node] * view.sx;
+                if (x < -LABEL_REACH_PX || x > width + 8 || y < -8 || y > height + 8) continue;
+                if (thin) {
+                    const key = Math.round(x + 4096) * 1048576 + Math.round(y + 4096);
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    if (rectangular) path.rect(x, y - 1, 14, 2); else path.rect(x - 1.5, y - 1.5, 3, 3);
+                } else {
+                    path.moveTo(x + radius, y);
+                    path.arc(x, y, radius, 0, 2 * Math.PI);
+                }
+                marked++;
+            }
+            ctx.fillStyle = palette.selected;
+            ctx.fill(path);
+        }
+
+        const focus = selection.focus;
+        if (focus >= 0 && !(hidden && hidden[focus])) {
+            const node = model.leafNode[focus];
+            const x = view.ox + layout.x[node] * view.sx;
+            const y = view.oy + layout.y[node] * view.sy;
+            if (x >= -LABEL_REACH_PX && x <= width + 8 && y >= -8 && y <= height + 8) {
+                ctx.strokeStyle = palette.label;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(x, y, 9, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+        }
+        return marked;
+    };
+
+    // The outline of clade `node` (or of the folded clade that holds it, which is what is drawn of it): dashed, in the
+    // selection's colour.
+    function drawCladeMark(ctx, scene, node, width, height) {
+        const { model, layout, view, palette, collapsed } = scene;
+        let shown = node;
+        if (collapsed) for (let i = node; i >= 0; i = model.parent[i]) if (collapsed[i]) shown = i;
+        ctx.strokeStyle = palette.selected;
+        ctx.lineWidth = 2;
+        // A wedge many screens across has an outline thousands of times the view long, and a dash for every few pixels of
+        // it is slow to lay out where there is no GPU: it is drawn unbroken then.
+        const size = TV.nodePixels(scene, shown);
+        if (layout.kind === "rectangular" || Math.max(size.right - size.left, size.bottom - size.top) < TV.DASH_LIMIT_PX) ctx.setLineDash([6, 4]);
+        if (layout.kind === "rectangular") {
+            const box = TV.nodePixels(scene, shown);
+            const named = view.sy >= TV.LABEL_PX;
+            // Only the part near the view is drawn, so that a clade a thousand screens tall is no long dash to draw.
+            const left = Math.max(-40, box.x0 - 3);
+            const right = Math.min(width + 40, box.reach + (named ? LABEL_REACH_PX : 8));
+            const top = Math.max(-40, box.top - 2);
+            const bottom = Math.min(height + 40, box.bottom + 2);
+            if (right > left && bottom > top) ctx.strokeRect(left, top, right - left, bottom - top);
+        } else {
+            const path = new Path2D();
+            layout.wedge(shown, scratch);
+            addWedge(path, scratch, view);
+            ctx.stroke(path);
+        }
+        ctx.setLineDash([]);
+    }
 
     // A ring at the tip of each leaf the search found that is in view; a short tick where its row is too thin for one.
     // A leaf inside a collapsed clade has no tip: the clade's shape is outlined instead (paintTree).
@@ -607,6 +747,19 @@ window.TreeView = window.TreeView || {};
         ctx.fillStyle = palette.thumb;
         ctx.fillRect(left + 1, top, TV.RULER_WIDTH - 2, Math.max(6, bottom - top));
         ctx.globalAlpha = 1;
+        // The leaves the network has selected, under the matches.
+        const chosen = scene.selection ? scene.selection.leaves : null;
+        if (chosen && chosen.length) {
+            ctx.fillStyle = palette.selected;
+            let drawn = -1;
+            for (let m = 0; m < chosen.length; m++) {
+                const y = Math.round((chosen[m] + 0.5) / rows * height);
+                if (y !== drawn) {
+                    ctx.fillRect(left + 2, y - 1, TV.RULER_WIDTH - 4, 2);
+                    drawn = y;
+                }
+            }
+        }
         if (scene.matches && scene.matches.length) {
             ctx.fillStyle = palette.match;
             // One tick per pixel row at most: a few thousand matches cost no more than the ruler is tall.

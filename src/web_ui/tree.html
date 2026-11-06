@@ -61,6 +61,7 @@
             --danger-soft: #fef2f2;
             --highlight-bg: rgba(245, 158, 11, 0.15);
             --highlight-ring: #f59e0b;
+            --tree-selected: #0e7490;
             --scroll: #d4d4d8;
             --scroll-hover: #a1a1aa;
             --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
@@ -104,6 +105,7 @@
             --danger-soft: rgba(239, 68, 68, 0.12);
             --highlight-bg: rgba(245, 158, 11, 0.18);
             --highlight-ring: #fbbf24;
+            --tree-selected: #22d3ee;
             --scroll: #3f3f46;
             --scroll-hover: #52525b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -351,6 +353,52 @@
         .legend-more { padding: 0 10px 8px; color: var(--text-soft); }
         .legend-more[hidden] { display: none; }
 
+        /* The legend of the split stability dots, at the foot of the drawing */
+        .support-legend {
+            position: absolute;
+            z-index: 4;
+            bottom: 12px;
+            right: 28px;
+            width: 230px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-card);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .support-legend[hidden], .support-legend .body[hidden] { display: none; }
+        .support-legend .head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 6px 10px;
+            border: 0;
+            background: none;
+            color: var(--text-secondary);
+            font: inherit;
+            font-weight: 600;
+            text-align: left;
+            cursor: pointer;
+        }
+        .support-legend .head::before {
+            content: "";
+            flex: none;
+            width: 10px;
+            height: 10px;
+            border: 1px solid var(--field-border);
+            border-radius: 50%;
+            background: transparent;
+        }
+        .support-legend .head[aria-pressed="true"]::before { background: var(--accent); border-color: var(--accent); }
+        .support-legend .head:hover { color: var(--text-primary); }
+        .support-legend .body { padding: 0 10px 8px; }
+        .support-legend .ramp { display: flex; height: 8px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
+        .support-legend .ramp span { flex: 1; }
+        .support-legend .ends { display: flex; justify-content: space-between; margin: 2px 0 6px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+        .support-legend .note { color: var(--text-soft); }
+
         /* The overview map, at the corner of the drawing */
         .stage .minimap {
             position: absolute;
@@ -534,6 +582,14 @@
             <ul class="legend-list" id="legend-list"></ul>
             <div class="legend-more" id="legend-more" hidden></div>
         </aside>
+        <aside class="support-legend" id="support-legend" hidden aria-label="The stability of the splits">
+            <button class="head" id="support-btn" aria-pressed="false" title="Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in"><span data-i18n>Split stability</span></button>
+            <div class="body" id="support-body" hidden>
+                <div class="ramp" id="support-ramp"></div>
+                <div class="ends"><span>0%</span><span>100%</span></div>
+                <div class="note" data-i18n>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</div>
+            </div>
+        </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
@@ -561,6 +617,7 @@
     <script src="/tree_layout.js"></script>
     <script src="/tree_render.js"></script>
     <script src="/tree_nav.js"></script>
+    <script src="/tree_select.js"></script>
     <script src="/tree_minimap.js"></script>
     <script src="/tree_session.js"></script>
 </body>

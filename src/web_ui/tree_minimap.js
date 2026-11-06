@@ -55,9 +55,25 @@ window.TreeView = window.TreeView || {};
         map = fitMap(state.layout, width, height);
         const scene = {
             model: state.model, layout: state.layout, view: map, palette: state.palette,
-            collapsed: state.collapsed, matches: state.matches, colors: state.colors,
+            collapsed: state.collapsed, matches: state.matches, colors: state.colors, selection: state.selection,
         };
         TV.paintTree(ctx, scene, width, height, true);
+        // The leaves the network has selected, as points, one to a pixel; the matches go over them.
+        if (state.selection.leaves.length) {
+            ctx.fillStyle = state.palette.selected;
+            const hidden = state.leafHidden;
+            const seen = new Set();
+            for (const leaf of state.selection.leaves) {
+                if (hidden && hidden[leaf]) continue;
+                const node = state.model.leafNode[leaf];
+                const x = Math.round(map.ox + state.layout.x[node] * map.sx);
+                const y = Math.round(map.oy + state.layout.y[node] * map.sy);
+                const key = (x + 4096) * 1048576 + (y + 4096);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                ctx.fillRect(x - 1, y - 1, 2, 2);
+            }
+        }
         // A leaf the search found, as a point; a leaf inside a folded clade is in its outlined shape.
         if (state.matches.length) {
             ctx.fillStyle = state.palette.match;

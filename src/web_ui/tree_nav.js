@@ -38,6 +38,10 @@ window.TreeView = window.TreeView || {};
         // The colours of the network (tree_color.js), or null; and the colour class whose leaves the legend marks, or -1.
         colors: null,
         legendClass: -1,
+        // The selection the network has, as the tree sees it (tree_select.js), a layer of its own beside the matches;
+        // and whether the stability of each split is drawn.
+        selection: { leaves: new Int32Array(0), clade: -1, focus: -1, count: 0 },
+        showSupport: false,
     };
     TV.canvas = null;
     TV.lastStats = null;
@@ -375,6 +379,13 @@ window.TreeView = window.TreeView || {};
         if (TV.invalidateMinimap) TV.invalidateMinimap();
     };
 
+    // The selection the network has (or its click focus) changed: draw it, and let the page say so.
+    TV.selectionChanged = function () {
+        TV.minimapChanged();
+        TV.requestDraw();
+        if (TV.onSelectionChanged) TV.onSelectionChanged();
+    };
+
     // ---- What is under the pointer ---------------------------------------------------------------------------
 
     const measure = document.createElement("canvas").getContext("2d");
@@ -564,6 +575,7 @@ window.TreeView = window.TreeView || {};
             const leaf = model.leafOrdinal[i];
             title = model.labels[leaf];
             lines.push(model.viewerNode[leaf] >= 0 ? t("A node of this network") : t("Not a node of this network"));
+            if (TV.matchesIn(state.selection.leaves, leaf, leaf) > 0) lines.push(t("Selected in the network"));
             const clusters = state.colors && state.colors.cluster;
             if (clusters && model.viewerNode[leaf] >= 0 && clusters[model.viewerNode[leaf]] >= 0) {
                 lines.push(t("Cluster: {id}", { id: clusters[model.viewerNode[leaf]] }));
@@ -576,6 +588,8 @@ window.TreeView = window.TreeView || {};
             if (model.support[i] >= 0) {
                 lines.push(t("Stable in {percent}% of the replicate trees", { percent: model.support[i] }));
             }
+            const selected = TV.matchesIn(state.selection.leaves, model.firstLeaf[i], model.lastLeaf[i]);
+            if (selected > 0) lines.push(t("Selected in the network: {count}", { count: selected.toLocaleString() }));
             const colors = state.colors;
             if (colors && colors.present[i] > 0 && colors.dominant[i] !== TV.NO_CLASS && colors.dominant[i] !== TV.PLAIN_CLASS
                 && colors.purity[i] > 0.5) {
