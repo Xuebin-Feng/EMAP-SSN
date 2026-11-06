@@ -184,7 +184,7 @@ def run(viewer, args):
         if viewer.open_page("meta", **options):
             Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
         elif page_is_open(viewer, "meta"):
-            Command_Engine.command_failed(viewer, "The metadata interface is already open in your browser.")
+            Command_Engine.command_succeeded(viewer, "The metadata interface is already open in your browser.")
         elif is_headless(viewer) and (address := page_address(viewer, "/meta.html")) is not None:
             Command_Engine.command_succeeded(
                 viewer,

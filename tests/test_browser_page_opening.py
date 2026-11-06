@@ -548,15 +548,16 @@ class ViewerPageOpenerTests(unittest.TestCase):
         succeeded.assert_called_once_with(viewer, "Opened the metadata interface.")
         failed.assert_not_called()
 
-    def test_meta_says_an_open_page_is_already_open(self):
+    def test_meta_succeeds_with_a_note_when_its_page_is_already_open(self):
         for portal, dialogs in ((False, 1), (True, 0)):
             with self.subTest(portal=portal):
                 viewer = self.make_viewer({"meta"})
                 with mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open:
                     succeeded, failed, information = self.run_meta(viewer, portal)
                 browser_open.assert_not_called()
-                succeeded.assert_not_called()
-                failed.assert_called_once_with(
+                # Nothing is left to open, so the request succeeds, with the fact as its note.
+                failed.assert_not_called()
+                succeeded.assert_called_once_with(
                     viewer, "The metadata interface is already open in your browser."
                 )
                 # A command from the MCP or the agent has nobody to dismiss a dialog.
