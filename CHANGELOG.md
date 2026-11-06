@@ -169,6 +169,9 @@ still change before version 1.0.0.
   Neighbor-joining used to get 100 perturbed replicates. Each replicate is a full
   neighbor-joining tree: about 30 s at 8,000 sequences, or hours for the whole set.
   A settings file run from the command line keeps the setting.
+- **`meta` succeeds when its page is already open.** It used to fail with "The metadata
+  interface is already open in your browser."; it now succeeds with that note, as `tree`,
+  `esmfold` and `agent` do. A request that has nothing to change is not an error.
 
 ### Fixed
 
