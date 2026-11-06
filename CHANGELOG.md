@@ -202,6 +202,15 @@ still change before version 1.0.0.
   Output, Score sits beside Sequence Set and Bit Score Column beside BLAST Layout, above
   the Query, Subject and EValue columns. In a wide window the right-hand fields line up
   in one column, and Tab follows the rows.
+- **Show Frame Rate counts new pictures only, and shows the slowest gap.** It used to count
+  every frame the canvas drew, including redraws of a picture that had not changed; it
+  now reads, for example, `59 new/s · slowest 18 ms · GPU 2.1 ms`. The slowest gap
+  between two new pictures in the last second shows a stutter that the average hides. In
+  a narrow window it reads the rate alone (`59/s`).
+- **The Viewer asks for vertical sync itself.** Its canvas and its window both request a
+  swap at the screen's refresh. The environment variable `SSN_VIEWER_VSYNC=0` turns it
+  off, to compare panning with and without it. The graphics driver's own vertical sync
+  setting still overrides both.
 
 ### Fixed
 
