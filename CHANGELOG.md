@@ -92,7 +92,7 @@ still change before version 1.0.0.
   - **Navigation:** the tree zooms and pans; in the rectangular layout the rows and the width
     zoom separately. Headers can be searched (a substring, or an exact header in quotes).
     Hovering or clicking a branch or clade shows its details, and double-clicking a clade
-    zooms to it.
+    zooms to it. Fit leaves room for the names a rectangular tree shows.
   - **Large trees:** a clade can be folded into one shape and opened again, and an overview
     map in the corner shows the whole tree and where the view is. Clades too small to see are
     drawn as one line, and names appear only where they fit. On high-DPI screens the lines
