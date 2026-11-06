@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4010"/>
+        <location line="+4011"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4009"/>
+        <location line="-4010"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4644"/>
+        <location line="+4645"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4636"/>
+        <location line="-4637"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -812,12 +812,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3650"/>
+        <location line="+3651"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3647"/>
+        <location line="-3648"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -858,12 +858,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2404"/>
+        <location line="+2405"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2323"/>
+        <location line="-2324"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1255,7 +1255,7 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
 作为布局缓存，重新打开网络时无需重新计算布局。</translation>
     </message>
     <message>
-        <location line="+409"/>
+        <location line="+410"/>
         <source>Directory where command-line layout generation JSON settings are exported.</source>
         <translation type="unfinished">导出命令行布局生成所用 JSON 设置的目录。</translation>
     </message>
@@ -1302,14 +1302,14 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="-224"/>
-        <location line="+410"/>
+        <location line="-225"/>
+        <location line="+411"/>
         <location line="+260"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-600"/>
+        <location line="-601"/>
         <source>While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops.</source>
         <translation type="unfinished">平移、缩放或拖动节点时，按得分顺序每 4、16 或 64 条边只绘制 1 条；视图停下片刻后重新绘制全部边。</translation>
     </message>
@@ -1388,12 +1388,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">在查看器右上角、侧边栏按钮左侧显示帧率。</translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>It counts the frames drawn to the screen over the last second, with the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
-        <translation type="unfinished">它统计最近一秒内绘制到屏幕上的帧数，并显示显卡绘制最近一帧所用的时间；边被精简时还显示绘制的比例。没有绘制时显示“空闲”。</translation>
+        <translation type="obsolete">它统计最近一秒内绘制到屏幕上的帧数，并显示显卡绘制最近一帧所用的时间；边被精简时还显示绘制的比例。没有绘制时显示“空闲”。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+11"/>
         <source>It is never part of prints or captures.</source>
         <translation type="unfinished">它不会出现在打印或截图中。</translation>
     </message>
@@ -1406,7 +1405,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">两者都只使用每个节点最强的边，因此都不使用“相似性阈值”或“保留高分边 %”。</translation>
     </message>
     <message>
-        <location line="+431"/>
+        <location line="+432"/>
         <source>Target Cache: Missing input files</source>
         <translation type="unfinished">目标缓存：缺少输入文件</translation>
     </message>
@@ -1611,7 +1610,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2416"/>
+        <location line="-2417"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1622,12 +1621,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2642"/>
+        <location line="+2643"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3182"/>
+        <location line="-3183"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1773,7 +1772,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2546"/>
+        <location line="+2547"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1885,7 +1884,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4012"/>
+        <location line="-4013"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
@@ -2362,7 +2361,17 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">在查看器右上角显示帧率。</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+1"/>
+        <source>It counts the new pictures drawn to the screen over the last second (a redraw of a picture that has not changed is not counted), with the slowest gap between two of them, the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
+        <translation type="unfinished">它统计最近一秒内绘制到屏幕上的新画面数（重绘未变化的画面不计），并显示相邻两幅新画面之间最慢的间隔、显卡绘制最近一帧所用的时间；边被精简时还显示绘制的比例。没有绘制时显示“空闲”。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The Viewer syncs to the screen&apos;s refresh; the environment variable `SSN_VIEWER_VSYNC=0` turns that off, to compare panning.</source>
+        <translation type="unfinished">查看器会与屏幕刷新同步；环境变量 `SSN_VIEWER_VSYNC=0` 可将其关闭，以便对比平移效果。</translation>
+    </message>
+    <message>
+        <location line="+63"/>
         <source>How the 2D coordinates are computed: SSN simulates physics, while UMAP and PaCMAP compute them directly from each node&apos;s strongest edges.</source>
         <translation type="unfinished">二维坐标的计算方式：SSN 模拟物理过程，而 UMAP 和 PaCMAP 直接根据每个节点最强的边计算坐标。</translation>
     </message>
@@ -2385,7 +2394,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">开启“改用 UMAP 绘图”时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
     </message>
     <message>
-        <location line="-76"/>
+        <location line="-77"/>
         <source>It updates once a right-button selection box is let go, instead of at each move of the box.</source>
         <translation type="unfinished">用右键拖出选择框时，它在松开后才更新一次，而不是框每移动一下就更新。</translation>
     </message>
@@ -2406,7 +2415,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+15"/>
         <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).</source>
         <translation type="unfinished">选择生成 SSN 布局时使用的计算设备（CPU、CUDA、XPU、MPS）。</translation>
     </message>
@@ -2797,12 +2806,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">自动</translation>
     </message>
     <message>
-        <location line="-2034"/>
+        <location line="-2035"/>
         <source>Minimum similarity score threshold (identity fraction, normalized score, -Log10 E-Value or EFI alignment score) to retain an edge.</source>
         <translation type="unfinished">保留一条边所需的最低相似性得分阈值（一致性比例、归一化得分、-Log10 期望值或 EFI 比对得分）。</translation>
     </message>
     <message>
-        <location line="+1775"/>
+        <location line="+1776"/>
         <location line="+259"/>
         <source>Auto OFF</source>
         <translation type="unfinished">自动</translation>
@@ -6890,7 +6899,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4974"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4975"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6992,7 +7001,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1668"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1673"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7075,7 +7084,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+559"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+568"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7090,7 +7099,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="-525"/>
+        <location line="-534"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -15160,7 +15169,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-179"/>
+        <location line="-180"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -15216,7 +15225,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2088"/>
+        <location line="+2089"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -15571,17 +15580,32 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerFps</name>
     <message>
-        <location filename="../../../desktop/Viewer_Fps.py" line="+65"/>
+        <location filename="../../../desktop/Viewer_Fps.py" line="+80"/>
+        <location line="+10"/>
         <source>Idle</source>
         <translation type="unfinished">空闲</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>{fps} fps</source>
-        <translation type="unfinished">{fps} 帧/秒</translation>
+        <translation type="obsolete">{fps} 帧/秒</translation>
+    </message>
+    <message>
+        <location line="-9"/>
+        <source>{fps}/s</source>
+        <translation type="unfinished">{fps}/秒</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>{fps} new/s</source>
+        <translation type="unfinished">{fps} 新帧/秒</translation>
     </message>
     <message>
         <location line="+2"/>
+        <source>slowest {ms} ms</source>
+        <translation type="unfinished">最慢 {ms} 毫秒</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>GPU {ms} ms</source>
         <translation type="unfinished">GPU {ms} 毫秒</translation>
     </message>

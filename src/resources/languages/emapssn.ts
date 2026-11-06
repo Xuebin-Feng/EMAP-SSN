@@ -1161,11 +1161,15 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>It counts the frames drawn to the screen over the last second, with the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
+        <source>It counts the new pictures drawn to the screen over the last second (a redraw of a picture that has not changed is not counted), with the slowest gap between two of them, the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>It is never part of prints or captures.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer syncs to the screen&apos;s refresh; the environment variable `SSN_VIEWER_VSYNC=0` turns that off, to compare panning.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10728,7 +10732,15 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>{fps} fps</source>
+        <source>{fps}/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{fps} new/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>slowest {ms} ms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
