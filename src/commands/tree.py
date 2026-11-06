@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-commands/tree.py — Thin CLI portal stub for Tree View, the guide tree of the loaded alignment.
+commands/tree.py — Thin CLI portal stub for Tree View, trees beside the network.
 
 Delegates what the page shows, and how it finds the tree, to web_ui/tree_backend.py.
 """
@@ -31,7 +31,7 @@ from web_ui.tree_backend import locate_tree, register
 # user to press Run.
 AGENT_POLICY = 'approve'
 
-CATALOG_ENTRY = entry('Open Tree View in the browser: the guide tree the Embedding MSA tool saved for the alignment that is loaded, drawn beside the network. The page names no file: the tree is the one saved in the Guide_Trees folder of the alignment\'s folder, and an alignment that did not come from the tool has none. With no alignment, or no tree for it, the page still opens on a card that says why, and the result names the file it looked for. A page that is open already is not opened again, and the result says so. Needs a Viewer that shows windows.',
+CATALOG_ENTRY = entry('Open Tree View in the browser: a tree drawn beside the network. A Tree list in the page chooses it: the guide tree the Embedding MSA tool saved for the loaded alignment (opened first when there is one, found from the alignment\'s name in its Guide_Trees folder), the network threshold tree (single linkage over the network\'s edges, no alignment needed), or a tree file of the user\'s own (Newick, NEXUS, PhyloXML, NeXML or JSON, opened in the page and matched to the network by full sequence name). The command takes no file name. With no guide tree, the page opens on the threshold tree, and the result names the guide tree file it looked for. A page that is open already is not opened again, and the result says so. Needs a Viewer that shows windows.',
     argument('action', 'Omit to open the page. Registration only adds the Tree View button to the Console without opening it.', choice('--register-only')), opens_interface=True)
 
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata): after
@@ -39,8 +39,8 @@ CATALOG_ENTRY = entry('Open Tree View in the browser: the guide tree the Embeddi
 AGENT_PROMPT_ORDER = 245
 AGENT_PROMPT = """
 `tree`
-- Opens Tree View in the browser: a page that draws the guide tree the Embedding MSA tool saved for the loaded alignment, and adds its Console button. It takes no argument, and no file name: the page finds the tree itself, in the `Guide_Trees` folder beside the alignment, from the alignment's name.
-- With no alignment loaded, an alignment the tool did not name, or no tree file, the page still opens on a card that says why, and the result names the file it looked for. The tree itself is not part of a snapshot, so what it shows is not something to describe to the user.
+- Opens Tree View in the browser: a page that draws a tree beside the network, and adds its Console button. It takes no argument and no file name. The user picks the tree in the page: the guide tree the Embedding MSA tool saved for the loaded alignment (found from the alignment's name, in the `Guide_Trees` folder beside it), the network threshold tree (built from the network's edges, no alignment needed), or a tree file of their own.
+- The guide tree opens first when there is one, else the threshold tree. With no alignment loaded, an alignment the tool did not name, or no tree file, the result names the guide tree file it looked for. The tree itself is not part of a snapshot, so what it shows is not something to describe to the user.
 - A page that is open already is not opened again: the command succeeds and says so.
 """
 
@@ -54,21 +54,23 @@ CONSOLE_BUTTON = True
 
 def print_help():
     print("""
-    Tree View: The Guide Tree of the Loaded Alignment
-    =================================================
+    Tree View: Trees Beside the Network
+    ====================================
     Usage: tree
            tree help
 
     Description:
-      Opens Tree View in your browser and adds its button to the Console. The page draws the guide
-      tree that the Embedding MSA tool saved for the alignment loaded in this Viewer, and follows
-      the alignment: load another one (the alignment command) and the page shows its tree.
+      Opens Tree View in your browser and adds its button to the Console. The page draws a tree
+      beside the network. The Tree list in its header chooses it: the guide tree of the loaded
+      alignment, the network threshold tree, or a tree file of your own.
 
     Notes:
-      The tree is found from the alignment's name, never chosen: for Set_[model]_alignment.fasta it
-      is Guide_Trees/Set_[model]_guide_tree.nex in the alignment's folder. An alignment that did not
+      The guide tree is found from the alignment's name: for Set_[model]_alignment.fasta it is
+      Guide_Trees/Set_[model]_guide_tree.nex in the alignment's folder. An alignment that did not
       come from the tool, a renamed one, or one made before trees were saved has none, and the page
-      says which file it looked for.
+      opens on the threshold tree instead. The threshold tree is built from the network's edges by
+      single linkage and needs no alignment. A tree of your own (Open a tree file..., a drop or a
+      paste) is matched to the network by full sequence name.
 
     Examples:
       tree

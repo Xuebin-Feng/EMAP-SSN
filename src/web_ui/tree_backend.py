@@ -1206,7 +1206,7 @@ def activate(viewer):
             name="treeViewBtn",
             label=translate("Viewer", "Tree View"),
             callback=lambda: viewer.open_page("tree"),
-            tooltip=translate("Viewer", "Open the guide tree of the loaded alignment in browser"),
+            tooltip=translate("Viewer", "Open Tree View in browser: the guide tree, the network threshold tree or a tree file"),
             icon="list-tree",
         )
         if not hasattr(viewer, "sidebar_buttons_to_persist"):

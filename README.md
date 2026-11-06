@@ -225,7 +225,9 @@ with mouse and keyboard controls for panning, zooming, selection, and formatting
 Its in-line command console (HUD) runs analytical operations, highlights residues,
 selects clusters, and exports figures. The `meta`, `esmfold`, `agent`, and `tree` commands
 open session-specific utilities in the system browser: a metadata table, a Mol*
-structure viewer, a conversational agent, and the guide tree of the loaded alignment. The Tools documentation panel uses
+structure viewer, a conversational agent, and trees beside the network (the guide tree of the loaded
+alignment, a threshold tree built from the network's edges, or a tree file of your own). The Tools
+documentation panel uses
 embedded QtWebEngine.
 
 Dimensionality follows from the viewer: the desktop Configuration and Viewer

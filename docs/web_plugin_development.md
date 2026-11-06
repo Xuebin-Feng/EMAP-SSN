@@ -235,6 +235,15 @@ only the page needs to read (the tree, the node colours, the current selection)
 is a plugin API route under `/api/<plugin_id>/`, answered as JSON: the page asks
 for the state it needs and the event only says that it changed.
 
+A page that sends something big (Tree View also registers a `tree_upload` action for it) and needs the answer in the same reply uses a POST
+route instead of an action, which is answered with nothing but its acceptance. Tree View
+posts a tree it has read from a file to `/api/tree/upload`, registered with
+`methods=("POST",)`, `content_types=("application/json",)` and a `max_body` of the
+server's action limit; the reply says how the tree matched the network and holds the
+state the page then draws. The Viewer keeps that tree in memory for its session and
+writes nothing to disk. The same checks as for an action apply: the request's origin,
+size and `Content-Type` are checked by the server, and every number and name by the handler.
+
 ## What stays central, and why
 
 The plugins declare what is theirs. What protects the Viewer stays in the core,

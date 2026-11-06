@@ -1090,26 +1090,30 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-tree" data-source-sha256="f66161dd280d5dd9f8622bb47c2817c103f924669cd66484c463798740739d2a">
+            <section class="command-card" id="cmd-tree" data-source-sha256="386aa563eeee794e36ecbd4c670f8f1fd07e4a07caf92d6bc5c26d0b69605b56">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">tree</span>
-                        <span class="command-card-desc-title">&ndash; 已加载比对的引导树</span>
+                        <span class="command-card-desc-title">&ndash; 网络旁的树</span>
                     </div>
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">tree  |  tree help</div>
                     <button class="copy-btn" onclick="copyText('tree', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>tree 命令在浏览器中打开树视图，并把“树视图”按钮加入控制台的按钮行。页面在网络旁边绘制 Embedding MSA 工具为本查看器中已加载的比对保存的引导树，并跟随比对变化：加载另一个比对（<code>alignment</code> 命令），页面就会显示它的树。命令不带参数：页面自己找到这棵树。</p>
+                <p><strong>概述：</strong>tree 命令在浏览器中打开树视图，并把“树视图”按钮加入控制台的按钮行。页面在网络旁边绘制一棵树。你在页面标题栏的<strong>树</strong>列表中选择：已加载比对的引导树、网络阈值树，或你自己的树。命令不带参数；选择在页面中进行。</p>
 
                 <div class="subheading">详细说明</div>
                 <ul>
-                    <li><strong>用哪棵树：</strong>树是根据比对的名称找到的，不能自行指定。对于 <code>Set_[model]_alignment.fasta</code>，它是比对所在文件夹中的 <code>Guide_Trees/Set_[model]_guide_tree.nex</code>。不是该工具生成的比对、被重命名的比对，或在保存树之前生成的比对没有引导树；没有比对或没有对应的树时，页面仍会打开，并用一张卡片说明原因，命令则成功并附带一条说明，指出它查找的文件。页面已经打开时不会再次打开，命令会说明这一点。</li>
-                    <li><strong>布局：</strong>有根的树以矩形布局打开；无根的树以无根布局打开。页面还可以把树画成环形，并可按分支长度绘制分支（系统发育图），或只用分支显示谁与谁相邻（支序图）。以矩形或环形绘制无根的树时，按其中点根绘制，页面会注明这一点。双击进化枝可缩放到它，点击其方块可把它折叠成一个形状，<strong>全部展开</strong>可展开所有进化枝。概览图显示整棵树以及你当前所在的位置。</li>
+                    <li><strong>用哪棵树：</strong><strong>树</strong>列表提供三种树。已加载的比对有引导树时，先打开引导树；否则打开阈值树。页面会在查看器运行期间保留你的选择。</li>
+                    <li><strong>引导树：</strong>Embedding MSA 工具为已加载比对保存的引导树。它是根据比对的名称找到的，不能自行指定。对于 <code>Set_[model]_alignment.fasta</code>，它是比对所在文件夹中的 <code>Guide_Trees/Set_[model]_guide_tree.nex</code>，页面会跟随比对变化：加载另一个比对（<code>alignment</code> 命令），它就会显示那棵树。不是该工具生成的比对、被重命名的比对，或在保存树之前生成的比对没有引导树：引导树在列表中呈灰色，其原因显示在提示中，页面打开阈值树。命令仍会成功，并附带一条说明，指出它查找的文件。完全没有可显示的树时，会有一张卡片说明原因。页面已经打开时不会再次打开，命令会说明这一点。</li>
+                    <li><strong>网络阈值树：</strong>查看器根据已加载网络的边，按单连接法构建的树。分支点是两组节点首次共有一条边的地方，其位置为该边的得分。在阈值处切开这棵树，得到的就是查看器显示为相连的各组。一条线在树上标出阈值（矩形布局中是竖线，环形布局中是圆，无根布局和支序图中没有），并随阈值滑块移动。不共有任何保留边的各组，挂在一个根上的断开分支下。它不需要比对。使用 UMAP 或 PaCMAP 时，它使用该布局保留的边。它在你第一次请求时构建：在 44,000 条序列、5% 的序列对时约需 0.15 秒。</li>
+                    <li><strong>你自己的树：</strong>在列表中选择<strong>打开树文件...</strong>，把文件拖放到页面上，或在没有输入框获得焦点时用 Ctrl+V 粘贴树的文本。页面可读取 Newick（包括 NHX、成对支持值如 IQ-TREE 的、RAxML 支持值和 Jplace 边编号）、NEXUS（TRANSLATE，以及 BEAST、MrBayes 和 FigTree 注释）、PhyloXML、NeXML 和 JSON（Auspice、嵌套和 Jplace）。文件最大为 128 MB。</li>
+                    <li><strong>匹配：</strong>叶节点的名称等于网络节点的完整标题，或按查看器的标题规则处理后等于该标题时，即与该节点匹配。不做登录号匹配，也不忽略大小写。两个叶节点同名时，页面会拒绝这棵树。标题栏中的<strong>匹配</strong>按钮可重新打开匹配报告：它统计匹配数，并列出不在网络中的叶节点（以淡色绘制）。完全没有匹配时，它把树中的名称与网络的标题并排显示。这棵树保存在查看器的内存中，直到查看器关闭，不会写入磁盘。</li>
+                    <li><strong>布局：</strong>有根的树以矩形布局打开；无根的树以无根布局打开。页面还可以把树画成环形，并可按分支长度绘制分支（系统发育图），或只用分支显示谁与谁相邻（支序图）。以矩形或环形绘制无根的树时，会从一个根绘制，页面会注明这一点：引导树用中点根，你自己的树用文件写明的根。双击进化枝可缩放到它，点击其方块可把它折叠成一个形状，<strong>全部展开</strong>可展开所有进化枝。概览图显示整棵树以及你当前所在的位置。</li>
                     <li><strong>颜色：</strong>树跟随网络的颜色：所显示的叶节点中至少十分之九共享同一种颜色的进化枝以该颜色绘制，折叠的进化枝显示它所含的颜色。颜色变化时页面会随之更新。</li>
                     <li><strong>选择：</strong>网络中选中的节点会在树中显示（青色圆点、包含它们的最小进化枝上的虚线轮廓，以及概览图上的刻度）。右键点击进化枝或叶节点，会用其叶节点替换网络的选择；Shift+右键点击会在选择中切换它们；在空白画布上右键点击会清除选择。点击叶节点会固定它，并在网络中聚焦其节点。树视图没有指向结构视图的链接：请先选中一个进化枝，再运行 <code>esmfold</code>。</li>
-                    <li><strong>分裂稳定性：</strong><strong>分裂稳定性</strong>开关会在树放大时，按距离加入噪声扰动后各分裂保持不变的频率给进化枝着色。它是距离噪声下的稳定性，不是 bootstrap 支持率。</li>
+                    <li><strong>分裂稳定性：</strong>对于引导树，<strong>分裂稳定性</strong>开关会在树放大时，按距离加入噪声扰动后各分裂保持不变的频率给进化枝着色。它是距离噪声下的稳定性，不是 bootstrap 支持率。对于你自己的树，该开关是<strong>支持值</strong>，显示文件给出的各分裂的支持值。</li>
                     <li><strong>无窗口：</strong>不显示窗口的查看器不会打开页面；命令成功，并给出树视图所在的地址。</li>
                 </ul>
 
