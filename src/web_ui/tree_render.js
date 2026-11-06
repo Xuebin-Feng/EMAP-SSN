@@ -46,6 +46,34 @@ window.TreeView = window.TreeView || {};
     // The least contrast (WCAG's ratio) between the plain colour and the page that the tree draws it in: the colour
     // is the Viewer's to choose, and one that is the page's own background would draw nothing. Graphics need 3.
     TV.MIN_CONTRAST = 3;
+    // How long, in milliseconds, the view must rest after a wheel, drag or key gesture before names are drawn again.
+    TV.IDLE_MS = 160;
+    // The widest stroke, in device pixels, that strokeLines draws as hairlines.
+    const HAIR_MAX_DEVICE_PX = 3.5;
+
+    // Stroke `path` in the context's line width. Skia draws a stroke of one device pixel or less on the GPU as an
+    // anti-aliased hairline, and a wider one through its general path renderer, which for a big path falls back to the
+    // CPU (about 125 ms for a screenful of lines at a device pixel ratio of 2, where 1 CSS pixel is 2 device pixels).
+    // A line of 2 or 3 device pixels is made of one-pixel lines instead, moved by half its excess width to the left,
+    // right, up and down (and once not moved for the widest), so that its width comes out the same whatever its direction.
+    function strokeLines(ctx, path) {
+        const width = ctx.lineWidth;
+        const ratio = window.devicePixelRatio || 1;
+        const device = width * ratio;
+        if (device <= 1.05 || device > HAIR_MAX_DEVICE_PX) {
+            ctx.stroke(path);
+            return;
+        }
+        const r = (device - 1) / 2 / ratio;
+        const moves = device > 2.5 ? [[-r, 0], [r, 0], [0, -r], [0, r], [0, 0]] : [[-r, 0], [r, 0], [0, -r], [0, r]];
+        ctx.lineWidth = 1 / ratio;
+        for (const [dx, dy] of moves) {
+            ctx.translate(dx, dy);
+            ctx.stroke(path);
+            ctx.translate(-dx, -dy);
+        }
+        ctx.lineWidth = width;
+    }
 
     // The red, green and blue (0 to 255) of a CSS colour, as the canvas reads it.
     const reader = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
@@ -470,11 +498,11 @@ window.TreeView = window.TreeView || {};
         for (const { path, width, cls } of marks.values()) {
             ctx.strokeStyle = cls === NO ? palette.mark : ink(cls);
             ctx.lineWidth = width;
-            ctx.stroke(path);
+            strokeLines(ctx, path);
         }
         ctx.strokeStyle = palette.mark;
         ctx.lineWidth = 1;
-        ctx.stroke(wedges);
+        strokeLines(ctx, wedges);
         // The colours a folded clade holds, along its far edge.
         if (mixBars.size) {
             ctx.lineWidth = mini ? 2 : 4;
@@ -485,27 +513,27 @@ window.TreeView = window.TreeView || {};
             ctx.lineWidth = 1;
         }
         ctx.strokeStyle = palette.faded;
-        ctx.stroke(faded);
+        strokeLines(ctx, faded);
         ctx.strokeStyle = palette.branch;
-        ctx.stroke(branches);
+        strokeLines(ctx, branches);
         for (const [cls, path] of inks) {
             ctx.strokeStyle = ink(cls);
-            ctx.stroke(path);
+            strokeLines(ctx, path);
         }
         ctx.lineWidth = mini ? 1.5 : 2;
         ctx.strokeStyle = palette.match;
-        ctx.stroke(matched);
+        strokeLines(ctx, matched);
         if (neighbourUsed) {
             ctx.strokeStyle = markColors.connected;
-            ctx.stroke(neighbourPath);
+            strokeLines(ctx, neighbourPath);
         }
         if (chosenUsed) {
             ctx.strokeStyle = markColors.selected;
-            ctx.stroke(chosenPath);
+            strokeLines(ctx, chosenPath);
         }
         if (focusUsed) {
             ctx.strokeStyle = palette.label;
-            ctx.stroke(focusPath);
+            strokeLines(ctx, focusPath);
         }
         if (mini) return stats;
         if (supportDots) {
@@ -571,7 +599,8 @@ window.TreeView = window.TreeView || {};
             stats.handles++;
         }
 
-        if (names.length) {
+        // Hundreds of rotated names cost most of a frame: none while a gesture moves the view.
+        if (names.length && !scene.moving) {
             ctx.font = Math.min(13, Math.max(9, detail.size * 0.8)).toFixed(1) + "px " + palette.font;
             ctx.textBaseline = "middle";
             for (const [text, x, y, inNetwork, direction] of names) {

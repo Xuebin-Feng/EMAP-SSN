@@ -2900,6 +2900,132 @@ class FitReportTests(TreePageMixin, unittest.TestCase):
         self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
 
 
+class StrokeAndGestureTests(LayoutCase):
+    """The lines of the tree are hairline passes where the pixel ratio would send them to Skia's slow path, and the
+    names wait for the view to rest after a gesture."""
+
+    # What each stroke() call of a frame was: the path it drew, the line width and where the context was moved (device
+    # pixels), in the order of the calls.
+    STROKES = """(ratio) => {
+        Object.defineProperty(window, 'devicePixelRatio', {get: () => ratio, configurable: true});
+        const proto = CanvasRenderingContext2D.prototype, original = proto.stroke, paths = [], calls = [];
+        proto.stroke = function (path) {
+            if (path instanceof Path2D) {
+                let id = paths.indexOf(path);
+                if (id < 0) id = paths.push(path) - 1;
+                const m = this.getTransform();
+                calls.push({path: id, width: this.lineWidth, dx: Math.round((m.e) * 1000) / 1000, dy: Math.round(m.f * 1000) / 1000, ratio: m.a});
+            }
+            return original.apply(this, arguments);
+        };
+        try { TreeView.drawNow(); } finally { proto.stroke = original; delete window.devicePixelRatio; }
+        return calls;
+    }"""
+
+    def strokes(self, ratio):
+        """The stroke calls of tree lines in a frame drawn at the device pixel ratio ``ratio``, as a list of passes per path."""
+        calls = self.script(f"return ({self.STROKES})({ratio})")
+        groups = {}
+        for call in calls:
+            groups.setdefault(call["path"], []).append(call)
+        return list(groups.values())
+
+    def test_a_one_pixel_line_at_ratio_one_is_one_stroke(self):
+        groups = self.strokes(1)
+        # The branches, 1 pixel wide, are drawn in one stroke at their own width and place.
+        singles = [passes for passes in groups if len(passes) == 1 and passes[0]["width"] == 1]
+        self.assertTrue(singles)
+        for passes in singles:
+            self.assertEqual((passes[0]["dx"], passes[0]["dy"]), (0, 0))
+        # Marks of 2 and 3 pixels are hairline passes of 1 pixel; no line of 1 pixel is drawn as several.
+        for passes in groups:
+            if len(passes) > 1:
+                self.assertEqual({p["width"] for p in passes}, {1})
+                self.assertIn(len(passes), (4, 5))
+
+    def test_a_two_device_pixel_line_is_four_hairlines_moved_by_half_a_pixel(self):
+        groups = self.strokes(2)
+        fours = [passes for passes in groups if len(passes) == 4]
+        self.assertTrue(fours)
+        for passes in fours:
+            self.assertEqual({p["width"] for p in passes}, {0.5})
+            # Device pixels: the context is moved left, right, up and down by half a pixel, on a base of 0.
+            self.assertEqual(sorted((p["dx"], p["dy"]) for p in passes), [(-0.5, 0), (0, -0.5), (0, 0.5), (0.5, 0)])
+
+    def test_a_three_device_pixel_line_is_five_hairlines(self):
+        groups = self.strokes(3)
+        fives = [passes for passes in groups if len(passes) == 5]
+        self.assertTrue(fives)
+        for passes in fives:
+            self.assertEqual({round(p["width"] * 3, 3) for p in passes}, {1})
+            self.assertEqual(sorted((p["dx"], p["dy"]) for p in passes), [(-1, 0), (0, -1), (0, 0), (0, 1), (1, 0)])
+
+    def test_lines_over_three_and_a_half_device_pixels_are_not_touched(self):
+        groups = self.strokes(4)
+        self.assertTrue(groups)
+        for passes in groups:
+            self.assertEqual(len(passes), 1)
+            self.assertGreaterEqual(passes[0]["width"] * 4, 4)
+            self.assertEqual((passes[0]["dx"], passes[0]["dy"]), (0, 0))
+
+    def names(self):
+        return self.state("TreeView.lastStats.labels")
+
+    def show_names(self):
+        self.script("TreeView.focusLeaf(5); TreeView.drawNow(); return 1")
+        self.assertGreater(self.names(), 0)
+
+    FILLTEXT = """(() => {
+        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText;
+        let count = 0;
+        proto.fillText = function () { count++; return original.apply(this, arguments); };
+        try { TreeView.drawNow(); } finally { proto.fillText = original; }
+        return count;
+    })()"""
+
+    def test_no_names_are_drawn_while_a_gesture_moves_the_view_and_they_return_when_it_rests(self):
+        gestures = {
+            "wheel": "fire.wheel(-20, 600, 300)",
+            "drag": "fire.pointer('pointerdown', 600, 300); fire.pointer('pointermove', 640, 330)",
+            "key": "fire.key('ArrowLeft')",
+        }
+        for name, gesture in gestures.items():
+            with self.subTest(gesture=name):
+                self.script("TreeView.focusLeaf(5); TreeView.drawNow(); return 1")
+                self.assertGreater(self.names(), 0)
+                self.js(gesture + "; 1")
+                self.assertEqual(self.state(self.FILLTEXT), 0)
+                self.assertEqual(self.names(), 0)
+                if name == "drag":
+                    self.js("fire.pointer('pointerup', 640, 330); 1")
+                # After the idle delay a frame with the names follows by itself.
+                self.wait_for("TreeView.lastStats.labels > 0")
+                self.assertGreater(self.state(self.FILLTEXT), 0)
+
+    def test_jumping_to_a_leaf_or_changing_the_selection_still_draws_names(self):
+        self.script("TreeView.focusLeaf(7); return 1")
+        self.assertGreater(self.state(self.FILLTEXT), 0)
+        self.script("TreeView.applySelection([5, 6, 7]); return 1")
+        self.assertGreater(self.state(self.FILLTEXT), 0)
+        self.assertFalse(self.state("TreeView.state.moving"))
+        # The page's own zoom and pan are no gestures either.
+        self.script("TreeView.zoomAbout(600, 300, 1.2, 1.2); TreeView.pan(10, 5); return 1")
+        self.assertFalse(self.state("TreeView.state.moving"))
+        self.assertGreater(self.state(self.FILLTEXT), 0)
+
+    def test_the_marks_of_matches_and_the_selection_are_hairline_passes_too(self):
+        # At a ratio of 1.5 their 2 pixels are 3 device pixels: no stroke of the frame is left at the line width of 2.
+        self.script("""const m = TreeView.state.model;
+            let node = m.childList[m.childStart[m.root]];
+            TreeView.toggleFold(node);
+            TreeView.state.matches = Int32Array.of(m.firstLeaf[node]);
+            TreeView.applySelection([m.viewerNode[m.firstLeaf[node]]]);
+            return 1""")
+        groups = self.strokes(1.5)
+        self.assertTrue(groups)
+        self.assertNotIn(2, {p["width"] for passes in groups for p in passes})
+
+
 class TextAndSafetyTests(TreePageMixin, unittest.TestCase):
     """A header is the file's text, shown as text; the page runs no code it did not ship, and asks for no file."""
 

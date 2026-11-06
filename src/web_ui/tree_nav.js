@@ -42,6 +42,7 @@ window.TreeView = window.TreeView || {};
         // and whether the stability of each split is drawn.
         selection: { leaves: new Int32Array(0), connected: new Int32Array(0), clade: -1, focus: -1, count: 0 },
         showSupport: false,
+        moving: false,
         // The colours the Viewer outlines its selected nodes and their neighbours in, as CSS colours, once it has said
         // ({ selected, connected }); null before.
         marks: null,
@@ -425,6 +426,15 @@ window.TreeView = window.TreeView || {};
 
     let drawQueued = false;
 
+    // A person's gesture (the wheel, a drag, the keys) moves the view: names are not drawn until it has rested for
+    // TV.IDLE_MS, when a frame with them follows. The page's own jumps (search, focus, fit) are not gestures.
+    let movingTimer = 0;
+    function markMoving() {
+        state.moving = true;
+        clearTimeout(movingTimer);
+        movingTimer = setTimeout(() => { state.moving = false; TV.requestDraw(); }, TV.IDLE_MS);
+    }
+
     // The scene the drawing is given: the state, whose view and layout are the ones in use.
     TV.drawNow = function () {
         drawQueued = false;
@@ -788,6 +798,7 @@ window.TreeView = window.TreeView || {};
             const amount = (event.shiftKey ? event.deltaX || event.deltaY : event.deltaY) * unit;
             const factor = Math.exp(-amount * 0.0015);
             const [px, py] = local(event);
+            markMoving();
             if (event.ctrlKey || event.metaKey) TV.zoomAbout(px, py, factor, factor);
             else if (event.shiftKey) TV.zoomAbout(px, py, factor, 1);
             else TV.zoomAbout(px, py, 1, factor);
@@ -814,7 +825,10 @@ window.TreeView = window.TreeView || {};
                     return;
                 }
                 if (Math.abs(px - drag.x) + Math.abs(py - drag.y) > 3) drag.moved = true;
-                if (drag.moved) TV.pan(px - drag.x, py - drag.y);
+                if (drag.moved) {
+                    markMoving();
+                    TV.pan(px - drag.x, py - drag.y);
+                }
                 drag.x = px;
                 drag.y = py;
                 return;
@@ -888,6 +902,7 @@ window.TreeView = window.TreeView || {};
             const height = canvas.clientHeight;
             const step = event.shiftKey ? 400 : 80;
             let handled = true;
+            if ("ArrowLeft ArrowRight ArrowUp ArrowDown + = - _ [ ]".split(" ").includes(event.key)) markMoving();
             switch (event.key) {
                 case "ArrowLeft": TV.pan(step, 0); break;
                 case "ArrowRight": TV.pan(-step, 0); break;
