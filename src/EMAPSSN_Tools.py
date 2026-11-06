@@ -201,8 +201,10 @@ INLINE_FIELD_GROUPS = {
     ],
     "Align_Substitution_Matrix.py": [
         ("INPUT_FASTA", "MATRIX"),
+        ("BLASTP_DIR", "SCORE_METRIC"),
     ],
     "Parse_BLAST_Output.py": [
+        ("INPUT_FASTA", "SCORE_METRIC"),
         ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"),
     ],
     "Sanitize_Sequences.py": [
@@ -234,7 +236,31 @@ INLINE_FIELD_RATIOS = {
     ("MODEL_NAME", "SAVING_MODE", "DEVICE_SELECTION"): (5, 3, 4),
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
     ("INPUT_FASTA", "MATRIX"): (2, 1),
+    ("BLASTP_DIR", "SCORE_METRIC"): (2, 1),
+    # Three of the four columns of the row of column fields below it.
+    ("INPUT_FASTA", "SCORE_METRIC"): (3, 1),
     ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"): (1, 1, 1, 1),
+}
+# Ratios that count the columns of a row of that many equal fields.
+INLINE_FIELD_GRID_GROUPS = {
+    ("INPUT_FASTA", "SCORE_METRIC"),
+}
+# Labels that take one width, so their fields start at one x as well as the
+# labels: the second column of one row over the last column of another.
+ALIGNED_LABEL_GROUPS = {
+    "Align_Substitution_Matrix.py": [("MATRIX", "SCORE_METRIC")],
+    "Parse_BLAST_Output.py": [("BITSCORE_COLUMN", "SCORE_METRIC")],
+}
+# The order of the fields as the card shows them, where the field list differs.
+TAB_ORDERS = {
+    "Align_Substitution_Matrix.py": (
+        "INPUT_FASTA", "MATRIX", "BLASTP_DIR", "SCORE_METRIC",
+        "BATCH_SIZE", "NUM_THREADS",
+    ),
+    "Parse_BLAST_Output.py": (
+        "INPUT_BLAST_TABULAR", "INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT",
+        "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN",
+    ),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
     ("INPUT_FASTA", "OVER_WRITE"),
@@ -1381,6 +1407,33 @@ def bind_custom_blast_column_controls(inputs, row_widgets):
         score_combo.currentTextChanged.connect(sync_custom_blast_columns)
     sync_custom_blast_columns()
 
+def follow_field_order_in_tab_order(inputs, order):
+    """Make Tab visit the fields in the order they have on the card, left to right.
+
+    Moving a field into a shared row reparents its widgets, which puts them out of
+    step with the rows above and below. The controls of one field keep the order
+    they have among themselves.
+    """
+    owner = {}
+    for index, name in enumerate(order):
+        widget = inputs[name]["widget"]
+        for member in [widget] + widget.findChildren(QWidget):
+            owner[member] = index
+    first = inputs[order[0]]["widget"]
+    members = {}
+    current = first
+    while True:
+        index = owner.get(current)
+        if index is not None and current.focusPolicy() != Qt.FocusPolicy.NoFocus:
+            members.setdefault(index, []).append(current)
+        current = current.nextInFocusChain()
+        if current is first:
+            break
+    chain = [widget for index in sorted(members) for widget in members[index]]
+    for before, after in zip(chain, chain[1:]):
+        QWidget.setTabOrder(before, after)
+
+
 def render_markdown_with_math(text):
     # The parser misses a fenced block indented under a list item: set it aside, and put it back below (Help_Pages)
     text, fenced_blocks = Help_Pages.stash_indented_fences(text)
@@ -2402,6 +2455,11 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Substitution Matrix:")
                         },
                         {
+                            "var_name": "BLASTP_DIR",
+                            "type": "blast_directory",
+                            "display": translate("Tools", "BLASTP Directory:")
+                        },
+                        {
                             "var_name": "SCORE_METRIC",
                             "type": "dropdown",
                             "options": score_metric_labels(["evalue", "efi_alignment_score"]),
@@ -2424,11 +2482,6 @@ class ToolsGUI(QMainWindow):
                             "var_name": "BATCH_SIZE",
                             "type": "text",
                             "display": translate("Tools", "Batch Size:")
-                        },
-                        {
-                            "var_name": "BLASTP_DIR",
-                            "type": "blast_directory",
-                            "display": translate("Tools", "BLASTP Directory:")
                         }
                     ],
                     "Parse_BLAST_Output.py": [
@@ -3892,10 +3945,19 @@ class ToolsGUI(QMainWindow):
 
         self._merge_compact_rows(layout, script_name, row_widgets)
         self._merge_inline_field_rows(layout, script_name, row_widgets)
+        for names in ALIGNED_LABEL_GROUPS.get(script_name, []):
+            if all(name in row_widgets for name in names):
+                for name in names:
+                    row_widgets[name][0].setProperty(
+                        "alignedLabelGroup", "+".join(names)
+                    )
         self.script_data[script_path] = {'inputs': inputs, 'settings': settings}
 
         if script_name == "Parse_BLAST_Output.py":
             bind_custom_blast_column_controls(inputs, row_widgets)
+
+        if script_name in TAB_ORDERS:
+            follow_field_order_in_tab_order(inputs, TAB_ORDERS[script_name])
 
         if script_name in {
             "Align_Similarity_Matrix.py",
@@ -4449,6 +4511,7 @@ class ToolsGUI(QMainWindow):
             ResponsiveFieldLayout(
                 group, pairs, ratios, field_ratios=inline or batch_pair,
                 trailing=trailing, spacing=max(0, layout.horizontalSpacing()),
+                grid=variable_group in INLINE_FIELD_GRID_GROUPS,
             )
             layout.insertRow(min(positions), group)
 
@@ -4567,6 +4630,19 @@ class ToolsGUI(QMainWindow):
             )
         for label_widget in label_widgets:
             label_widget.setFixedWidth(shared_width)
+
+        aligned_labels = {}
+        for form_layout in form_layouts:
+            for label in form_layout.parentWidget().findChildren(QLabel):
+                group = label.property("alignedLabelGroup")
+                if group:
+                    aligned_labels.setdefault(
+                        (form_layout.parentWidget(), group), []
+                    ).append(label)
+        for labels in aligned_labels.values():
+            aligned_width = max(label.sizeHint().width() for label in labels)
+            for label in labels:
+                label.setFixedWidth(aligned_width)
 
         if matched_trailing_labels:
             matched_width = max(

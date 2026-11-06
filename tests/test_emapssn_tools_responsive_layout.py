@@ -207,6 +207,90 @@ class ResponsiveToolsTests(unittest.TestCase):
                 self.assertEqual({name for name in names if inputs[name]["widget"].isEnabled()},
                                  enabled)
 
+    @staticmethod
+    def column_starts(row, control, card):
+        """Left edges, in the card, of a control's label and of the control."""
+        label = next(label for label, widget in row.layout().pairs if widget is control)
+        return label.mapTo(card, QPoint(0, 0)).x(), control.mapTo(card, QPoint(0, 0)).x()
+
+    def test_score_lines_up_with_the_column_above_or_below_it(self):
+        def rows(script, *groups):
+            path = next(path for path in self.window.script_data if path.endswith(script))
+            found = [self.window.findChild(QWidget, "compactRow_" + "_".join(group))
+                     for group in groups]
+            for group, row in zip(groups, found):
+                self.assertIsNotNone(row, group)
+                inputs = self.window.script_data[path]["inputs"]
+                self.assertEqual([control for _, control in row.layout().pairs],
+                                 [inputs[name]["widget"] for name in group])
+            tab = next(index for index in range(self.window.tabs.count())
+                       if self.window.tabs.widget(index).isAncestorOf(found[0]))
+            self.window.tabs.setCurrentIndex(tab)
+            return found, found[0].parentWidget()
+
+        def inputs_of(script):
+            return self.window.script_data[next(
+                path for path in self.window.script_data if path.endswith(script))]["inputs"]
+
+        align = inputs_of("Align_Substitution_Matrix.py")
+        parse = inputs_of("Parse_BLAST_Output.py")
+        # The BLASTP directory shares a row with Score, which starts where the matrix does.
+        (matrix_row, blast_row), card = rows(
+            "Align_Substitution_Matrix.py",
+            ("INPUT_FASTA", "MATRIX"), ("BLASTP_DIR", "SCORE_METRIC"))
+        self.assertLess(matrix_row.mapTo(card, QPoint(0, 0)).y(),
+                        blast_row.mapTo(card, QPoint(0, 0)).y())
+        for width in (1250, 1400, 1800):
+            self.resize_panel(width)
+            with self.subTest(script="Align_Substitution_Matrix", width=width):
+                self.assertFalse(matrix_row.property("stacked"))
+                self.assertFalse(blast_row.property("stacked"))
+                self.assertEqual(self.column_starts(blast_row, align["SCORE_METRIC"]["widget"], card),
+                                 self.column_starts(matrix_row, align["MATRIX"]["widget"], card))
+                self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
+        # The hardware section keeps the batch size and the workers.
+        self.assertIsNotNone(self.window.findChild(QWidget, "compactRow_BATCH_SIZE_NUM_THREADS"))
+
+        # Score sits on the Sequence Set row and starts where Bit Score Column does.
+        (fasta_row, column_row), card = rows(
+            "Parse_BLAST_Output.py", ("INPUT_FASTA", "SCORE_METRIC"),
+            ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN"))
+        self.assertLess(fasta_row.mapTo(card, QPoint(0, 0)).y(),
+                        column_row.mapTo(card, QPoint(0, 0)).y())
+        for width in (1500, 1800, 2200):
+            self.resize_panel(width)
+            with self.subTest(script="Parse_BLAST_Output", width=width):
+                self.assertFalse(fasta_row.property("stacked"))
+                self.assertFalse(column_row.property("stacked"))
+                self.assertEqual(self.column_starts(fasta_row, parse["SCORE_METRIC"]["widget"], card),
+                                 self.column_starts(column_row, parse["BITSCORE_COLUMN"]["widget"], card))
+                self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
+
+    def test_tab_follows_the_rows_of_the_two_blast_tools(self):
+        for script, order in (
+            ("Align_Substitution_Matrix.py",
+             ("INPUT_FASTA", "MATRIX", "BLASTP_DIR", "SCORE_METRIC", "BATCH_SIZE", "NUM_THREADS")),
+            ("Parse_BLAST_Output.py",
+             ("INPUT_BLAST_TABULAR", "INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT",
+              "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN", "BITSCORE_COLUMN")),
+        ):
+            path = next(path for path in self.window.script_data if path.endswith(script))
+            inputs = self.window.script_data[path]["inputs"]
+            owner = {}
+            for name in order:
+                widget = inputs[name]["widget"]
+                for member in [widget] + widget.findChildren(QWidget):
+                    owner[member] = name
+            seen, current = [], inputs[order[0]]["widget"]
+            for _ in range(500):
+                name = owner.get(current)
+                if name and current.focusPolicy() != Qt.FocusPolicy.NoFocus and name not in seen[-1:]:
+                    seen.append(name)
+                current = current.nextInFocusChain()
+                if len(seen) == len(order):
+                    break
+            self.assertEqual(tuple(seen), order, script)
+
     def test_the_manual_tools_put_the_similarity_matrix_between_its_neighbours(self):
         # Pairwise alignment: Alignment Mode, Similarity Matrix, Generate Report, above the gap
         # penalties. Database search: Generate FASTA File, Similarity Matrix, CPU Workers, below

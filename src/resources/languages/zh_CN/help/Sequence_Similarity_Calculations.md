@@ -107,10 +107,10 @@
 | 参数 | 说明 |
 | :--- | :--- |
 | 替换矩阵 **`MATRIX`** | BLAST 比对中用于传统打分的氨基酸替换矩阵（例如 BLOSUM45、BLOSUM50、BLOSUM62、BLOSUM80、BLOSUM90、PAM30、PAM70、PAM250）。 |
+| BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空（默认）表示由工具自行查找 NCBI BLAST+，空字段会显示查找的结果。字段旁的**下载**（Download）按钮会从 NCBI 安装 BLAST+。见下文《查找或安装 BLAST+》。 |
 | 得分 **`SCORE_METRIC`** | 网络为每个序列对存储的边得分。`evalue`（默认）是期望值的负 Log10；`efi_alignment_score` 是 EFI-EST 比对得分，由每个命中的比特得分和两条序列的长度计算。无论哪种，都保留一个序列对（任一方向）中最强的命中。 |
 | BLAST 线程数 **`NUM_THREADS`** | 分配给 BLASTP 执行和结果解析的 CPU 线程数。 |
 | 处理批大小 **`BATCH_SIZE`** | 在写入中间 HDF5 文件和汇总最终网络时，一次缓冲或复制的已解析边的最大数量。 |
-| BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空（默认）表示由工具自行查找 NCBI BLAST+，空字段会显示查找的结果。字段旁的**下载**（Download）按钮会从 NCBI 安装 BLAST+。见下文《查找或安装 BLAST+》。 |
 
 #### 查找或安装 BLAST+
 

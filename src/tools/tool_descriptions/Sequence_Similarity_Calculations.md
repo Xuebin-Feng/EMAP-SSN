@@ -106,10 +106,10 @@ This script runs all-vs-all local sequence alignments using traditional amino ac
 | Parameter | Description |
 | :--- | :--- |
 | Substitution Matrix **`MATRIX`** | The amino acid substitution matrix used for traditional scoring during BLAST alignments (e.g., BLOSUM45, BLOSUM50, BLOSUM62, BLOSUM80, BLOSUM90, PAM30, PAM70, PAM250). |
+| BLASTP Directory **`BLASTP_DIR`** | Optional directory containing `blastp` and `makeblastdb`. Blank (the default) means that the tool searches for NCBI BLAST+ itself, and the empty field shows what that search finds. The **Download** button beside the field installs BLAST+ from NCBI. See *Finding or Installing BLAST+* below. |
 | Score **`SCORE_METRIC`** | The edge score the network stores for each pair of sequences. `evalue` (the default) is the negative Log10 of the E-value; `efi_alignment_score` is the EFI-EST alignment score, computed from each hit's bit score and the two sequences' lengths. For either, the strongest hit of a pair, in either direction, is kept. |
 | BLAST Threads **`NUM_THREADS`** | The number of CPU threads allocated for BLASTP execution and parsing. |
 | Processing Batch Size **`BATCH_SIZE`** | The maximum number of parsed edges buffered or copied at once during both intermediate HDF5 writing and final network compilation. |
-| BLASTP Directory **`BLASTP_DIR`** | Optional directory containing `blastp` and `makeblastdb`. Blank (the default) means that the tool searches for NCBI BLAST+ itself, and the empty field shows what that search finds. The **Download** button beside the field installs BLAST+ from NCBI. See *Finding or Installing BLAST+* below. |
 
 #### Finding or Installing BLAST+
 

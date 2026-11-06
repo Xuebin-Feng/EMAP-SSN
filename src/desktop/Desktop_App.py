@@ -821,8 +821,13 @@ class ResponsiveFieldLayout(QLayout):
     def __init__(self, parent, pairs, ratios, *, field_ratios=False,
                  trailing=False, spacing=30, column_spacing=None,
                  equal_fields=False, control_stretches=None, wrap_labels=True,
-                 column_width_provider=None, stacked_label_width=None):
+                 column_width_provider=None, stacked_label_width=None,
+                 grid=False):
         super().__init__(parent)
+        # grid: the ratios count equal grid columns, and a column of ratio r
+        # spans r of them with their gaps. Beside a row of sum(ratios) fields
+        # the last column then starts exactly where that row's last one does.
+        self.grid = grid
         self.stacked_label_width = stacked_label_width
         self.wrap_labels = wrap_labels
         self.pairs = pairs
@@ -913,6 +918,11 @@ class ResponsiveFieldLayout(QLayout):
         if self.field_ratios:
             prefix = self._label_width(self.pairs[0][0]) + gap
             minima[0] -= prefix
+        if self.grid:
+            unit = max(math.ceil((width - self.column_spacing * (ratio - 1)) / ratio)
+                       for width, ratio in zip(minima, self.ratios))
+            return (prefix + unit * sum(self.ratios)
+                    + self.column_spacing * (sum(self.ratios) - 1))
         unit = max(math.ceil(width / ratio)
                    for width, ratio in zip(minima, self.ratios))
         return prefix + unit * sum(self.ratios) + self.column_spacing * (len(minima) - 1)
@@ -964,14 +974,27 @@ class ResponsiveFieldLayout(QLayout):
         else:
             prefix = (self._label_width(self.pairs[0][0]) + gap
                       if self.field_ratios else 0)
-            remaining = available - prefix
-            ratio_sum = sum(self.ratios)
-            widths = []
-            for ratio in self.ratios:
-                column = remaining * ratio // ratio_sum
-                widths.append(column)
-                remaining -= column
-                ratio_sum -= ratio
+            if self.grid:
+                units = sum(self.ratios)
+                remaining = width - self.column_spacing * (units - 1) - prefix
+                unit_widths = []
+                for left in range(units, 0, -1):
+                    unit_widths.append(remaining // left)
+                    remaining -= unit_widths[-1]
+                widths, start = [], 0
+                for ratio in self.ratios:
+                    widths.append(sum(unit_widths[start:start + ratio])
+                                  + self.column_spacing * (ratio - 1))
+                    start += ratio
+            else:
+                remaining = available - prefix
+                ratio_sum = sum(self.ratios)
+                widths = []
+                for ratio in self.ratios:
+                    column = remaining * ratio // ratio_sum
+                    widths.append(column)
+                    remaining -= column
+                    ratio_sum -= ratio
             widths[0] += prefix
         return widths
 
