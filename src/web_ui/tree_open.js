@@ -189,8 +189,112 @@ window.TreeView = window.TreeView || {};
             return;
         }
         $("details").classList.remove("shown");
+        TV.showMismatch(false);
         fillReport(panel, state.model);
         panel.classList.add("shown");
+    };
+
+    // ---- The leaves and nodes the banner's warnings count ----------------------------------------------------------
+
+    // How many answers were asked of the Viewer, so that an answer to an older question (another source, or a card closed
+    // and opened again) is not used.
+    let mismatchAsks = 0;
+
+    // One list of the card: a heading with the count, the names in a box (the first LISTED, then how many more) and a
+    // button that copies every name.
+    function mismatchList(panel, heading, names) {
+        const subtitle = document.createElement("div");
+        subtitle.className = "group-title";
+        subtitle.textContent = heading;
+        const box = document.createElement("textarea");
+        box.readOnly = true;
+        box.setAttribute("aria-label", heading);
+        box.value = names.slice(0, LISTED).join("\n") + (names.length > LISTED ? "\n" + t("... and {count} more", { count: (names.length - LISTED).toLocaleString() }) : "");
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn mismatch-copy";
+        copy.appendChild(TV.icon("copy"));
+        const label = document.createElement("span");
+        label.textContent = t("Copy the list");
+        copy.appendChild(label);
+        copy.addEventListener("click", () => copyText(names.join("\n"), copy));
+        panel.append(subtitle, box, copy);
+    }
+
+    // The heading of each list the Viewer answers, with its count.
+    function mismatchHeading(code, count) {
+        const values = { count: count.toLocaleString() };
+        switch (code) {
+            case "leaves_not_in_network": return t("Leaves that are not in the network: {count}", values);
+            case "network_nodes_not_in_tree": return t("Nodes of the network that are not in the tree: {count}", values);
+            case "leaves_not_in_alignment": return t("Leaves whose sequence is not in the loaded alignment: {count}", values);
+            default: return t("Leaves whose name reaches a node that another leaf has too, left unmatched: {count}", values);
+        }
+    }
+
+    // Fill the card: its heading and close button, then a list for each warning the banner has that names leaves or
+    // nodes. answer is what the Viewer sent, or null when it could not be asked.
+    function fillMismatch(panel, answer) {
+        panel.replaceChildren();
+        const head = document.createElement("div");
+        head.className = "head";
+        const title = document.createElement("h2");
+        title.textContent = t("The leaves and nodes the warnings count");
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "btn btn-icon btn-ghost";
+        close.title = t("Close");
+        close.setAttribute("aria-label", t("Close"));
+        close.appendChild(TV.icon("x"));
+        close.addEventListener("click", () => TV.showMismatch(false));
+        head.append(title, close);
+        panel.appendChild(head);
+        if (!answer) {
+            const note = document.createElement("p");
+            note.className = "note";
+            note.textContent = t("The Viewer could not list them.");
+            panel.appendChild(note);
+            return;
+        }
+        const warned = new Set(state.model.warnings.map((warning) => warning.code));
+        for (const code of ["leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names"]) {
+            const found = answer[code];
+            if (warned.has(code) && found && found.count) mismatchList(panel, mismatchHeading(code, found.count), found.names);
+        }
+    }
+
+    // Ask the Viewer which leaves and nodes the warnings of the tree now shown count, and show them in the card.
+    async function loadMismatch() {
+        const panel = $("mismatch-card");
+        const ask = ++mismatchAsks;
+        const source = state.model.source;
+        fillMismatch(panel, { });
+        let answer = null;
+        try {
+            const response = await fetch("/api/tree/mismatch?source=" + encodeURIComponent(source), { cache: "no-store" });
+            if (response.ok) answer = await response.json();
+        } catch (error) {
+            answer = null;
+        }
+        if (ask !== mismatchAsks || !panel.classList.contains("shown")) return;
+        fillMismatch(panel, answer);
+    }
+
+    // Show the card of the leaves and nodes the banner's warnings count, or take it away. Showing it (again, after the tree
+    // or the source changed) asks the Viewer; the card closes the other cards, and the button says whether it is open.
+    TV.showMismatch = function (on) {
+        const panel = $("mismatch-card"), button = $("mismatch-btn");
+        const open = on && state.model && !button.hidden;
+        button.setAttribute("aria-expanded", String(Boolean(open)));
+        if (!open) {
+            mismatchAsks++;
+            panel.classList.remove("shown");
+            return;
+        }
+        $("details").classList.remove("shown");
+        $("match-report").classList.remove("shown");
+        panel.classList.add("shown");
+        loadMismatch();
     };
 
     // The card for a tree none of whose leaves is a node of the network: it is not drawn, and a few names of the tree stand

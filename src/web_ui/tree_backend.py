@@ -62,6 +62,7 @@ DATA_ROUTE = "/api/tree/data"
 COLORS_ROUTE = "/api/tree/colors"
 SELECTION_ROUTE = "/api/tree/selection"
 UPLOAD_ROUTE = "/api/tree/upload"
+MISMATCH_ROUTE = "/api/tree/mismatch"
 # The ways a tree_select request combines its nodes with the selection the network has.
 SELECT_MODES = ("replace", "add", "toggle")
 # The event that says the colours (or which nodes are hidden, or the clusters) are not what the page was sent.
@@ -222,6 +223,14 @@ def locate_tree(viewer):
     return {"status": "present" if os.path.exists(tree_path) else "no_tree", **base}
 
 
+def guide_viewer_node(tree, headers):
+    """The node of the network each leaf of the guide tree names, by exact full header, or -1 (an int32 array)."""
+    node_of = {}
+    for node, header in enumerate(headers):
+        node_of.setdefault(str(header), node)
+    return np.fromiter((node_of.get(label, -1) for label in tree.labels), dtype=np.int32, count=tree.leaf_count)
+
+
 def guide_state(viewer):
     """What the Tree View page is sent for the guide tree: the tree of the loaded alignment, or why there is none to draw.
 
@@ -246,10 +255,7 @@ def guide_state(viewer):
         return {"status": "unreadable", "reason": error.strerror or str(error), **base}
 
     headers = list(getattr(viewer, "full_headers", ()) or ())
-    node_of = {}
-    for node, header in enumerate(headers):
-        node_of.setdefault(str(header), node)
-    viewer_node = np.fromiter((node_of.get(label, -1) for label in tree.labels), dtype=np.int32, count=tree.leaf_count)
+    viewer_node = guide_viewer_node(tree, headers)
     counts, warnings = consistency(tree, alignment, msa_path, tree_path, viewer_node, len(headers))
     if not counts["leaves_in_network"]:
         return {"status": "no_overlap", "counts": counts, **base}
@@ -598,6 +604,12 @@ def validate_upload(data):
 
 
 def match_labels(labels, headers):
+    """Which node of the network each leaf label names, by full sequence name: (viewer_node, report). See ``_match``."""
+    viewer_node, report, _ = _match(labels, headers)
+    return viewer_node, report
+
+
+def _match(labels, headers):
     """Which node of the network each leaf label names, by full sequence name: (viewer_node, report).
 
     A label names a node when (1) it equals the node's header exactly, else (2) the label after the Viewer's own
@@ -606,7 +618,8 @@ def match_labels(labels, headers):
     reaches by step 2 a header a label already has exactly, none of them is matched and they are listed (``ambiguous``).
     ``viewer_node`` holds the node number for each label or -1. ``report`` counts what happened: ``matched``, ``exact``,
     ``sanitized``, ``unmatched`` (leaves of no node, ambiguous ones among them) and ``ambiguous`` with ``ambiguous_labels``
-    (at most MAX_REPORTED_LABELS), and ``network_nodes`` with ``network_nodes_not_in_tree``.
+    (at most MAX_REPORTED_LABELS), and ``network_nodes`` with ``network_nodes_not_in_tree``. The third value is the
+    ambiguous leaves' numbers, all of them and ascending.
     """
     from utilities.Sequence_Utils import sanitize_header
 
@@ -650,7 +663,7 @@ def match_labels(labels, headers):
         "network_nodes": len(headers),
         "network_nodes_not_in_tree": len(headers) - len(set(viewer_node[viewer_node >= 0].tolist())),
     }
-    return viewer_node, report
+    return viewer_node, report, ambiguous
 
 
 def stored_upload(viewer):
@@ -850,6 +863,90 @@ def handle_tree_data(viewer, request):
     """GET /api/tree/data[?source=threshold|guide|uploaded]: the page's whole picture of the tree (tree_state). The web server has checked the request's origin."""
     values = parse_qs(request.query or "", keep_blank_values=True).get("source", [])
     return 200, tree_state(viewer, values[0] if values else None)
+
+
+# ---- Which leaves and nodes the warnings count -----------------------------------------------------------------------
+
+# The lists of mismatch_state, in the order the page shows them; each is what the warning of the same name counts.
+MISMATCH_LISTS = ("leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names")
+
+
+def _names_of(names):
+    """One list of the mismatch answer: how many, and the names themselves."""
+    names = list(names)
+    return {"count": len(names), "names": names}
+
+
+def _nodes_not_named(headers, viewer_node):
+    """The network's full headers of the nodes no leaf is matched to, in node order."""
+    named = np.zeros(len(headers), dtype=bool)
+    named[viewer_node[viewer_node >= 0]] = True
+    return [headers[node] for node in np.flatnonzero(~named).tolist()]
+
+
+def mismatch_state(viewer, source):
+    """The leaves and nodes the tree's warnings count, by their full names, from the data tree_state reads.
+
+    ``source`` is "threshold", "guide" or "uploaded" (anything else raises ValueError, which the web server answers as a
+    bad request). The answer holds ``source``, ``status`` ("ok", or the status the tree cannot be shown for, with empty
+    lists) and four lists, each ``{"count", "names"}`` and none longer than the tree or the network:
+    ``leaves_not_in_network`` (the tree's labels that name no node), ``network_nodes_not_in_tree`` (the full headers of
+    the nodes no leaf names), ``leaves_not_in_alignment`` (labels of leaves whose node has no sequence in the loaded
+    alignment: the guide tree only) and ``ambiguous_names`` (labels whose name reaches a node another leaf has too: an
+    opened tree only). The threshold tree has every node as a leaf, so all its lists are empty.
+    """
+    if source not in SOURCES:
+        raise ValueError(translate("Viewer", "Tree View does not know a tree called {name}.").format(name=str(source)[:60]))
+    lists = {key: [] for key in MISMATCH_LISTS}
+    status = "ok"
+    headers = [str(header) for header in (getattr(viewer, "full_headers", ()) or ())]
+    if source == SOURCE_UPLOADED:
+        upload = stored_upload(viewer)
+        if upload is None:
+            status = "no_upload"
+        else:
+            viewer_node, _, ambiguous = _match(upload.labels, headers)
+            labels = upload.labels
+            lists["leaves_not_in_network"] = [labels[leaf] for leaf in np.flatnonzero(viewer_node < 0).tolist()]
+            lists["ambiguous_names"] = [labels[leaf] for leaf in ambiguous]
+            lists["network_nodes_not_in_tree"] = _nodes_not_named(headers, viewer_node)
+    elif source == SOURCE_GUIDE:
+        status = locate_tree(viewer)["status"]
+        if status == "present":
+            alignment, msa_path = loaded_alignment(viewer)
+            try:
+                tree = _read_cached(guide_tree_path_for_alignment(msa_path))
+            except FileNotFoundError:
+                status = "no_tree"
+            except (GuideTreeError, OSError):
+                status = "unreadable"
+            else:
+                status = "ok"
+                labels = tree.labels
+                viewer_node = guide_viewer_node(tree, headers)
+                lists["leaves_not_in_network"] = [labels[leaf] for leaf in np.flatnonzero(viewer_node < 0).tolist()]
+                lists["network_nodes_not_in_tree"] = _nodes_not_named(headers, viewer_node)
+                aligned = getattr(alignment, "aligned_node_mask", None)
+                shown = viewer_node >= 0
+                if aligned is not None and len(aligned) == len(headers) and shown.any():
+                    unaligned = np.zeros(len(labels), dtype=bool)
+                    unaligned[shown] = ~np.asarray(aligned, dtype=bool)[viewer_node[shown]]
+                    lists["leaves_not_in_alignment"] = [labels[leaf] for leaf in np.flatnonzero(unaligned).tolist()]
+    else:
+        status = threshold_unavailable(viewer) or "ok"
+    return {"source": source, "status": status, **{key: _names_of(lists[key]) for key in MISMATCH_LISTS}}
+
+
+def handle_tree_mismatch(viewer, request):
+    """GET /api/tree/mismatch?source=threshold|guide|uploaded: the names the tree's warnings count (mismatch_state).
+
+    ``source`` must be given once; a missing, repeated or unknown one raises ValueError, which the web server answers as a
+    bad request. The web server has checked the request's origin.
+    """
+    values = parse_qs(request.query or "", keep_blank_values=True).get("source", [])
+    if len(values) != 1:
+        raise ValueError(translate("Viewer", "Tree View needs the name of one tree."))
+    return 200, mismatch_state(viewer, values[0])
 
 
 # ---- The colours of the network ---------------------------------------------------------------------------------
@@ -1210,6 +1307,7 @@ def register_backend(registry, viewer):
     """Register Tree View's web capabilities without adding a Console button."""
     registry.register_api_route("tree", DATA_ROUTE, lambda request: handle_tree_data(viewer, request))
     registry.register_api_route("tree", COLORS_ROUTE, lambda request: handle_tree_colors(viewer, request))
+    registry.register_api_route("tree", MISMATCH_ROUTE, lambda request: handle_tree_mismatch(viewer, request))
     registry.register_api_route("tree", SELECTION_ROUTE, lambda request: handle_tree_selection(viewer, request))
     registry.register_action("tree", "tree_select", lambda data: handle_tree_select(viewer, data))
     registry.register_action("tree", "tree_focus", lambda data: handle_tree_focus(viewer, data))

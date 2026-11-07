@@ -271,24 +271,31 @@
         .btn[aria-pressed="true"] { background-color: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); position: relative; }
         .btn[aria-pressed="true"]:disabled { color: var(--text-disabled); background-color: var(--bg-muted); border-color: var(--field-border); }
 
-        /* A warning about how the tree fits the alignment and the network: shown, never hidden, never an error */
+        /* A warning about how the tree fits the alignment and the network: shown, never hidden, never an error. The
+           banner is one line tall whatever it holds: its sentences stand side by side in one line that is clipped at
+           the room beside the button at the right end, and rolls to show the rest while the pointer is over it. */
         .banner {
             display: none;
-            padding: 8px 16px;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 16px;
             background-color: var(--warning-soft);
             color: var(--warning);
             border-bottom: 1px solid var(--border-color);
             flex-shrink: 0;
         }
-        .banner.shown { display: block; }
-        .banner ul { margin: 0; padding: 0; list-style: none; }
-        .banner li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.45; }
-        .banner li + li { margin-top: 2px; }
-        .banner .icon { margin-top: 2px; }
-        .banner li .note-close { margin: 0 0 0 auto; padding: 0; width: 22px; height: 22px; flex-shrink: 0; border: none; background: transparent; color: inherit; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        .banner.shown { display: flex; }
+        .banner-line { flex: 1; min-width: 0; min-height: 24px; display: flex; align-items: center; overflow: hidden; border-radius: 4px; outline: none; }
+        .banner-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .banner-line.rolls { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+        .banner ul { margin: 0; padding: 0; list-style: none; display: flex; align-items: center; flex: none; width: max-content; white-space: nowrap; line-height: 24px; }
+        .banner-line.rolls ul { padding-right: 28px; }
+        .banner li { display: flex; gap: 8px; align-items: center; flex: none; }
+        .banner li + li { margin-left: 32px; }
+        .banner li .note-close { margin: 0 0 0 4px; padding: 0; width: 22px; height: 22px; flex-shrink: 0; border: none; background: transparent; color: inherit; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         .banner li .note-close:hover { background-color: var(--bg-muted); color: var(--text-primary); }
         .banner li .note-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
-        .banner li .note-close .icon { margin-top: 0; }
+        .banner .btn { height: 24px; padding: 0 10px; flex: none; }
 
         /* The drawing */
         .stage { position: relative; flex: 1; min-height: 0; background-color: var(--bg-card); }
@@ -634,7 +641,10 @@
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
 
-    <div class="banner" id="banner" role="status"><ul id="warning-list"></ul></div>
+    <div class="banner" id="banner" role="status">
+        <div class="banner-line" id="banner-line" tabindex="0" role="group" aria-label="Warnings about the tree"><ul id="warning-list"></ul></div>
+        <button class="btn" id="mismatch-btn" title="List the leaves and the nodes these warnings count" aria-expanded="false" aria-controls="mismatch-card" hidden><span data-i18n>Show Details</span></button>
+    </div>
 
     <main class="stage" id="stage">
         <canvas id="tree-canvas" tabindex="0" role="img" aria-label="Tree beside the network"></canvas>
@@ -655,6 +665,7 @@
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details"></div>
         <div class="details report" id="match-report" role="status" aria-label="How the opened tree matched the network"></div>
+        <div class="details report" id="mismatch-card" role="status" aria-label="The leaves and nodes the warnings count"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
         <div class="empty" id="empty">
             <div class="empty-card">

@@ -32,6 +32,9 @@ window.TreeView = window.TreeView || {};
     // Whether the banner's note on the rooting was dismissed with its x. It lasts as long as this page does and is
     // kept nowhere: opening the page again shows the note again.
     let rootingNoteDismissed = false;
+    // Whether the card of the leaves and nodes the warnings count was open when a tree was being loaded, which takes
+    // every card away: it opens again for the tree that comes, if that one has such warnings too.
+    let reopenMismatch = false;
     // How many times the network's selection changed, and whether the nodes next to it are being asked for: they are
     // asked for after each change, one request at a time, and an answer to an older selection is not used.
     let selectionChanges = 0;
@@ -75,7 +78,10 @@ window.TreeView = window.TreeView || {};
             $("search-count").textContent = "";
             $("details").classList.remove("shown");
             $("match-report").classList.remove("shown");
+            if ($("mismatch-card").classList.contains("shown")) reopenMismatch = true;
+            TV.showMismatch(false);
             $("banner").classList.remove("shown");
+            measureBanner();
             $("summary").textContent = "";
             TV.hideTooltip($("tooltip"));
         }
@@ -448,12 +454,17 @@ window.TreeView = window.TreeView || {};
         return t("Drawn from the midpoint root; the tree itself is unrooted.");
     }
 
+    // The warnings that name particular leaves or nodes, which the button at the right end of the banner lists.
+    const LISTED_WARNINGS = ["leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names"];
+
     // The banner under the controls: a sentence for each warning the Viewer found, and the note on the rooting when
-    // the layout in use calls for it, which the Details panel repeats.
+    // the layout in use calls for it, which the Details panel repeats. They stand in one line, so that the banner is
+    // as tall with one sentence as with five; a line longer than its room rolls while the pointer is over it.
     function showBanner() {
         if (!state.model) return;
         const list = $("warning-list");
         list.replaceChildren();
+        bannerRoll.overClose = bannerRoll.parked = false;
         const add = (symbol, text, className) => {
             const item = document.createElement("li");
             if (className) item.className = className;
@@ -474,14 +485,107 @@ window.TreeView = window.TreeView || {};
             close.setAttribute("aria-label", t("Hide this note"));
             close.appendChild(icon("x"));
             close.addEventListener("click", dismissRootingNote);
+            // The roll waits while the pointer is on the x, so that it can be pressed; a key that reaches it shows it.
+            close.addEventListener("pointerenter", () => { bannerRoll.overClose = true; rollBanner(); });
+            close.addEventListener("pointerleave", () => { bannerRoll.overClose = false; rollBanner(); });
+            close.addEventListener("focus", () => { bannerRoll.parked = true; rollBanner(); });
+            close.addEventListener("blur", () => { bannerRoll.parked = false; rollBanner(); });
             list.lastChild.appendChild(close);
         }
         $("banner").classList.toggle("shown", list.children.length > 0);
+        $("banner-line").title = [...list.children].map((item) => item.firstElementChild.nextElementSibling.textContent).join("  \u00b7  ");
+        const listed = $("mismatch-btn");
+        listed.hidden = !state.model.warnings.some((warning) => LISTED_WARNINGS.includes(warning.code));
+        if (listed.hidden) TV.showMismatch(false);
+        measureBanner();
         const detail = $("details-rooting");
         if (detail) {
             detail.textContent = note || "";
             detail.hidden = !note;
         }
+    }
+
+    // ---- The rolling line --------------------------------------------------------------------------------------
+
+    // How fast a line that is too long rolls (pixels a second), how long it holds when its end is in view, and the
+    // width of the fade at its right edge, which the last sentence rolls clear of.
+    const ROLL_SPEED = 50;
+    const ROLL_HOLD_MS = 1500;
+    const ROLL_FADE = 28;
+    // The line's state: whether the pointer or the keyboard is on it, whether the pointer is on the x of the note
+    // (the roll waits) or a key put the focus on it (the line shows its end), the roll that is running, and how far
+    // it goes.
+    const bannerRoll = { hovered: false, focused: false, overClose: false, parked: false, animation: null, distance: 0 };
+
+    function reducedMotion() {
+        return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    // The width the sentences take side by side, without the fade's room.
+    function bannerTextWidth() {
+        const items = $("warning-list").children;
+        if (!items.length) return 0;
+        const first = items[0], last = items[items.length - 1];
+        return last.offsetLeft + last.offsetWidth - first.offsetLeft;
+    }
+
+    // Whether the sentences are longer than the line's room: if so the line is clipped with a fade and can roll.
+    // Measured again whenever the window or the sentences change size (the language's words are longer or shorter).
+    function measureBanner() {
+        const line = $("banner-line");
+        const shown = $("banner").classList.contains("shown");
+        const room = line.clientWidth;
+        const rolls = shown && room > 0 && bannerTextWidth() > room;
+        line.classList.toggle("rolls", rolls);
+        bannerRoll.distance = rolls ? bannerTextWidth() + ROLL_FADE - room : 0;
+        rollBanner();
+    }
+
+    // Start, keep or stop the roll to match the state: it rolls only while a line that overflows is hovered or has the
+    // keyboard, and not under reduced motion, and waits while the pointer is on the x. The roll slides to the end at a
+    // steady speed, holds there, slides back, and goes on; it ends with the hover, and the line is at its start again.
+    function rollBanner() {
+        const line = $("banner-line"), track = $("warning-list");
+        const overflowing = line.classList.contains("rolls");
+        const parked = overflowing && bannerRoll.parked;
+        track.style.transform = parked ? "translateX(" + (-bannerRoll.distance) + "px)" : "";
+        const wanted = overflowing && !parked && (bannerRoll.hovered || bannerRoll.focused) && !reducedMotion();
+        if (!wanted) {
+            if (bannerRoll.animation) bannerRoll.animation.cancel();
+            bannerRoll.animation = null;
+            return;
+        }
+        const animation = bannerRoll.animation;
+        if (!animation || animation.rolledDistance !== bannerRoll.distance) {
+            if (animation) animation.cancel();
+            const slide = bannerRoll.distance / ROLL_SPEED * 1000;
+            const total = 2 * slide + ROLL_HOLD_MS;
+            const end = "translateX(" + (-bannerRoll.distance) + "px)";
+            bannerRoll.animation = track.animate([
+                { transform: "translateX(0)", offset: 0 },
+                { transform: end, offset: slide / total },
+                { transform: end, offset: (slide + ROLL_HOLD_MS) / total },
+                { transform: "translateX(0)", offset: 1 },
+            ], { duration: total, iterations: Infinity, easing: "linear" });
+            bannerRoll.animation.rolledDistance = bannerRoll.distance;
+        }
+        if (bannerRoll.overClose) bannerRoll.animation.pause(); else bannerRoll.animation.play();
+    }
+
+    function attachBanner() {
+        const line = $("banner-line");
+        line.addEventListener("pointerenter", () => { bannerRoll.hovered = true; rollBanner(); });
+        line.addEventListener("pointerleave", () => { bannerRoll.hovered = false; rollBanner(); });
+        line.addEventListener("focusin", () => { bannerRoll.focused = true; rollBanner(); });
+        line.addEventListener("focusout", (event) => {
+            if (event.relatedTarget && line.contains(event.relatedTarget)) return;
+            bannerRoll.focused = false;
+            rollBanner();
+        });
+        // A focused control that is scrolled into view must not move the line by itself: the roll and the parking do that.
+        line.addEventListener("scroll", () => { line.scrollLeft = 0; });
+        new ResizeObserver(measureBanner).observe(line);
+        new ResizeObserver(measureBanner).observe($("warning-list"));
     }
 
     // The x of the note: take it out of the banner for the rest of this page's life, and give the drawing the room.
@@ -797,6 +901,7 @@ window.TreeView = window.TreeView || {};
     TV.applyPayload = function (payload) {
         showSources(payload);
         if (payload.status !== "ok") {
+            reopenMismatch = false;
             showEmpty(emptyCard(payload));
             return false;
         }
@@ -837,6 +942,9 @@ window.TreeView = window.TreeView || {};
         // A tree the user opened has the report of its match; the card shows after an opening (tree_open.js), not at every load.
         $("report-btn").hidden = !model.uploaded;
         $("match-report").classList.remove("shown");
+        // A card of the leaves and nodes the warnings count that is open follows the tree and the source now shown.
+        if (reopenMismatch || $("mismatch-card").classList.contains("shown")) TV.showMismatch(true);
+        reopenMismatch = false;
         TV.drawNow();
         TV.loadColors();
         TV.loadSelection();
@@ -1021,8 +1129,11 @@ window.TreeView = window.TreeView || {};
         });
         $("details-btn").addEventListener("click", () => {
             $("match-report").classList.remove("shown");
+            TV.showMismatch(false);
             $("details").classList.toggle("shown");
         });
+        attachBanner();
+        $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown")));
         $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown")));
         $("legend-toggle").addEventListener("click", () => {
             legendOpen = !legendOpen;
@@ -1053,6 +1164,9 @@ window.TreeView = window.TreeView || {};
                 search("");
                 TV.canvas.focus();
             }
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && $("mismatch-card").classList.contains("shown")) TV.showMismatch(false);
         });
         document.addEventListener("keydown", (event) => {
             if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !$("search-input").disabled

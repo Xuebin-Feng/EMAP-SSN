@@ -27,7 +27,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.tree_fixtures import give_edges, node_colors  # noqa: E402
+from tests.tree_fixtures import give_edges, headers_of, node_colors  # noqa: E402
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
 
@@ -646,6 +646,397 @@ class SpeedTests(OpenCase):
         self.assertEqual(self.state("TreeView.state.model.match.matched"), count)
         print(f"\n44,000-leaf upload: read {parts['read']:.0f} ms, Viewer {parts['answered']:.0f} ms, drawn {parts['drawn']:.0f} ms (to the page's quiet: {total:.0f} ms)")
         self.assertLess(parts["read"] + parts["answered"] + parts["drawn"], 3000)
+
+
+class BannerCase(OpenCase):
+    """The banner of warnings: one line that rolls, and the card of the leaves and nodes it counts."""
+
+    TREE_LEAVES = 30
+    LINE = "document.getElementById('banner-line')"
+
+    def guide(self, *, tree_leaves=30, network_extra=5, shared=20, **options):
+        """A page over a guide tree of ``tree_leaves`` leaves, of which ``shared`` are nodes of the network, which also
+        has ``network_extra`` nodes the tree has no leaf for: two warnings that name leaves and nodes."""
+        headers = headers_of(tree_leaves)
+        network = headers[:shared] + headers_of(network_extra, prefix="tr|Y")
+        self.serve_headers(headers, network=network, **options)
+        give_edges(self.viewer, [(n, n + 1) for n in range(len(network) - 1)], np.arange(len(network) - 1, 0, -1), threshold=3.5)
+        self.enable_selection()
+        self.open_page()
+        self.headers, self.network = headers, network
+        return headers, network
+
+    def resize(self, width):
+        self.view.resize(width, 800)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.pump(0.3)
+
+    def banner(self):
+        return self.script(f"""
+            const line = {self.LINE}, track = document.getElementById('warning-list');
+            const items = [...track.children];
+            return {{shown: document.getElementById('banner').classList.contains('shown'), rolls: line.classList.contains('rolls'),
+                texts: items.map(li => li.textContent), tops: items.map(li => li.getBoundingClientRect().top),
+                height: document.getElementById('banner').getBoundingClientRect().height, title: line.title,
+                room: line.clientWidth, text: items.length ? items[items.length - 1].offsetLeft + items[items.length - 1].offsetWidth - items[0].offsetLeft : 0,
+                animations: track.getAnimations().length, transform: getComputedStyle(track).transform,
+                button: !document.getElementById('mismatch-btn').hidden, tabindex: line.tabIndex, label: line.getAttribute('aria-label')}};""")
+
+    def set_reduced_motion(self, reduce):
+        """Say what the page's media query for reduced motion answers (the browser's own depends on the desktop's settings)."""
+        self.script(f"""const real = window.__matchMedia || window.matchMedia.bind(window); window.__matchMedia = real;
+            window.matchMedia = (query) => query.includes('prefers-reduced-motion') ? {{matches: {str(bool(reduce)).lower()}, media: query}} : real(query);
+            return 1""")
+
+    def overflow_by(self, extra):
+        """Make the window so wide that the sentences are longer than the line's room by ``extra`` pixels."""
+        self.set_reduced_motion(False)
+        found = self.banner()
+        width = self.state("window.innerWidth") - (found["room"] - (found["text"] - extra))
+        self.resize(int(width))
+        self.wait_for(f"document.getElementById('banner-line').classList.contains('rolls')")
+        return self.banner()
+
+    def hover(self, on=True, target=None):
+        target = target or self.LINE
+        kind = "pointerenter" if on else "pointerleave"
+        self.script(f"{target}.dispatchEvent(new PointerEvent('{kind}', {{pointerId: 3}})); return 1")
+
+    def translate_x(self):
+        return self.state("new DOMMatrix(getComputedStyle(document.getElementById('warning-list')).transform).m41")
+
+
+class BannerLineTests(BannerCase):
+    """All the sentences are one line, which rolls under the pointer when it is longer than its room."""
+
+    def unrooted_upload(self):
+        """An opened tree with warnings and an unrooted tree drawn from a root: the sentences and the note."""
+        self.start()
+        self.open_text("((Alpha:1,Beta:1):1,(Gamma:1,Nope:1):1,Nope2:1)", "odd.nwk")
+        self.wait_uploaded()
+        self.script("""const select = document.getElementById('layout-select');
+            select.value = 'rectangular'; select.dispatchEvent(new Event('change')); return 1""")
+
+    def test_every_sentence_and_the_note_stand_in_one_line_as_tall_as_one_sentence(self):
+        self.unrooted_upload()
+        found = self.banner()
+        self.assertEqual(len(found["texts"]), 4)
+        self.assertEqual(found["texts"][-1], "Drawn from the root the file writes; the tree itself is unrooted.")
+        self.assertEqual(len(set(found["tops"])), 1, found["tops"])
+        many = found["height"]
+        self.script("""const select = document.getElementById('layout-select');
+            select.value = 'unrooted'; select.dispatchEvent(new Event('change')); return 1""")
+        fewer = self.banner()
+        self.assertEqual(len(fewer["texts"]), 3)
+        self.assertEqual(fewer["height"], many)
+        self.assertLess(many, 40)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_sentences_have_a_gap_and_the_whole_text_is_the_lines_title(self):
+        self.unrooted_upload()
+        found = self.banner()
+        self.assertEqual(found["title"], "  ·  ".join(found["texts"]))
+        gaps = self.state("""(() => { const items = [...document.getElementById('warning-list').children];
+            return items.slice(1).map((li, k) => li.offsetLeft - (items[k].offsetLeft + items[k].offsetWidth)); })()""")
+        self.assertTrue(all(gap >= 24 for gap in gaps), gaps)
+
+    def test_when_everything_fits_nothing_moves(self):
+        self.guide()
+        found = self.banner()
+        self.assertEqual(len(found["texts"]), 2)
+        self.assertFalse(found["rolls"])
+        self.hover()
+        self.pump(0.3)
+        found = self.banner()
+        self.assertEqual((found["animations"], found["transform"]), (0, "none"))
+        self.hover(False)
+
+    def test_a_line_longer_than_its_room_is_clipped_and_rolls_while_the_pointer_is_over_it(self):
+        self.guide()
+        found = self.overflow_by(100)
+        self.assertEqual((found["tabindex"], found["label"]), (0, "Warnings about the tree"))
+        self.assertEqual(found["animations"], 0)
+        self.hover()
+        self.wait_for("document.getElementById('warning-list').getAnimations().length === 1")
+        distance = found["text"] + 28 - found["room"]
+        timing = self.state("""(() => { const a = document.getElementById('warning-list').getAnimations()[0];
+            const t = a.effect.getComputedTiming(); return {duration: t.duration, iterations: t.iterations, state: a.playState}; })()""")
+        slide = distance / 50 * 1000
+        self.assertAlmostEqual(timing["duration"], 2 * slide + 1500, delta=1)
+        self.assertEqual(timing["state"], "running")
+        # A steady speed: about 50 pixels a second.
+        self.script("document.getElementById('warning-list').getAnimations()[0].currentTime = 200; return 1")
+        first = self.translate_x()
+        self.pump(0.5)
+        moved = first - self.translate_x()
+        self.assertGreater(moved, 10)
+        self.assertLess(moved, 45)
+        # It reaches the end, holds there for the hold, comes back, and starts again.
+        for at, wanted in ((slide, -distance), (slide + 1000, -distance), (2 * slide + 1500 - 1, 0)):
+            self.script(f"""const a = document.getElementById('warning-list').getAnimations()[0]; a.pause(); a.currentTime = {at}; return 1""")
+            self.assertAlmostEqual(self.translate_x(), wanted, delta=1.5)
+        # The last sentence is wholly in view at the end, clear of the fade.
+        self.script(f"""const a = document.getElementById('warning-list').getAnimations()[0]; a.currentTime = {slide + 100}; return 1""")
+        edge = self.state("""(() => { const line = document.getElementById('banner-line').getBoundingClientRect();
+            const last = document.getElementById('warning-list').lastElementChild.getBoundingClientRect();
+            return line.right - last.right; })()""")
+        self.assertGreaterEqual(edge, 27)
+        # The pointer leaves: the roll ends and the line is at its start.
+        self.hover(False)
+        found = self.banner()
+        self.assertEqual((found["animations"], found["transform"]), (0, "none"))
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_keyboard_rolls_the_line_too(self):
+        self.guide()
+        self.overflow_by(100)
+        self.script(f"{self.LINE}.dispatchEvent(new FocusEvent('focusin', {{bubbles: true}})); return 1")
+        self.assertEqual(self.banner()["animations"], 1)
+        self.script(f"{self.LINE}.dispatchEvent(new FocusEvent('focusout', {{bubbles: true}})); return 1")
+        self.assertEqual(self.banner()["animations"], 0)
+
+    def test_reduced_motion_clips_the_line_and_does_not_roll_it(self):
+        self.guide()
+        found = self.overflow_by(100)
+        self.set_reduced_motion(True)
+        self.hover()
+        self.pump(0.3)
+        after = self.banner()
+        self.assertTrue(after["rolls"])
+        self.assertEqual((after["animations"], after["transform"]), (0, "none"))
+        self.assertEqual(after["title"], found["title"])
+        self.assertIn("Nodes of this network that are not leaves of the tree: 5.", after["title"])
+
+    def test_the_line_is_measured_again_when_the_window_or_the_words_change(self):
+        self.guide()
+        self.overflow_by(100)
+        self.resize(1300)
+        self.wait_for(f"!{self.LINE}.classList.contains('rolls')")
+        # A language whose words are longer: the text of a sentence changes under the page's feet.
+        self.script("""document.querySelector('#warning-list li span').textContent += ' ' + 'long words '.repeat(60); return 1""")
+        self.wait_for(f"{self.LINE}.classList.contains('rolls')")
+        self.script("document.querySelector('#warning-list li span').textContent = 'Short.'; return 1")
+        self.wait_for(f"!{self.LINE}.classList.contains('rolls')")
+
+    def test_the_x_waits_the_roll_is_clickable_and_hides_only_the_note(self):
+        self.unrooted_upload()
+        self.overflow_by(100)
+        self.hover()
+        self.wait_for("document.getElementById('warning-list').getAnimations().length === 1")
+        self.hover(True, "document.querySelector('.note-close')")
+        self.assertEqual(self.state("document.getElementById('warning-list').getAnimations()[0].playState"), "paused")
+        shape = self.state("""(() => { const x = document.querySelector('.note-close');
+            return {after: x.previousElementSibling.textContent, last: x.parentElement.lastElementChild === x, parent: x.parentElement.className}; })()""")
+        self.assertEqual(shape["parent"], "rooting-note")
+        self.assertTrue(shape["last"])
+        self.assertTrue(shape["after"].startswith("Drawn from the root"))
+        self.hover(False, "document.querySelector('.note-close')")
+        self.assertEqual(self.state("document.getElementById('warning-list').getAnimations()[0].playState"), "running")
+        self.script("document.querySelector('.note-close').click(); return 1")
+        found = self.banner()
+        self.assertEqual(len(found["texts"]), 3)
+        self.assertNotIn("Drawn from", " ".join(found["texts"]))
+        self.assertTrue(found["shown"])
+
+    def test_a_key_that_reaches_the_x_shows_it(self):
+        self.unrooted_upload()
+        found = self.overflow_by(100)
+        self.script("document.querySelector('.note-close').dispatchEvent(new FocusEvent('focus')); return 1")
+        self.assertAlmostEqual(self.translate_x(), -(found["text"] + 28 - found["room"]), delta=1.5)
+        right = self.state("""(() => document.getElementById('banner-line').getBoundingClientRect().right
+            - document.querySelector('.note-close').getBoundingClientRect().right)()""")
+        self.assertGreaterEqual(right, 27)
+
+
+class ShowDetailsTests(BannerCase):
+    """The button at the right end of the banner and the card of the leaves and nodes the warnings count."""
+
+    def card(self):
+        return self.script("""
+            const card = document.getElementById('mismatch-card');
+            return {shown: card.classList.contains('shown'), expanded: document.getElementById('mismatch-btn').getAttribute('aria-expanded'),
+                headings: [...card.querySelectorAll('.group-title')].map(e => e.textContent),
+                boxes: [...card.querySelectorAll('textarea')].map(e => e.value.split('\\n')),
+                copies: [...card.querySelectorAll('.mismatch-copy')].map(e => e.textContent.trim()),
+                title: card.querySelector('h2') && card.querySelector('h2').textContent};""")
+
+    def wait_card(self, lists):
+        self.wait_for(f"document.querySelectorAll('#mismatch-card textarea').length === {lists}")
+        return self.card()
+
+    def press(self):
+        self.script("document.getElementById('mismatch-btn').click(); return 1")
+
+    def test_the_button_is_at_the_right_end_and_is_shown_only_for_the_four_warnings(self):
+        self.guide(shared=30, network_extra=0)
+        self.assertFalse(self.banner()["shown"])
+        self.assertFalse(self.banner()["button"])
+        # A tree made for another alignment: a warning about the files, not about leaves or nodes.
+        self.guide(notes=[("ALIGNMENT", "Other_[model]_alignment.fasta")], shared=30, network_extra=0)
+        found = self.banner()
+        self.assertEqual(len(found["texts"]), 1)
+        self.assertFalse(found["button"])
+        # Leaves the alignment lacks.
+        self.guide(shared=30, network_extra=0)
+        self.viewer.alignment.aligned_node_mask[:3] = False
+        self.open_page()
+        found = self.banner()
+        self.assertEqual(found["texts"], ["Leaves whose sequence is not in the loaded alignment: 3."])
+        self.assertTrue(found["button"])
+        # Leaves and nodes: both.
+        self.guide()
+        self.assertTrue(self.banner()["button"])
+        place = self.state("""(() => { const bar = document.getElementById('banner').getBoundingClientRect(),
+            button = document.getElementById('mismatch-btn').getBoundingClientRect(), line = document.getElementById('banner-line').getBoundingClientRect();
+            return {gap: bar.right - button.right, after: button.left >= line.right, label: document.getElementById('mismatch-btn').textContent.trim(),
+                title: document.getElementById('mismatch-btn').title, expanded: document.getElementById('mismatch-btn').getAttribute('aria-expanded')}; })()""")
+        self.assertLessEqual(place["gap"], 17)
+        self.assertTrue(place["after"])
+        self.assertEqual((place["label"], place["expanded"]), ("Show Details", "false"))
+        self.assertTrue(place["title"])
+
+    def test_the_button_does_not_roll_and_the_banner_is_as_tall_with_it_as_without(self):
+        self.guide()
+        with_button = self.banner()["height"]
+        self.overflow_by(100)
+        self.hover()
+        before = self.state("document.getElementById('mismatch-btn').getBoundingClientRect().left")
+        self.pump(0.4)
+        self.assertEqual(self.state("document.getElementById('mismatch-btn').getBoundingClientRect().left"), before)
+        self.guide(shared=30, network_extra=0, notes=[("ALIGNMENT", "Other_[model]_alignment.fasta")])
+        self.assertEqual(self.banner()["height"], with_button)
+
+    def test_the_card_lists_each_warnings_names_under_a_heading_with_the_count(self):
+        headers, network = self.guide()
+        self.viewer.alignment.aligned_node_mask[[0, 3, 22]] = False
+        self.open_page()
+        self.press()
+        found = self.wait_card(3)
+        self.assertEqual((found["shown"], found["expanded"]), (True, "true"))
+        self.assertEqual(found["headings"], [
+            "Leaves that are not in the network: 10",
+            "Nodes of the network that are not in the tree: 5",
+            "Leaves whose sequence is not in the loaded alignment: 2",
+        ])
+        self.assertEqual(sorted(found["boxes"][0]), sorted(headers[20:]))
+        self.assertEqual(found["boxes"][1], network[20:])
+        self.assertEqual(sorted(found["boxes"][2]), sorted([network[0], network[3]]))
+        self.assertEqual(found["copies"], ["Copy the list"] * 3)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_button_card_is_closed_by_the_button_escape_and_the_other_cards(self):
+        self.guide()
+        self.press()
+        self.wait_card(2)
+        self.press()
+        found = self.card()
+        self.assertEqual((found["shown"], found["expanded"]), (False, "false"))
+        self.press()
+        self.wait_card(2)
+        self.script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return 1")
+        self.assertFalse(self.card()["shown"])
+        self.assertEqual(self.card()["expanded"], "false")
+        # Details closes it, and it closes Details.
+        self.press()
+        self.wait_card(2)
+        self.script("document.getElementById('details-btn').click(); return 1")
+        self.assertEqual(self.card()["expanded"], "false")
+        self.assertFalse(self.card()["shown"])
+        self.assertTrue(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.press()
+        self.assertTrue(self.card()["shown"])
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        # Its own x.
+        self.wait_card(2)
+        self.script("document.querySelector('#mismatch-card .head .btn').click(); return 1")
+        self.assertFalse(self.card()["shown"])
+
+    def test_the_card_closes_the_card_of_the_match_and_the_match_closes_it(self):
+        self.start()
+        self.open_text("((Alpha:1,Beta:1):1,(Gamma:1,Nope:1):1,Nope2:1);", "odd.nwk")
+        self.wait_uploaded()
+        self.wait_for("document.getElementById('match-report').classList.contains('shown')")
+        self.press()
+        self.wait_for("document.getElementById('mismatch-card').classList.contains('shown')")
+        self.assertFalse(self.state("document.getElementById('match-report').classList.contains('shown')"))
+        self.script("document.getElementById('report-btn').click(); return 1")
+        self.assertTrue(self.state("document.getElementById('match-report').classList.contains('shown')"))
+        self.assertFalse(self.card()["shown"])
+        self.assertEqual(self.card()["expanded"], "false")
+
+    def test_an_opened_tree_lists_its_leaves_and_the_nodes_two_names_reach(self):
+        self.start(headers=["Alpha", "Beta", "Gamma", "Delta", "Epsilon"])
+        self.open_text("((Alpha:1,Beta:1):1,(Gamma:1,'Gamma ':1):1,Nope:1)", "odd.nwk")
+        self.wait_uploaded()
+        self.press()
+        found = self.wait_card(3)
+        self.assertEqual(found["headings"], [
+            "Leaves that are not in the network: 2",
+            "Nodes of the network that are not in the tree: 2",
+            "Leaves whose name reaches a node that another leaf has too, left unmatched: 1",
+        ])
+        self.assertEqual(found["boxes"], [["Gamma ", "Nope"], ["Delta", "Epsilon"], ["Gamma "]])
+
+    def test_copy_has_every_name_though_the_box_lists_five_thousand(self):
+        extra = [f"extra_{k}" for k in range(5100)]
+        self.start(headers=NETWORK + extra)
+        self.open_text(text_of("primates.nwk"), "p.nwk")
+        self.wait_uploaded()
+        self.press()
+        self.wait_for("document.querySelectorAll('#mismatch-card textarea').length >= 1")
+        found = self.script("""
+            let copied = null;
+            Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: (text) => { copied = text; return Promise.resolve(); }}});
+            const box = document.querySelector('#mismatch-card textarea').value.split('\\n');
+            const heading = document.querySelector('#mismatch-card .group-title').textContent;
+            document.querySelector('#mismatch-card .mismatch-copy').click();
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            return {heading, lines: box.length, last: box[box.length - 1], copied: copied.split('\\n').length,
+                button: document.querySelector('#mismatch-card .mismatch-copy').textContent.trim()};""")
+        total = len(NETWORK) + len(extra) - 5
+        self.assertEqual(found["heading"], f"Nodes of the network that are not in the tree: {total:,}")
+        self.assertEqual(found["copied"], total)
+        self.assertEqual(found["button"], "Copied")
+        self.assertEqual((found["lines"], found["last"]), (5001, f"... and {total - 5000} more"))
+
+    def test_the_card_follows_a_change_of_source_and_goes_when_there_is_nothing_to_list(self):
+        headers, network = self.guide()
+        self.press()
+        guide = self.wait_card(2)
+        self.assertEqual(guide["headings"][0], "Leaves that are not in the network: 10")
+        # Another tree is opened while the card is open: the card shows that tree's names.
+        self.open_text(f"(('{network[0]}':1,'{network[1]}':1):1,Nope:1)", "odd.nwk")
+        self.wait_uploaded()
+        self.assertFalse(self.card()["shown"])
+        self.press()
+        uploaded = self.wait_card(2)
+        self.assertEqual(uploaded["headings"][0], "Leaves that are not in the network: 1")
+        self.assertEqual(uploaded["boxes"][0], ["Nope"])
+        # The chooser goes back to the guide tree with the card open: it asks again and shows the guide tree's names.
+        self.script("""const select = document.getElementById('source-select');
+            select.value = 'guide'; select.dispatchEvent(new Event('change')); return 1""")
+        self.wait_for("TreeView.state.source === 'guide'")
+        again = self.wait_card(2)
+        self.assertTrue(again["shown"])
+        self.assertEqual(again["headings"], guide["headings"])
+        self.assertEqual(sorted(again["boxes"][0]), sorted(headers[20:]))
+        # The threshold tree has no warning: the button and the card go.
+        self.script("""const select = document.getElementById('source-select');
+            select.value = 'threshold'; select.dispatchEvent(new Event('change')); return 1""")
+        self.wait_for("TreeView.state.source === 'threshold'")
+        found = self.card()
+        self.assertFalse(found["shown"])
+        self.assertFalse(self.banner()["button"])
+        self.assertEqual(found["expanded"], "false")
+
+    def test_a_card_that_could_not_be_fetched_says_so(self):
+        self.guide()
+        self.script("""window.__fetch = window.fetch;
+            window.fetch = (url, ...rest) => String(url).includes('/api/tree/mismatch') ? Promise.reject(new Error('down')) : window.__fetch(url, ...rest); return 1""")
+        self.press()
+        self.wait_for("document.querySelector('#mismatch-card .note') !== null")
+        self.assertEqual(self.state("document.querySelector('#mismatch-card .note').textContent"), "The Viewer could not list them.")
+        self.assertEqual(self.card()["boxes"], [])
 
 
 if __name__ == "__main__":

@@ -570,3 +570,63 @@ class RouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MismatchTests(unittest.TestCase):
+    """The names the warnings of an opened tree count, which the page lists when Show Details is pressed."""
+
+    def setUp(self):
+        self.viewer = viewer_over(HEADERS)
+
+    def open(self, labels):
+        self.assertTrue(tree_backend.handle_tree_upload(self.viewer, payload(labels))["ok"])
+
+    def test_the_leaves_and_the_nodes_the_warnings_count_are_named(self):
+        self.open(["sp|Q3", "sp|Q1", "sp|Q2", "elsewhere", "sp|Q5", "also elsewhere"])
+        state = tree_backend.mismatch_state(self.viewer, "uploaded")
+        self.assertEqual((state["source"], state["status"]), ("uploaded", "ok"))
+        self.assertEqual(state["leaves_not_in_network"], {"count": 2, "names": ["elsewhere", "also elsewhere"]})
+        self.assertEqual(state["network_nodes_not_in_tree"],
+                         {"count": 4, "names": ["sp|Q4", "tr|X1", "tr|X2", "only_in_the_network"]})
+        self.assertEqual(state["leaves_not_in_alignment"], {"count": 0, "names": []})
+        self.assertEqual(state["ambiguous_names"], {"count": 0, "names": []})
+        # The counts are the ones of the warnings the page already shows.
+        warned = {item["code"]: item["count"] for item in tree_backend.tree_state(self.viewer)["warnings"]}
+        self.assertEqual(warned["leaves_not_in_network"], state["leaves_not_in_network"]["count"])
+        self.assertEqual(warned["network_nodes_not_in_tree"], state["network_nodes_not_in_tree"]["count"])
+
+    def test_leaves_whose_name_reaches_a_node_another_leaf_has_are_named_and_are_unmatched_too(self):
+        self.open(["only in the network", "only  in the network", "tr|X1", "tr|X1 "])
+        state = tree_backend.mismatch_state(self.viewer, "uploaded")
+        self.assertEqual(state["ambiguous_names"]["names"], ["only in the network", "only  in the network", "tr|X1 "])
+        self.assertEqual(state["leaves_not_in_network"]["names"], ["only in the network", "only  in the network", "tr|X1 "])
+        self.assertNotIn("tr|X1", state["network_nodes_not_in_tree"]["names"])
+
+    def test_every_ambiguous_leaf_is_named_not_only_the_first_thousand(self):
+        count = tree_backend.MAX_REPORTED_LABELS + 30
+        headers = [f"N_{k}" for k in range(count)]
+        viewer = viewer_over(headers)
+        labels = [f"N {k}" for k in range(count)] + [f"N  {k}" for k in range(count)]
+        self.assertTrue(tree_backend.handle_tree_upload(viewer, payload(labels))["ok"])
+        state = tree_backend.mismatch_state(viewer, "uploaded")
+        self.assertEqual(state["ambiguous_names"]["count"], 2 * count)
+        self.assertEqual(state["ambiguous_names"]["names"], labels)
+        self.assertEqual(state["network_nodes_not_in_tree"]["count"], count)
+
+    def test_before_a_tree_is_opened_the_lists_are_empty(self):
+        state = tree_backend.mismatch_state(self.viewer, "uploaded")
+        self.assertEqual(state["status"], "no_upload")
+        self.assertEqual([state[key]["names"] for key in tree_backend.MISMATCH_LISTS], [[], [], [], []])
+
+    def test_the_route_answers_with_the_same_lists_and_refuses_a_bad_source(self):
+        self.open(["sp|Q3", "elsewhere"])
+
+        def route(query):
+            return tree_backend.handle_tree_mismatch(self.viewer, ApiRequest("GET", tree_backend.MISMATCH_ROUTE, query, {}, b""))
+
+        status, answer = route("source=uploaded")
+        self.assertEqual(status, 200)
+        self.assertEqual(answer, tree_backend.mismatch_state(self.viewer, "uploaded"))
+        for query in ("", "source=", "source=upload", "source=guide&source=uploaded", "path=C:/x", "source=uploaded%00"):
+            with self.subTest(query=query), self.assertRaises(ValueError):
+                route(query)

@@ -447,6 +447,36 @@ class RouteTests(FolderTestCase):
         route = self.viewer.web_plugin_registry.api_routes
         self.assertEqual([key for key in route if key[1] == tree_backend.DATA_ROUTE], [("GET", tree_backend.DATA_ROUTE)])
 
+    def mismatch(self, query, **extra):
+        return self.http_get(self.server, tree_backend.MISMATCH_ROUTE + query, {**self.page_headers(self.server), **extra})
+
+    def test_the_mismatch_names_come_as_json_for_the_source_asked(self):
+        import json
+
+        self.viewer.full_headers = self.viewer.full_headers[:25]
+        status, headers, body = self.mismatch("?source=guide")
+        self.assertEqual(status, 200)
+        self.assertTrue(headers["Content-Type"].startswith("application/json"))
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        payload = json.loads(body)
+        self.assertEqual(payload["leaves_not_in_network"]["count"], 5)
+        self.assertEqual(payload["network_nodes_not_in_tree"], {"count": 0, "names": []})
+
+    def test_a_missing_repeated_or_unknown_mismatch_source_is_a_bad_request(self):
+        import json
+
+        for query in ("", "?source=", "?source=upload", "?source=guide&source=guide", "?file=C:/Windows/win.ini", "?source=guide%00"):
+            with self.subTest(query=query):
+                status, _headers, body = self.mismatch(query)
+                self.assertEqual(status, 400)
+                self.assertIn("error", json.loads(body))
+
+    def test_a_mismatch_request_from_another_origin_is_refused_and_only_get_is_answered(self):
+        status, _headers, _body = self.mismatch("?source=guide", Origin="http://evil.example")
+        self.assertEqual(status, 403)
+        keys = [key for key in self.viewer.web_plugin_registry.api_routes if key[1] == tree_backend.MISMATCH_ROUTE]
+        self.assertEqual(keys, [("GET", tree_backend.MISMATCH_ROUTE)])
+
     def give_colors(self):
         from tests.tree_fixtures import node_colors
 
@@ -1398,3 +1428,51 @@ class TreeSourceTests(FolderTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MismatchTests(FolderTestCase):
+    """The names the guide tree's warnings count (the lists Show Details shows)."""
+
+    def test_each_list_names_what_its_warning_counts(self):
+        headers = headers_of(30)
+        network = headers[:20] + headers_of(5, prefix="tr|Y")
+        viewer, _msa, _tree = self.viewer_for(headers, network=network)
+        viewer.alignment.aligned_node_mask[[0, 3, 22]] = False
+        state = tree_backend.mismatch_state(viewer, "guide")
+        self.assertEqual((state["source"], state["status"]), ("guide", "ok"))
+        self.assertEqual(sorted(state["leaves_not_in_network"]["names"]), sorted(headers[20:]))
+        self.assertEqual(state["network_nodes_not_in_tree"]["names"], network[20:])
+        # Only leaves that are nodes of the network can lack a sequence: node 22 is not a leaf of the tree.
+        self.assertEqual(sorted(state["leaves_not_in_alignment"]["names"]), sorted([network[0], network[3]]))
+        self.assertEqual(state["ambiguous_names"], {"count": 0, "names": []})
+        for key in tree_backend.MISMATCH_LISTS:
+            self.assertEqual(state[key]["count"], len(state[key]["names"]))
+        warned = {item["code"]: item["count"] for item in tree_backend.tree_state(viewer)["warnings"]}
+        self.assertEqual(warned, {"leaves_not_in_network": 10, "network_nodes_not_in_tree": 5, "leaves_not_in_alignment": 2})
+
+    def test_a_tree_that_fits_has_empty_lists(self):
+        viewer, _msa, _tree = self.viewer_for(headers_of(12))
+        state = tree_backend.mismatch_state(viewer, "guide")
+        self.assertEqual(state["status"], "ok")
+        self.assertEqual([state[key]["names"] for key in tree_backend.MISMATCH_LISTS], [[], [], [], []])
+
+    def test_a_guide_tree_that_cannot_be_shown_says_why_with_empty_lists(self):
+        viewer, _msa, _tree = self.viewer_for(headers_of(12), tree=None)
+        state = tree_backend.mismatch_state(viewer, "guide")
+        self.assertEqual(state["status"], "no_tree")
+        self.assertEqual([state[key]["count"] for key in tree_backend.MISMATCH_LISTS], [0, 0, 0, 0])
+        self.assertEqual(tree_backend.mismatch_state(SimpleNamespace(alignment=None), "guide")["status"], "no_alignment")
+
+    def test_the_threshold_tree_has_every_node_as_a_leaf_so_its_lists_are_empty(self):
+        headers = headers_of(10)
+        viewer = give_edges(SimpleNamespace(full_headers=headers, n_nodes=10, alignment=None),
+                            [(n, n + 1) for n in range(9)], np.arange(9, 0, -1, dtype=np.float32))
+        state = tree_backend.mismatch_state(viewer, "threshold")
+        self.assertEqual(state["status"], "ok")
+        self.assertEqual([state[key]["names"] for key in tree_backend.MISMATCH_LISTS], [[], [], [], []])
+        self.assertEqual(tree_backend.mismatch_state(SimpleNamespace(full_headers=[]), "threshold")["status"], "no_network")
+
+    def test_an_unknown_source_raises(self):
+        for bad in ("upload", "", "Guide", "../guide", 5, None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tree_backend.mismatch_state(SimpleNamespace(), bad)
