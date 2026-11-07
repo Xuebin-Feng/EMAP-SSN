@@ -163,7 +163,8 @@ still change before version 1.0.0.
     `include_tree=true` (and `tree_source`) holds one in the snapshot. `query_clades` pages
     its clades (size, depth, height, branch length, support, hidden and faded leaves, top
     clusters, metadata columns), and with `contains` gives the smallest clade that holds a
-    subset and whether the subset is that clade. `query_tree_names` pages the lists Show
+    subset and whether the subset is that clade. Each page names the root its clades are
+    drawn from, which matters for an unrooted tree. `query_tree_names` pages the lists Show
     Details shows, and `create_subset` takes `#clade:N#`.
   - **From the Agent,** a reply that opens Tree View waits for the user to press Run, as
     `meta` and `esmfold` do.
@@ -173,6 +174,14 @@ still change before version 1.0.0.
   holds, the reads that answer from it) and label namespaces (`register_label_namespace`,
   for labels like `#clade:17#`); the Viewer serves them without naming the page.
   `docs/web_plugin_development.md` describes both.
+- **MCP's Viewer settings export takes the input files inline.** `export_settings` accepts
+  `settings_document`, the same partial overlay a `settings_path` file holds, so an agent
+  that cannot write files can name the network, sequences, alignment and layout cache on a
+  computer with no inputs saved in Config. A plain file name is found in its default
+  folder. When the inputs are missing, the error now says how to name them.
+  `create_subset` describes how expressions are written (`#cluster_1#`, `#clade:3#`,
+  `{Length>500}`, ...), and `summarize_subset` says it gives cluster and group sizes, which
+  an agent in a test looked for elsewhere.
 
 ### Changed
 
