@@ -84,7 +84,7 @@ still change before version 1.0.0.
   button it adds to the Console, opens it in the browser. The command's result names the
   tree the page opens on, and says why there is no guide tree when there is none.
   - **Three trees to choose from,** in the Tree selector at the top of the page:
-    - **The guide tree** of the loaded alignment: the page reads
+    - **The MSA Guide Tree,** the guide tree of the loaded alignment: the page reads
       `Guide_Trees/<name>_guide_tree.nex` beside `<name>_alignment.fasta`, and follows the
       alignment when another one is loaded. It opens first when there is one.
     - **The network threshold tree,** built from the edges of the network the Viewer has
