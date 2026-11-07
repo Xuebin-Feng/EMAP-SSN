@@ -4511,7 +4511,7 @@ Command-line usage:
     <message>
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+138"/>
-        <location filename="../../../commands/logo.py" line="+620"/>
+        <location filename="../../../commands/logo.py" line="+621"/>
         <location filename="../../../commands/print.py" line="+231"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
@@ -4665,8 +4665,8 @@ Command-line usage:
     </message>
     <message>
         <location line="+15"/>
-        <location filename="../../../commands/select.py" line="+293"/>
-        <location line="+57"/>
+        <location filename="../../../commands/select.py" line="+295"/>
+        <location line="+58"/>
         <source>Selection</source>
         <translation type="unfinished">选择</translation>
     </message>
@@ -4746,7 +4746,17 @@ Command-line usage:
         <translation type="unfinished">“{text}”不是布尔选择表达式。</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+102"/>
+        <source>Label &apos;{label}&apos; is ambiguous because it names both a &apos;{namespace}&apos; label and a custom group. Rename or remove the custom group before using this label.</source>
+        <translation type="unfinished">标签“{label}”有歧义，因为它既是“{namespace}”标签，又是某个自定义分组的名称。请先重命名或删除该自定义分组，再使用此标签。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Label &apos;{label}&apos; did not resolve to one value per SSN node.</source>
+        <translation type="unfinished">标签“{label}”没有为每个 SSN 节点解析出一个值。</translation>
+    </message>
+    <message>
+        <location line="+74"/>
         <source>Unsupported Boolean operator &apos;{operator}&apos;.</source>
         <translation type="unfinished">不支持的布尔运算符“{operator}”。</translation>
     </message>
@@ -4771,7 +4781,7 @@ Command-line usage:
         <translation type="unfinished">不支持的布尔目标类型“{kind}”。</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+35"/>
         <source>Boolean expression did not resolve to one selection value per SSN node. Check for empty or malformed targets.</source>
         <translation type="unfinished">布尔表达式没有为每个 SSN 节点得出一个选择值。请检查是否有空的或格式错误的目标。</translation>
     </message>
@@ -4781,7 +4791,7 @@ Command-line usage:
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Engine.py" line="+192"/>
+        <location filename="../../../Command_Engine.py" line="+196"/>
         <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
         <translation type="unfinished">错误：脚本第 {line} 行以反斜杠结尾，但其后没有可供该命令续写的行。未运行任何命令。</translation>
     </message>
@@ -4813,7 +4823,7 @@ Command-line usage:
         <location line="+86"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
-        <location filename="../../../commands/logo.py" line="-221"/>
+        <location filename="../../../commands/logo.py" line="-222"/>
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
@@ -4823,9 +4833,9 @@ Command-line usage:
         <location line="+52"/>
         <location line="+15"/>
         <location line="+10"/>
-        <location filename="../../../commands/query.py" line="+562"/>
+        <location filename="../../../commands/query.py" line="+563"/>
         <location filename="../../../commands/reset.py" line="+25"/>
-        <location filename="../../../commands/select.py" line="-195"/>
+        <location filename="../../../commands/select.py" line="-196"/>
         <location filename="../../../web_ui/agent_backend.py" line="+373"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
@@ -4852,7 +4862,7 @@ Command-line usage:
         <location filename="../../../commands/meta.py" line="-137"/>
         <location filename="../../../commands/offset.py" line="+110"/>
         <location filename="../../../commands/print.py" line="-152"/>
-        <location filename="../../../commands/query.py" line="-236"/>
+        <location filename="../../../commands/query.py" line="-237"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
@@ -5018,7 +5028,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-80"/>
-        <location line="+377"/>
+        <location line="+378"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -5027,7 +5037,7 @@ Command-line usage:
         <translation type="obsolete">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="-352"/>
+        <location line="-353"/>
         <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
         <translation type="unfinished">错误：“{first}”和“{second}”都为同一目标设置了不透明度。不透明度只能给出一次，要么写在 8 位十六进制颜色中，要么写成 N%。</translation>
     </message>
@@ -5088,7 +5098,7 @@ Command-line usage:
         <translation type="unfinished">错误：未找到有效的赋值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+70"/>
+        <location line="+71"/>
         <source>%n node(s) ({properties})</source>
         <translation type="unfinished">
             <numerusform>%n 个节点（{properties}）</numerusform>
@@ -5600,7 +5610,7 @@ Command-line usage:
         <translation type="unfinished">分组名称“{name}”含有无效字符，已跳过。</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Group</source>
         <translation type="unfinished">分组</translation>
     </message>
@@ -5674,7 +5684,7 @@ Command-line usage:
         <translation type="unfinished">错误：hide 只接受一个不含空白的布尔表达式。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Hide</source>
         <translation type="unfinished">隐藏</translation>
     </message>
@@ -5968,12 +5978,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location line="+64"/>
+        <location line="+65"/>
         <source>Logo</source>
         <translation type="unfinished">序列标识图</translation>
     </message>
     <message>
-        <location line="-49"/>
+        <location line="-50"/>
         <location filename="../../../commands/query.py" line="+46"/>
         <source>No selection found. Defaulting to ALL nodes.</source>
         <translation type="unfinished">没有选中节点，默认使用全部节点。</translation>
@@ -5994,7 +6004,7 @@ Command-line usage:
         <translation type="unfinished">错误：所选 MSA 中没有当前网络的已比对行。</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+29"/>
         <source>No nodes matched the criteria for logo generation.</source>
         <translation type="unfinished">没有节点符合生成序列标识图的条件。</translation>
     </message>
@@ -6257,7 +6267,7 @@ Command-line usage:
         <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 语法（例如 [10-20] 或 [K&gt;10%]）。</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+38"/>
         <source>Query</source>
         <translation type="unfinished">查询</translation>
     </message>
@@ -6496,14 +6506,14 @@ Command-line usage:
         <translation type="unfinished">保存布局状态出错：{error}</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/select.py" line="-239"/>
+        <location filename="../../../commands/select.py" line="-240"/>
         <source>%n node(s)</source>
         <translation type="unfinished">
             <numerusform>%n 个节点</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+68"/>
         <source>Error: Select command requires an expression or invert/save action.</source>
         <translation type="unfinished">错误：select 命令需要一个表达式，或 invert/save 操作。</translation>
     </message>
@@ -6584,7 +6594,7 @@ Command-line usage:
         <translation type="unfinished">错误：未提供逻辑表达式。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+33"/>
         <source>Selected {selected}, Un-selected {unselected}.</source>
         <translation type="unfinished">选中 {selected}，取消选中 {unselected}。</translation>
     </message>
@@ -6663,12 +6673,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+10"/>
-        <location line="+81"/>
+        <location line="+82"/>
         <source>Spectrum</source>
         <translation type="unfinished">渐变色</translation>
     </message>
     <message>
-        <location line="-77"/>
+        <location line="-78"/>
         <source>Error: Unrecognized extra spectrum argument &apos;{argument}&apos;. Only one color scheme may be supplied.</source>
         <translation type="unfinished">错误：无法识别多余的 spectrum 参数“{argument}”。只能提供一个配色方案。</translation>
     </message>
@@ -6698,7 +6708,7 @@ Command-line usage:
         <translation type="unfinished">错误：属性“{property}”不是数值型（类型为“{type}”）。渐变色着色需要数值型属性。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+32"/>
         <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
         <translation type="unfinished">没有节点符合筛选条件（只为可见节点着色）。</translation>
     </message>
@@ -7234,7 +7244,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">错误：查看器中没有可下载的元数据。</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+28"/>
         <source>Metadata export</source>
         <translation type="unfinished">元数据导出</translation>
     </message>
@@ -9460,6 +9470,36 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location filename="../../../web_ui/plugins/tree.py" line="+13"/>
         <source>Tree View UI</source>
         <translation type="unfinished">树视图界面</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_backend.py" line="+1460"/>
+        <source>the network threshold tree</source>
+        <translation type="unfinished">网络阈值树</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>the tree file {file}</source>
+        <translation type="unfinished">树文件 {file}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>the MSA Guide Tree</source>
+        <translation type="unfinished">MSA 引导树</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>&apos;{clade}&apos; is not a clade number: write #clade:N# with N the whole number Tree View shows for a clade.</source>
+        <translation type="unfinished">“{clade}”不是进化枝编号：请写成 #clade:N#，其中 N 是树视图为进化枝显示的整数。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>There is no clade {clade} in {tree}. A clade is an internal node of the tree, numbered as Tree View shows it; this tree has {count}.</source>
+        <translation type="unfinished">{tree}中没有进化枝 {clade}。进化枝是树的内部节点，编号与树视图显示的一致；这棵树共有 {count} 个。</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Clade {clade} of {tree}.</source>
+        <translation type="unfinished">{tree}的进化枝 {clade}。</translation>
     </message>
 </context>
 <context>
@@ -13515,6 +13555,11 @@ Fedora / RHEL：
         <translation type="unfinished">一个进化枝</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Clade {number}</source>
+        <translation type="unfinished">进化枝 {number}</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Leaves in this clade: {count}</source>
         <translation type="unfinished">此进化枝的叶节点数：{count}</translation>
@@ -15381,7 +15426,7 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+843"/>
+        <location filename="../../../web_ui/tree_backend.py" line="-665"/>
         <location line="+56"/>
         <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
@@ -15392,7 +15437,7 @@ Fedora / RHEL：
         <translation type="unfinished">树视图需要指定一棵树的名称。</translation>
     </message>
     <message>
-        <location line="+381"/>
+        <location line="+610"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>

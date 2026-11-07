@@ -3246,6 +3246,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Label &apos;{label}&apos; is ambiguous because it names both a &apos;{namespace}&apos; label and a custom group. Rename or remove the custom group before using this label.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Label &apos;{label}&apos; did not resolve to one value per SSN node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Unsupported Boolean operator &apos;{operator}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6656,6 +6664,30 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>The per-residue data of this structure holds no usable property.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>the network threshold tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the tree file {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the MSA Guide Tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{clade}&apos; is not a clade number: write #clade:N# with N the whole number Tree View shows for a clade.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>There is no clade {clade} in {tree}. A clade is an internal node of the tree, numbered as Tree View shows it; this tree has {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clade {clade} of {tree}.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>
@@ -9154,6 +9186,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>A clade</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clade {number}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
