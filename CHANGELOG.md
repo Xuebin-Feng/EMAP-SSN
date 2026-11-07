@@ -136,7 +136,8 @@ still change before version 1.0.0.
     connected-node colour while the Viewer marks them.
     These colours are the ones set in Config. Right-clicking a clade or a leaf selects its
     nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
-    space clears the selection. Clicking a leaf focuses its node in the network.
+    space clears the selection. Clicking a leaf focuses its node in the network, and a
+    right-click anywhere on the tree takes that focus off again, as one in the network does.
   - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
     zoomed in, by the percentage of replicates that contain its split. It measures stability
     under distance noise, not bootstrap support.
@@ -212,6 +213,10 @@ still change before version 1.0.0.
   swap at the screen's refresh. The environment variable `SSN_VIEWER_VSYNC=0` turns it
   off, to compare panning with and without it. The graphics driver's own vertical sync
   setting still overrides both.
+- **A left click on a node says "Clicked", not "Selected".** The status line reads
+  `Clicked: <node>` and the console `Node clicked: <header>`. A left click marks a node
+  without changing the selection that commands act on, which reports
+  `Selected 12 node(s).`
 
 ### Fixed
 
@@ -223,6 +228,12 @@ still change before version 1.0.0.
   MSA, Neighbor-joining turns the switch off, and switching back to UPGMA now restores
   the state it had. This also survives a language or theme change. Save & Run still saves
   OFF while Neighbor-joining is selected.
+- **A right click in the Viewer said "Selection cleared." when nothing was selected.** It
+  now says so only when it cleared a selection, and otherwise leaves the status line as it
+  was.
+- **A right click in the Viewer left the clicked node marked in the other pages.** It took
+  the left-click highlight off in the network, but the Meta Data sheet kept the node's row
+  highlighted and Tree View kept the ring on its leaf. Both now clear as well.
 
 ## [0.5.0] - 2026-10-30
 
