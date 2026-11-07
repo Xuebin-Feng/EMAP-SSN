@@ -526,14 +526,14 @@ window.TreeView = window.TreeView || {};
 
     // The network's click focus follows the leaf that is pinned: pinning a leaf focuses on its node in the network,
     // and unpinning it, or pinning anything else, takes the focus off it. It is asked only when the leaf changes.
-    function syncFocus(node) {
+    function syncFocus(node, clearsFocus) {
         const model = state.model;
         if (!model) return;
         const leaf = node >= 0 && model.childCount[node] === 0 ? model.leafOrdinal[node] : -1;
         const target = leaf >= 0 ? model.viewerNode[leaf] : -1;
-        // A ring that the network's own click put on a leaf (selection.focus) is not what this page posted last: a
-        // pin taken off, as by a right-click, clears it too.
-        const ringOn = state.selection && state.selection.focus >= 0;
+        // A ring that the network's own click put on a leaf (selection.focus) is not what this page posted last: a click
+        // that leaves no leaf pinned clears it too; a fold or Esc does not.
+        const ringOn = clearsFocus && state.selection && state.selection.focus >= 0;
         if (target === postedFocus && !(target < 0 && ringOn)) return;
         postedFocus = target;
         TV.focusNode(target >= 0 ? target : null);
@@ -996,7 +996,7 @@ window.TreeView = window.TreeView || {};
         supportWords.tip = $("support-btn").title;
         TV.canvas = $("tree-canvas");
         state.palette = TV.readPalette();
-        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: (node) => { showPinned(node); syncFocus(node); } });
+        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: (node, options) => { showPinned(node); syncFocus(node, options && options.click); } });
         showSupportRamp();
         $("hints").textContent = TV.hintText();
         show("loading");

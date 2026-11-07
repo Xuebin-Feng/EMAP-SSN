@@ -643,6 +643,46 @@ class RightClickTests(SelectionCase):
         self.assertIsNone(self.viewer.selected_node_idx)
         self.wait_for("TreeView.state.selection.focus === -1")
 
+    def network_ring(self):
+        """A left click in the network put a ring on leaf 12; nothing is pinned here; the page's bodies are cleared."""
+        self.start_right()
+        self.choose("rectangular")
+        self.focus(self.nodes_of([12])[0])
+        self.wait_for("TreeView.state.selection.focus === 12")
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.script("window.__bodies.length = 0; return 1")
+
+    def test_folding_a_clade_leaves_a_ring_the_network_put_on(self):
+        self.network_ring()
+        clade = self.internal()
+        self.script(f"TreeView.openAll(); TreeView.toggleFold({clade}); TreeView.drawNow(); return 1")
+        x, y = self.state(f"""(() => {{ const s = TreeView.state, v = s.view, o = new Float64Array(8); s.layout.mark({clade}, o);
+            return [v.ox + (o[0] + o[2]) / 2 * v.sx, v.oy + (o[1] + o[3]) / 2 * v.sy]; }})()""")
+        self.script(f"fire.click({x}, {y}); return 1")                 # a folded clade opens when it is clicked
+        self.wait_for("TreeView.state.collapsedCount === 0")
+        self.pump(0.3)
+        self.assertEqual(self.state("window.__bodies"), [])
+        self.assertEqual(self.viewer.selected_node_idx, self.nodes_of([12])[0])
+
+    def test_escape_leaves_a_ring_the_network_put_on(self):
+        self.network_ring()
+        self.script("fire.key('Escape'); return 1")
+        self.pump(0.3)
+        self.assertEqual(self.state("window.__bodies"), [])
+        self.assertEqual(self.viewer.selected_node_idx, self.nodes_of([12])[0])
+
+    def test_a_left_click_on_empty_canvas_takes_a_ring_the_network_put_on_off(self):
+        self.network_ring()
+        empty = self.state("""(() => { const c = document.getElementById('tree-canvas');
+            for (let y = 4; y < c.clientHeight; y += 9) for (let x = 4; x < c.clientWidth - 20; x += 9) if (!TreeView.hitTest(x, y)) return [x, y];
+            return null; })()""")
+        self.script(f"fire.click({empty[0]}, {empty[1]}); return 1")
+        deadline = time.monotonic() + 10
+        while self.viewer.selected_node_idx is not None and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.assertIsNone(self.viewer.selected_node_idx)
+        self.assertEqual(self.state("window.__bodies"), [{"action": "tree_focus", "index": None}])
+
     def test_a_right_click_on_a_clade_unpins_a_pinned_leaf(self):
         self.start_right()
         self.choose("rectangular")
@@ -663,7 +703,7 @@ class RightClickTests(SelectionCase):
         self.start_right()
         for kind in ("rectangular", "circular"):
             self.choose(kind)
-            self.assertIn("Right-click: select in the network and unpin.", self.state("TreeView.hintText()"))
+            self.assertIn("Right-click: select in the network.", self.state("TreeView.hintText()"))
 
 
 class AskTheNetworkTests(SelectionCase):

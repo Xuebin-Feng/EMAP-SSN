@@ -970,7 +970,7 @@ class LayoutChoiceTests(LayoutCase):
             hint: document.getElementById('hints').textContent};""")
         self.assertEqual((info["kind"], info["shown"], info["select"], info["rooted"]), ("unrooted",) * 2 + ("unrooted", False))
         self.assertEqual(info["mode"], "lengths")
-        self.assertEqual(info["hint"], "Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.")
+        self.assertEqual(info["hint"], "Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.")
         # What decides it is what the file says of its rooting, [&R], [&U] or nothing, and not how the tree was made: a
         # rooted tree opens rectangular, an unrooted one opens unrooted, and one that does not say is taken as unrooted.
         for flag, rooted, expected in (("[&R] ", True, "rectangular"), ("[&U] ", False, "unrooted"), ("", None, "unrooted")):

@@ -892,13 +892,13 @@ window.TreeView = window.TreeView || {};
     // The hint at the foot of the page.
     TV.hintText = function () {
         if (state.layout && state.layout.uniform) {
-            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.");
+            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
         }
-        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.");
+        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
     };
 
     // Attach the page's pointer, wheel and key handling to the canvas. `ui` holds what the page does in answer:
-    // tooltip (the element), onPin(node) to say what the status line shows.
+    // tooltip (the element), onPin(node, options) to say what the status line shows (options.click: a click that takes the click focus off).
     TV.attachNavigation = function (canvas, ui) {
         let drag = null;
         let hoverPoint = null;
@@ -990,7 +990,7 @@ window.TreeView = window.TreeView || {};
                 return;
             }
             state.pinned = hit && hit.node !== state.pinned ? hit.node : -1;
-            ui.onPin(state.pinned);
+            ui.onPin(state.pinned, { click: true });
             TV.requestDraw();
         }
         canvas.addEventListener("pointerup", endDrag);
@@ -1016,7 +1016,7 @@ window.TreeView = window.TreeView || {};
             const [px, py] = local(event);
             if (inRuler(px)) return;
             state.pinned = -1;
-            ui.onPin(-1);
+            ui.onPin(-1, { click: true });
             TV.requestDraw();
             const hit = TV.hitTest(px, py);
             if (hit) TV.selectClade(hit.node, event.shiftKey ? "toggle" : "replace");
