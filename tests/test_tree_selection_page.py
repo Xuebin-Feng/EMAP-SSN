@@ -578,6 +578,80 @@ class RightClickTests(SelectionCase):
             {"action": "tree_select", "indices": [], "mode": "replace"},
         ])
 
+    def pin_leaf(self, leaf):
+        """Left-click a leaf: it is pinned, and the Viewer's click focus (and the page's ring) is on its node."""
+        x, y = self.state(f"window.tip({leaf})")
+        self.script(f"fire.click({x}, {y}); return 1")
+        deadline = time.monotonic() + 10
+        while self.viewer.selected_node_idx is None and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.assertEqual(self.viewer.selected_node_idx, self.nodes_of([leaf])[0])
+        self.wait_for(f"TreeView.state.selection.focus === {leaf}")
+        self.assertGreaterEqual(self.state("TreeView.state.pinned"), 0)
+
+    def right_after_pin(self, point):
+        """Right-click at ``point`` and wait for its two actions: the focus taken off, and the selection."""
+        before = len(self.viewer.action_results)
+        self.script(f"const [x, y] = {point}; return window.rightClick(x, y)")
+        deadline = time.monotonic() + 10
+        while len(self.viewer.action_results) < before + 2 and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.pump(0.1)
+        return [(name, result) for name, result in self.viewer.action_results[before:]]
+
+    def test_a_right_click_on_a_leaf_unpins_and_takes_the_focus_off(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.pin_leaf(12)
+        self.script("window.__bodies.length = 0; return 1")
+        self.right_after_pin("window.tip(12)")
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.assertEqual(self.state("window.__bodies"), [
+            {"action": "tree_focus", "index": None},
+            {"action": "tree_select", "indices": self.nodes_of([12]), "mode": "replace"},
+        ])
+        self.assertIsNone(self.viewer.selected_node_idx)
+        self.assertEqual(self.viewer.selected_indices, self.nodes_of([12]))        # it still selects
+        self.wait_for("TreeView.state.selection.focus === -1")
+
+    def test_a_right_click_on_empty_canvas_unpins_and_takes_the_focus_off(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.viewer.select([0, 1])
+        self.pin_leaf(12)
+        self.script("window.__bodies.length = 0; return 1")
+        empty = self.state("""(() => { const c = document.getElementById('tree-canvas');
+            for (let y = 4; y < c.clientHeight; y += 9) for (let x = 4; x < c.clientWidth - 20; x += 9) if (!TreeView.hitTest(x, y)) return [x, y];
+            return null; })()""")
+        self.assertIsNotNone(empty)
+        self.right_after_pin(json.dumps(empty))
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.assertEqual(self.state("window.__bodies"), [
+            {"action": "tree_focus", "index": None},
+            {"action": "tree_select", "indices": [], "mode": "replace"},
+        ])
+        self.assertIsNone(self.viewer.selected_node_idx)
+        self.assertEqual(self.viewer.selected_indices, [])
+
+    def test_a_right_click_takes_off_a_focus_the_network_put_on_though_nothing_is_pinned(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.focus(self.nodes_of([12])[0])                             # a left click in the network
+        self.wait_for("TreeView.state.selection.focus === 12")
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.right_after_pin("window.tip(20)")
+        self.assertIsNone(self.viewer.selected_node_idx)
+        self.wait_for("TreeView.state.selection.focus === -1")
+
+    def test_a_right_click_on_a_clade_unpins_a_pinned_leaf(self):
+        self.start_right()
+        self.choose("rectangular")
+        self.pin_leaf(12)
+        clade = self.internal()
+        self.right_after_pin(f"window.stem({clade})")
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.assertIsNone(self.viewer.selected_node_idx)
+
     def test_the_ruler_is_not_the_tree(self):
         self.start_right()
         self.choose("rectangular")
@@ -589,7 +663,7 @@ class RightClickTests(SelectionCase):
         self.start_right()
         for kind in ("rectangular", "circular"):
             self.choose(kind)
-            self.assertIn("Right-click: select in the network.", self.state("TreeView.hintText()"))
+            self.assertIn("Right-click: select in the network and unpin.", self.state("TreeView.hintText()"))
 
 
 class AskTheNetworkTests(SelectionCase):

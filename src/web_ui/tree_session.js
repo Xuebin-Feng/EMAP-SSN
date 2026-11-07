@@ -531,7 +531,10 @@ window.TreeView = window.TreeView || {};
         if (!model) return;
         const leaf = node >= 0 && model.childCount[node] === 0 ? model.leafOrdinal[node] : -1;
         const target = leaf >= 0 ? model.viewerNode[leaf] : -1;
-        if (target === postedFocus) return;
+        // A ring that the network's own click put on a leaf (selection.focus) is not what this page posted last: a
+        // pin taken off, as by a right-click, clears it too.
+        const ringOn = state.selection && state.selection.focus >= 0;
+        if (target === postedFocus && !(target < 0 && ringOn)) return;
         postedFocus = target;
         TV.focusNode(target >= 0 ? target : null);
     }

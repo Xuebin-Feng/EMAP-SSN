@@ -13557,7 +13557,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+7"/>
-        <location filename="../../../web_ui/tree_session.js" line="+772"/>
+        <location filename="../../../web_ui/tree_session.js" line="+775"/>
         <source>{count} groups share no kept edge</source>
         <translation type="unfinished">{count} 个组之间没有保留的边</translation>
     </message>
@@ -13583,16 +13583,24 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+65"/>
-        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.</source>
+        <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择并取消固定。</translation>
     </message>
     <message>
         <location line="+2"/>
-        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.</source>
+        <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择并取消固定。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="-634"/>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
+        <translation type="obsolete">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+    </message>
+    <message>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
+        <translation type="obsolete">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/tree_session.js" line="-637"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -14102,7 +14110,7 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已选择 {count} 个，其中 {leaves} 个在此树中</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+98"/>
         <location line="+112"/>
         <source>Support</source>
         <translation type="unfinished">支持度</translation>

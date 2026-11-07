@@ -892,9 +892,9 @@ window.TreeView = window.TreeView || {};
     // The hint at the foot of the page.
     TV.hintText = function () {
         if (state.layout && state.layout.uniform) {
-            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
+            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.");
         }
-        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
+        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network and unpin.");
     };
 
     // Attach the page's pointer, wheel and key handling to the canvas. `ui` holds what the page does in answer:
@@ -1007,12 +1007,17 @@ window.TreeView = window.TreeView || {};
         });
 
         // A right-click selects, as in the network: a clade or a leaf replaces the network's selection, with Shift it is
-        // toggled, and empty canvas clears it. It pins, zooms, folds and drags nothing, and the browser's menu stays shut.
+        // toggled, and empty canvas clears it. It also unpins, as a right press in the network takes the click's focus
+        // off: the summary line resets, and the Viewer's focus goes. It pins, zooms, folds and drags nothing, and the
+        // browser's menu stays shut.
         canvas.addEventListener("contextmenu", (event) => {
             event.preventDefault();
             if (!state.layout) return;
             const [px, py] = local(event);
             if (inRuler(px)) return;
+            state.pinned = -1;
+            ui.onPin(-1);
+            TV.requestDraw();
             const hit = TV.hitTest(px, py);
             if (hit) TV.selectClade(hit.node, event.shiftKey ? "toggle" : "replace");
             else TV.clearNetworkSelection();
