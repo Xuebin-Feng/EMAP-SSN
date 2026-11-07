@@ -976,6 +976,40 @@ class LabelNamespaceTests(unittest.TestCase):
         self.assertEqual(Command_Engine.label_providers(SimpleNamespace()), {})
         self.assertEqual(Command_Engine.label_providers(mock.MagicMock()), {})
 
+    def test_a_viewer_alone_supplies_the_providers_and_an_explicit_argument_wins(self):
+        registry = SimpleNamespace(label_providers=lambda: {"part": self.provider})
+        viewer = SimpleNamespace(web_plugin_registry=registry)
+        with redirect_stdout(io.StringIO()):
+            mask = Command_Engine.parse_advanced_expression(
+                "#part:1#", None, None, self.HEADERS, self.clusters, self.groups, viewer=viewer)
+        self.assertEqual(mask.tolist(), [True, True, False, False, False])
+        self.assertEqual(self.evaluate("#part:2#", providers={"part": self.provider}).tolist(),
+                         [False, False, True, True, True])
+        with redirect_stdout(io.StringIO()), self.assertRaisesRegex(Command_Engine.SelectionContextError, "does not exist"):
+            Command_Engine.parse_advanced_expression(
+                "#part:1#", None, None, self.HEADERS, self.clusters, self.groups,
+                label_providers={}, viewer=viewer)
+
+    def test_shared_callers_pass_the_viewer_and_call_no_label_helper(self):
+        # The VR viewer's own Command_Engine re-exports parse_advanced_expression but has no label_providers, so the
+        # command modules both viewers share may only hand over the viewer.
+        import ast
+        files = [os.path.join(SRC_DIR, "commands", name + ".py")
+                 for name in ("color", "group", "hide", "logo", "query", "select", "spectrum")]
+        files.append(os.path.join(SRC_DIR, "Metadata_Core.py"))
+        for path in files:
+            with open(path, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            parsed = 0
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and node.attr == "label_providers":
+                    self.fail("%s reaches for label_providers" % os.path.basename(path))
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "parse_advanced_expression"):
+                    parsed += 1
+                    self.assertIn("viewer", [keyword.arg for keyword in node.keywords], os.path.basename(path))
+            self.assertGreaterEqual(parsed, 1, os.path.basename(path))
+
 
 if __name__ == "__main__":
     unittest.main()

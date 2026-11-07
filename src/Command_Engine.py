@@ -1234,6 +1234,9 @@ def label_providers(viewer):
     return providers if isinstance(providers, dict) else {}
 
 
+_viewer_label_providers = label_providers
+
+
 def _evaluate_label(full_headers, cluster_labels, group_labels, target, labels):
     """The mask of one ``#label#``: a declared namespace's provider answers ``#namespace:value#``, anything else is read as always."""
     found = labels.provider_for(target) if labels is not None else None
@@ -1441,8 +1444,17 @@ def parse_advanced_expression(
     metadata=None,
     selection_mask=None,
     label_providers=None,
+    viewer=None,
 ):
-    """Compatibility wrapper that parses and evaluates one Boolean expression."""
+    """Compatibility wrapper that parses and evaluates one Boolean expression.
+
+    The labels ``#namespace:value#`` that plugins resolve come from ``label_providers`` when it is given. Otherwise,
+    when ``viewer`` is given, the namespaces that viewer's plugins declare are used, so a command only passes its
+    viewer and calls no other helper (the VR viewer's own Command_Engine re-exports this function but has no
+    ``label_providers``). With neither there are no such labels.
+    """
+    if label_providers is None and viewer is not None:
+        label_providers = _viewer_label_providers(viewer)
     expression = parse_selection_expression(expr)
     return evaluate_selection_expression(
         expression,

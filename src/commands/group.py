@@ -351,7 +351,7 @@ def run(viewer, args):
                 getattr(viewer, 'alignment', None),
                 metadata=getattr(viewer, 'metadata', None),
                 selection_mask=Command_Engine.get_selected_mask(viewer),
-                label_providers=Command_Engine.label_providers(viewer),
+                viewer=viewer,
             )
             # Hidden nodes are outside the command's target domain, even when
             # the expression matches them, and a selection can hold nodes
