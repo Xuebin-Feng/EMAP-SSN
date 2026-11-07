@@ -14567,12 +14567,11 @@ Fedora / RHEL：
         <translation type="unfinished">网络阈值树</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Guide tree</source>
-        <translation type="unfinished">引导树</translation>
+        <translation type="obsolete">引导树</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Layout</source>
         <translation type="unfinished">布局</translation>
     </message>
@@ -14652,7 +14651,12 @@ Fedora / RHEL：
         <translation type="unfinished">展开所有已折叠的进化枝</translation>
     </message>
     <message>
-        <location line="-33"/>
+        <location line="-34"/>
+        <source>MSA Guide Tree</source>
+        <translation type="unfinished">MSA 引导树</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Open a tree file...</source>
         <translation type="unfinished">打开树文件……</translation>
     </message>

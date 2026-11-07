@@ -1090,7 +1090,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-tree" data-source-sha256="fd22a06133bbac54254839123ff2e94df839a9e9b6860bf3262d1b3a05d7bbea">
+            <section class="command-card" id="cmd-tree" data-source-sha256="a9ed5f54b745892d0ae14e873f17df1546dc28b48d7c0daaac7b2ddcc5919a19">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">tree</span>
@@ -1101,12 +1101,12 @@
                     <div class="syntax-content">tree  |  tree help</div>
                     <button class="copy-btn" onclick="copyText('tree', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>tree 命令在浏览器中打开树视图，并把“树视图”按钮加入控制台的按钮行。页面在网络旁边绘制一棵树。你在页面标题栏的<strong>树</strong>列表中选择：已加载比对的引导树、网络阈值树，或你自己的树。命令不带参数；选择在页面中进行。</p>
+                <p><strong>概述：</strong>tree 命令在浏览器中打开树视图，并把“树视图”按钮加入控制台的按钮行。页面在网络旁边绘制一棵树。你在页面标题栏的<strong>树</strong>列表中选择：已加载比对的<strong>MSA Guide Tree</strong>、网络阈值树，或你自己的树。命令不带参数；选择在页面中进行。</p>
 
                 <div class="subheading">详细说明</div>
                 <ul>
                     <li><strong>用哪棵树：</strong><strong>树</strong>列表提供三种树。已加载的比对有引导树时，先打开引导树；否则打开阈值树。页面会在查看器运行期间保留你的选择。</li>
-                    <li><strong>引导树：</strong>Embedding MSA 工具为已加载比对保存的引导树。它是根据比对的名称找到的，不能自行指定。对于 <code>Set_[model]_alignment.fasta</code>，它是比对所在文件夹中的 <code>Guide_Trees/Set_[model]_guide_tree.nex</code>，页面会跟随比对变化：加载另一个比对（<code>alignment</code> 命令），它就会显示那棵树。不是该工具生成的比对、被重命名的比对，或在保存树之前生成的比对没有引导树：引导树在列表中呈灰色，其原因显示在提示中，页面打开阈值树。命令仍会成功，其结果会说明页面打开的是网络阈值树，然后说明为什么没有引导树，并指出它查找的文件。如果你之前打开过自己的树，页面会再次打开它，结果会给出其文件名。完全没有可显示的树时（没有引导树，且网络没有边），命令仍会成功，会有一张卡片说明原因，结果也会说明这一点。页面已经打开时不会再次打开，命令会说明这一点。</li>
+                    <li><strong>MSA Guide Tree：</strong>Embedding MSA 工具为已加载比对保存的引导树。它是根据比对的名称找到的，不能自行指定。对于 <code>Set_[model]_alignment.fasta</code>，它是比对所在文件夹中的 <code>Guide_Trees/Set_[model]_guide_tree.nex</code>，页面会跟随比对变化：加载另一个比对（<code>alignment</code> 命令），它就会显示那棵树。不是该工具生成的比对、被重命名的比对，或在保存树之前生成的比对没有引导树：引导树在列表中呈灰色，其原因显示在提示中，页面打开阈值树。命令仍会成功，其结果会说明页面打开的是网络阈值树，然后说明为什么没有引导树，并指出它查找的文件。如果你之前打开过自己的树，页面会再次打开它，结果会给出其文件名。完全没有可显示的树时（没有引导树，且网络没有边），命令仍会成功，会有一张卡片说明原因，结果也会说明这一点。页面已经打开时不会再次打开，命令会说明这一点。</li>
                     <li><strong>网络阈值树：</strong>查看器根据已加载网络的边，按单连接法构建的树。分支点是两组节点首次共有一条边的地方，其位置为该边的得分。在阈值处切开这棵树，得到的就是查看器显示为相连的各组。一条线在树上标出阈值（矩形布局中是竖线，环形布局中是圆，无根布局和支序图中没有），并随阈值滑块移动。不共有任何保留边的各组，挂在一个根上的断开分支下。它不需要比对。使用 UMAP 或 PaCMAP 时，它使用该布局保留的边。它在你第一次请求时构建：在 44,000 条序列、5% 的序列对时约需 0.15 秒。</li>
                     <li><strong>你自己的树：</strong>在列表中选择<strong>打开树文件...</strong>，把文件拖放到页面上，或在没有输入框获得焦点时用 Ctrl+V 粘贴树的文本。页面可读取 Newick（包括 NHX、成对支持值如 IQ-TREE 的、RAxML 支持值和 Jplace 边编号）、NEXUS（TRANSLATE，以及 BEAST、MrBayes 和 FigTree 注释）、PhyloXML、NeXML 和 JSON（Auspice、嵌套和 Jplace）。文件最大为 128 MB。</li>
                     <li><strong>匹配：</strong>叶节点的名称等于网络节点的完整标题，或按查看器的标题规则处理后等于该标题时，即与该节点匹配。不做登录号匹配，也不忽略大小写。两个叶节点同名时，页面会拒绝这棵树。标题栏中的<strong>匹配</strong>按钮可重新打开匹配报告：它统计匹配数，并列出不在网络中的叶节点（以淡色绘制）。完全没有匹配时，它把树中的名称与网络的标题并排显示。这棵树保存在查看器的内存中，直到查看器关闭，不会写入磁盘。</li>

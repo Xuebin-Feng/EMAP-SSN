@@ -286,7 +286,7 @@ class OpeningTests(OpenCase):
         self.open_text(text_of("nested.json"), "two.json")
         self.wait_for("TreeView.state.source === 'uploaded' && TreeView.state.model.uploaded.file === 'two.json'")
         self.assertEqual(self.state("Array.from(document.getElementById('source-select').options).map(o => o.textContent.trim())"),
-                         ["Network threshold tree", "Guide tree", "two.json", "Open a tree file..."])
+                         ["Network threshold tree", "MSA Guide Tree", "two.json", "Open a tree file..."])
         for source, leaves in (("threshold", len(NETWORK)), ("guide", len(NETWORK)), ("uploaded", 4), ("guide", len(NETWORK)), ("threshold", len(NETWORK))):
             with self.subTest(source):
                 self.script(f"""const select = document.getElementById('source-select');

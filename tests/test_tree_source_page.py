@@ -108,7 +108,7 @@ class ChooserTests(SourceCase):
         self.assertEqual(found["value"], "guide")
         self.assertFalse(found["disabled"])
         # The last entry opens a tree file: it is no tree, and is always there.
-        self.assertEqual(found["options"], [["threshold", "Network threshold tree", False], ["guide", "Guide tree", False],
+        self.assertEqual(found["options"], [["threshold", "Network threshold tree", False], ["guide", "MSA Guide Tree", False],
                                             ["open", "Open a tree file...", False]])
         self.assertEqual((found["source"], found["score"], found["leaves"]), ("guide", False, COUNT))
         self.assertEqual(self.console_errors(), [])
