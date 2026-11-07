@@ -1376,7 +1376,7 @@ def capture_snapshot_part(viewer, options, budget_bytes):
     if state["status"] != "ok":
         words = SNAPSHOT_REASONS.get(state["status"], state["status"])
         detail = f": {state['reason']}" if state.get("reason") else ""
-        shown = ", ".join(snapshot_overview(viewer)["available"]) or "none"
+        shown = ", ".join(other for other in snapshot_overview(viewer)["available"] if other != source) or "none"
         raise ValueError(f"The {source} tree cannot be shown: {words} ({state['status']}{detail}). Trees that can be shown: {shown}.")
     counts = state["counts"]
     if counts["nodes"] * 40 + sum(len(label) + 56 for label in state["labels"]) > budget_bytes:

@@ -247,3 +247,48 @@ def server_viewer():
     viewer.get_initial_web_state = lambda: {"rows": []}
     viewer.handle_web_action = lambda data: None
     return viewer
+
+
+# ---- A Viewer a snapshot can be taken of, holding the tree part --------------------------------------------------------
+
+# A tree of six leaves and four clades, in post-order: A B (A B)=2 C D E (D E)=6 (C (D E))=7 F and the root 9 over 2, 7 and F.
+SMALL_TREE = {
+    "labels": list("ABCDEF"),
+    "parent": [2, 2, 9, 7, 6, 6, 7, 9, 9, -1],
+    "length": [1, 1, 2, 1, 1, 1, 2, 3, 5, 0],
+    "support": [-1, -1, 90, -1, -1, -1, 70, 80, -1, -1],
+}
+
+
+def snapshot_viewer(headers, *, base=None, visible=None, clusters=None, metadata=None):
+    """A Viewer with the little a snapshot reads, and Tree View's plugin registered in its registry.
+
+    ``base`` is a Viewer from make_viewer to build on (its alignment and network are kept). Returns (viewer, service);
+    ``service.capture_snapshot`` takes the snapshot.
+    """
+    from desktop.Viewer_Inspection import ViewerInspectionService
+    from web_ui import tree_backend
+    from web_ui.Plugin_Manager import WebPluginRegistry
+
+    viewer = base if base is not None else make_viewer(None, headers)
+    count = len(headers)
+    viewer.visible_mask = np.ones(count, dtype=bool) if visible is None else np.asarray(visible, dtype=bool)
+    viewer.cluster_labels = None if clusters is None else np.asarray(clusters)
+    viewer.metadata = {} if metadata is None else metadata
+    viewer.selected_indices, viewer.group_labels = [], None
+    viewer.edges = getattr(viewer, "edges", [])
+    viewer.current_slider_threshold = 0.5
+    viewer.web_plugin_registry = WebPluginRegistry(viewer)
+    tree_backend.register_backend(viewer.web_plugin_registry, viewer)
+    service = ViewerInspectionService(viewer)
+    viewer.viewer_inspection = service
+    return viewer, service
+
+
+def upload_tree(viewer, tree=None, **overrides):
+    """Open a tree in the Viewer as the page's upload does (tree_backend.handle_tree_upload); returns the answer."""
+    from web_ui import tree_backend
+
+    data = {"name": "small.nwk", "format": "Newick", "rooted": True, **(SMALL_TREE if tree is None else tree)}
+    data.update(overrides)
+    return tree_backend.handle_tree_upload(viewer, data)

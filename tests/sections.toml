@@ -116,6 +116,7 @@ modules = [
     "test_residue_data",
     "test_tree_backend",
     "test_tree_command",
+    "test_tree_snapshot",
     "test_tree_upload",
     "test_vendored_assets",
 ]

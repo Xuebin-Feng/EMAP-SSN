@@ -13,6 +13,7 @@ warning codes.
 
 import base64
 import datetime
+import json
 import os
 import pathlib
 import sys
@@ -32,6 +33,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
 
 from tests.tree_fixtures import (  # noqa: E402
     ALIGNMENT_NAME,
+    SMALL_TREE,
     TREE_NAME,
     headers_of,
     give_edges,
@@ -43,6 +45,8 @@ from tests.tree_fixtures import (  # noqa: E402
     random_linkage,
     save_guide_tree,
     server_viewer,
+    snapshot_viewer,
+    upload_tree,
     writer,
 )
 from web_ui import tree_backend  # noqa: E402
@@ -1476,3 +1480,220 @@ class MismatchTests(FolderTestCase):
         for bad in ("upload", "", "Guide", "../guide", 5, None):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 tree_backend.mismatch_state(SimpleNamespace(), bad)
+
+
+class SnapshotPartTests(FolderTestCase):
+    """The tree in an inspection snapshot: what the summary says of it, and what a capture freezes of each source."""
+
+    def setUp(self):
+        super().setUp()
+        for cache, value in ((tree_backend._THRESHOLD_CACHE, {"order": None, "count": 0, "built": None}),):
+            patcher = mock.patch.dict(cache, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def guide_viewer(self, headers=None, network=None, aligned=None, **options):
+        headers = headers_of(12) if headers is None else headers
+        msa, tree = make_alignment_folder(self.folder, headers, **options)
+        viewer = make_viewer(msa, headers if network is None else network, aligned=aligned)
+        count = len(viewer.full_headers)
+        viewer, service = snapshot_viewer(viewer.full_headers, base=viewer, clusters=[i % 3 for i in range(count)])
+        return viewer, service, tree
+
+    def chain_viewer(self, count=12):
+        headers = headers_of(count)
+        pairs = [(node, node + 1) for node in range(count - 1)]
+        viewer = give_edges(make_viewer(None, headers), pairs, np.arange(count - 1, 0, -1, dtype=np.float32))
+        viewer, service = snapshot_viewer(headers, base=viewer, clusters=[i % 3 for i in range(count)])
+        return viewer, service
+
+    def captured(self, service, **options):
+        sid = service.capture_snapshot(parts={"tree": options})
+        return sid, service.snapshots.execute("get_summary", sid)["parts"]["tree"]["captured"]
+
+    def test_the_part_is_declared_by_the_tree_plugin_with_its_switch_option_queries_and_capability(self):
+        viewer, _service = snapshot_viewer(headers_of(3))
+        part = viewer.web_plugin_registry.snapshot_parts()["tree"]
+        self.assertEqual(part.plugin_id, "tree")
+        self.assertEqual(part.capability, "tree_snapshots_v1")
+        self.assertEqual(dict(part.summary_arguments), {"include_tree": "switch", "tree_source": "option"})
+        self.assertEqual(sorted(part.queries), ["query_clades", "query_tree_names"])
+        self.assertEqual(viewer.web_plugin_registry.part_queries(), {"query_clades": "tree", "query_tree_names": "tree"})
+        tree_backend.register_backend(viewer.web_plugin_registry, viewer)  # again, as the command does
+
+    def test_the_overview_says_what_can_be_captured_and_why_not_without_reading_any_tree(self):
+        with mock.patch.object(tree_backend, "_read_cached", side_effect=AssertionError("read a tree")), \
+                mock.patch.object(tree_backend, "_build_threshold", side_effect=AssertionError("built a tree")):
+            viewer, _service = snapshot_viewer(headers_of(3))
+            self.assertEqual(tree_backend.snapshot_overview(viewer), {
+                "available": [], "opens_on": None,
+                "unavailable": {"guide": "no_alignment", "threshold": "no_edges", "uploaded": "no_upload"}})
+            msa, _tree = make_alignment_folder(self.folder / "with", headers_of(6))
+            viewer, _service = snapshot_viewer(headers_of(6), base=make_viewer(msa, headers_of(6)))
+            self.assertEqual(tree_backend.snapshot_overview(viewer), {
+                "available": ["guide"], "opens_on": "guide", "unavailable": {"threshold": "no_edges", "uploaded": "no_upload"}})
+            viewer = give_edges(viewer, [(0, 1)], [1.0])
+            self.assertTrue(upload_tree(viewer, tree={"labels": ["a", "b"], "parent": [2, 2, -1], "length": [1, 1, 0], "support": [-1] * 3})["ok"])
+            viewer._tree_source = "threshold"
+            self.assertEqual(tree_backend.snapshot_overview(viewer), {"available": ["guide", "threshold", "uploaded"], "opens_on": "threshold", "unavailable": {}})
+            msa, _tree = make_alignment_folder(self.folder / "renamed", headers_of(6), alignment="mine.fasta")
+            viewer, _service = snapshot_viewer(headers_of(6), base=make_viewer(msa, headers_of(6)))
+            self.assertEqual(tree_backend.snapshot_overview(viewer)["unavailable"]["guide"], "unnamed_alignment")
+            msa, _tree = make_alignment_folder(self.folder / "bare", headers_of(6), tree=None)
+            viewer, _service = snapshot_viewer(headers_of(6), base=make_viewer(msa, headers_of(6)))
+            self.assertEqual(tree_backend.snapshot_overview(viewer)["unavailable"]["guide"], "no_tree")
+
+    def test_a_summary_without_the_tree_lists_the_overview_only(self):
+        viewer, service, _tree = self.guide_viewer()
+        sid = service.capture_snapshot()
+        summary = service.snapshots.execute("get_summary", sid)
+        self.assertEqual(summary["parts"]["tree"]["available"], ["guide"])
+        self.assertNotIn("captured", summary["parts"]["tree"])
+        self.assertNotIn("tree_snapshots_v1", summary["capabilities"])
+        self.assertLess(len(json.dumps(summary["parts"])), 400)
+
+    def test_the_guide_tree_is_frozen_with_what_the_page_is_sent(self):
+        viewer, service, _tree_path = self.guide_viewer()
+        sid, summary = self.captured(service, tree_source="guide")
+        state = tree_backend.tree_state(viewer, "guide")
+        part = service.snapshots.items[sid]["data"]["parts"]["tree"]
+        for key, dtype in (("parent", "<i4"), ("length", "<f4"), ("support", "i1"), ("viewer_node", "<i4")):
+            np.testing.assert_array_equal(part[key], unpack(state[key], dtype), err_msg=key)
+        self.assertEqual(part["labels"], state["labels"])
+        self.assertEqual(summary["source"], "guide")
+        self.assertEqual(summary["file"], state["tree_path"])
+        self.assertEqual(summary["counts"], {**state["counts"], "clades": state["counts"]["nodes"] - 12})
+        self.assertEqual((summary["rooted"], summary["has_lengths"], summary["warnings"], summary["threshold"]), (state["rooted"], state["has_lengths"], [], None))
+        self.assertEqual(summary["root"], "file" if state["rooted"] is True else "midpoint")
+        self.assertRegex(summary["fingerprint"], r"^[0-9a-f]{8}$")
+        self.assertEqual(summary["fingerprint"], tree_backend._fingerprint(part["parent"], part["length"], part["support"], part["labels"]))
+        rows = service.snapshots.execute("query_clades", sid, limit=500)["rows"]
+        self.assertEqual(len(rows), 11)
+        self.assertEqual(rows[0]["leaves"], {"total": 12, "in_network": 12, "not_in_network": 0, "hidden": 0})
+
+    def test_the_default_is_the_tree_the_page_opens_on_and_a_capture_never_changes_the_choice(self):
+        viewer, service, _tree = self.guide_viewer()
+        self.assertEqual(self.captured(service)[1]["source"], "guide")
+        give_edges(viewer, [(n, n + 1) for n in range(11)], np.arange(11, 0, -1, dtype=np.float32))
+        viewer._tree_source = "threshold"
+        self.assertEqual(self.captured(service)[1]["source"], "threshold")
+        self.assertEqual(self.captured(service, tree_source="guide")[1]["source"], "guide")
+        self.assertEqual(viewer._tree_source, "threshold")  # the page's choice is the user's, not the snapshot's
+        viewer._tree_source = None
+        self.captured(service, tree_source="threshold")
+        self.assertIsNone(viewer._tree_source)
+
+    def test_support_of_the_guide_tree_is_split_stability(self):
+        viewer, service, _tree = self.guide_viewer(notes=None)
+        _sid, summary = self.captured(service, tree_source="guide")
+        state = tree_backend.guide_state(viewer)
+        has = bool((unpack(state["support"], "i1") >= 0).any())
+        self.assertEqual(summary["support_kind"], "split_stability" if has else None)
+
+    def test_the_threshold_tree_is_frozen_with_its_threshold_and_a_root_that_is_the_networks(self):
+        viewer, service = self.chain_viewer()
+        sid, summary = self.captured(service, tree_source="threshold")
+        state = tree_backend.threshold_state(viewer)
+        part = service.snapshots.items[sid]["data"]["parts"]["tree"]
+        np.testing.assert_array_equal(part["parent"], unpack(state["parent"], "<i4"))
+        np.testing.assert_array_equal(part["viewer_node"], unpack(state["viewer_node"], "<i4"))
+        self.assertEqual((summary["source"], summary["name"], summary["file"], summary["rooted"], summary["root"]), ("threshold", None, None, True, "network"))
+        self.assertEqual((summary["has_lengths"], summary["support_kind"], summary["warnings"]), (True, None, []))
+        self.assertEqual(summary["threshold"]["groups"], 1)
+        self.assertIs(summary["threshold"]["forest"], False)
+        self.assertEqual(summary["threshold"]["kept"], state["threshold"]["kept"])
+        self.assertEqual(summary["counts"]["leaves"], 12)
+        self.assertEqual(self.captured(service)[1]["source"], "threshold")  # no guide tree: it is the one the page opens on
+
+    def test_an_opened_tree_is_frozen_with_its_file_support_and_clade_names(self):
+        headers = list("ABCDEF")
+        viewer, service = snapshot_viewer(headers)
+        self.assertTrue(upload_tree(viewer, tree={**SMALL_TREE, "clade_names": {"7": "Mammals"}})["ok"])
+        sid, summary = self.captured(service)
+        self.assertEqual((summary["source"], summary["file"], summary["name"], summary["root"], summary["rooted"]), ("uploaded", "small.nwk", None, "file", True))
+        self.assertEqual((summary["support_kind"], summary["has_lengths"]), ("file", True))
+        self.assertEqual(service.snapshots.items[sid]["data"]["parts"]["tree"]["clade_names"], {7: "Mammals"})
+        viewer, service = snapshot_viewer(headers)
+        upload_tree(viewer, tree={**SMALL_TREE, "support": [-1] * 10}, rooted=False)
+        self.assertEqual(self.captured(service)[1]["support_kind"], None)
+        self.assertEqual(self.captured(service)[1]["rooted"], False)
+
+    def test_the_fit_warnings_are_reported_as_codes_and_counts_and_the_lists_name_them(self):
+        headers = headers_of(12)
+        viewer, service, _tree = self.guide_viewer(headers, network=headers[:10] + ["outsider"])
+        sid, summary = self.captured(service, tree_source="guide")
+        self.assertEqual(summary["warnings"], [{"code": "leaves_not_in_network", "count": 2}, {"code": "network_nodes_not_in_tree", "count": 1}])
+        self.assertEqual(summary["counts"]["leaves_not_in_network"], 2)
+        names = lambda kind: service.snapshots.execute("query_tree_names", sid, list=kind)["rows"]  # noqa: E731
+        self.assertEqual([row["name"] for row in names("leaves_not_in_network")], headers[10:])
+        self.assertTrue(all("index" not in row and "leaf" in row for row in names("leaves_not_in_network")))
+        self.assertEqual(names("network_nodes_not_in_tree"), [{"name": "outsider", "index": 10}])
+        # The same lists the page's details show.
+        mismatch = tree_backend.mismatch_state(viewer, "guide")
+        self.assertEqual([row["name"] for row in names("leaves_not_in_network")], mismatch["leaves_not_in_network"]["names"])
+        self.assertEqual([row["name"] for row in names("network_nodes_not_in_tree")], mismatch["network_nodes_not_in_tree"]["names"])
+
+    def test_leaves_the_alignment_lacks_are_listed(self):
+        headers = headers_of(12)
+        aligned = [True] * 12
+        aligned[3] = aligned[7] = False
+        viewer, service, _tree = self.guide_viewer(headers, aligned=aligned)
+        sid, summary = self.captured(service, tree_source="guide")
+        self.assertEqual(summary["warnings"], [{"code": "leaves_not_in_alignment", "count": 2}])
+        rows = service.snapshots.execute("query_tree_names", sid, list="leaves_not_in_alignment")["rows"]
+        self.assertEqual(sorted(row["name"] for row in rows), [headers[3], headers[7]])
+        self.assertEqual(sorted(row["index"] for row in rows), [3, 7])
+        self.assertEqual([row["name"] for row in rows], tree_backend.mismatch_state(viewer, "guide")["leaves_not_in_alignment"]["names"])
+
+    def test_a_source_that_cannot_be_shown_is_refused_in_words_and_nothing_is_kept(self):
+        from desktop.Viewer_Inspection import ViewerInspectionError
+
+        viewer, service, _tree = self.guide_viewer(tree=None)
+        cases = (("guide", "no_tree", "has no guide tree file"), ("threshold", "no_edges", "no edges"), ("uploaded", "no_upload", "no tree file has been opened"))
+        for source, status, words in cases:
+            with self.subTest(source=source), self.assertRaises(ViewerInspectionError) as raised:
+                service.capture_snapshot(parts={"tree": {"tree_source": source}})
+            self.assertIn(f"The {source} tree cannot be shown", str(raised.exception))
+            self.assertIn(f"({status})", str(raised.exception))
+            self.assertIn(words, str(raised.exception))
+        self.assertEqual(len(service.snapshots.items), 0)
+        with self.assertRaisesRegex(ViewerInspectionError, "The guide tree cannot be shown"):
+            service.capture_snapshot(parts={"tree": {}})
+
+    def test_the_refusal_names_the_trees_that_can_be_shown(self):
+        from desktop.Viewer_Inspection import ViewerInspectionError
+
+        viewer, service = self.chain_viewer()
+        with self.assertRaisesRegex(ViewerInspectionError, r"The guide tree cannot be shown: no alignment is loaded \(no_alignment\)\. Trees that can be shown: threshold\."):
+            service.capture_snapshot(parts={"tree": {"tree_source": "guide"}})
+
+    def test_a_tree_that_matches_nothing_and_a_file_that_cannot_be_read_are_refused_with_the_reason(self):
+        from desktop.Viewer_Inspection import ViewerInspectionError
+
+        viewer, service = snapshot_viewer(["p", "q"])
+        upload_tree(viewer, tree={"labels": ["a", "b"], "parent": [2, 2, -1], "length": [1, 1, 0], "support": [-1] * 3})
+        with self.assertRaisesRegex(ViewerInspectionError, r"none of the tree's leaves is a node of the network \(no_overlap\)"):
+            service.capture_snapshot(parts={"tree": {"tree_source": "uploaded"}})
+        viewer, service, tree_path = self.guide_viewer()
+        pathlib.Path(tree_path).write_text("not a tree", encoding="utf-8")
+        with self.assertRaisesRegex(ViewerInspectionError, r"cannot be read \(unreadable: "):
+            service.capture_snapshot(parts={"tree": {"tree_source": "guide"}})
+
+    def test_an_unknown_source_is_refused(self):
+        viewer, _service = snapshot_viewer(headers_of(3))
+        with self.assertRaisesRegex(ValueError, "does not know a tree called nope"):
+            tree_backend.capture_snapshot_part(viewer, {"tree_source": "nope"}, 10**9)
+
+    def test_a_tree_too_big_for_the_budget_is_refused(self):
+        viewer, _service = self.chain_viewer()
+        with self.assertRaisesRegex(ValueError, "too large for the snapshot memory budget"):
+            tree_backend.capture_snapshot_part(viewer, {"tree_source": "threshold"}, 100)
+
+    def test_what_is_frozen_cannot_be_changed_by_the_viewer_afterwards(self):
+        viewer, service = self.chain_viewer()
+        sid, _summary = self.captured(service, tree_source="threshold")
+        part = service.snapshots.items[sid]["data"]["parts"]["tree"]
+        self.assertFalse(part["parent"].flags.writeable)
+        before = service.snapshots.execute("query_clades", sid, limit=500)["rows"]
+        viewer.edge_layer = None  # the network goes away
+        self.assertEqual(service.snapshots.execute("query_clades", sid, limit=500)["rows"], before)
