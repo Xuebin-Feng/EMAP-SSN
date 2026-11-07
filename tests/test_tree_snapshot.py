@@ -9,10 +9,16 @@ can be worked out by hand: six leaves A to F (network nodes 0 to 5), the nodes X
 the clades 2 (A B), 6 (D E), 7 (C D E) and 9 (the root).
 """
 
+import base64
+import contextlib
+import io
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -21,9 +27,14 @@ for folder in (PROJECT_ROOT / "src", PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
+import Command_Engine  # noqa: E402
+from commands import color, select  # noqa: E402
 from desktop.Viewer_Inspection import ViewerInspectionError  # noqa: E402
-from tests.tree_fixtures import SMALL_TREE, give_edges, make_viewer, snapshot_viewer, upload_tree  # noqa: E402
-from web_ui import tree_snapshot  # noqa: E402
+from tests.command_fixtures import reported_outcomes  # noqa: E402
+from tests.tree_fixtures import (  # noqa: E402
+    SMALL_TREE, give_edges, headers_of, make_alignment_folder, make_viewer, snapshot_viewer, upload_tree,
+)
+from web_ui import tree_backend, tree_snapshot  # noqa: E402
 
 HEADERS = list("ABCDEF") + ["X", "Y"]
 # E is hidden; the clusters are A B: 0, C D E: 1, F: noise, X Y: 2.
@@ -541,6 +552,293 @@ class ThresholdRowTests(unittest.TestCase):
     def test_the_rows_are_json_with_no_numpy_types(self):
         service, sid = self.snapshot([(0, 1), (1, 2), (3, 4), (4, 5)], [0.9, 0.8, 0.7, 0.6])
         json.dumps(service.snapshots.execute("query_clades", sid), allow_nan=False)
+
+
+# ---- #clade:N# in expressions: the live tree and the snapshot's -----------------------------------------------------------
+
+
+def expected_clades(state):
+    """{clade: the network nodes of its leaves, sorted}, worked out by walking the payload's parents (not by the index)."""
+    parent = np.frombuffer(base64.b64decode(state["parent"]), dtype="<i4")
+    viewer_node = np.frombuffer(base64.b64decode(state["viewer_node"]), dtype="<i4")
+    children = {}
+    for node, above in enumerate(parent.tolist()):
+        if above >= 0:
+            children.setdefault(above, []).append(node)
+    leaf_nodes = [node for node in range(len(parent)) if node not in children]
+    ordinal = {node: position for position, node in enumerate(leaf_nodes)}
+
+    def leaves_below(node):
+        found, stack = [], [node]
+        while stack:
+            current = stack.pop()
+            if current in children:
+                stack.extend(children[current])
+            else:
+                found.append(current)
+        return found
+
+    return {
+        node: sorted(int(viewer_node[ordinal[leaf]]) for leaf in leaves_below(node) if viewer_node[ordinal[leaf]] >= 0)
+        for node in children
+    }
+
+
+class CladeLabelCase(unittest.TestCase):
+    """A Viewer with each of the three trees, and the commands that take ``#clade:N#`` run over it."""
+
+    GUIDE_HEADERS = headers_of(9)
+
+    def setUp(self):
+        patcher = mock.patch.dict(tree_backend._TREE_CACHE, {"key": None, "tree": None})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.dict(tree_backend._THRESHOLD_CACHE, {"order": None, "count": 0, "built": None})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def viewer(self, source):
+        """A Viewer whose network has the nodes of ``source``'s tree and that keeps ``source`` as its tree."""
+        if source == "uploaded":
+            viewer, service = snapshot_viewer(HEADERS, clusters=CLUSTERS)
+            self.assertTrue(upload_tree(viewer)["ok"])
+        elif source == "guide":
+            folder = tempfile.TemporaryDirectory()
+            self.addCleanup(folder.cleanup)
+            msa, _ = make_alignment_folder(folder.name, self.GUIDE_HEADERS)
+            viewer, service = snapshot_viewer(self.GUIDE_HEADERS, base=make_viewer(msa, self.GUIDE_HEADERS))
+        else:
+            headers = ["n%d" % i for i in range(7)]
+            viewer = give_edges(make_viewer(None, headers), [(0, 1), (1, 2), (3, 4), (4, 5), (2, 3), (5, 6)],
+                                [0.9, 0.8, 0.7, 0.6, 0.5, 0.4])
+            viewer, service = snapshot_viewer(headers, base=viewer)
+        viewer._tree_source = source
+        viewer.service = service
+        return viewer
+
+    def state(self, viewer, source):
+        return tree_backend._source_state(viewer, source)[0]
+
+    def evaluate(self, viewer, expression):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return Command_Engine.parse_advanced_expression(
+                expression, None, None, viewer.full_headers, viewer.cluster_labels, viewer.group_labels,
+                label_providers=Command_Engine.label_providers(viewer))
+
+    def run_select(self, viewer, *args):
+        """Run select quietly over ``viewer``; returns (outcomes, failures, messages the portal was told, printed text)."""
+        viewer.console_text = SimpleNamespace(text="")
+        viewer.update_selection_visual = mock.Mock()
+        told = []
+        output = io.StringIO()
+        with reported_outcomes() as (succeeded, failed), contextlib.redirect_stdout(output), \
+                mock.patch("Viewer_Command_Portal.report", side_effect=lambda *a, **k: told.append(str(k.get("message")))):
+            select.run(viewer, list(args))
+        return succeeded, failed, told, output.getvalue()
+
+
+class LiveCladeTests(CladeLabelCase):
+    def test_a_clade_is_the_network_nodes_of_its_leaves_for_each_source(self):
+        for source in ("guide", "threshold", "uploaded"):
+            viewer = self.viewer(source)
+            expected = expected_clades(self.state(viewer, source))
+            self.assertTrue(len(expected) >= 3, source)
+            for clade, nodes in expected.items():
+                with self.subTest(source=source, clade=clade):
+                    self.assertEqual(np.flatnonzero(self.evaluate(viewer, f"#clade:{clade}#")).tolist(), nodes)
+
+    def test_the_small_tree_by_hand(self):
+        viewer = self.viewer("uploaded")
+        for clade, nodes in {2: [0, 1], 6: [3, 4], 7: [2, 3, 4], 9: [0, 1, 2, 3, 4, 5]}.items():
+            self.assertEqual(np.flatnonzero(self.evaluate(viewer, f"#clade:{clade}#")).tolist(), nodes)
+
+    def test_select_selects_exactly_the_clades_network_leaves_and_the_result_names_the_tree(self):
+        names = {"guide": "the MSA Guide Tree", "threshold": "the network threshold tree", "uploaded": "the tree file small.nwk"}
+        for source, name in names.items():
+            viewer = self.viewer(source)
+            clade, nodes = sorted(expected_clades(self.state(viewer, source)).items())[1]
+            with self.subTest(source=source):
+                viewer.selected_indices = []
+                succeeded, failed, told, printed = self.run_select(viewer, f"#clade:{clade}#")
+                failed.assert_not_called()
+                succeeded.assert_called_once()
+                self.assertEqual(sorted(viewer.selected_indices), nodes)
+                self.assertIn(f"Clade {clade} of {name}.", told)
+                self.assertIn(f"Clade {clade} of {name}.", printed)
+
+    def test_the_tree_used_is_the_one_tree_view_keeps(self):
+        viewer = self.viewer("uploaded")
+        # The same network also has edges: the threshold tree is another tree with other clades.
+        give_edges(viewer, [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)], [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3])
+        resolve = viewer.web_plugin_registry.label_providers()["clade"]
+        mask, note = resolve("7")
+        self.assertEqual((np.flatnonzero(mask).tolist(), str(note)), ([2, 3, 4], "Clade 7 of the tree file small.nwk."))
+        viewer._tree_source = "threshold"
+        expected = expected_clades(self.state(viewer, "threshold"))
+        clade = sorted(expected)[0]
+        mask, note = resolve(str(clade))
+        self.assertEqual((np.flatnonzero(mask).tolist(), str(note)), (expected[clade], f"Clade {clade} of the network threshold tree."))
+
+    def test_an_unknown_clade_changes_nothing_and_says_which_tree_has_none(self):
+        viewer = self.viewer("guide")
+        internal = expected_clades(self.state(viewer, "guide"))
+        leaf = next(node for node in range(self.state(viewer, "guide")["counts"]["nodes"]) if node not in internal)
+        for text in (str(leaf), "999", "x", "-1", "07", "1.5", ""):
+            with self.subTest(clade=text):
+                viewer.selected_indices = [1]
+                succeeded, failed, told, _ = self.run_select(viewer, f"#clade:{text}#")
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertEqual(viewer.selected_indices, [1])
+                self.assertTrue(any("clade" in str(call.args[1]).lower() for call in failed.call_args_list))
+        viewer.selected_indices = [1]
+        _, failed, _, _ = self.run_select(viewer, "#clade:999#")
+        self.assertIn("There is no clade 999 in the MSA Guide Tree", str(failed.call_args.args[1]))
+
+    def test_an_expression_with_one_good_and_one_unknown_clade_changes_nothing(self):
+        viewer = self.viewer("uploaded")
+        viewer.selected_indices = [5]
+        succeeded, failed, told, _ = self.run_select(viewer, "#clade:7#|#clade:8#")
+        succeeded.assert_not_called()
+        failed.assert_called_once()
+        self.assertEqual(viewer.selected_indices, [5])
+        self.assertFalse([text for text in told if text.startswith("Clade")])
+
+    def test_a_tree_that_cannot_be_shown_fails_in_words(self):
+        viewer = self.viewer("guide")
+        viewer.alignment = None
+        viewer.selected_indices = [1]
+        succeeded, failed, _, _ = self.run_select(viewer, "#clade:3#")
+        succeeded.assert_not_called()
+        self.assertIn("cannot be shown", str(failed.call_args.args[1]))
+        self.assertEqual(viewer.selected_indices, [1])
+
+    def test_a_group_named_like_a_clade_label_fails_naming_both(self):
+        viewer = self.viewer("uploaded")
+        viewer.group_labels = [["clade:7"]] + [[] for _ in range(len(HEADERS) - 1)]
+        viewer.selected_indices = [5]
+        succeeded, failed, _, _ = self.run_select(viewer, "#clade:7#")
+        succeeded.assert_not_called()
+        self.assertIn("custom group", str(failed.call_args.args[1]))
+        self.assertIn("clade:7", str(failed.call_args.args[1]))
+        self.assertEqual(viewer.selected_indices, [5])
+
+    def test_clusters_noise_and_groups_read_as_before(self):
+        viewer = self.viewer("uploaded")
+        self.assertEqual(np.flatnonzero(self.evaluate(viewer, "#Cluster_1#")).tolist(), [2, 3, 4])
+        self.assertEqual(np.flatnonzero(self.evaluate(viewer, "#Noise#")).tolist(), [5])
+        self.assertEqual(np.flatnonzero(self.evaluate(viewer, "#clade:7# & #Cluster_1#")).tolist(), [2, 3, 4])
+        self.assertEqual(np.flatnonzero(self.evaluate(viewer, "#clade:9# & !#clade:7#")).tolist(), [0, 1, 5])
+
+    def test_color_takes_a_clade_label_too(self):
+        viewer = self.viewer("uploaded")
+        count = len(HEADERS)
+        viewer.current_colors = np.ones((count, 4))
+        viewer.current_sizes = np.full(count, 5.0)
+        for name in ("_save_state", "promote_nodes", "update_nodes", "update_edges"):
+            setattr(viewer, name, mock.Mock())
+        viewer.update_selection_visual = mock.Mock()
+        viewer.selected_indices = []
+        viewer.console_text = SimpleNamespace(text="")
+        told = []
+        with reported_outcomes() as (succeeded, failed), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch("Viewer_Command_Portal.report", side_effect=lambda *a, **k: told.append(str(k.get("message")))):
+            color.run(viewer, ["#clade:2#", "red"])
+        failed.assert_not_called()
+        self.assertEqual(np.flatnonzero(viewer.current_colors[:, 1] == 0).tolist(), [0, 1])
+        self.assertIn("Clade 2 of the tree file small.nwk.", told)
+
+
+class SnapshotCladeTests(SmallTreeCase):
+    def members(self, subset):
+        return self.query("query_nodes", subset_id=subset, fields=["index"])["rows"]
+
+    def test_a_clade_label_makes_the_subset_of_its_network_leaves(self):
+        for clade, nodes in {2: [0, 1], 6: [3, 4], 7: [2, 3, 4], 9: [0, 1, 2, 3, 4, 5]}.items():
+            with self.subTest(clade=clade):
+                self.assertEqual([row["index"] for row in self.members(self.subset(f"#clade:{clade}#"))], nodes)
+
+    def test_the_subset_size_is_the_leaf_count_query_clades_gives(self):
+        for row in self.clades():
+            with self.subTest(clade=row["clade"]):
+                matched = self.store.execute("create_subset", self.sid, scope="all", expression=f"#clade:{row['clade']}#")["matched_count"]
+                self.assertEqual(matched, row["leaves"]["in_network"])
+
+    def test_it_combines_with_other_labels_and_the_scope(self):
+        self.assertEqual([row["index"] for row in self.members(self.subset("#clade:7# & !#Cluster_0#"))], [2, 3, 4])
+        scoped = self.store.execute("create_subset", self.sid, scope="visible", expression="#clade:7#")
+        self.assertEqual(scoped["matched_count"], 2)  # E is hidden
+
+    def test_an_unknown_clade_is_refused_in_words(self):
+        for text in ("3", "0", "10", "x"):
+            with self.subTest(clade=text), self.assertRaisesRegex(ViewerInspectionError, "clade"):
+                self.subset(f"#clade:{text}#")
+        with self.assertRaisesRegex(ViewerInspectionError, "There is no clade 3 in the tree file small.nwk"):
+            self.subset("#clade:3#")
+
+    def test_without_the_tree_captured_it_says_to_recapture(self):
+        sid = self.service.capture_snapshot()
+        with self.assertRaisesRegex(ViewerInspectionError, r"Recapture get_summary with include_tree=true for #clade:\.\.\.# labels"):
+            self.store.execute("create_subset", sid, scope="all", expression="#clade:7#")
+        # Every other label still works in that snapshot.
+        subset = self.store.execute("create_subset", sid, scope="all", expression="#Cluster_1#")
+        self.assertEqual(subset["matched_count"], 3)
+
+    def test_the_snapshots_tree_is_the_one_it_froze_not_the_one_tree_view_keeps_now(self):
+        give_edges(self.viewer, [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)], [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3])
+        self.viewer._tree_source = "threshold"
+        self.assertEqual([row["index"] for row in self.members(self.subset("#clade:7#"))], [2, 3, 4])
+
+    def test_a_group_named_like_the_label_is_refused_naming_both(self):
+        self.viewer.group_labels = [["clade:7"]] + [[] for _ in range(7)]
+        sid = self.service.capture_snapshot(parts={"tree": {"tree_source": "uploaded"}})
+        with self.assertRaisesRegex(ViewerInspectionError, "custom group"):
+            self.store.execute("create_subset", sid, scope="all", expression="#clade:7#")
+
+
+class LabelRegistrationTests(unittest.TestCase):
+    def registry(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+        return WebPluginRegistry(SimpleNamespace(name="viewer"))
+
+    def test_a_namespace_resolves_with_the_viewer_and_the_value(self):
+        registry = self.registry()
+        seen = []
+        registry.register_label_namespace("demo", "part", lambda viewer, value: seen.append((viewer.name, value)) or "mask")
+        self.assertEqual(list(registry.label_providers()), ["part"])
+        self.assertEqual(registry.label_providers()["part"]("3"), "mask")
+        self.assertEqual(seen, [("viewer", "3")])
+
+    def test_a_bad_registration_is_refused(self):
+        from web_ui.Plugin_Manager import WebPluginError
+        registry = self.registry()
+        for namespace, resolve in (("Part", print), ("", print), ("a:b", print), (3, print), ("part", None)):
+            with self.subTest(namespace=namespace), self.assertRaises(WebPluginError):
+                registry.register_label_namespace("demo", namespace, resolve)
+        registry.register_label_namespace("demo", "part", print)
+        registry.register_label_namespace("demo", "part", print)  # its own again replaces it
+        with self.assertRaisesRegex(WebPluginError, "already registered by plugin 'demo'"):
+            registry.register_label_namespace("other", "part", print)
+
+    def test_a_snapshot_part_declares_its_namespaces_and_a_namespace_has_one_part(self):
+        from web_ui.Plugin_Manager import WebPluginError
+        registry = self.registry()
+        declare = lambda name, **kw: registry.register_snapshot_part(
+            "demo", name, overview=dict, capture=dict, queries={}, summary_arguments={f"include_{name}": "switch"}, **kw)
+        declare("one", labels={"part": lambda frozen, snapshot, value: None})
+        self.assertIn("part", registry.snapshot_parts()["one"].labels)
+        with self.assertRaisesRegex(WebPluginError, "already declared by another part"):
+            declare("two", labels={"part": lambda frozen, snapshot, value: None})
+        for labels in ({"Bad": print}, {"part2": None}, ["part"]):
+            with self.subTest(labels=labels), self.assertRaises(WebPluginError):
+                declare("three", labels=labels)
+
+    def test_a_rolled_back_registration_takes_its_namespace_with_it(self):
+        registry = self.registry()
+        saved = registry.snapshot()
+        registry.register_label_namespace("demo", "part", print)
+        registry.restore(saved)
+        self.assertEqual(registry.label_providers(), {})
 
 
 if __name__ == "__main__":

@@ -751,11 +751,13 @@ class TooltipAndPinTests(TreeCase):
         count = int(np.count_nonzero(is_leaf & self.below(tree, node)))
         described = self.state(f"TreeView.describeNode({node})")
         self.assertEqual(described["title"], "A clade")
-        self.assertEqual(described["lines"][0], f"Leaves in this clade: {count}")
-        self.assertEqual(described["lines"][1], f"Of them in this network: {count}")
+        self.assertEqual(described["lines"][0], f"Clade {node}")
+        self.assertEqual(described["lines"][1], f"Leaves in this clade: {count}")
+        self.assertEqual(described["lines"][2], f"Of them in this network: {count}")
         root = self.state("TreeView.describeNode(TreeView.state.model.root)")
         self.assertEqual(root["title"], "The root of the tree")
-        self.assertEqual(root["lines"][0], "Leaves in this clade: 300")
+        self.assertEqual(root["lines"][0], f"Clade {self.state('TreeView.state.model.root')}")
+        self.assertEqual(root["lines"][1], "Leaves in this clade: 300")
         self.assertFalse(any(line.startswith("Branch length") for line in root["lines"]))
 
     def test_the_tooltip_goes_when_the_pointer_moves_off_or_leaves(self):

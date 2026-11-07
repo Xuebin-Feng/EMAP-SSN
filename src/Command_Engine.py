@@ -1208,6 +1208,73 @@ def get_selected_mask(viewer):
     return mask
 
 
+class _LabelProviders:
+    """The label namespaces one evaluation resolves through providers, and the notes they gave.
+
+    A provider is the ``resolve(value)`` of a namespace, which returns the mask of the nodes the label
+    ``#namespace:value#`` names, or ``(mask, note)`` where the note says what the label was read against.
+    It raises ValueError, with a Message as its argument, when the value names nothing.
+    """
+
+    def __init__(self, providers):
+        self.providers = {str(name).strip().lower(): resolve for name, resolve in dict(providers).items()}
+        self.notes = []
+
+    def provider_for(self, target):
+        """(namespace, value, resolve) for a label ``namespace:value`` whose namespace is declared, else None."""
+        namespace, separator, value = str(target).strip().partition(":")
+        resolve = self.providers.get(namespace.strip().lower()) if separator else None
+        return None if resolve is None else (namespace.strip().lower(), value.strip(), resolve)
+
+
+def label_providers(viewer):
+    """The label namespaces the Viewer's plugins declare, as ``{namespace: resolve(value)}``; {} when there are none."""
+    registry = getattr(viewer, 'web_plugin_registry', None)
+    providers = registry.label_providers() if hasattr(registry, 'label_providers') else {}
+    return providers if isinstance(providers, dict) else {}
+
+
+def _evaluate_label(full_headers, cluster_labels, group_labels, target, labels):
+    """The mask of one ``#label#``: a declared namespace's provider answers ``#namespace:value#``, anything else is read as always."""
+    found = labels.provider_for(target) if labels is not None else None
+    if found is None:
+        return evaluate_label_mask(full_headers, cluster_labels, group_labels, target)
+    namespace, value, resolve = found
+    group_name = _available_group_lookup(group_labels).get(str(target).strip().lower())
+    if group_name is not None:
+        raise SelectionContextError(Message(
+            "Label '{label}' is ambiguous because it names both a '{namespace}' label and a custom group. "
+            "Rename or remove the custom group before using this label.",
+            label=str(target).strip(),
+            namespace=namespace,
+        ))
+    try:
+        answer = resolve(value)
+    except SelectionExpressionError:
+        raise
+    except (ValueError, LookupError) as error:
+        raise SelectionContextError(error.args[0] if error.args else str(error)) from error
+    mask, note = answer if isinstance(answer, tuple) else (answer, None)
+    mask = np.asarray(mask, dtype=bool)
+    if mask.shape != (len(full_headers),):
+        raise SelectionContextError(Message(
+            "Label '{label}' did not resolve to one value per SSN node.", label=str(target).strip()
+        ))
+    if note is not None and all(str(note) != str(known) for known in labels.notes):
+        labels.notes.append(note)
+    return mask
+
+
+def _report_label_notes(labels):
+    """Say what the labels of declared namespaces were read against: on the terminal and in the command's messages."""
+    if not labels.notes:
+        return
+    from Viewer_Command_Portal import report
+    for note in labels.notes:
+        print(f"\n{note}")
+        report(message=note)
+
+
 def _evaluate_selection_node(
     node,
     viewer_to_aln,
@@ -1218,6 +1285,7 @@ def _evaluate_selection_node(
     alignment,
     metadata,
     selection_mask,
+    labels=None,
 ):
     if isinstance(node, _SelectionUnary):
         return ~_evaluate_selection_node(
@@ -1230,6 +1298,7 @@ def _evaluate_selection_node(
             alignment,
             metadata,
             selection_mask,
+            labels,
         )
     if isinstance(node, _SelectionBinary):
         left = _evaluate_selection_node(
@@ -1242,6 +1311,7 @@ def _evaluate_selection_node(
             alignment,
             metadata,
             selection_mask,
+            labels,
         )
         right = _evaluate_selection_node(
             node.right,
@@ -1253,6 +1323,7 @@ def _evaluate_selection_node(
             alignment,
             metadata,
             selection_mask,
+            labels,
         )
         if node.operator == "&":
             return left & right
@@ -1277,7 +1348,7 @@ def _evaluate_selection_node(
         )
     if node.kind == "label":
         return _LogicMask.known(
-            evaluate_label_mask(full_headers, cluster_labels, group_labels, node.value)
+            _evaluate_label(full_headers, cluster_labels, group_labels, node.value, labels)
         )
     if node.kind == "selection":
         if selection_mask is None:
@@ -1328,8 +1399,15 @@ def evaluate_selection_expression(
     alignment=None,
     metadata=None,
     selection_mask=None,
+    label_providers=None,
 ):
-    """Evaluate a parsed Boolean AST against current viewer context."""
+    """Evaluate a parsed Boolean AST against current viewer context.
+
+    ``label_providers`` is ``{namespace: resolve(value)}`` (see _LabelProviders) for the labels ``#namespace:value#`` that
+    plugins resolve; every other label is a cluster, noise or a custom group. A provider's note is reported once the
+    whole expression has been evaluated, so a failed expression says nothing of it.
+    """
+    labels = _LabelProviders(label_providers) if label_providers else None
     result = _evaluate_selection_node(
         expression,
         viewer_to_aln,
@@ -1340,12 +1418,15 @@ def evaluate_selection_expression(
         alignment,
         metadata,
         selection_mask,
+        labels,
     ).to_bool()
     if result.shape != (len(full_headers),):
         raise SelectionExpressionError(Message(
             "Boolean expression did not resolve to one selection value per SSN node. "
             "Check for empty or malformed targets."
         ))
+    if labels is not None:
+        _report_label_notes(labels)
     return result
 
 
@@ -1359,6 +1440,7 @@ def parse_advanced_expression(
     alignment=None,
     metadata=None,
     selection_mask=None,
+    label_providers=None,
 ):
     """Compatibility wrapper that parses and evaluates one Boolean expression."""
     expression = parse_selection_expression(expr)
@@ -1372,6 +1454,7 @@ def parse_advanced_expression(
         alignment,
         metadata,
         selection_mask,
+        label_providers,
     )
 
 def show_status(viewer, message):

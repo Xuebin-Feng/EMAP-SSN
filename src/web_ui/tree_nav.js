@@ -815,6 +815,8 @@ window.TreeView = window.TreeView || {};
             const count = layout && layout.shown ? layout.shown[i] : all;
             const hidden = all - count;
             title = i === model.root ? t("The root of the tree") : t("A clade");
+            // The number is the node's, which a command names: select #clade:N#.
+            lines.push(t("Clade {number}", { number: i }));
             lines.push(t("Leaves in this clade: {count}", { count: count.toLocaleString() }));
             lines.push(t("Of them in this network: {count}", { count: (TV.shownUnder(model, i) - hidden).toLocaleString() }));
             if (hidden > 0) lines.push(t("Hidden in the network: {count}", { count: hidden.toLocaleString() }));

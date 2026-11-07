@@ -43,6 +43,7 @@ import base64
 import datetime
 import json
 import os
+import re
 import threading
 import time
 import weakref
@@ -53,6 +54,7 @@ from urllib.parse import parse_qs
 import numpy as np
 
 from desktop.Desktop_App import translate
+from utilities.Localization import Message
 from utilities.Guide_Tree_File import (
     MAX_LABEL_CHARACTERS, MAX_LEAVES, GuideTreeError, guide_tree_path_for_alignment, read_guide_tree,
 )
@@ -1351,18 +1353,12 @@ def _fingerprint(parent, length, support, labels):
     return f"{zlib.crc32(chr(10).join(labels).encode('utf-8', 'surrogatepass'), digest):08x}"
 
 
-def capture_snapshot_part(viewer, options, budget_bytes):
-    """Freeze one tree for an inspection snapshot: ``options["tree_source"]`` (guide, threshold or uploaded), else the one Tree View opens on.
+def _source_state(viewer, source):
+    """``(state, upload)`` of one tree source (guide, threshold or uploaded), without changing the source Tree View keeps.
 
-    Read only: the choice of source Tree View keeps is not touched. Raises ValueError, in words, for a source that cannot
-    be shown or a tree too big for ``budget_bytes``. Returns what tree_snapshot reads: the arrays Tree View is sent,
-    the leaf labels, the clade names an uploaded file gives, ``artificial`` (the nodes whose place stands for no score),
-    ``not_aligned`` and ``ambiguous`` leaves, ``index`` (tree_snapshot.tree_index) and the ``summary`` the snapshot's
-    overview shows.
+    ``upload`` is the opened tree file's stored upload for the uploaded source, else None. Raises ValueError, in words,
+    for a source that does not exist or cannot be shown.
     """
-    from web_ui import tree_snapshot
-
-    source = options.get("tree_source") or opening_source(viewer)[0]
     if source not in SOURCES:
         raise ValueError(f"Tree View does not know a tree called {str(source)[:60]}.")
     upload = None
@@ -1378,6 +1374,22 @@ def capture_snapshot_part(viewer, options, budget_bytes):
         detail = f": {state['reason']}" if state.get("reason") else ""
         shown = ", ".join(other for other in snapshot_overview(viewer)["available"] if other != source) or "none"
         raise ValueError(f"The {source} tree cannot be shown: {words} ({state['status']}{detail}). Trees that can be shown: {shown}.")
+    return state, upload
+
+
+def capture_snapshot_part(viewer, options, budget_bytes):
+    """Freeze one tree for an inspection snapshot: ``options["tree_source"]`` (guide, threshold or uploaded), else the one Tree View opens on.
+
+    Read only: the choice of source Tree View keeps is not touched. Raises ValueError, in words, for a source that cannot
+    be shown or a tree too big for ``budget_bytes``. Returns what tree_snapshot reads: the arrays Tree View is sent,
+    the leaf labels, the clade names an uploaded file gives, ``artificial`` (the nodes whose place stands for no score),
+    ``not_aligned`` and ``ambiguous`` leaves, ``index`` (tree_snapshot.tree_index) and the ``summary`` the snapshot's
+    overview shows.
+    """
+    from web_ui import tree_snapshot
+
+    source = options.get("tree_source") or opening_source(viewer)[0]
+    state, upload = _source_state(viewer, source)
     counts = state["counts"]
     if counts["nodes"] * 40 + sum(len(label) + 56 for label in state["labels"]) > budget_bytes:
         raise ValueError("The tree is too large for the snapshot memory budget.")
@@ -1437,6 +1449,74 @@ def capture_snapshot_part(viewer, options, budget_bytes):
     }
 
 
+# ---- Clades as selection-expression labels: #clade:N# -----------------------------------------------------------------
+
+CLADE_NAMESPACE = "clade"
+
+
+def _tree_name(source, file):
+    """The tree a clade label was read against, as a phrase that a message holds (translated with it)."""
+    if source == SOURCE_THRESHOLD:
+        return Message("the network threshold tree")
+    if source == SOURCE_UPLOADED:
+        return Message("the tree file {file}", file=file or "")
+    return Message("the MSA Guide Tree")
+
+
+def _clade_nodes(index, viewer_node, node_count, value, tree):
+    """The network nodes of the leaves of clade ``value`` (the text of N in ``#clade:N#``), as a boolean mask over the network.
+
+    ``index`` is tree_snapshot.tree_index of the tree and ``viewer_node`` the network node of each leaf (-1 for a
+    leaf that is no node). The clade number is the node's number in the arrays Tree View draws; it must name an
+    internal node. ``tree`` is the tree's name for the messages. Raises ValueError with a Message otherwise.
+    """
+    text = str(value).strip()
+    if not re.fullmatch(r"0|[1-9]\d*", text):
+        raise ValueError(Message(
+            "'{clade}' is not a clade number: write #clade:N# with N the whole number Tree View shows for a clade.",
+            clade=text,
+        ))
+    clade = int(text)
+    is_leaf = index["is_leaf"]
+    if clade >= len(is_leaf) or is_leaf[clade]:
+        raise ValueError(Message(
+            "There is no clade {clade} in {tree}. A clade is an internal node of the tree, numbered as Tree View "
+            "shows it; this tree has {count}.",
+            tree=tree, clade=clade, count=int(len(is_leaf) - len(index["leaf_node"])),
+        ))
+    leaves = viewer_node[index["first_leaf"][clade]:index["last_leaf"][clade] + 1]
+    mask = np.zeros(node_count, dtype=bool)
+    mask[leaves[leaves >= 0]] = True
+    return mask
+
+
+def resolve_live_clade(viewer, value):
+    """``#clade:N#`` in a command: the nodes of clade N of the tree Tree View keeps (else the one it opens on), and a note naming it.
+
+    Builds the tree if it is not at hand (the guide tree file is read once per version, the threshold tree is cut from
+    the edges). Raises ValueError, with a Message when the clade does not exist, and in words when the tree cannot be
+    shown.
+    """
+    from web_ui import tree_snapshot
+
+    source = opening_source(viewer)[0]
+    state, upload = _source_state(viewer, source)
+    parent = _unpacked(state, "parent", "<i4")
+    length = _unpacked(state, "length", "<f4")
+    viewer_node = _unpacked(state, "viewer_node", "<i4")
+    tree = _tree_name(source, upload.name if upload is not None else None)
+    index = tree_snapshot.tree_index(parent, length)
+    mask = _clade_nodes(index, viewer_node, len(getattr(viewer, "full_headers", ()) or ()), value, tree)
+    return mask, Message("Clade {clade} of {tree}.", clade=int(str(value).strip()), tree=tree)
+
+
+def resolve_snapshot_clade(frozen, snapshot, value):
+    """``#clade:N#`` in an inspection snapshot: the nodes of clade N of the tree the snapshot froze."""
+    summary = frozen["summary"]
+    tree = _tree_name(frozen["source"], summary.get("file"))
+    return _clade_nodes(frozen["index"], frozen["viewer_node"], len(snapshot["headers"]), value, tree)
+
+
 def register_snapshot_part(registry):
     """Declare Tree View's part of an inspection snapshot: ``include_tree`` asks for it, ``tree_source`` picks the tree."""
     from web_ui import tree_snapshot
@@ -1448,6 +1528,7 @@ def register_snapshot_part(registry):
         queries={"query_clades": tree_snapshot.clade_rows, "query_tree_names": tree_snapshot.name_rows},
         summary_arguments={"include_tree": "switch", "tree_source": "option"},
         capability="tree_snapshots_v1",
+        labels={CLADE_NAMESPACE: resolve_snapshot_clade},
     )
 
 
@@ -1467,6 +1548,7 @@ def register_backend(registry, viewer):
         max_body=Web_Server.MAX_ACTION_BYTES, content_types=("application/json",),
     )
     register_snapshot_part(registry)
+    registry.register_label_namespace("tree", CLADE_NAMESPACE, resolve_live_clade)
     follow_colors(viewer)
 
 

@@ -144,7 +144,7 @@ page nodes when aggregates answer the question. query_nodes defaults to 25 rows
 and no metadata columns. Request only relevant columns. Node keys are snapshot ID
 plus original index; full headers need not be unique. Check mapped/unmapped counts,
 missing/invalid values, noise, and overlapping groups before interpreting results.
-Trees: get_summary include_tree=true, then query_clades with contains, within or min_leaves; never page every clade.
+Trees: get_summary include_tree=true, then query_clades with contains, within or min_leaves; never page every clade. Subset one with #clade:N#.
 
 Data responses default to 16 KiB (max_bytes maximum 64 KiB); use next_cursor to
 continue the same snapshot/query. Oversized values have explicit read_value

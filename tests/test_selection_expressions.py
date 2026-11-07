@@ -901,5 +901,81 @@ class ResidueGroupTests(unittest.TestCase):
         self.assertTrue(gap.any())
 
 
+class LabelNamespaceTests(unittest.TestCase):
+    """A label ``#namespace:value#`` that a provider declares is the provider's; every other label reads as before."""
+
+    HEADERS = ["a", "b", "c", "d", "e"]
+
+    def setUp(self):
+        self.clusters = np.array([0, 0, 1, 1, -1])
+        self.groups = [[], ["g"], [], [], []]
+
+    def provider(self, value):
+        masks = {"1": [True, True, False, False, False], "2": [False, False, True, True, True]}
+        if value not in masks:
+            raise ValueError(Command_Engine.Message("There is no part {part}.", part=value))
+        return np.array(masks[value]), Command_Engine.Message("Part {part} of the fake set.", part=value)
+
+    def evaluate(self, expression, providers="default", groups="default"):
+        providers = {"part": self.provider} if providers == "default" else providers
+        groups = self.groups if groups == "default" else groups
+        with redirect_stdout(io.StringIO()):
+            return Command_Engine.parse_advanced_expression(
+                expression, None, None, self.HEADERS, self.clusters, groups, label_providers=providers,
+            )
+
+    def test_a_declared_namespace_resolves_through_its_provider(self):
+        self.assertEqual(self.evaluate("#part:1#").tolist(), [True, True, False, False, False])
+        self.assertEqual(self.evaluate("#PART: 2 #").tolist(), [False, False, True, True, True])
+
+    def test_it_combines_with_every_other_kind_of_label_and_the_operators(self):
+        self.assertEqual(self.evaluate("#part:2# & #Cluster_1#").tolist(), [False, False, True, True, False])
+        self.assertEqual(self.evaluate("#part:1# | #Noise#").tolist(), [True, True, False, False, True])
+        self.assertEqual(self.evaluate("!#part:1# ^ #g#").tolist(), [False, True, True, True, True])
+        self.assertEqual(self.evaluate("(#part:1# | #part:2#) & !#Cluster_0#").tolist(), [False, False, True, True, True])
+
+    def test_an_unknown_value_fails_with_the_providers_words_and_changes_nothing(self):
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "There is no part 9"):
+            self.evaluate("#part:1# & #part:9#")
+
+    def test_a_custom_group_named_like_a_namespace_label_fails_naming_both(self):
+        with self.assertRaises(Command_Engine.SelectionContextError) as caught:
+            self.evaluate("#part:1#", groups=[[], ["Part:1"], [], [], []])
+        self.assertIn("part:1", str(caught.exception))
+        self.assertIn("'part' label", str(caught.exception))
+        self.assertIn("custom group", str(caught.exception))
+        # A group that merely starts like the namespace is no clash.
+        self.assertEqual(self.evaluate("#part:1#", groups=[[], ["part:3"], [], [], []]).tolist(), [True, True, False, False, False])
+
+    def test_without_providers_the_label_is_a_group_as_before(self):
+        groups = [[], ["part:1"], [], [], []]
+        self.assertEqual(self.evaluate("#part:1#", providers=None, groups=groups).tolist(), [False, True, False, False, False])
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "does not exist"):
+            self.evaluate("#part:1#", providers=None)
+        self.assertEqual(self.evaluate("#Cluster_1#").tolist(), [False, False, True, True, False])
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "does not exist"):
+            self.evaluate("#other:1#")
+
+    def test_a_mask_of_the_wrong_size_is_refused(self):
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "one value per SSN node"):
+            self.evaluate("#part:1#", providers={"part": lambda value: np.ones(3, dtype=bool)})
+
+    def test_a_note_is_reported_once_after_the_whole_expression_succeeds(self):
+        sent = []
+        with mock.patch("Viewer_Command_Portal.report", side_effect=lambda **arguments: sent.append(str(arguments["message"]))):
+            self.evaluate("#part:1# | #part:1# | #part:2#")
+            self.assertEqual(sent, ["Part 1 of the fake set.", "Part 2 of the fake set."])
+            sent.clear()
+            with self.assertRaises(Command_Engine.SelectionContextError):
+                self.evaluate("#part:1# | #part:9#")
+            self.assertEqual(sent, [])
+
+    def test_the_viewers_providers_come_from_its_registry(self):
+        registry = SimpleNamespace(label_providers=lambda: {"part": self.provider})
+        self.assertEqual(list(Command_Engine.label_providers(SimpleNamespace(web_plugin_registry=registry))), ["part"])
+        self.assertEqual(Command_Engine.label_providers(SimpleNamespace()), {})
+        self.assertEqual(Command_Engine.label_providers(mock.MagicMock()), {})
+
+
 if __name__ == "__main__":
     unittest.main()

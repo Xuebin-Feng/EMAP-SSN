@@ -196,6 +196,7 @@
                             <li><strong>Clusters:</strong> <code>#cluster_1#</code>, <code>#cluster_2#</code>, etc.</li>
                             <li><strong>Noise:</strong> <code>#noise#</code> isolates unclustered/filtered nodes (Cluster -1).</li>
                             <li><strong>Custom Groups:</strong> <code>#human#</code> matches nodes you have manually grouped and labeled as "human".</li>
+                            <li><strong>Clades:</strong> <code>#clade:17#</code> matches the network nodes of the leaves of clade 17 of the tree Tree View shows (the MSA Guide Tree, the network threshold tree or a tree file you opened). Tree View's tooltip gives each clade's number, and the command's result names the tree used. A number that is not a clade of that tree is refused and nothing changes, and so is a custom group named <code>clade:17</code>, which makes the label ambiguous.</li>
                             <li><strong>Canonical Resolution:</strong> Cluster labels use their exact decimal spelling. Thus <code>#cluster_001#</code> may name a custom group rather than cluster 1. A label that simultaneously names an existing cluster and custom group is rejected as ambiguous.</li>
                         </ul>
                     </div>

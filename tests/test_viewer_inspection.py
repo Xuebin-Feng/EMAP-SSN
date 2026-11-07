@@ -542,7 +542,7 @@ class RegistryPartTests(unittest.TestCase):
 
 class CentralFilesNameNoCommandTests(unittest.TestCase):
     """The user's rule: central code names no command or page; the plugin modules declare their behaviour."""
-    FILES = ('src/desktop/Viewer_Inspection.py', 'src/web_ui/Web_Server.py', 'src/web_ui/Plugin_Manager.py')
+    FILES = ('src/desktop/Viewer_Inspection.py', 'src/web_ui/Web_Server.py', 'src/web_ui/Plugin_Manager.py', 'src/Command_Engine.py')
     WORDS = ('include_tree', 'tree_source', 'query_clades', 'query_tree_names', 'clade')
 
     def words_in(self, text):

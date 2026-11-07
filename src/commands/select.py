@@ -28,7 +28,7 @@ AGENT_POLICY = {'default': 'run', 'first_argument': {'save': 'approve'}}
 CATALOG_ENTRY = entry('Modify the visible-node selection or save selected headers/sequences.',
     argument('mode', 'Default change. Modes may precede or follow the expression; invert takes no expression. Two modes that differ (add subtract) are refused, naming both; the same mode twice is accepted. save must come first and requires a filename.',
         choice('change'), choice('add','plus','include'), choice('subtract','minus','remove'), choice('filter','keep','intersect'), choice('invert'), choice('save')),
-    argument('expression', EXPRESSION),
+    argument('expression', EXPRESSION + ' #clade:N# is clade N of the tree Tree View shows (its tooltip gives the number); the result names the tree used.'),
     argument('filename', 'Required for save: a plain filename of one word in the header list directory, not a path; a second word is refused. .txt saves headers; .fasta, .fa, .faa and .fas (any case) save sequences; other names get .txt. At least one selected node is needed.'), writes_files=True)
 
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
@@ -38,6 +38,7 @@ AGENT_PROMPT = """
 - Selects only currently visible nodes. MODE may appear before or after the expression. Two different modes in one command (for example `add` and `subtract`) are refused, naming both; the same mode twice is accepted.
 - `change` is the default and replaces the selection. `add`/`plus`/`include` adds matches; `subtract`/`minus`/`remove` removes matches; `filter`/`keep`/`intersect` retains only already-selected nodes that also match.
 - `invert` swaps selected and unselected states among visible nodes and takes no expression.
+- Labels also include `#clade:N#`, clade N of Tree View's tree (the tooltip number); the result names the tree used.
 - `save` writes the current selection under `Input_Files/Header_Lists/`: a `.fasta`, `.fa`, `.faa` or `.fas` filename (any case) exports sequences, a `.txt` filename exports headers, and any other name receives an appended `.txt` (for example, `hits.csv` becomes `hits.csv.txt`). FILENAME must be one word and a plain file name; a directory or path, or a second word, is refused.
 """
 
@@ -94,7 +95,8 @@ def print_help():
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@
-      5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#)
+      5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#); #clade:N# is clade N
+                       of the tree Tree View shows (its tooltip gives N)
       6. UI Selection: $sele$    (Explicitly targets selected nodes)
       7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
 
@@ -343,6 +345,7 @@ def run(viewer, args):
             getattr(viewer, 'alignment', None),
             metadata=getattr(viewer, 'metadata', None),
             selection_mask=Command_Engine.get_selected_mask(viewer),
+            label_providers=Command_Engine.label_providers(viewer),
         )
         visible_indices = set(np.where(viewer.visible_mask)[0].tolist())
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)

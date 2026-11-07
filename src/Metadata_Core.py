@@ -591,6 +591,7 @@ def download_metadata(viewer, filepath, expr=None):
                     getattr(viewer, 'alignment', None),
                     metadata=viewer.metadata,
                     selection_mask=Command_Engine.get_selected_mask(viewer),
+                    label_providers=Command_Engine.label_providers(viewer),
                 )
             except Command_Engine.SelectionExpressionError as error:
                 Command_Engine.report_selection_error(

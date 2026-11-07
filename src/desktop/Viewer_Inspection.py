@@ -207,6 +207,7 @@ class SnapshotStore:
             data['parts'] = frozen_parts
             data['overview']['parts'] = {}
             queries = {}
+            labels = {}
             for name, part in declared.items():
                 try:
                     shown = json_value(part.overview(v))
@@ -216,8 +217,10 @@ class SnapshotStore:
                     shown = dict(shown, captured=json_value(frozen_parts[name].get('summary')))
                     data['overview']['capabilities'].append(part.capability)
                     queries.update({query: (handler, frozen_parts[name]) for query, handler in part.queries.items()})
+                    labels.update({namespace: (resolve, frozen_parts[name]) for namespace, resolve in part.labels.items()})
                 else:
                     queries.update({query: (None, part.switch) for query in part.queries})
+                    labels.update({namespace: (None, part.switch) for namespace in part.labels})
                 data['overview']['parts'][name] = shown
             data['overview']['visual_fields_available'] = list(data.get('visual', {}))
             data['overview']['alignment']['captured'] = include_alignment
@@ -230,7 +233,7 @@ class SnapshotStore:
                 data['overview']['inputs']['embedding'] = json_value(embedding.embed_file)
             sid = uuid.uuid4().hex
             self.items[sid] = {'data': data, 'bytes': estimate, 'touched': self.clock(), 'subsets': data.setdefault('subsets', {}), 'active': 0, 'lock': threading.Lock(),
-                               'queries': queries}
+                               'queries': queries, 'labels': labels}
             return sid
 
     def _expire(self):
@@ -254,6 +257,22 @@ class SnapshotStore:
             with self.lock:
                 s['active'] -= 1
                 s['touched'] = self.clock()
+
+    @staticmethod
+    def _label_providers(s, d):
+        """The label namespaces plugins declared, resolved against this snapshot: {namespace: resolve(value)}.
+
+        A namespace whose part the snapshot did not capture refuses, naming the argument that asks for the part.
+        """
+        providers = {}
+        for namespace, (resolve, held) in s['labels'].items():
+            if resolve is None:
+                def refuse(value, namespace=namespace, switch=held):
+                    raise ViewerInspectionError(f'Recapture get_summary with {switch}=true for #{namespace}:...# labels')
+                providers[namespace] = refuse
+            else:
+                providers[namespace] = lambda value, resolve=resolve, held=held: resolve(held, d, value)
+        return providers
 
     def _execute(self, s, action, sid, **args):
         budget = args.pop('max_bytes', 16384)
@@ -307,7 +326,11 @@ class SnapshotStore:
                     alignment = adapter(d['alignment_data'])
                     mapping = d['alignment_data']['mapping']
                     valid = np.flatnonzero(mapping >= 0)
-                mask &= ce.evaluate_selection_expression(tree, mapping, valid, d['headers'], d['clusters'], d['groups'], alignment=alignment, metadata=d['metadata'], selection_mask=selected)
+                try:
+                    mask &= ce.evaluate_selection_expression(tree, mapping, valid, d['headers'], d['clusters'], d['groups'], alignment=alignment, metadata=d['metadata'], selection_mask=selected,
+                                                             label_providers=self._label_providers(s, d))
+                except ce.SelectionExpressionError as error:
+                    raise ViewerInspectionError(str(error)) from error
             members = np.flatnonzero(mask)
             with self.lock:
                 charge = size_of(members) + 256

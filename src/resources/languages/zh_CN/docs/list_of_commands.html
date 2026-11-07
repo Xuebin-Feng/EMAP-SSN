@@ -168,7 +168,7 @@
 
 
             <div class="section-divider" id="sec-expression" data-source-sha256="8ac4baedea5ccf5723de95944c94446708729c7a6a76f851047e347b75aaa93d">表达式解释器语法规则</div>
-            <div class="command-card" id="expr-interpreter" data-source-sha256="f21b5dc18bc65c74747ae3c5529d124427db672e1455eec7e92de2de36b05fc2">
+            <div class="command-card" id="expr-interpreter" data-source-sha256="0c892460cbe714815fdf240d4f043e874a1d80f32c329c181ced3eafd994e27a">
                 <p><strong>概述：</strong>通用表达式解释器是把文本查询解析为数学选择的底层引擎。<code>color</code>、<code>group</code>、<code>hide</code>、<code>logo</code>、<code>query</code>、<code>select</code> 和 <code>spectrum</code> 都使用它，它支持对网络节点（node）进行复杂的多层定位。</p>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>重要的空格规则</div>
@@ -197,6 +197,7 @@
                             <li><strong>簇：</strong><code>#cluster_1#</code>、<code>#cluster_2#</code> 等。</li>
                             <li><strong>噪声：</strong><code>#noise#</code> 用于选中未聚类或被过滤掉的节点（簇 -1）。</li>
                             <li><strong>自定义分组：</strong><code>#human#</code> 会匹配被手动分组并标记为“human”的节点。</li>
+                            <li><strong>进化枝：</strong><code>#clade:17#</code> 会匹配树视图所显示的树中进化枝 17 的叶节点所对应的网络节点（可以是 MSA 引导树、网络阈值树，或你打开的树文件）。树视图的提示框会给出每个进化枝的编号，命令的结果会写明所用的树。不是该树进化枝的编号会被拒绝且不做任何更改；名为 <code>clade:17</code> 的自定义分组会使该标签有歧义，同样会被拒绝。</li>
                             <li><strong>规范解析：</strong>簇标签使用其精确的十进制写法，因此 <code>#cluster_001#</code> 可能指的是某个自定义分组，而不是簇 1。如果一个标签同时是现有簇和自定义分组的名称，则会因有歧义而被拒绝。</li>
                         </ul>
                     </div>

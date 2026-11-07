@@ -877,6 +877,7 @@ def run(viewer, args):
             getattr(viewer, 'alignment', None),
             metadata=getattr(viewer, 'metadata', None),
             selection_mask=Command_Engine.get_selected_mask(viewer),
+            label_providers=Command_Engine.label_providers(viewer),
         )
         selected_nodes = np.where(mask)[0]
     except Exception as e:

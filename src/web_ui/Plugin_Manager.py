@@ -29,7 +29,7 @@ manifests.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import glob
 import importlib
 import os
@@ -217,7 +217,9 @@ class SnapshotPart:
     ``handler(frozen, snapshot_data, indices, args)``, which returns the rows of a page.
     ``summary_arguments`` maps each argument of the summary action the part reads to
     "switch" (asks for the part; exactly one) or "option" (what the capture takes, by that
-    name). ``capability`` is what a client checks before asking.
+    name). ``capability`` is what a client checks before asking. ``labels`` maps a label
+    namespace to ``resolve(frozen, snapshot_data, value)``, which gives the mask of the
+    snapshot's nodes that the label ``#namespace:value#`` names (see register_label_namespace).
     """
 
     plugin_id: str
@@ -227,6 +229,7 @@ class SnapshotPart:
     queries: Mapping
     summary_arguments: Mapping
     capability: str
+    labels: Mapping = field(default_factory=dict)
 
     @property
     def switch(self) -> str:
@@ -555,6 +558,7 @@ class WebPluginRegistry:
         self._route_owners: dict[str, str] = {}
         self._state_providers: dict[tuple[str, str], Callable] = {}
         self._snapshot_parts: dict[str, SnapshotPart] = {}
+        self._label_namespaces: dict[str, tuple[str, Callable]] = {}
         self._page_files: dict[str, WebPageDescriptor] = {}
         self._i18n_files: dict[str, tuple[str, str]] = {}
         self.registered_plugins: set[str] = set()
@@ -694,13 +698,15 @@ class WebPluginRegistry:
     def register_snapshot_part(
         self, plugin_id: str, name: str, *, overview: Callable, capture: Callable,
         queries: Mapping, summary_arguments: Mapping, capability: str | None = None,
+        labels: Mapping | None = None,
     ):
         """Add a part to the Viewer's inspection snapshots (SnapshotPart says what each argument is).
 
         A plugin registering its own part again replaces it, as for an action. The part's
         query names must not be an inspection action the Viewer itself answers, nor
         another part's, and its summary arguments must be new ones. The capability
-        defaults to ``<name>_snapshots_v1``.
+        defaults to ``<name>_snapshots_v1``. ``labels`` maps label namespaces to the functions that
+        resolve them against the frozen part; a namespace is declared by one part only.
         """
         from desktop.Viewer_Inspection import INSPECTION_ACTIONS
 
@@ -736,9 +742,44 @@ class WebPluginRegistry:
         for argument in summary_arguments:
             if argument in INSPECTION_ARGUMENTS or any(argument in part.summary_arguments for part in others):
                 raise WebPluginError(f"snapshot part '{name}' argument '{argument}' is already taken")
+        labels = {} if labels is None else labels
+        if not isinstance(labels, Mapping):
+            raise WebPluginError(f"snapshot part '{name}' labels must be a mapping")
+        for namespace, resolve in labels.items():
+            if not isinstance(namespace, str) or not _PART_NAME_RE.match(namespace) or not callable(resolve):
+                raise WebPluginError(f"snapshot part '{name}' label namespace '{namespace}' needs a plain name and a callable resolver")
+            if any(namespace in part.labels for part in others):
+                raise WebPluginError(f"snapshot part '{name}' label namespace '{namespace}' is already declared by another part")
         self._snapshot_parts[name] = SnapshotPart(
-            plugin_id, name, overview, capture, dict(queries), dict(summary_arguments), capability
+            plugin_id, name, overview, capture, dict(queries), dict(summary_arguments), capability, dict(labels)
         )
+
+    def register_label_namespace(self, plugin_id: str, namespace: str, resolve: Callable):
+        """Let the selection-expression label ``#namespace:value#`` be resolved by a plugin.
+
+        ``resolve(viewer, value)`` gives the mask of the network's nodes the label names (or ``(mask, note)``, the note
+        saying what the label was read against, which the command's result repeats), and raises ValueError with a
+        Message as its argument when the value names nothing. The namespace is a lowercase name; a label whose text
+        before its first colon is a declared namespace is the plugin's, never a cluster, noise or a custom group.
+        A plugin registering its namespace again replaces it; another plugin's is an error.
+        """
+        self._validate_registration_owner(plugin_id)
+        if not isinstance(namespace, str) or not _PART_NAME_RE.match(namespace):
+            raise WebPluginError("label namespace must be lowercase letters, digits and underscores")
+        if not callable(resolve):
+            raise WebPluginError(f"label namespace '{namespace}' resolver is not callable")
+        existing = self._label_namespaces.get(namespace)
+        if existing is not None and existing[0] != plugin_id:
+            raise WebPluginError(f"label namespace '{namespace}' is already registered by plugin '{existing[0]}'")
+        self._label_namespaces[namespace] = (plugin_id, resolve)
+
+    def label_providers(self) -> dict[str, Callable]:
+        """The declared label namespaces as ``{namespace: resolve(value)}``, bound to this registry's Viewer."""
+        viewer = self.viewer
+        return {
+            namespace: (lambda value, resolve=resolve: resolve(viewer, value))
+            for namespace, (_, resolve) in sorted(self._label_namespaces.items())
+        }
 
     def snapshot_parts(self) -> dict[str, SnapshotPart]:
         """The parts plugins declared, by name, in name order."""
@@ -878,11 +919,12 @@ class WebPluginRegistry:
             dict(self._page_files),
             dict(self._i18n_files),
             dict(self._snapshot_parts),
+            dict(self._label_namespaces),
         )
 
     def restore(self, snapshot):
         (actions, routes, action_owners, route_owners, providers, registered,
-         api_routes, pages, page_files, i18n_files_, snapshot_parts) = snapshot
+         api_routes, pages, page_files, i18n_files_, snapshot_parts, label_namespaces) = snapshot
         self.actions.clear()
         self.actions.update(actions)
         self.static_routes.clear()
@@ -897,6 +939,7 @@ class WebPluginRegistry:
         self._page_files = page_files
         self._i18n_files = i18n_files_
         self._snapshot_parts = snapshot_parts
+        self._label_namespaces = label_namespaces
         self.registered_plugins = registered
 
 

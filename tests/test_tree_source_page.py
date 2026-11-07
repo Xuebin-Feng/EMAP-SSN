@@ -99,6 +99,84 @@ class SourceCase(TreePageMixin, unittest.TestCase):
         return self.state("TreeView.state.cut - TreeView.state.model.threshold.root_score")
 
 
+def caterpillar(labels):
+    """A tree file's arrays (post-order) for a caterpillar over ``labels``: each leaf joins the clade of those before it."""
+    parent = []
+
+    def add():
+        parent.append(-1)
+        return len(parent) - 1
+
+    tip = add()
+    for _ in labels[1:]:
+        leaf = add()
+        join = add()
+        parent[tip] = parent[leaf] = join
+        tip = join
+    return {"labels": list(labels), "parent": parent, "length": [1] * len(parent), "support": [-1] * len(parent)}
+
+
+class CladeNumberTests(SourceCase):
+    """The number Tree View shows for a clade is the number ``#clade:N#`` means: the node's number in the arrays it draws."""
+
+    NAMES = {"guide": "the MSA Guide Tree", "threshold": "the network threshold tree", "uploaded": "the tree file caterpillar.nwk"}
+
+    def open_on(self, source):
+        self.start()
+        if source == "uploaded":
+            from tests.tree_fixtures import upload_tree
+            self.assertTrue(upload_tree(self.viewer, caterpillar(headers_of(COUNT)), name="caterpillar.nwk")["ok"])
+            tree_backend.tree_state(self.viewer, "uploaded")
+            self.open_page()
+            self.wait_listening()
+        elif source == "threshold":
+            self.choose("threshold")
+        self.wait_for(f"TreeView.state.source === {json.dumps(source)}")
+        self.assertEqual(tree_backend.opening_source(self.viewer)[0], source)
+
+    def internal_nodes(self):
+        return self.state("""(() => { const m = TreeView.state.model, out = [];
+            for (let i = 0; i < m.nodeCount; i++) if (m.childCount[i] > 0) out.push(i); return out; })()""")
+
+    def test_the_page_numbers_each_clade_as_the_backend_does_for_every_source(self):
+        for source in ("guide", "threshold", "uploaded"):
+            with self.subTest(source=source):
+                self.open_on(source)
+                clades = self.internal_nodes()
+                self.assertGreaterEqual(len(clades), 10)
+                described = self.state("""(() => { const m = TreeView.state.model, out = {};
+                    for (let i = 0; i < m.nodeCount; i++) {
+                        const nodes = Array.from(m.viewerNode.slice(m.firstLeaf[i], m.lastLeaf[i] + 1)).filter((n) => n >= 0).sort((a, b) => a - b);
+                        out[i] = {lines: TreeView.describeNode(i).lines.filter((line) => line.startsWith('Clade ')), nodes, leaf: m.childCount[i] === 0};
+                    }
+                    return out; })()""")
+                for node, info in described.items():
+                    if info["leaf"]:
+                        self.assertEqual(info["lines"], [], f"a leaf says no clade number ({node})")
+                        continue
+                    self.assertEqual(info["lines"], [f"Clade {node}"])
+                    mask, note = tree_backend.resolve_live_clade(self.viewer, node)
+                    self.assertEqual(np.flatnonzero(mask).tolist(), info["nodes"], f"{source} clade {node}")
+                    self.assertEqual(str(note), f"Clade {node} of {self.NAMES[source]}.")
+
+    def test_the_tooltip_and_the_pinned_root_name_the_clade(self):
+        self.open_on("guide")
+        clade = self.internal_nodes()[3]
+        self.script(f"TreeView.zoomToNode({clade}); TreeView.drawNow(); return 1")
+        point = self.state(f"(() => {{ const b = TreeView.nodePixels(TreeView.state, {clade}); return [b.x, b.y]; }})()")
+        self.script(f"fire.move({point[0]}, {point[1]}); return 1")
+        self.wait_for(f"TreeView.state.hover === {clade}")
+        self.wait_for(f"document.getElementById('tooltip').textContent.includes('Clade {clade}')")
+        self.assertEqual(self.state("Array.from(document.querySelectorAll('#tooltip .line')).filter(e => e.textContent.startsWith('Clade ')).length"), 1)
+        root = self.state("TreeView.state.model.root")
+        self.script(f"TreeView.fitView(); TreeView.drawNow(); return 1")
+        point = self.state(f"(() => {{ const b = TreeView.nodePixels(TreeView.state, {root}); return [b.x, b.y]; }})()")
+        self.script(f"fire.click({point[0]}, {point[1]}); return 1")
+        self.wait_for(f"TreeView.state.pinned === {root}")
+        said = self.state("document.getElementById('summary').textContent")
+        self.assertIn(f"The root of the tree · Clade {root} ·", said)
+
+
 class ChooserTests(SourceCase):
     def test_the_chooser_lists_both_trees_and_the_guide_tree_is_the_default_when_there_is_one(self):
         self.start()

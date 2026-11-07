@@ -140,6 +140,19 @@ overview=..., capture=..., queries=..., summary_arguments=...)`:
   in `options`, by that name).
 - `capability` (default `<name>_snapshots_v1`) is listed in the session's
   `inspection_capabilities`, and in the summary of a snapshot that holds the part.
+- `labels` (optional) maps a label namespace to `resolve(frozen, snapshot_data, value)`,
+  which returns the mask of the snapshot's nodes that the selection-expression label
+  `#namespace:value#` names, so `create_subset` takes it. A part that was not captured
+  refuses the label and says which summary argument asks for it.
+
+A plugin can also let the commands take such a label in the live Viewer, with
+`registry.register_label_namespace(plugin_id, namespace, resolve)`. `resolve(viewer, value)`
+returns the mask of the network's nodes the label `#namespace:value#` names, or `(mask, note)`
+where the note says what it was read against (the command's result repeats it), and raises
+`ValueError` with a `Message` when the value names nothing, which fails the command and changes
+nothing. A label whose text before its first colon is a declared namespace belongs to the plugin,
+and a custom group named like one makes the expression fail as ambiguous. The expression
+engine names no namespace: the commands pass `Command_Engine.label_providers(viewer)`.
 
 The Viewer's inspection code and web server work from what the registry
 declares and name no part. The MCP server's contract (`mcp_server/core/Workflow_Dispatch.py`)
