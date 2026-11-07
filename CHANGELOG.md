@@ -136,15 +136,21 @@ still change before version 1.0.0.
     connected-node colour while the Viewer marks them.
     These colours are the ones set in Config. Right-clicking a clade or a leaf selects its
     nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
-    space clears the selection. Clicking a leaf focuses its node in the network, and a
-    right-click anywhere on the tree takes that focus off again, as one in the network does.
+    space clears the selection. Dragging with the right button draws a box, as in the
+    network, that selects the leaves whose tips are in it: the tree shows the selection it
+    would make while the box is drawn, and the network gets it when the button is let go.
+    Shift+right-drag adds or removes them, and Esc takes the box back. Clicking a leaf
+    focuses its node in the network, and a right-click anywhere on the tree takes that focus
+    off again, as one in the network does.
   - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
     zoomed in, by the percentage of replicates that contain its split. It measures stability
     under distance noise, not bootstrap support.
   - **The Details panel** names the file, says how the tree was built, and counts how its
     leaves match the network and the alignment. A tree saved for another alignment, an
     alignment older than its tree (an unfinished run), and leaves missing from the network
-    or the alignment are shown as warnings.
+    or the alignment are shown as warnings. The warnings share one line under the controls,
+    which rolls to show the rest while the pointer is over it, and Show Details at its end
+    lists the leaves and nodes they count by full name, with a button that copies each list.
   - **With nothing to show** (no alignment, an alignment the Embedding MSA tool did not
     name, or no tree file), the page opens on a card that says why, and the command's
     result names the file it looked for.
