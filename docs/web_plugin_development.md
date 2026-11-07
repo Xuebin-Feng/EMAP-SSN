@@ -121,6 +121,30 @@ only connect backend capabilities; it must not open a browser, add a Console
 button, create output directories, start a model, or perform other activation
 work.
 
+A plugin can add a part to the Viewer's inspection snapshots, the frozen copies
+an MCP client reads, with `registry.register_snapshot_part(plugin_id, name,
+overview=..., capture=..., queries=..., summary_arguments=...)`:
+
+- `overview(viewer)` returns a small dict that every snapshot's summary shows
+  under `parts[name]`; it must stay cheap (read no file, build nothing).
+- `capture(viewer, options, budget_bytes)` runs on the Viewer's Qt thread when a
+  summary asks for the part, and returns a dict that holds the frozen data and a
+  small `summary` dict. The snapshot charges its size to its memory budget; raise
+  `ValueError` to refuse in words. The part's `summary` joins its overview as `captured`.
+- `queries` maps the name of an inspection action to
+  `handler(frozen, snapshot_data, indices, args)`, which returns the rows of a page
+  (an iterator, or an object with `rows_from(offset)` that need not make the rows
+  before it). The snapshot pages them with its cursor and size rules.
+- `summary_arguments` maps the summary action's arguments the part reads to
+  `"switch"` (asks for the part; exactly one) or `"option"` (handed to `capture`
+  in `options`, by that name).
+- `capability` (default `<name>_snapshots_v1`) is listed in the session's
+  `inspection_capabilities`, and in the summary of a snapshot that holds the part.
+
+The Viewer's inspection code and web server work from what the registry
+declares and name no part. The MCP server's contract (`mcp_server/core/Workflow_Dispatch.py`)
+is static: a declared action and argument also need an entry there.
+
 `activate` is not part of the manifest. The Viewer never calls it when it starts:
 the plugin's command calls it, through the backend's `register(viewer)`, when the
 command runs (a `<command> --register-only` also does, when a session loads). It

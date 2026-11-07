@@ -523,6 +523,10 @@ ALLOWED = {
     "src/mcp_server/viewer/Viewer_Operations.py": {
         ("_wait_line", "string", "jobs"): (1, JOBS_KEY),
         ("get_residue_distribution", "table", "cluster, group"): (1, "group_by's choices: " + LABEL_KINDS),
+        ("query_viewer_clades", "string", "tree"): (1, "order's choice \"tree\" (the clades from the root, left to right), not a command"),
+    },
+    "src/web_ui/tree_snapshot.py": {
+        ("<module>", "string", "tree"): (1, "order's choice \"tree\" of the clade read (the clades from the root, left to right), not a command"),
     },
     "src/web_ui/Page_Texts.py": {
         ("<module>", "string", "meta"): (1, "HTML's <meta> element, which has no end tag: the name of a tag, not of a command"),
