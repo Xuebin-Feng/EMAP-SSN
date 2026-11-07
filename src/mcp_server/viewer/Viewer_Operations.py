@@ -393,7 +393,8 @@ async def export_config_settings(
     if settings_document is not None and not isinstance(settings_document, dict):
         raise ToolError("settings_document must be a JSON object.")
     try:
-        return await asyncio.to_thread(export, kind, _PROJECT_ROOT, output_path, settings_path, settings_document)
+        return await asyncio.to_thread(export, kind, _PROJECT_ROOT, output_path, settings_path, settings_document,
+                                      newest_for_inputs=True)
     except (ValueError, TypeError, KeyError, OSError) as error:
         message = str(error)
         if message.startswith(("NODE_FASTA_FILE:", "INPUT_HDF5:")) and "required nonempty path" in message:
@@ -518,7 +519,8 @@ async def export_viewer_settings(
     when Config has no saved inputs. A plain file name resolves in the default
     FASTA_DIR, HDF5_DIR, MSA_DIR or SAVED_LAYOUT_DIR; a path with a folder resolves
     from the project root; $input_file$-style aliases and absolute paths also work.
-    Without a TARGET_CACHE_PATH the newest compatible cache is selected. output_path must not exist;
+    Without a TARGET_CACHE_PATH the newest compatible cache is selected; with no saved edge
+    filter, the newest cache built from these inputs. output_path must not exist;
     omitted output paths are unique. Export writes settings but does not launch.
     cache_contents reports the selected cache's saved cluster labels, groups and
     metadata columns; other_caches lists the folder's other caches (newest first)

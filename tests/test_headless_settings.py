@@ -303,6 +303,74 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
             export_config_settings("viewer", self.root)
         self.assertEqual(str(caught.exception), "NODE_FASTA_FILE: required nonempty path.")
 
+    def _no_saved_filter(self, **changes):
+        """Config keeps the inputs and cache folder but saves no edge filter (SIMILARITY_THRESHOLD)."""
+        path = self.root / "viewer_settings.json"
+        values = json.loads(path.read_text())
+        values.update(SIMILARITY_THRESHOLD=None, **changes)
+        path.write_text(json.dumps(values))
+
+    def _generate_with(self, fasta="set.fasta", threshold=0.1):
+        layout = export_config_settings("layout", self.root)["settings_document"]
+        layout["inputs"]["NODE_FASTA_FILE"] = str(self.root / fasta)
+        layout["network"]["SIMILARITY_THRESHOLD"] = threshold
+        return self.generate(layout).cache_path
+
+    def test_mcp_viewer_export_without_a_saved_filter_takes_the_newest_cache_for_its_inputs(self):
+        self.saved_config()
+        first = self._generate_with(threshold=0.1)
+        second = self._generate_with(threshold=0.2)
+        (self.root / "other.fasta").write_text(">Alpha?? Beta\nAA\n>Gamma##Delta\nCCC\n", encoding="utf-8")
+        foreign = self._generate_with("other.fasta", threshold=0.3)
+        for path, stamp in ((first, 1_000_000_000), (second, 2_000_000_000), (foreign, 3_000_000_000)):
+            os.utime(path, ns=(stamp, stamp))
+        self._no_saved_filter()
+        # The GUI and CLI rule is unchanged: with no filter there is nothing to judge compatibility by.
+        with self.assertRaisesRegex(ValueError, "Physics layout requires"):
+            export_config_settings("viewer", self.root)
+        # The newest cache for these inputs wins, never the newer one for other inputs.
+        chosen = export_config_settings("viewer", self.root, newest_for_inputs=True)
+        self.assertEqual(chosen["cache_path"], second)
+        os.utime(first, ns=(4_000_000_000, 4_000_000_000))
+        self.assertEqual(export_config_settings("viewer", self.root, newest_for_inputs=True)["cache_path"], first)
+        # An explicit cache is untouched.
+        overlay = {"schema_version": 2, "kind": "viewer", "inputs": {"TARGET_CACHE_PATH": second}}
+        self.assertEqual(export_config_settings("viewer", self.root, overlay=overlay,
+                                                newest_for_inputs=True)["cache_path"], second)
+
+    def test_mcp_viewer_export_with_a_saved_filter_keeps_the_filter_rule(self):
+        values = self.saved_config()
+        first = self._generate_with(threshold=0.1)
+        second = self._generate_with(threshold=0.2)
+        os.utime(first, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(second, ns=(2_000_000_000, 2_000_000_000))
+        # The saved filter (0.1) picks its own folder even though the other cache is newer.
+        self.assertEqual(export_config_settings("viewer", self.root, newest_for_inputs=True)["cache_path"], first)
+        self.assertEqual(export_config_settings("viewer", self.root)["cache_path"], first)
+        self.assertEqual(values["SIMILARITY_THRESHOLD"], 0.1)
+
+    def test_mcp_viewer_export_with_no_cache_for_its_inputs_says_how_to_go_on(self):
+        self.saved_config()
+        (self.root / "other.fasta").write_text(">Alpha?? Beta\nAA\n>Gamma##Delta\nCCC\n", encoding="utf-8")
+        foreign = self._generate_with("other.fasta", threshold=0.3)
+        self._no_saved_filter()
+        with self.assertRaises(ValueError) as caught:
+            export_config_settings("viewer", self.root, newest_for_inputs=True)
+        message = str(caught.exception)
+        self.assertIn("No saved layout cache was built from set.fasta and network.h5", message)
+        self.assertIn("start_layout_job", message)
+        self.assertIn("inputs.TARGET_CACHE_PATH", message)
+        self.assertIn(Path(foreign).parent.name, message)  # the near miss is visible
+
+    def test_mcp_viewer_export_reaches_the_newest_cache_through_the_tool(self):
+        from mcp_server.viewer import Viewer_Operations
+        self.saved_config()
+        cache = self._generate_with(threshold=0.2)
+        self._no_saved_filter()
+        with mock.patch.object(Viewer_Operations, "_PROJECT_ROOT", str(self.root)):
+            result = asyncio.run(Viewer_Operations.export_viewer_settings(output_path=str(self.root / "o.json")))
+        self.assertEqual(result["cache_path"], cache)
+
     def test_explicit_collision_and_filename_mismatch(self):
         self.saved_config()
         document = export_config_settings("layout", self.root)["settings_document"]

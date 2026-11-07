@@ -167,8 +167,52 @@ def overlay_edits(overlay, kind):
     return edits
 
 
-def config_export_document(kind, project_root, *, settings_path=None, overlay=None):
-    """Saved Config preferences, then the settings_path overlay, then ``overlay``."""
+def _blank(value):
+    return value is None or str(value).strip().lower() in {"", "none"}
+
+
+def newest_cache_for_inputs(values):
+    """The newest saved layout cache built from these same sequences and network.
+
+    Used when there is no saved edge filter to judge compatibility by. A folder counts
+    only when its manifest is valid and records the SHA-256 of this FASTA file and of
+    this network file, so a cache for other inputs is never chosen; its generation
+    settings then come from the cache's own verified provenance.
+    """
+    from Cache_Manifest import fingerprint_file, read_manifest
+    fasta, network_file = values["NODE_FASTA_FILE"], values["INPUT_HDF5"]
+    sequence = fingerprint_file(fasta)["sha256"]
+    network = fingerprint_file(network_file)["sha256"]
+    root = Path(values["SAVED_LAYOUT_DIR"])
+    folders = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name) if root.is_dir() else []
+    candidates, others = [], []
+    for folder in folders:
+        try:
+            compatibility = read_manifest(str(folder))["compatibility"]
+        except (OSError, ValueError, TypeError):
+            continue
+        if compatibility["sequence_sha256"] == sequence and compatibility["network_sha256"] == network:
+            candidates += [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".h5"]
+        else:
+            others.append(folder.name)
+    if not candidates:
+        message = (f"No saved layout cache was built from {Path(fasta).name} and "
+                   f"{Path(network_file).name}. Build one with emapssn_pipeline(action=\"start_layout_job\") "
+                   "(after export_layout_settings with an edge filter), or name an existing cache as "
+                   "inputs.TARGET_CACHE_PATH.")
+        if others:
+            message += " Caches exist for other inputs: " + ", ".join(others[:5]) + (", ..." if len(others) > 5 else "") + "."
+        raise ValueError(message)
+    return sorted(candidates, key=lambda p: (-p.stat().st_mtime_ns, str(p)))[0]
+
+
+def config_export_document(kind, project_root, *, settings_path=None, overlay=None, newest_for_inputs=False):
+    """Saved Config preferences, then the settings_path overlay, then ``overlay``.
+
+    A Viewer export that names no cache normally takes the newest cache compatible with the
+    saved edge filter. With newest_for_inputs, and no saved filter, it takes the newest cache
+    built from the same inputs instead (MCP only; the GUI and CLI keep the filter rule).
+    """
     from desktop.Viewer_State import (
         DEFAULTS,
         DIRECTORY_PROFILE_DEFAULTS,
@@ -225,14 +269,17 @@ def config_export_document(kind, project_root, *, settings_path=None, overlay=No
             automatic=edits.get("CACHE_NAME_MODE", "auto") == "auto")
     else:
         if not selected:
-            settings = LayoutGenerationSettings.from_namespace(SimpleNamespace(**values), cache_filename="version_00.h5", project_root=project_root)
-            settings.CACHE_NAME_MODE = "auto"
-            manifest = resolve_layout_selection(settings)
-            matches = find_matching_manifest_folders(settings.SAVED_LAYOUT_DIR, manifest["compatibility"])
-            candidates = [] if not matches else [p for p in Path(matches[0]["folder"]).iterdir() if p.is_file() and p.suffix.lower() == ".h5"]
-            if not candidates:
-                raise ValueError("No compatible layout cache exists; generate a layout first.")
-            chosen = sorted(candidates, key=lambda p: (-p.stat().st_mtime_ns, p.name))[0]
+            if newest_for_inputs and not umap and _blank(values["TOP_EDGE_PERCENT"]) and _blank(values["SIMILARITY_THRESHOLD"]):
+                chosen = newest_cache_for_inputs(values)
+            else:
+                settings = LayoutGenerationSettings.from_namespace(SimpleNamespace(**values), cache_filename="version_00.h5", project_root=project_root)
+                settings.CACHE_NAME_MODE = "auto"
+                manifest = resolve_layout_selection(settings)
+                matches = find_matching_manifest_folders(settings.SAVED_LAYOUT_DIR, manifest["compatibility"])
+                candidates = [] if not matches else [p for p in Path(matches[0]["folder"]).iterdir() if p.is_file() and p.suffix.lower() == ".h5"]
+                if not candidates:
+                    raise ValueError("No compatible layout cache exists; generate a layout first.")
+                chosen = sorted(candidates, key=lambda p: (-p.stat().st_mtime_ns, p.name))[0]
             values["TARGET_CACHE_PATH"] = str(chosen)
             values["CACHE_FILENAME"] = chosen.name
         else:
@@ -241,9 +288,10 @@ def config_export_document(kind, project_root, *, settings_path=None, overlay=No
     return document, values["SETTING_EXPORT_DIR"]
 
 
-def export_config_settings(kind, project_root, output_path=None, settings_path=None, overlay=None):
+def export_config_settings(kind, project_root, output_path=None, settings_path=None, overlay=None,
+                           newest_for_inputs=False):
     document, directory = config_export_document(kind, project_root, settings_path=settings_path,
-                                                 overlay=overlay)
+                                                 overlay=overlay, newest_for_inputs=newest_for_inputs)
     result = write_export(document, project_root, directory, f"{kind}-settings", output_path)
     section = document["output"] if kind == "layout" else document["inputs"]
     result.update(cache_path=section["TARGET_CACHE_PATH"], cache_filename=Path(section["TARGET_CACHE_PATH"]).name)

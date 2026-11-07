@@ -236,7 +236,14 @@ The original submitted snapshot is retained unchanged. Generation alone opens no
 
 Viewer export selects the most recently modified cache in the unique compatible
 folder; filename ascending breaks modification-time ties. No cache or multiple
-compatible folders is an error. A `TARGET_CACHE_PATH` in the overlay selects a
+compatible folders is an error. Through MCP, when Config saves no edge filter
+(`SIMILARITY_THRESHOLD`, `TOP_EDGE_PERCENT` or UMAP/PaCMAP), the export instead selects
+the newest cache in any folder whose manifest records the same sequence-set and network
+SHA-256 digests as the named inputs, and reads its generation settings from that cache's
+verified provenance; a cache for other inputs is never chosen. With no such cache the
+error says to build one with `start_layout_job` or to name one as `TARGET_CACHE_PATH`,
+and lists a few folders made for other inputs. The GUI and CLI keep the filter rule
+above. A `TARGET_CACHE_PATH` in the overlay selects a
 specific cache. When opening a newly generated layout, supply the actual path
 returned by its job as `TARGET_CACHE_PATH`; the Viewer document has no separate
 filename field. Launch validates and opens exactly that cache, without silently

@@ -114,14 +114,15 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_split_exports_delegate_correct_kind(self):
         with mock.patch("utilities.Headless_Settings.export_config_settings",
                         return_value={"exported": True}) as export:
-            for workflow, action, expected in [
+            for workflow, action, expected, extra in [
                 # A layout export without inline inputs or fields passes no overlay.
-                ("emapssn_pipeline", "export_layout_settings", ("layout", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None)),
-                ("emapssn_viewer_control", "export_settings", ("viewer", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None)),
+                ("emapssn_pipeline", "export_layout_settings", ("layout", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None), {}),
+                # Only the MCP Viewer export falls back to the newest cache for its inputs.
+                ("emapssn_viewer_control", "export_settings", ("viewer", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None), {"newest_for_inputs": True}),
             ]:
                 result = await dispatch(workflow, action, {"output_path": "out.json", "settings_path": "overlay.json"}, None)
                 self.assertEqual(result, {"exported": True})
-                export.assert_called_with(*expected)
+                export.assert_called_with(*expected, **extra)
             await dispatch("emapssn_pipeline", "export_layout_settings", {
                 "node_fasta_file": "nodes.fasta", "input_hdf5": "net.h5",
                 "parameters": {"top_edge_percent": 5, "dt": 0.002}}, None)
@@ -136,6 +137,7 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("settings_document", description["arguments_schema"]["properties"])
         self.assertIn("settings_document", description["effects"])
         self.assertIn("plain file name resolves", description["effects"])
+        self.assertIn("newest cache built from these inputs", description["effects"])
         self.assertEqual(description["example"]["arguments"]["settings_document"]["kind"], "viewer")
         with mock.patch("utilities.Headless_Settings.export_config_settings", return_value={"exported": True}) as export:
             await dispatch("emapssn_viewer_control", "export_settings", {"settings_document": overlay}, None)
