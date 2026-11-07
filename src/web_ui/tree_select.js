@@ -183,6 +183,56 @@ window.TreeView = window.TreeView || {};
         return { sent: true, count: indices.length, ok };
     };
 
+    // The leaves whose tips are in the box (edges included) with corners at (left, top) and (right, bottom), in pixels
+    // of the canvas, in tree order. A leaf counts when it is drawn, at the point its selection ring is drawn at: left
+    // in the layout, not inside a folded clade (a folded clade has no tips), not hidden by the colours, and a node of
+    // the network. Names do not count, only tips.
+    TV.leavesInBox = function (scene, left, top, right, bottom) {
+        const { model, layout, view } = scene;
+        if (!model || !layout) return new Int32Array(0);
+        const colors = scene.colors && scene.colors.leafClass.length === model.leafCount ? scene.colors.leafClass : null;
+        const folded = scene.leafHidden;
+        const live = layout.live;
+        const { leafNode, viewerNode } = model;
+        const { x, y } = layout;
+        const { ox, oy, sx, sy } = view;
+        const NO_CLASS = TV.NO_CLASS;
+        const found = new Int32Array(model.leafCount);
+        let count = 0;
+        for (let k = 0; k < found.length; k++) {
+            const node = leafNode[k];
+            const px = ox + x[node] * sx;
+            if (px < left || px > right) continue;
+            const py = oy + y[node] * sy;
+            if (py < top || py > bottom) continue;
+            if (viewerNode[k] < 0 || (live && !live[node]) || (folded && folded[k]) || (colors && colors[k] === NO_CLASS)) continue;
+            found[count++] = k;
+        }
+        return found.slice(0, count);
+    };
+
+    // The sorted leaf numbers that are in exactly one of the sorted lists `a` and `b`: a selection with some leaves
+    // toggled.
+    TV.toggleLeaves = function (a, b) {
+        const out = new Int32Array(a.length + b.length);
+        let i = 0, j = 0, n = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] < b[j]) out[n++] = a[i++];
+            else if (a[i] > b[j]) out[n++] = b[j++];
+            else { i++; j++; }
+        }
+        while (i < a.length) out[n++] = a[i++];
+        while (j < b.length) out[n++] = b[j++];
+        return out.slice(0, n);
+    };
+
+    // Ask the Viewer to select the nodes of these leaves (numbers of the tree, each a node of the network), as a box
+    // selection does: mode "replace" (an empty list clears the selection) or "toggle". Resolves to whether the Viewer took it.
+    TV.selectLeaves = function (leaves, mode) {
+        const indices = Array.from(leaves, (leaf) => state.model.viewerNode[leaf]);
+        return post({ action: "tree_select", indices, mode });
+    };
+
     // Ask the Viewer to clear its selection.
     TV.clearNetworkSelection = function () {
         return post({ action: "tree_select", indices: [], mode: "replace" });

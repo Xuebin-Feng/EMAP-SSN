@@ -541,12 +541,46 @@ window.TreeView = window.TreeView || {};
         movingTimer = setTimeout(() => { state.moving = false; TV.requestDraw(); }, TV.IDLE_MS);
     }
 
-    // The scene the drawing is given: the state, whose view and layout are the ones in use.
+    // The box being drawn with the right button, or null: where the press was (px, py: canvas pixels; tx, ty: the same
+    // place in the layout, so that the box's first corner stays on that place of the tree while the view moves), the
+    // pointer now (x, y), whether Shift is down, and whether the pointer has moved far enough to make it a box.
+    let boxDrag = null;
+    // How far, in CSS pixels, the pointer must move from the press for a right press to be a box, not a click.
+    const BOX_DISTANCE_PX = 5;
+
+    // The box with its first corner on the tree and the other at the pointer, in canvas pixels.
+    function boxRect(box) {
+        const v = state.view;
+        const ax = v.ox + box.tx * v.sx;
+        const ay = v.oy + box.ty * v.sy;
+        return { left: Math.min(ax, box.x), top: Math.min(ay, box.y), right: Math.max(ax, box.x), bottom: Math.max(ay, box.y) };
+    }
+
+    // The leaves in the box now, in tree order (TV.leavesInBox).
+    function boxLeaves(box) {
+        const rect = boxRect(box);
+        return TV.leavesInBox(state, rect.left, rect.top, rect.right, rect.bottom);
+    }
+
+    // The scene the drawing is given: the state, whose view and layout are the ones in use. While a box is open, the
+    // selection it will make takes the network's place: the leaves in it, or with Shift the network's selection with
+    // those toggled; the nodes next to the selection are not marked. Worked out for each frame drawn.
+    function sceneNow() {
+        if (!boxDrag || !boxDrag.open || !state.layout || !state.model) return state;
+        const inside = boxLeaves(boxDrag);
+        const leaves = boxDrag.shift ? TV.toggleLeaves(state.selection.leaves, inside) : inside;
+        const selection = {
+            leaves, connected: new Int32Array(0), clade: TV.smallestClade(state.model, leaves),
+            focus: state.selection.focus, count: leaves.length,
+        };
+        return Object.assign({}, state, { selection, box: boxRect(boxDrag) });
+    }
+
     TV.drawNow = function () {
         drawQueued = false;
         if (!TV.canvas) return null;
         if (!state.palette) state.palette = TV.readPalette();
-        TV.lastStats = TV.drawTree(TV.canvas, state);
+        TV.lastStats = TV.drawTree(TV.canvas, sceneNow());
         if (TV.drawMinimap) TV.drawMinimap();
         return TV.lastStats;
     };
@@ -892,9 +926,9 @@ window.TreeView = window.TreeView || {};
     // The hint at the foot of the page.
     TV.hintText = function () {
         if (state.layout && state.layout.uniform) {
-            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
+            return t("Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.");
         }
-        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.");
+        return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.");
     };
 
     // Attach the page's pointer, wheel and key handling to the canvas. `ui` holds what the page does in answer:
@@ -912,7 +946,7 @@ window.TreeView = window.TreeView || {};
 
         function updateHover() {
             hoverQueued = false;
-            if (!hoverPoint || drag) return;
+            if (!hoverPoint || drag || boxDrag) return;
             const hit = TV.hitTest(hoverPoint[0], hoverPoint[1]);
             const node = hit ? hit.node : -1;
             canvas.classList.toggle("pointing", !!hit);
@@ -937,7 +971,12 @@ window.TreeView = window.TreeView || {};
         }, { passive: false });
 
         canvas.addEventListener("pointerdown", (event) => {
-            if (event.button !== 0 || !state.layout) return;
+            if (!state.layout) return;
+            if (event.button === 2) {
+                pressBox(event);
+                return;
+            }
+            if (event.button !== 0 || boxDrag) return;
             const [px, py] = local(event);
             // A pointer that is gone already cannot be captured; the drag goes on without it.
             try { canvas.setPointerCapture(event.pointerId); } catch (error) {}
@@ -950,6 +989,10 @@ window.TreeView = window.TreeView || {};
 
         canvas.addEventListener("pointermove", (event) => {
             const [px, py] = local(event);
+            if (boxDrag) {
+                moveBox(event, px, py);
+                return;
+            }
             if (drag) {
                 if (drag.ruler) {
                     TV.jumpToFraction(py / canvas.clientHeight);
@@ -993,8 +1036,15 @@ window.TreeView = window.TreeView || {};
             ui.onPin(state.pinned, { click: true });
             TV.requestDraw();
         }
-        canvas.addEventListener("pointerup", endDrag);
-        canvas.addEventListener("pointercancel", endDrag);
+        canvas.addEventListener("pointerup", (event) => {
+            if (boxDrag && event.pointerId === boxDrag.id) releaseBox(event); else endDrag(event);
+        });
+        canvas.addEventListener("pointercancel", (event) => {
+            if (boxDrag && event.pointerId === boxDrag.id) cancelBox(); else endDrag(event);
+        });
+        canvas.addEventListener("lostpointercapture", (event) => {
+            if (boxDrag && event.pointerId === boxDrag.id) cancelBox();
+        });
 
         canvas.addEventListener("pointerleave", () => {
             hoverPoint = null;
@@ -1006,22 +1056,74 @@ window.TreeView = window.TreeView || {};
             }
         });
 
-        // A right-click selects, as in the network: a clade or a leaf replaces the network's selection, with Shift it is
-        // toggled, and empty canvas clears it. It also unpins, as a right press in the network takes the click's focus
-        // off: the summary line resets, and the Viewer's focus goes. It pins, zooms, folds and drags nothing, and the
-        // browser's menu stays shut.
-        canvas.addEventListener("contextmenu", (event) => {
-            event.preventDefault();
-            if (!state.layout) return;
+        // The right button selects, as in the network. A right press unpins, as a right press in the network takes the
+        // click's focus off: the summary line resets, and the Viewer's focus goes. Then a click (the pointer moves less
+        // than a few pixels) selects the clade or leaf under it, with Shift toggles it, and on empty canvas clears the
+        // selection (with Shift, changes nothing); and a drag draws a box that selects the leaves whose tips are in it:
+        // those leaves replace the network's selection, with Shift they are toggled in it, and Esc takes the box back.
+        // While the box is open the tree shows the selection it would make, and nothing is sent until the button is
+        // let go. The press is the pointer's own, not the contextmenu event, which comes at the press on some systems
+        // and at the release on others; the browser's menu stays shut.
+        function pressBox(event) {
+            if (drag) return;
+            if (boxDrag) cancelBox();
             const [px, py] = local(event);
             if (inRuler(px)) return;
+            const view = state.view;
+            try { canvas.setPointerCapture(event.pointerId); } catch (error) {}
+            boxDrag = {
+                id: event.pointerId, px, py, x: px, y: py, shift: event.shiftKey, open: false,
+                tx: (px - view.ox) / view.sx, ty: (py - view.oy) / view.sy,
+            };
             state.pinned = -1;
             ui.onPin(-1, { click: true });
+            TV.hideTooltip(ui.tooltip);
+            canvas.focus({ preventScroll: true });
             TV.requestDraw();
-            const hit = TV.hitTest(px, py);
-            if (hit) TV.selectClade(hit.node, event.shiftKey ? "toggle" : "replace");
-            else TV.clearNetworkSelection();
-        });
+        }
+
+        function moveBox(event, px, py) {
+            if (event.pointerId !== boxDrag.id) return;
+            boxDrag.x = px;
+            boxDrag.y = py;
+            boxDrag.shift = event.shiftKey;
+            if (!boxDrag.open && Math.hypot(px - boxDrag.px, py - boxDrag.py) >= BOX_DISTANCE_PX) boxDrag.open = true;
+            if (boxDrag.open) TV.requestDraw();
+        }
+
+        function closeBox(event) {
+            const box = boxDrag;
+            boxDrag = null;
+            try { canvas.releasePointerCapture(event ? event.pointerId : box.id); } catch (error) {}
+            TV.requestDraw();
+            return box;
+        }
+
+        // Esc, a cancelled pointer or a lost capture: the box goes, nothing is sent, and the unpin stays.
+        function cancelBox() {
+            closeBox();
+        }
+
+        function releaseBox(event) {
+            const [px, py] = local(event);
+            boxDrag.x = px;
+            boxDrag.y = py;
+            boxDrag.shift = event.shiftKey;
+            const live = state.layout && state.model;
+            const leaves = live && boxDrag.open ? boxLeaves(boxDrag) : null;
+            const box = closeBox(event);
+            if (!live) return;
+            if (leaves) {
+                if (!box.shift) TV.selectLeaves(leaves, "replace");
+                else if (leaves.length) TV.selectLeaves(leaves, "toggle");
+                return;
+            }
+            const hit = TV.hitTest(box.px, box.py);
+            if (hit) TV.selectClade(hit.node, box.shift ? "toggle" : "replace");
+            else if (!box.shift) TV.clearNetworkSelection();
+        }
+
+        canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
         canvas.addEventListener("dblclick", (event) => {
             if (!state.layout) return;
@@ -1033,6 +1135,11 @@ window.TreeView = window.TreeView || {};
         });
 
         canvas.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && boxDrag) {
+                cancelBox();
+                event.preventDefault();
+                return;
+            }
             if (!state.layout || event.ctrlKey || event.altKey || event.metaKey) return;
             const width = canvas.clientWidth;
             const height = canvas.clientHeight;

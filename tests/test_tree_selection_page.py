@@ -49,6 +49,8 @@ DRAWING_SPY = """
     const restore = () => Object.assign(proto, original);
     const selectedRgb = () => TreeView.rgbOf(TreeView.state.marks.selected);
     const same = (a, b) => a.length === b.length && a.every((value, k) => value === b[k]);
+    // The box drawn with the right button: a solid rectangle in the accent colour (a clade's outline is dashed).
+    const isBox = (e) => e.op === 'strokeRect' && !e.dashed && same(e.style, TreeView.rgbOf(TreeView.state.palette.accent));
 """
 
 
@@ -703,7 +705,467 @@ class RightClickTests(SelectionCase):
         self.start_right()
         for kind in ("rectangular", "circular"):
             self.choose(kind)
-            self.assertIn("Right-click: select in the network.", self.state("TreeView.hintText()"))
+            self.assertIn("Right-click or right-drag: select in the network.", self.state("TreeView.hintText()"))
+
+
+class BoxSelectionTests(SelectionCase):
+    """Dragging with the right button draws a box that selects the leaves whose tips are in it, as the Viewer's does."""
+
+    RIGHT = RightClickTests.RIGHT
+    start_right = RightClickTests.start_right
+    pin_leaf = RightClickTests.pin_leaf
+    internal = RightClickTests.internal
+
+    HELPERS = """
+        window.mouse = (type, x, y, shift = false, extra = {}) => {
+            const c = document.getElementById('tree-canvas'), r = c.getBoundingClientRect();
+            c.dispatchEvent(new PointerEvent(type, {pointerId: 7, button: type === 'pointermove' ? -1 : 2,
+                buttons: type === 'pointerup' ? 0 : 2, clientX: r.left + x, clientY: r.top + y, bubbles: true, cancelable: true,
+                shiftKey: shift, ...extra}));
+        };
+        window.tips = () => { const s = TreeView.state, m = s.model, out = [];
+            for (let k = 0; k < m.leafCount; k++) { const n = m.leafNode[k]; out.push([s.view.ox + s.layout.x[n] * s.view.sx, s.view.oy + s.layout.y[n] * s.view.sy]); }
+            return out; };
+        1"""
+
+    def start_box(self, **options):
+        self.start(**options)
+        self.js(self.RIGHT)
+        self.js(self.HELPERS)
+
+    def mouse(self, kind, point, shift=False, **extra):
+        self.script(f"window.mouse({json.dumps(kind)}, {point[0]}, {point[1]}, {json.dumps(shift)}, {json.dumps(extra)}); return 1")
+
+    def drag(self, start, end, shift=False, release=True):
+        """Press the right button at ``start`` (shift on the press), move to ``end`` in steps, and let go there."""
+        self.mouse("pointerdown", start, shift)
+        steps = 4
+        for step in range(1, steps + 1):
+            self.mouse("pointermove", (start[0] + (end[0] - start[0]) * step / steps, start[1] + (end[1] - start[1]) * step / steps), shift)
+        if release:
+            self.release(end, shift)
+
+    def release(self, point, shift=False, expect=None):
+        """Let go at ``point``; wait for the Viewer to run what the page asked (``expect`` actions, or none at all)."""
+        before = len(self.viewer.action_results)
+        self.mouse("pointerup", point, shift)
+        deadline = time.monotonic() + (10 if expect else 0.4)
+        while len(self.viewer.action_results) < before + (expect or 0) and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.pump(0.1)
+        return self.viewer.action_results[before:]
+
+    def bodies(self):
+        return self.state("window.__bodies")
+
+    def tips(self):
+        return self.state("window.tips()")
+
+    def around(self, leaves, margin=3):
+        """Two corners, whole pixels, of a box that holds the tips of ``leaves`` with ``margin`` to spare."""
+        tips = self.tips()
+        xs = [tips[k][0] for k in leaves]
+        ys = [tips[k][1] for k in leaves]
+        return [int(min(xs)) - margin, int(min(ys)) - margin], [int(max(xs)) + margin + 1, int(max(ys)) + margin + 1]
+
+    def inside(self, a, b, eligible=None):
+        """The leaves whose tips are in the box with corners ``a`` and ``b`` as the page reads them."""
+        (ax, ay), (bx, by) = [self.script(f"return fire.local({p[0]}, {p[1]})") for p in (a, b)]
+        left, right, top, bottom = min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)
+        return [k for k, (x, y) in enumerate(self.tips())
+                if left <= x <= right and top <= y <= bottom and (eligible is None or k in eligible)]
+
+    def settle(self):
+        self.script("TreeView.drawNow(); return 1")
+
+    def test_a_box_replaces_the_selection_with_the_leaves_whose_tips_are_in_it_in_every_layout(self):
+        self.start_box()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.viewer.select([0, 1, 2])
+                a, b = self.around([10, 11, 12, 13])
+                expected = self.inside(a, b)
+                self.assertTrue({10, 11, 12, 13} <= set(expected))
+                self.assertLess(len(expected), 40)
+                self.script("window.__bodies.length = 0; return 1")
+                self.drag(a, b, release=False)
+                self.assertEqual(self.bodies(), [])
+                self.release(b, expect=1)
+                self.assertEqual(self.bodies(), [{"action": "tree_select", "indices": self.nodes_of(expected), "mode": "replace"}])
+                self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(expected)))
+
+    def test_the_corners_can_be_dragged_in_any_direction(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        expected = self.inside(a, b)
+        for start, end in (([b[0], a[1]], [a[0], b[1]]), (b, a), ([a[0], b[1]], [b[0], a[1]])):
+            self.viewer.select([])
+            self.drag(start, end)
+            self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(expected)))
+
+    def test_shift_toggles_the_leaves_in_the_box_against_the_selection_in_every_layout(self):
+        self.start_box()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                a, b = self.around([10, 11, 12, 13])
+                expected = set(self.inside(a, b))
+                before = {11, 30, 31}
+                self.select(self.nodes_of(sorted(before)))
+                self.drag(a, b, shift=True, release=False)
+                self.release(b, shift=True, expect=1)
+                self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(sorted(expected)), "mode": "toggle"})
+                self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(sorted(expected ^ before))))
+
+    def test_shift_is_read_when_the_button_is_let_go(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        expected = self.inside(a, b)
+        self.select(self.nodes_of([11, 30]))
+        self.drag(a, b, shift=False, release=False)
+        self.release(b, shift=True, expect=1)
+        self.assertEqual(self.bodies()[-1]["mode"], "toggle")
+        self.select(self.nodes_of([11, 30]))
+        self.drag(a, b, shift=True, release=False)
+        self.release(b, shift=False, expect=1)
+        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(expected), "mode": "replace"})
+
+    def test_an_empty_box_clears_and_with_shift_changes_nothing(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1, 2])
+        tip = self.tips()[39]
+        a = [int(tip[0]) + 30, int(tip[1]) - 6]
+        b = [a[0] + 12, a[1] + 12]
+        self.assertEqual(self.inside(a, b), [])
+        self.script("window.__bodies.length = 0; return 1")
+        self.drag(a, b, shift=True)
+        self.assertEqual(self.bodies(), [])
+        self.assertEqual(self.viewer.selected_indices, [0, 1, 2])
+        self.drag(a, b)
+        self.pump(0.3)
+        self.assertEqual(self.bodies(), [{"action": "tree_select", "indices": [], "mode": "replace"}])
+        self.assertEqual(self.viewer.selected_indices, [])
+
+    def test_a_right_click_still_selects_a_clade_or_a_leaf_and_shift_on_empty_canvas_does_nothing(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1, 2])
+        clade = self.internal()
+        x, y = self.state(f"window.stem({clade})")
+        self.drag([x, y], [x, y])
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(range(*self.state(
+            f"[TreeView.state.model.firstLeaf[{clade}], TreeView.state.model.lastLeaf[{clade}] + 1]")))))
+        self.viewer.select([5])
+        empty = self.state("""(() => { const c = document.getElementById('tree-canvas');
+            for (let y = 4; y < c.clientHeight; y += 9) for (let x = 4; x < c.clientWidth - 20; x += 9) if (!TreeView.hitTest(x, y)) return [x, y];
+            return null; })()""")
+        self.script("window.__bodies.length = 0; return 1")
+        self.drag(empty, empty, shift=True)
+        self.assertEqual(self.bodies(), [])
+        self.assertEqual(self.viewer.selected_indices, [5])
+        self.drag(empty, empty)
+        self.pump(0.3)
+        self.assertEqual(self.viewer.selected_indices, [])
+
+    def test_a_move_of_less_than_five_pixels_is_a_click_and_five_make_a_box(self):
+        self.start_box()
+        self.choose("rectangular")
+        clade = self.internal()
+        x, y = [int(v) for v in self.state(f"window.stem({clade})")]
+        self.assertEqual(self.state(f"(() => {{ const h = TreeView.hitTest({x}, {y}); return h && h.node; }})()"), clade)
+        self.drag([x, y], [x + 3, y + 3])                              # 4.2 pixels: a click on the clade
+        first, last = self.state(f"[TreeView.state.model.firstLeaf[{clade}], TreeView.state.model.lastLeaf[{clade}] + 1]")
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(range(first, last))))
+        self.viewer.select([])
+        self.drag([x, y], [x + 4, y + 3], release=False)               # 5 pixels: a box, which holds no tip it can reach
+        self.assertEqual(self.spied("return log.filter(isBox).length"), 1)
+        self.release([x + 4, y + 3], expect=1)
+        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(self.inside([x, y], [x + 4, y + 3])), "mode": "replace"})
+
+    def test_the_box_takes_the_tips_edges_included(self):
+        self.start_box()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                found = self.state("""(() => { const t = window.tips(), s = TreeView.state; let ok = true;
+                    for (const k of [0, 7, 21, 39]) { const [x, y] = t[k];
+                        if (!Array.from(TreeView.leavesInBox(s, x, y, x, y)).includes(k)) ok = false;
+                        if (Array.from(TreeView.leavesInBox(s, x + 1e-6, y, x + 5, y + 5)).includes(k)) ok = false; }
+                    return ok; })()""")
+                self.assertTrue(found)
+
+    def test_a_leaf_whose_name_but_not_tip_is_in_the_box_is_not_selected(self):
+        self.start_box()
+        self.choose("rectangular", "cladogram")
+        self.settle()
+        self.assertGreater(self.state("TreeView.lastStats.labels"), 0)
+        tip = self.tips()[20]
+        a = [int(tip[0]) + 8, int(tip[1]) - 3]
+        b = [a[0] + 60, a[1] + 6]
+        self.assertEqual(self.inside(a, b), [])
+        self.viewer.select([1])
+        self.drag(a, b)
+        self.pump(0.3)
+        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": [], "mode": "replace"})
+
+    def test_a_folded_clade_has_no_tips_in_the_box(self):
+        self.start_box()
+        self.choose("rectangular")
+        clade = self.internal()
+        first, last = self.state(f"[TreeView.state.model.firstLeaf[{clade}], TreeView.state.model.lastLeaf[{clade}]]")
+        a, b = self.around(list(range(0, 40)), margin=20)
+        everything = self.inside(a, b)
+        self.assertEqual(len(everything), 40)
+        self.script(f"TreeView.openAll(); TreeView.toggleFold({clade}); TreeView.drawNow(); return 1")
+        self.assertEqual(self.state("TreeView.state.collapsedCount"), 1)
+        self.drag(a, b)
+        got = sorted(self.viewer.selected_indices)
+        self.assertEqual(got, sorted(self.nodes_of([k for k in range(40) if not first <= k <= last])))
+        # A box over the folded triangle only selects nothing.
+        x, y = self.state(f"window.stem({clade})")
+        tiny = [[x - 2, y - 2], [x + 2, y + 2]]
+        self.viewer.select([3])
+        self.drag(tiny[0], tiny[1])
+        self.pump(0.3)
+        self.assertEqual(self.viewer.selected_indices, [])
+
+    def test_hidden_leaves_are_not_selected(self):
+        self.start_box(hidden=[12, 13])
+        self.choose("rectangular")
+        self.wait_for("TreeView.state.colors !== null")
+        leaf = lambda node: self.state(f"TreeView.leafOfNode(TreeView.state.model)[{node}]")
+        gone = [leaf(12), leaf(13)]
+        self.assertEqual(self.state(f"{gone}.map(k => TreeView.state.colors.leafClass[k] === TreeView.NO_CLASS)"), [True, True])
+        a, b = self.around(gone + [leaf(10), leaf(11)])
+        expected = self.inside(a, b)
+        self.assertTrue(set(gone) <= set(expected))
+        self.drag(a, b)
+        wanted = sorted(self.nodes_of([k for k in expected if k not in gone]))
+        self.assertEqual(sorted(self.bodies()[-1]["indices"]), wanted)
+        self.assertEqual(sorted(self.viewer.selected_indices), wanted)
+
+    def test_a_leaf_that_the_layout_has_left_out_is_not_in_the_box(self):
+        self.start_box()
+        self.choose("rectangular")
+        found = self.state("""(() => { const s = TreeView.state, m = s.model, [x, y] = window.tips()[7];
+            const live = new Uint8Array(m.nodeCount).fill(1); live[m.leafNode[7]] = 0;
+            const scene = Object.assign({}, s, {layout: Object.assign(Object.create(s.layout), {live})});
+            return [Array.from(TreeView.leavesInBox(s, x - 1, y - 1, x + 1, y + 1)).includes(7),
+                    Array.from(TreeView.leavesInBox(scene, x - 1, y - 1, x + 1, y + 1)).includes(7)]; })()""")
+        self.assertEqual(found, [True, False])
+
+    def test_leaves_that_are_not_in_the_network_are_not_selected(self):
+        headers = headers_of(40)
+        self.start_box(headers=headers, network=headers[:25])
+        self.choose("rectangular")
+        absent = self.state("(() => { const m = TreeView.state.model, out = []; for (let k = 0; k < m.leafCount; k++) if (m.viewerNode[k] < 0) out.push(k); return out; })()")
+        self.assertEqual(len(absent), 15)
+        a, b = self.around(list(range(40)), margin=20)
+        self.drag(a, b)
+        self.assertEqual(sorted(self.bodies()[-1]["indices"]), list(range(25)))
+        self.assertEqual(sorted(self.viewer.selected_indices), list(range(25)))
+
+    def test_the_box_is_drawn_in_the_accent_colour_and_the_selection_it_will_make_is_previewed(self):
+        self.start_box()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.select([0, 1, 2])
+                network = self.selection()["leaves"]
+                a, b = self.around([10, 11, 12, 13])
+                expected = self.inside(a, b)
+                self.script("window.__bodies.length = 0; return 1")
+                self.drag(a, b, release=False)
+                drawn = self.spied("""const rects = log.filter(isBox);
+                    return {rects, accent: TreeView.rgbOf(TreeView.state.palette.accent), marked: TreeView.lastStats.selected};""")
+                self.assertEqual(len(drawn["rects"]), 1)
+                rect = drawn["rects"][0]
+                self.assertEqual(rect["style"], drawn["accent"])
+                self.assertEqual(rect["width"], 1 / self.state("window.devicePixelRatio") * round(self.state("window.devicePixelRatio")))
+                self.assertAlmostEqual(rect["w"], b[0] - a[0], delta=1.5)
+                self.assertAlmostEqual(rect["h"], b[1] - a[1], delta=1.5)
+                self.assertEqual(drawn["marked"], len(expected))
+                self.assertEqual(self.bodies(), [])                    # nothing is sent while the box is open
+                self.assertEqual(self.selection()["leaves"], network)
+                self.assertEqual(self.state("TreeView.state.selection.count"), 3)
+                self.release(b, expect=1)
+                self.settle()
+                self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+
+    def test_the_preview_with_shift_is_the_networks_selection_toggled(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        inside = set(self.inside(a, b))
+        before = {11, 30, 31}
+        self.select(self.nodes_of(sorted(before)))
+        self.drag(a, b, shift=True, release=False)
+        marked = self.spied("return TreeView.lastStats.selected")
+        self.assertEqual(marked, len(inside ^ before))
+        self.mouse("pointermove", b, shift=False)
+        self.assertEqual(self.spied("return TreeView.lastStats.selected"), len(inside))     # Shift is read on every move
+        self.assertEqual(self.bodies(), [])
+
+    def test_the_nodes_next_to_the_selection_are_not_marked_while_the_box_is_open(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        self.script("TreeView.applyConnected(TreeView.state.model.viewerNode.slice(20, 25)); return 1")
+        self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
+        self.drag(a, b, release=False)
+        calls = self.script("""const original = TreeView.drawLeafMarks, lengths = [];
+            TreeView.drawLeafMarks = function (ctx, scene, leaves) { lengths.push(leaves.length); return original.apply(this, arguments); };
+            try { TreeView.drawNow(); } finally { TreeView.drawLeafMarks = original; }
+            return lengths;""")
+        self.assertEqual(calls, [0, len(self.inside(a, b))])           # no neighbours, then the box's leaves
+        self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
+        self.mouse("pointerdown", a)            # a new press while open ends the old box; the network's marks are untouched
+        self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
+
+    def test_a_wheel_zoom_during_the_drag_keeps_the_first_corner_on_the_tree(self):
+        self.start_box()
+        self.choose("rectangular")
+        a = [int(v) for v in self.tips()[10]]
+        b = [a[0] + 60, a[1] + 40]
+        before = self.state("TreeView.state.view.sy")
+        self.drag(a, b, release=False)
+        anchor = self.state("(() => { const v = TreeView.state.view; return [(%d - v.ox) / v.sx, (%d - v.oy) / v.sy]; })()" % tuple(a))
+        self.script("fire.wheel(-300, 20, 20); fire.wheel(-200, 20, 20, {shiftKey: true}); return 1")
+        moved = self.state("(() => { const v = TreeView.state.view; return [v.ox, v.oy, v.sx, v.sy]; })()")
+        self.assertNotEqual(moved[3], before)
+        corner = [moved[0] + anchor[0] * moved[2], moved[1] + anchor[1] * moved[3]]
+        rect = self.spied("return log.filter(isBox)")[0]
+        # The first corner is on the same place of the tree; the other is still at the pointer.
+        left, top, right, bottom = rect["x"], rect["y"], rect["x"] + rect["w"], rect["y"] + rect["h"]
+        near = lambda value, *options: min(abs(value - o) for o in options) <= 1.01
+        self.assertTrue(near(corner[0], left, right) and near(corner[1], top, bottom), (corner, rect))
+        self.assertTrue(near(b[0], left, right) and near(b[1], top, bottom))
+        self.release(b, expect=1)
+        got = self.bodies()[-1]
+        self.assertEqual(got["mode"], "replace")
+        self.assertEqual(sorted(got["indices"]), sorted(self.nodes_of(self.inside(
+            [min(corner[0], b[0]), min(corner[1], b[1])], [max(corner[0], b[0]), max(corner[1], b[1])]))))
+
+    def test_escape_closes_the_box_and_sends_nothing_and_the_unpin_stays(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1])
+        self.wait_for("TreeView.state.selection.count === 2")
+        self.pin_leaf(12)
+        self.script("window.__bodies.length = 0; return 1")
+        a, b = self.around([10, 11, 12, 13])
+        self.drag(a, b, release=False)
+        self.assertTrue(self.script("return fire.key('Escape')"))
+        self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+        self.assertEqual(self.release(b), [])
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.assertEqual(self.bodies(), [{"action": "tree_focus", "index": None}])
+        self.assertEqual(self.viewer.selected_indices, [0, 1])
+        self.assertEqual(self.spied("return TreeView.lastStats.selected"), 2)             # the network's own selection is back
+        # With no box, Escape is what it was.
+        self.pin_leaf(12)
+        self.script("fire.key('Escape'); return 1")
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+
+    def test_a_cancelled_pointer_or_a_lost_capture_closes_the_box_and_sends_nothing(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1])
+        a, b = self.around([10, 11, 12, 13])
+        for kind in ("pointercancel", "lostpointercapture"):
+            with self.subTest(kind=kind):
+                self.script("window.__bodies.length = 0; return 1")
+                self.drag(a, b, release=False)
+                self.mouse(kind, b)
+                self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+                self.assertEqual(self.release(b), [])
+                self.assertEqual(self.bodies(), [])
+                self.assertEqual(self.viewer.selected_indices, [0, 1])
+
+    def test_a_contextmenu_event_before_the_release_does_nothing_by_itself(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1])
+        a, b = self.around([10, 11, 12, 13])
+        expected = self.inside(a, b)
+        self.drag(a, b, release=False)
+        prevented = self.state("(() => { const c = document.getElementById('tree-canvas'), e = new MouseEvent('contextmenu', {button: 2, bubbles: true, cancelable: true}); c.dispatchEvent(e); return e.defaultPrevented; })()")
+        self.assertTrue(prevented)
+        self.assertEqual(self.bodies(), [])
+        self.assertEqual(self.state("TreeView.state.selection.count"), 2)
+        self.assertEqual(self.spied("return log.filter(isBox).length"), 1)       # the box is still open
+        self.release(b, expect=1)
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(expected)))
+
+    def test_a_right_press_unpins_at_once_and_takes_the_focus_off(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.pin_leaf(12)
+        self.script("window.__bodies.length = 0; return 1")
+        self.mouse("pointerdown", self.tips()[3])
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        deadline = time.monotonic() + 10
+        while self.viewer.selected_node_idx is not None and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.assertIsNone(self.viewer.selected_node_idx)
+        self.assertEqual(self.bodies(), [{"action": "tree_focus", "index": None}])
+        self.mouse("pointerup", self.tips()[3])
+
+    def test_a_press_in_the_ruler_starts_no_box(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1])
+        width = self.state("document.getElementById('tree-canvas').clientWidth")
+        self.drag([width - 5, 20], [width - 5, 200])
+        self.assertEqual(self.bodies(), [])
+        self.assertEqual(self.viewer.selected_indices, [0, 1])
+        self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+
+    def test_the_left_button_is_not_changed_and_is_ignored_while_a_box_is_open(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        view = self.state("TreeView.state.view")
+        self.drag(a, b, release=False)
+        self.script(f"fire.pointer('pointerdown', {b[0]}, {b[1]}); return 1")
+        self.assertEqual(self.state("TreeView.state.view"), view)
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        self.assertEqual(self.spied("return log.filter(isBox).length"), 1)
+        self.release(b, expect=1)
+        # A left drag still pans, and a left click still pins.
+        self.script("fire.pointer('pointerdown', 100, 100); fire.pointer('pointermove', 140, 130); fire.pointer('pointerup', 140, 130); return 1")
+        self.assertNotEqual(self.state("TreeView.state.view"), view)
+        x, y = self.tips()[12]
+        self.script(f"fire.click({x}, {y}); return 1")
+        self.assertGreaterEqual(self.state("TreeView.state.pinned"), 0)
+
+    def test_one_request_for_the_whole_gesture(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        self.script("window.__bodies.length = 0; return 1")
+        self.drag(a, b)
+        self.pump(0.3)
+        self.assertEqual(len(self.bodies()), 1)
+        self.assertEqual(len(self.viewer.action_results), 1)
+
+    def test_the_work_for_a_frame_is_quick(self):
+        self.start_box()
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                a, b = self.around([5, 30])
+                self.drag(a, b, release=False)
+                timing = self.script("""const s = TreeView.state, a = performance.now();
+                    for (let i = 0; i < 50; i++) { const inside = TreeView.leavesInBox(s, 0, 0, 400, 300);
+                        TreeView.smallestClade(s.model, TreeView.toggleLeaves(s.selection.leaves, inside)); }
+                    return (performance.now() - a) / 50;""")
+                self.assertLess(timing, 20)
+                self.mouse("pointercancel", b)
 
 
 class AskTheNetworkTests(SelectionCase):

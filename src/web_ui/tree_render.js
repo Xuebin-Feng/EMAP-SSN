@@ -705,8 +705,23 @@ window.TreeView = window.TreeView || {};
         TV.drawMatches(ctx, scene, width, height);
         stats.selected = TV.drawSelection(ctx, scene, width, height);
         if (layout.kind === "rectangular") TV.drawRuler(ctx, scene, width, height);
+        if (scene.box) drawBox(ctx, scene.box, palette.accent, ratio);
         return stats;
     };
+
+    // The box being drawn with the right button (scene.box: left, top, right, bottom, in CSS pixels): a one-pixel
+    // outline in the accent colour, no fill, with its edges on whole device pixels so that it stays sharp.
+    function drawBox(ctx, box, color, ratio) {
+        const thickness = Math.max(1, Math.round(ratio));
+        const half = (thickness % 2) / 2;
+        const snap = (value) => (Math.round(value * ratio - half) + half) / ratio;
+        const left = snap(box.left), top = snap(box.top);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = thickness / ratio;
+        ctx.strokeRect(left, top, snap(box.right) - left, snap(box.bottom) - top);
+        ctx.restore();
+    }
 
     // The cut line of a tree built from the network's scores (model.score): where the Viewer's threshold slider is. A
     // rectangular tree has it as a vertical line, a circular one as a circle about the root, an unrooted one not at all
