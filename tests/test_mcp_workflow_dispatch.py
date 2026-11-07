@@ -304,5 +304,94 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected, ['first', 'second', 'first', 'first'])
 
 
+class TreeSnapshotActionTests(unittest.IsolatedAsyncioTestCase):
+    """get_summary(include_tree), query_clades and query_tree_names: the static contract an agent reads."""
+
+    def test_the_actions_are_in_the_contract(self):
+        self.assertIn("query_clades", get_args(ViewerDataAction))
+        self.assertIn("query_tree_names", get_args(ViewerDataAction))
+        self.assertEqual(set(get_args(ViewerDataAction)) - {"help", "describe"}, set(REGISTRY["emapssn_viewer_data"]))
+
+    async def test_get_summary_takes_include_tree_and_tree_source(self):
+        schema = (await dispatch("emapssn_viewer_data", "describe", {"action": "get_summary"}, None))["arguments_schema"]["properties"]
+        self.assertEqual(schema["include_tree"]["default"], False)
+        self.assertEqual(schema["tree_source"]["default"], None)
+        self.assertIn({"enum": ["guide", "threshold", "uploaded"], "type": "string"}, schema["tree_source"]["anyOf"])
+        model = REGISTRY["emapssn_viewer_data"]["get_summary"].model
+        self.assertEqual(model.model_validate({"include_tree": True, "tree_source": "guide"}).model_dump()["tree_source"], "guide")
+        self.assertEqual(model.model_validate({"include_tree": True}).model_dump()["tree_source"], None)
+        self.assertEqual(model.model_validate({}).model_dump()["include_tree"], False)
+
+    async def test_a_tree_source_without_include_tree_is_refused_before_any_handler(self):
+        with mock.patch.object(viewer_ops, "get_viewer_summary") as handler:
+            for arguments in ({"tree_source": "guide"}, {"include_tree": False, "tree_source": "threshold"},
+                              {"include_tree": True, "tree_source": "nope"}, {"include_tree": "yes"}, {"include_tree": 1}):
+                with self.subTest(arguments=arguments), self.assertRaises(ToolError):
+                    await dispatch("emapssn_viewer_data", "get_summary", arguments, None)
+            with self.assertRaisesRegex(ToolError, "tree_source needs include_tree=true"):
+                await dispatch("emapssn_viewer_data", "get_summary", {"tree_source": "guide"}, None)
+            handler.assert_not_called()
+
+    async def test_the_summary_forwards_the_tree_arguments_to_the_viewer(self):
+        client = SimpleNamespace(inspect_data=mock.AsyncMock(return_value={"snapshot_id": "s"}))
+        with mock.patch.object(viewer_ops, "_viewer", return_value=client):
+            await dispatch("emapssn_viewer_data", "get_summary", {"include_tree": True, "tree_source": "uploaded"}, object())
+        action, arguments, session = client.inspect_data.await_args.args
+        self.assertEqual((action, session), ("get_summary", None))
+        self.assertEqual((arguments["include_tree"], arguments["tree_source"]), (True, "uploaded"))
+
+    async def test_the_two_reads_forward_every_argument_and_map_errors(self):
+        client = SimpleNamespace(inspect_data=mock.AsyncMock(return_value={"rows": []}))
+        with mock.patch.object(viewer_ops, "_viewer", return_value=client):
+            await dispatch("emapssn_viewer_data", "query_clades", {
+                "snapshot_id": "s", "min_leaves": 5, "max_leaves": 50, "within": 7, "columns": ["Org"], "order": "tree", "limit": 10}, object())
+            action, arguments, _session = client.inspect_data.await_args.args
+            self.assertEqual(action, "query_clades")
+            self.assertEqual(arguments, {"snapshot_id": "s", "min_leaves": 5, "max_leaves": 50, "within": 7, "contains": None,
+                                         "columns": ["Org"], "order": "tree", "cursor": None, "limit": 10, "max_bytes": 16384})
+            await dispatch("emapssn_viewer_data", "query_tree_names", {"snapshot_id": "s", "list": "ambiguous_names"}, object())
+            action, arguments, _session = client.inspect_data.await_args.args
+            self.assertEqual((action, arguments["list"], arguments["limit"]), ("query_tree_names", "ambiguous_names", 25))
+        from mcp_server.viewer.Viewer_Client import MCPViewerError
+        client.inspect_data.side_effect = MCPViewerError("Viewer lacks requested scientific inspection capabilities")
+        with mock.patch.object(viewer_ops, "_viewer", return_value=client):
+            for action, arguments in (("query_clades", {"snapshot_id": "s"}), ("query_tree_names", {"snapshot_id": "s", "list": "ambiguous_names"})):
+                with self.subTest(action=action), self.assertRaisesRegex(ToolError, "lacks requested"):
+                    await dispatch("emapssn_viewer_data", action, arguments, object())
+
+    async def test_invalid_arguments_never_reach_a_handler(self):
+        invalid = [
+            ("query_clades", {}), ("query_clades", {"snapshot_id": "s", "limit": 501}), ("query_clades", {"snapshot_id": "s", "limit": 0}),
+            ("query_clades", {"snapshot_id": "s", "min_leaves": 0}), ("query_clades", {"snapshot_id": "s", "max_leaves": -3}),
+            ("query_clades", {"snapshot_id": "s", "within": -1}), ("query_clades", {"snapshot_id": "s", "within": "7"}),
+            ("query_clades", {"snapshot_id": "s", "order": "depth"}), ("query_clades", {"snapshot_id": "s", "columns": [1]}),
+            ("query_clades", {"snapshot_id": "s", "max_bytes": 100}), ("query_clades", {"snapshot_id": "s", "subset_id": "x"}),
+            ("query_tree_names", {"snapshot_id": "s"}), ("query_tree_names", {"snapshot_id": "s", "list": "everything"}),
+            ("query_tree_names", {"snapshot_id": "s", "list": "ambiguous_names", "limit": 501}),
+        ]
+        with mock.patch.object(viewer_ops, "_viewer") as viewer:
+            for action, arguments in invalid:
+                with self.subTest(action=action, arguments=arguments), self.assertRaises(ToolError):
+                    await dispatch("emapssn_viewer_data", action, arguments, None)
+            viewer.assert_not_called()
+
+    async def test_the_describe_texts_steer_an_agent_to_targeted_reads(self):
+        clades = await dispatch("emapssn_viewer_data", "describe", {"action": "query_clades"}, None)
+        text = " ".join(clades["description"].split())
+        for phrase in ("never page every one", "contains", "within", "min_leaves", "44,000", "outside_subset", "most leaves first", "artificial"):
+            self.assertIn(phrase, text)
+        self.assertEqual(clades["example"]["arguments"], {"snapshot_id": "snapshot-id", "min_leaves": 100, "limit": 10})
+        self.assertIn("never page them all", clades["effects"])
+        names = await dispatch("emapssn_viewer_data", "describe", {"action": "query_tree_names"}, None)
+        for phrase in ("leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names"):
+            self.assertIn(phrase, names["description"])
+        summary = await dispatch("emapssn_viewer_data", "describe", {"action": "get_summary"}, None)
+        for phrase in ("include_tree=true", "tree_source", "parts.tree"):
+            self.assertIn(phrase, summary["description"])
+        # The public names, not the Python handlers', are what an agent reads.
+        for description in (clades, names, summary):
+            self.assertNotIn("query_viewer", json.dumps(description))
+
+
 if __name__ == "__main__":
     unittest.main()

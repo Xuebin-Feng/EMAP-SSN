@@ -49,6 +49,22 @@ class GuideLoadingTests(unittest.TestCase):
         self.assertNotIn('to poll the originating session', guide)
         self.assertNotIn('Poll get_command_request', guide)
 
+    def test_the_guide_gives_one_short_line_on_trees_that_names_real_actions_and_arguments(self):
+        guide = _load_agent_instructions()
+        lines = [line for line in guide.splitlines() if line.startswith("Trees:")]
+        self.assertEqual(len(lines), 1)
+        self.assertLessEqual(len(lines[0].split()), 18)
+        self.assertIn("get_summary include_tree=true", lines[0])
+        self.assertIn("never page every clade", lines[0])
+        self.assertIn("query_clades", REGISTRY["emapssn_viewer_data"])
+        arguments = REGISTRY["emapssn_viewer_data"]["query_clades"].model.model_fields
+        for name in ("contains", "within", "min_leaves"):
+            self.assertIn(name, lines[0])
+            self.assertIn(name, arguments)
+        self.assertIn("include_tree", REGISTRY["emapssn_viewer_data"]["get_summary"].model.model_fields)
+        # The cap the guide stays under is not raised for it: the test above holds the 1,850 words.
+        self.assertLessEqual(len(guide.split()), 1850)
+
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),
                       UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):
