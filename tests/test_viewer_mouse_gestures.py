@@ -815,7 +815,105 @@ class NodeClickStatusTests(GestureTestCase):
             self.press(viewer, *NODE[3], button=1, modifiers=modifiers)
             self.release(viewer, *NODE[3], button=1, modifiers=modifiers)
         self.assertEqual(viewer.selected_indices, [1, 2])
-        self.assertEqual(self.status(viewer), [])               # "Selected: <header>" is the focus's, mocked here
+        self.assertEqual(self.status(viewer), [])               # "Clicked: <header>" is the focus's, mocked here
+
+
+class RightPressEmptySelectionAndFocusTests(GestureTestCase):
+    """A right click over an empty selection says and changes nothing about it; a right press takes the click focus off."""
+
+    EMPTY = (30, -10)          # no node here
+
+    def make_viewer(self, selected=(), focus=None):
+        viewer = super().make_viewer(selected=selected)
+        del viewer.clear_left_click_focus          # the real one: the press takes the focus off through it
+        viewer.update_nodes = mock.Mock()
+        viewer.update_selection_visual = mock.Mock()
+        viewer.selected_node_idx = focus
+        return viewer
+
+    def click(self, viewer, at):
+        self.press(viewer, *at)
+        self.release(viewer, *at)
+
+    def selection_news(self, viewer):
+        return [call for call in viewer.broadcast_event.call_args_list if call.args[0].get("type") == "selection_changed"]
+
+    def focus_news(self, viewer):
+        return [call.args[0] for call in viewer.broadcast_event.call_args_list if call.args[0].get("type") == "highlight_row"]
+
+    def test_an_empty_selection_that_stays_empty_says_and_does_nothing(self):
+        viewer = self.make_viewer(selected=[])
+        self.click(viewer, self.EMPTY)
+        self.assertEqual(self.status(viewer), [])                        # no "Selection cleared."
+        self.assertEqual(viewer.selection_epoch, 0)                      # the commands' selection timeline is as it was
+        self.assertEqual(self.selection_news(viewer), [])
+        viewer.update_selection_visual.assert_not_called()
+        viewer.update_nodes.assert_not_called()
+
+    def test_a_shift_click_on_empty_space_over_an_empty_selection_says_nothing_either(self):
+        viewer = self.make_viewer(selected=[])
+        self.press(viewer, *self.EMPTY, modifiers=SHIFT)
+        self.release(viewer, *self.EMPTY, modifiers=SHIFT)
+        self.assertEqual(self.status(viewer), [])
+        self.assertEqual(viewer.selection_epoch, 0)
+
+    def test_a_selection_that_is_cleared_says_so(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        self.click(viewer, self.EMPTY)
+        self.assertEqual(viewer.selected_indices, [])
+        self.assertEqual(self.status(viewer), ["Selection cleared."])
+        self.assertEqual(viewer.selection_epoch, 1)
+        viewer.update_selection_visual.assert_called_once_with()
+
+    def test_a_box_that_selects_nothing_from_nothing_says_nothing_and_one_that_selects_says_so(self):
+        viewer = self.make_viewer(selected=[])
+        self.press(viewer, 100, 100)
+        self.move(viewer, 140, 140)                                      # a box over no node
+        self.release(viewer, 140, 140)
+        self.assertEqual(self.status(viewer), [])
+        viewer = self.make_viewer(selected=[1, 2])
+        self.press(viewer, 30, -10)
+        self.move(viewer, 90, 10)                                        # the same two nodes again
+        self.release(viewer, 90, 10)
+        self.assertEqual(self.status(viewer), ["Selected 2 nodes."])
+
+    def test_a_right_press_with_a_focus_on_takes_it_off_and_tells_the_pages(self):
+        for where, name in ((self.EMPTY, "empty space"), (NODE[3], "a node")):
+            with self.subTest(over=name):
+                viewer = self.make_viewer(selected=[], focus=2)
+                viewer.left_click_highlight_indices = None
+                self.press(viewer, *where)
+                self.assertIsNone(viewer.selected_node_idx)
+                self.assertIsNone(viewer.left_click_highlight_indices)
+                self.assertEqual(self.focus_news(viewer), [{"type": "highlight_row", "index": None}])
+
+    def test_a_right_press_with_a_highlight_set_takes_that_off_too(self):
+        viewer = self.make_viewer(selected=[], focus=None)
+        viewer.left_click_highlight_indices = [1, 2]
+        self.press(viewer, *self.EMPTY)
+        self.assertIsNone(viewer.left_click_highlight_indices)
+        self.assertEqual(self.focus_news(viewer), [{"type": "highlight_row", "index": None}])
+
+    def test_a_right_press_with_no_focus_on_tells_the_pages_nothing(self):
+        for where in (self.EMPTY, NODE[3]):
+            with self.subTest(where=where):
+                viewer = self.make_viewer(selected=[], focus=None)
+                self.press(viewer, *where)
+                self.release(viewer, *where)
+                self.assertEqual(self.focus_news(viewer), [])
+
+    def test_the_press_redraws_the_markers_once_at_most(self):
+        # Over a node update_selection_visual does it; over empty space the press does, for the halo it took off.
+        viewer = self.make_viewer(selected=[], focus=2)
+        self.press(viewer, *NODE[3])
+        viewer.update_nodes.assert_not_called()
+        viewer.update_selection_visual.assert_called_once()
+        viewer = self.make_viewer(selected=[], focus=2)
+        self.press(viewer, *self.EMPTY)
+        viewer.update_nodes.assert_called_once_with()
+        viewer = self.make_viewer(selected=[], focus=None)
+        self.press(viewer, *self.EMPTY)
+        viewer.update_nodes.assert_not_called()
 
 
 class IdlePressStepTests(GestureTestCase):

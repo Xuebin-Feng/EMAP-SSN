@@ -3299,7 +3299,13 @@ class MainViewer:
             self._press_history = None
             self._press_unmoved = False
             self.tooltip.text = ""
-            self.selected_node_idx = None
+            # A right press takes the left-click focus off, and the web pages hear of it as of a
+            # clear_left_click_focus. Over a node, update_selection_visual below redraws; over
+            # empty space the press redraws here, as the release no longer does for a selection
+            # that was empty and stays so.
+            had_focus = self._left_click_focus_on()
+            if had_focus:
+                self.clear_left_click_focus(redraw=False)
             
             # Clear or hide registered HUD displays
             for display in self.hud_displays.values():
@@ -3379,6 +3385,8 @@ class MainViewer:
                 # came after the commands that wait in the queue.
                 self._box_press = (list(self.selected_indices), getattr(self, 'selection_epoch', 0))
                 self._box_selection_unsent = False
+                if had_focus:
+                    self._redraw_left_click_marks()
                 self.is_box_selecting = True
                 self.selection_box.set_data(
                     pos=np.zeros((5, 2), dtype=np.float32),
@@ -3572,13 +3580,22 @@ class MainViewer:
         self._redraw_left_click_marks()
         self.broadcast_event({"type": "highlight_row", "index": node_idx})
 
-    def clear_left_click_focus(self):
-        """Clear temporary click focus without changing command selection."""
+    def _left_click_focus_on(self):
+        """Whether a left click's focus (the halo, the Meta Data row, Tree View's ring) is on."""
+        return (getattr(self, 'selected_node_idx', None) is not None
+                or getattr(self, 'left_click_highlight_indices', None) is not None)
+
+    def clear_left_click_focus(self, redraw=True):
+        """Clear temporary click focus without changing command selection.
+
+        redraw=False leaves the markers to the caller's own redraw.
+        """
         self.selected_node_idx = None
         self.left_click_highlight_indices = None
         if getattr(self, 'tooltip', None) is not None:
             self.tooltip.text = ""
-        self._redraw_left_click_marks()
+        if redraw:
+            self._redraw_left_click_marks()
         self.broadcast_event({"type": "highlight_row", "index": None})
 
     def _redraw_left_click_marks(self):
@@ -3905,11 +3922,15 @@ class MainViewer:
         """A selection was made by hand: it is newer than every command given so far."""
         self.selection_epoch = getattr(self, 'selection_epoch', 0) + 1
 
-    def _show_selection_status(self):
-        """Say on the status line how many nodes a right-click or a box selection left selected."""
+    def _show_selection_status(self, had_selection=True):
+        """Say on the status line how many nodes a right-click or a box selection left selected.
+
+        "Selection cleared." only if a selection was cleared: had_selection=False says there
+        was none before the gesture (as well as after), and then nothing is shown.
+        """
         if self.selected_indices:
             self._show_click_status(Message("Selected %n node(s).", n=len(self.selected_indices)))
-        else:
+        elif had_selection:
             self._show_click_status(Message("Selection cleared."))
 
     def undo_by_hand(self):
@@ -4816,7 +4837,8 @@ class MainViewer:
         if getattr(self, 'is_box_selecting', False):
             self.is_box_selecting = False
             self.selection_box.visible = False
-            self._box_press = None  # no cancelling now
+            press, self._box_press = getattr(self, '_box_press', None), None  # no cancelling now
+            had_selection = bool(press[0]) if press is not None else True
             
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
@@ -4853,7 +4875,9 @@ class MainViewer:
 
             # Single click detection (no drag distance in screen pixels)
             if drag_dist_screen < CLICK_DISTANCE_PIXELS:
-                if 'Shift' not in event.modifiers:
+                # Over an empty selection a click changes nothing: no new selection for the
+                # commands (_note_hand_selection), no news for the pages, no redraw.
+                if 'Shift' not in event.modifiers and self.selected_indices:
                     self.selected_indices = []
                     self._note_hand_selection()
                     self.update_selection_visual()
@@ -4863,7 +4887,7 @@ class MainViewer:
                 self._box_selection_unsent = False
                 self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
 
-            self._show_selection_status()
+            self._show_selection_status(had_selection)
             self._resume_command_queue()
                 
             event.handled = True

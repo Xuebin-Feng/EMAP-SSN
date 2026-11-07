@@ -7033,7 +7033,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
     <message>
-        <location line="+322"/>
+        <location line="+330"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7083,7 +7083,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+572"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+585"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7105,12 +7105,12 @@ The whole output is in {log}.</source>
         </translation>
     </message>
     <message>
-        <location line="-345"/>
+        <location line="-358"/>
         <source>Clicked: {node}</source>
         <translation type="unfinished">已点击：{node}</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+360"/>
         <source>Selection cleared.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
@@ -15172,7 +15172,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2286"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2307"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -15237,7 +15237,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2089"/>
+        <location line="+2106"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
