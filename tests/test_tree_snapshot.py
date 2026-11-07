@@ -178,11 +178,29 @@ class NotInNetworkTests(SmallTreeCase):
         self.assertEqual(rows[9]["top_clusters"], [])  # no clusters in this Viewer
         self.assertEqual(rows[7]["leaves"], {"total": 3, "in_network": 3, "not_in_network": 0, "hidden": 0})
 
+    def test_outside_the_subset_counts_the_network_leaves_only(self):
+        (row,) = rows_of(self.query(contains=self.subset('"A" | "D"')))
+        self.assertEqual((row["clade"], row["leaves"]["total"], row["in_subset"], row["outside_subset"]), (9, 6, 2, 3))
+
     def test_the_lists_of_names(self):
         self.assertEqual(rows_of(self.query("query_tree_names", list="leaves_not_in_network")), [{"name": "F", "leaf": 8}])
         self.assertEqual(rows_of(self.query("query_tree_names", list="network_nodes_not_in_tree")), [{"name": "X", "index": 5}])
         for name in ("leaves_not_in_alignment", "ambiguous_names"):
             self.assertEqual(rows_of(self.query("query_tree_names", list=name)), [])
+
+
+class HiddenWithLeavesOutsideTests(SmallTreeCase):
+    """Node 0 (leaf A) is hidden, and leaf F is no node of the network: F is not hidden, it is not there."""
+
+    headers = list("ABCDE") + ["X"]
+
+    def test_a_leaf_outside_the_network_is_not_counted_hidden(self):
+        self.viewer.visible_mask = np.array([False, True, True, True, True, True])
+        sid = self.service.capture_snapshot(parts={"tree": {"tree_source": "uploaded"}})
+        rows = {row["clade"]: row["leaves"] for row in self.store.execute("query_clades", sid)["rows"]}
+        self.assertEqual(rows[9], {"total": 6, "in_network": 5, "not_in_network": 1, "hidden": 1})
+        self.assertEqual(rows[2]["hidden"], 1)
+        self.assertEqual(rows[7]["hidden"], 0)
 
 
 class HiddenAndClusterTests(SmallTreeCase):
