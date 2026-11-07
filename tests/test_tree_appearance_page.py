@@ -61,11 +61,13 @@ SPY_ALL = SPY + """
     };
     const restoreAll = () => { restore(); Object.assign(protoAll, rectOriginal); };
     const same = (a, b) => a.length === b.length && a.every((value, k) => value === b[k]);
-    // The fills of the marks of a leaf (an arc as big as a mark, not a dot), by colour.
+    // The colours of the rings of a leaf (circles as big as a mark, stroked), in the order they were drawn. A ring is
+    // stroked in several one-device-pixel passes of the same colour, side by side; they count as one.
     const marksOf = (k) => {
         const s = TreeView.state, b = TreeView.nodePixels(s, s.model.leafNode[k]);
-        return drawn.filter(e => e.op === 'fill' && e.main && e.parts.some(p => p[0] === 'a' && p[3] >= 3.4 && Math.abs(p[1] - b.x) < 0.01 && Math.abs(p[2] - b.y) < 0.01))
+        const styles = drawn.filter(e => e.op === 'stroke' && e.main && e.parts.some(p => p[0] === 'a' && p[3] >= 2.9 && p[3] <= 9 && Math.abs(p[1] - b.x) < 0.01 && Math.abs(p[2] - b.y) < 0.01))
             .map(e => e.style);
+        return styles.filter((style, i) => i === 0 || !same(style, styles[i - 1]));
     };
 """
 

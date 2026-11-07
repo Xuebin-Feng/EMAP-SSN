@@ -801,7 +801,7 @@ window.TreeView = window.TreeView || {};
         return drawn;
     };
 
-    // The selection the network has, over the tree: the smallest clade that holds it, outlined; a solid dot (or a short
+    // The selection the network has, over the tree: the smallest clade that holds it, outlined; a hollow ring (or a short
     // tick where the rows are thin) at the tip of each selected leaf that is in view; a ring round the leaf with the
     // click focus. A leaf inside a folded clade has no tip: the clade's shape is outlined instead (paintTree).
     // Returns how many leaves were marked.
@@ -829,7 +829,7 @@ window.TreeView = window.TreeView || {};
                 ctx.strokeStyle = palette.label;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(x, y, 9, 0, 2 * Math.PI);
+                ctx.arc(x, y, TV.FOCUS_RING_RADIUS, 0, 2 * Math.PI);
                 ctx.stroke();
             }
         }
@@ -844,12 +844,19 @@ window.TreeView = window.TreeView || {};
         return lowerBound(leaves, leaf);
     }
 
-    // A dot at the tip of each of the sorted `leaves` that is in view, in `color`, with a thin outline in the branch colour
-    // so that it can be seen on any page; a short tick where the rows are thin or there are very many. A leaf inside a
-    // folded clade, or left out, has no tip. Returns how many were marked.
+    // How thick, in CSS pixels, the ring round a selected or connected leaf is: wide enough to read on a light page
+    // and on a dark one with no second outline beside it.
+    TV.MARK_RING_PX = 2;
+    // The radius of the ring round the leaf with the click focus: clear of a selection's ring, whose outer edge is at
+    // most 9 (radius 8 and 2 pixels thick).
+    TV.FOCUS_RING_RADIUS = 11;
+
+    // A ring at the tip of each of the sorted `leaves` that is in view, in `color`, hollow so that what is under it
+    // (a match's soft fill, the branch) shows through; a short tick where the rows are thin or there are very many. A
+    // leaf inside a folded clade, or left out, has no tip. Returns how many were marked.
     TV.drawLeafMarks = function (ctx, scene, leaves, color, width, height) {
         if (!leaves.length) return 0;
-        const { model, layout, view, palette } = scene;
+        const { model, layout, view } = scene;
         const rectangular = layout.kind === "rectangular";
         const hidden = scene.leafHidden;
         const live = layout.live;
@@ -858,6 +865,7 @@ window.TreeView = window.TreeView || {};
         const size = rectangular ? view.sy : TV.leafDetail(layout, view, 1).size;
         const radius = Math.min(8, Math.max(3.5, size * 0.45));
         const path = new Path2D();
+        const centres = [];
         // Thin marks that would land on the same pixel are drawn once: 44,000 selected leaves cost a screenful.
         const seen = new Set();
         let marked = 0;
@@ -876,20 +884,38 @@ window.TreeView = window.TreeView || {};
                 seen.add(key);
                 if (rectangular) path.rect(x, y - 1, 14, 2); else path.rect(x - 1.5, y - 1.5, 3, 3);
             } else {
-                path.moveTo(x + radius, y);
-                path.arc(x, y, radius, 0, 2 * Math.PI);
+                centres.push(x, y);
             }
             marked++;
         }
-        ctx.fillStyle = color;
-        ctx.fill(path);
-        if (!thin && marked) {
-            ctx.strokeStyle = palette.branch;
-            ctx.lineWidth = 1;
-            ctx.stroke(path);
+        if (thin) {
+            ctx.fillStyle = color;
+            ctx.fill(path);
+            return marked;
         }
+        if (centres.length) strokeRings(ctx, centres, radius, TV.MARK_RING_PX, color);
         return marked;
     };
+
+    // Rings of `radius` and `thickness` (CSS pixels) round the points in `centres` (x, y pairs). Skia draws a stroke of
+    // one device pixel or less on the GPU as a hairline, and a thicker one for many circles through the CPU (about
+    // 125 ms for a screenful at a device pixel ratio of 2), so a thick ring is made of one-device-pixel circles, side by
+    // side across its thickness: the same ink as the thick stroke, a hairline each.
+    function strokeRings(ctx, centres, radius, thickness, color) {
+        const ratio = window.devicePixelRatio || 1;
+        const passes = Math.max(1, Math.min(8, Math.round(thickness * ratio)));
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1 / ratio;
+        for (let k = 0; k < passes; k++) {
+            const r = radius + (k - (passes - 1) / 2) / ratio;
+            const path = new Path2D();
+            for (let i = 0; i < centres.length; i += 2) {
+                path.moveTo(centres[i] + r, centres[i + 1]);
+                path.arc(centres[i], centres[i + 1], r, 0, 2 * Math.PI);
+            }
+            ctx.stroke(path);
+        }
+    }
 
     // The outline of clade `node` (or of the folded clade that holds it, which is what is drawn of it): dashed, in the
     // selection's colour.

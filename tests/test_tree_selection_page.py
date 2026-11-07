@@ -41,7 +41,7 @@ DRAWING_SPY = """
     const log = [];
     const entry = (op, context, extra) => {
         if (context.canvas.id !== 'tree-canvas') return;
-        log.push({op, style: TreeView.rgbOf(context.strokeStyle), dashed: context.getLineDash().length > 0, ...extra});
+        log.push({op, style: TreeView.rgbOf(context.strokeStyle), width: context.lineWidth, dashed: context.getLineDash().length > 0, ...extra});
     };
     proto.stroke = function () { entry('stroke', this, {}); return original.stroke.apply(this, arguments); };
     proto.strokeRect = function (x, y, w, h) { entry('strokeRect', this, {x, y, w, h}); return original.strokeRect.apply(this, arguments); };
@@ -276,7 +276,7 @@ class FollowTheNetworkTests(SelectionCase):
 class ShownOnTheTreeTests(SelectionCase):
     """The selection is drawn in every layout."""
 
-    def test_selected_leaves_are_dots_in_the_selection_colour_in_every_layout(self):
+    def test_selected_leaves_are_hollow_rings_in_the_selection_colour_in_every_layout(self):
         self.start()
         self.select(self.nodes_of([3, 4, 5, 6]))
         for kind in KINDS:
@@ -285,14 +285,20 @@ class ShownOnTheTreeTests(SelectionCase):
                 result = self.script("""
                     const s = TreeView.state, v = s.view, L = s.layout, m = s.model;
                     const stats = TreeView.drawNow();
-                    const at = (k) => { const n = m.leafNode[k]; return fire.pixel(v.ox + L.x[n] * v.sx, v.oy + L.y[n] * v.sy); };
-                    return {marked: stats.selected, wanted: TreeView.rgbOf(s.marks.selected), picked: [3, 4, 5, 6].map(at),
-                            others: [0, 12, 25, 39].map(at)};""")
+                    const wanted = TreeView.rgbOf(s.marks.selected);
+                    // The pixels round a tip, 10 pixels out each way: a ring has none in colour at its centre.
+                    const line = (k) => { const n = m.leafNode[k], x = Math.round(v.ox + L.x[n] * v.sx), y = Math.round(v.oy + L.y[n] * v.sy);
+                        const out = []; for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) out.push([dx, dy, fire.pixel(x + dx, y + dy).slice(0, 3)]);
+                        return out; };
+                    const coloured = (k) => line(k).filter(([dx, dy, p]) => p.every((c, i) => Math.abs(c - wanted[i]) < 40)).map(([dx, dy]) => [dx, dy]);
+                    return {marked: stats.selected, thin: L.kind === 'rectangular' && v.sy < 6, picked: [3, 4, 5, 6].map(coloured), others: [0, 12, 25, 39].map(coloured)};""")
                 self.assertEqual(result["marked"], 4)
-                for pixel in result["picked"]:
-                    self.assertEqual(pixel[:3], result["wanted"])
-                for pixel in result["others"]:
-                    self.assertNotEqual(pixel[:3], result["wanted"])
+                for hits in result["picked"]:
+                    self.assertTrue(hits, "a mark in the selection colour at the tip")
+                    if not result["thin"] and kind != "unrooted":  # unrooted rings of neighbouring tips can cross
+                        self.assertNotIn([0, 0], hits, "hollow: the tip itself is not filled")
+                for hits in result["others"]:
+                    self.assertEqual(hits, [])
 
     def test_the_selection_colour_is_the_viewers_and_differs_from_the_searchs(self):
         self.start()
@@ -359,13 +365,13 @@ class ShownOnTheTreeTests(SelectionCase):
                 self.focus(node)
                 found = self.spied("""
                     const n = TreeView.state.model.leafNode[12], v = TreeView.state.view, L = TreeView.state.layout;
-                    const ring = log.filter(e => e.op === 'arc' && e.r === 9);
+                    const ring = log.filter(e => e.op === 'arc' && e.r === 11);
                     return {rings: ring.length, x: ring[0] && ring[0].x - (v.ox + L.x[n] * v.sx), y: ring[0] && ring[0].y - (v.oy + L.y[n] * v.sy)};""")
                 self.assertEqual(found["rings"], 1)
                 self.assertAlmostEqual(found["x"], 0, delta=0.01)
                 self.assertAlmostEqual(found["y"], 0, delta=0.01)
                 self.clear_focus()
-                self.assertEqual(self.spied("return log.filter(e => e.op === 'arc' && e.r === 9).length"), 0)
+                self.assertEqual(self.spied("return log.filter(e => e.op === 'arc' && e.r === 11).length"), 0)
 
     def test_the_focus_follows_highlight_row_and_the_selection_does_not_move_it(self):
         self.start()
@@ -402,7 +408,7 @@ class ShownOnTheTreeTests(SelectionCase):
         other = self.state("""(() => { const m = TreeView.state.model;
             for (let i = 0; i < m.nodeCount; i++) if (m.childCount[i] > 1 && m.firstLeaf[i] >= 20 && m.lastLeaf[i] - m.firstLeaf[i] >= 2) return i; return -1; })()""")
         self.script(f"TreeView.openAll(); TreeView.toggleFold({other}); return 1")
-        self.assertEqual(self.spied("return log.filter(e => e.op === 'stroke' && same(e.style, selectedRgb()) && !e.dashed).length"), 0)
+        self.assertEqual(self.spied("return log.filter(e => e.op === 'stroke' && same(e.style, selectedRgb()) && !e.dashed && e.width > 1).length"), 0)
 
     def test_the_overview_and_the_ruler_show_the_selection(self):
         self.start()
@@ -421,7 +427,7 @@ class ShownOnTheTreeTests(SelectionCase):
 
     def test_an_unselected_page_draws_nothing_of_the_selection(self):
         self.start()
-        self.assertEqual(self.spied("return [log.filter(e => e.dashed).length, log.filter(e => e.op === 'arc' && e.r === 9).length, TreeView.lastStats.selected]"), [0, 0, 0])
+        self.assertEqual(self.spied("return [log.filter(e => e.dashed).length, log.filter(e => e.op === 'arc' && e.r === 11).length, TreeView.lastStats.selected]"), [0, 0, 0])
         self.assertEqual(self.console_errors(), [])
 
     def test_a_selection_in_a_thin_layout_is_drawn_once_a_pixel(self):
