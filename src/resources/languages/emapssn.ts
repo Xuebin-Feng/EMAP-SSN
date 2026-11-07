@@ -9377,6 +9377,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Leaves whose sequence is not in the loaded alignment: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The leaves and nodes the warnings count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer could not list them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No leaf of this tree is a node of the network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10325,6 +10337,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Warnings about the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>List the leaves and the nodes these warnings count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Tree beside the network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10541,6 +10565,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Tree View does not know a tree called {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree View needs the name of one tree.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

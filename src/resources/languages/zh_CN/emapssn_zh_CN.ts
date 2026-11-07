@@ -13561,7 +13561,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+7"/>
-        <location filename="../../../web_ui/tree_session.js" line="+775"/>
+        <location filename="../../../web_ui/tree_session.js" line="+879"/>
         <source>{count} groups share no kept edge</source>
         <translation type="unfinished">{count} 个组之间没有保留的边</translation>
     </message>
@@ -13596,7 +13596,7 @@ Fedora / RHEL：
         <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="-637"/>
+        <location filename="../../../web_ui/tree_session.js" line="-735"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13652,7 +13652,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/tree.html" line="+601"/>
+        <location filename="../../../web_ui/tree.html" line="+608"/>
         <source>Open a tree file</source>
         <translation type="unfinished">打开树文件</translation>
     </message>
@@ -13810,13 +13810,13 @@ Fedora / RHEL：
     <message>
         <location line="-9"/>
         <location line="+10"/>
-        <location line="+211"/>
+        <location line="+315"/>
         <location line="+44"/>
         <source>Back to the tree</source>
         <translation type="unfinished">返回树</translation>
     </message>
     <message>
-        <location line="-258"/>
+        <location line="-362"/>
         <source>The Viewer did not take this tree</source>
         <translation type="unfinished">查看器未接收这棵树</translation>
     </message>
@@ -13833,11 +13833,13 @@ Fedora / RHEL：
     <message>
         <location line="+4"/>
         <location line="+1"/>
+        <location line="+109"/>
+        <location line="+1"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-102"/>
         <source>{matched} of the {leaves} leaves of {file} are nodes of this network.</source>
         <translation type="unfinished">{file} 的 {leaves} 个叶节点中，有 {matched} 个是此网络的节点。</translation>
     </message>
@@ -13853,37 +13855,58 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
+        <location line="+74"/>
         <source>Leaves that are not in the network: {count}</source>
         <translation type="unfinished">不在网络中的叶节点：{count}</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-73"/>
+        <location line="+74"/>
         <source>Nodes of the network that are not in the tree: {count}</source>
         <translation type="unfinished">不在树中的网络节点：{count}</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-71"/>
+        <location line="+73"/>
         <source>Leaves whose name reaches a node that another leaf has too, left unmatched: {count}</source>
         <translation type="unfinished">名称对应的节点也被另一个叶节点对应，因而未匹配的叶节点：{count}</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-65"/>
         <location line="+3"/>
         <source>Leaves that are not in the network</source>
         <translation type="unfinished">不在网络中的叶节点</translation>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+42"/>
         <source>... and {count} more</source>
         <translation type="unfinished">……另有 {count} 个</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-35"/>
+        <location line="+41"/>
         <source>Copy the list</source>
         <translation type="unfinished">复制列表</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+12"/>
+        <source>Leaves whose sequence is not in the loaded alignment: {count}</source>
+        <translation type="unfinished">序列不在已加载比对中的叶节点：{count}</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location filename="../../../web_ui/tree.html" line="+60"/>
+        <source>The leaves and nodes the warnings count</source>
+        <translation type="unfinished">警告所统计的叶节点和节点</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>The Viewer could not list them.</source>
+        <translation type="unfinished">查看器无法列出它们。</translation>
+    </message>
+    <message>
+        <location line="+51"/>
         <source>No leaf of this tree is a node of the network</source>
         <translation type="unfinished">这棵树没有任何叶节点是网络的节点</translation>
     </message>
@@ -14080,13 +14103,13 @@ Fedora / RHEL：
         <translation type="unfinished">按中点根绘制；树本身是无根的。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+30"/>
         <location line="+1"/>
         <source>Hide this note</source>
         <translation type="unfinished">隐藏此提示</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+116"/>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
         <translation type="unfinished">{leaves} 个叶节点，其中 {shown} 个是此网络的节点</translation>
     </message>
@@ -14421,7 +14444,7 @@ Fedora / RHEL：
         <translation type="unfinished">没有共享保留边的各组挂在最低得分之下的同一个根上；断开的分支表示它们的长度不对应任何得分。</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+92"/>
         <source>No match</source>
         <translation type="unfinished">无匹配</translation>
     </message>
@@ -14442,7 +14465,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+0"/>
-        <location filename="../../../web_ui/tree.html" line="+3"/>
+        <location filename="../../../web_ui/tree.html" line="-57"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
@@ -14457,20 +14480,20 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_open.js" line="-334"/>
+        <location filename="../../../web_ui/tree_open.js" line="-438"/>
         <location filename="../../../web_ui/tree_session.js" line="+57"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
         <location filename="../../../web_ui/tree_session.js" line="+2"/>
-        <location filename="../../../web_ui/tree.html" line="+66"/>
+        <location filename="../../../web_ui/tree.html" line="+70"/>
         <source>Copy the path</source>
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-648"/>
-        <location line="+568"/>
+        <location filename="../../../web_ui/tree.html" line="-659"/>
+        <location line="+575"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
@@ -14591,7 +14614,22 @@ Fedora / RHEL：
         <translation type="unfinished">支序图</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+10"/>
+        <source>Warnings about the tree</source>
+        <translation type="unfinished">关于这棵树的警告</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>List the leaves and the nodes these warnings count</source>
+        <translation type="unfinished">列出这些警告所统计的叶节点和节点</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Show Details</source>
+        <translation type="unfinished">显示详情</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Tree beside the network</source>
         <translation type="unfinished">网络旁的树</translation>
     </message>
@@ -14601,7 +14639,7 @@ Fedora / RHEL：
         <translation type="unfinished">在树放大时，用进化枝上的圆点显示每个分裂在距离噪声下的稳定程度</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-20"/>
         <source>Open every clade that is folded up</source>
         <translation type="unfinished">展开所有已折叠的进化枝</translation>
     </message>
@@ -14660,7 +14698,7 @@ Fedora / RHEL：
         <translation type="obsolete">已加载比对的引导树</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+10"/>
         <source>The whole tree. Press or drag to move there.</source>
         <translation type="unfinished">整棵树。按下或拖动可移动到该处。</translation>
     </message>
@@ -14705,7 +14743,7 @@ Fedora / RHEL：
         <translation type="unfinished">已打开的树与网络的匹配情况</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Loading the tree...</source>
         <translation type="unfinished">正在加载树…</translation>
     </message>
@@ -15331,12 +15369,18 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+830"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+843"/>
+        <location line="+56"/>
         <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
     </message>
     <message>
-        <location line="+401"/>
+        <location line="+49"/>
+        <source>Tree View needs the name of one tree.</source>
+        <translation type="unfinished">树视图需要指定一棵树的名称。</translation>
+    </message>
+    <message>
+        <location line="+381"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>
