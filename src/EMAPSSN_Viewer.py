@@ -3561,9 +3561,9 @@ class MainViewer:
             group_text = ", ".join(sorted(self.group_labels[node_idx]))
             label = Message("{node} [Groups: {groups}]", node=label, groups=group_text)
 
-        print(f"Node Selected: {self.full_headers[node_idx]}")
+        print(f"Node clicked: {self.full_headers[node_idx]}")
         if getattr(self, 'console_text', None) is not None:
-            self._show_click_status(Message("Selected: {node}", node=label))
+            self._show_click_status(Message("Clicked: {node}", node=label))
 
         for display in getattr(self, 'hud_displays', {}).values():
             if getattr(display, 'on_node_clicked', None):

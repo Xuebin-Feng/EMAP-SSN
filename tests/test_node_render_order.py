@@ -4,6 +4,8 @@ marker order and click rings, picking as the inverse of the submitted order,
 left-click focus, command promotions, order resets, box-selection timing and
 clicks while a command is being typed."""
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -412,13 +414,19 @@ class LeftClickFocusTests(unittest.TestCase):
         self.assertEqual(viewer.tooltip.text, "")
         self.assertEqual(
             viewer.console_text.text,
-            "Selected: [Cluster 7] B [Groups: alpha, beta]",
+            "Clicked: [Cluster 7] B [Groups: alpha, beta]",
         )
         display.on_node_clicked.assert_called_once_with(1)
         viewer.update_nodes.assert_called_once_with()
         viewer.broadcast_event.assert_called_once_with(
             {"type": "highlight_row", "index": 1}
         )
+
+    def test_the_console_line_says_the_node_was_clicked(self):
+        viewer, _display = self.make_viewer()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            viewer.apply_left_click_focus(1)
+        self.assertEqual(out.getvalue(), "Node clicked: B\n")
 
     def test_clear_left_click_focus_preserves_command_selection(self):
         viewer, _display = self.make_viewer()
@@ -448,7 +456,7 @@ class LeftClickFocusTests(unittest.TestCase):
         viewer.update_nodes.assert_not_called()
         self.assertIsNone(viewer.selected_node_idx)
         self.assertEqual(viewer.tooltip.text, "")
-        self.assertEqual(viewer.console_text.text, "Selected: [Cluster 7] B [Groups: alpha, beta]")
+        self.assertEqual(viewer.console_text.text, "Clicked: [Cluster 7] B [Groups: alpha, beta]")
         display.on_node_clicked.assert_called_once_with(1)
         self.assertEqual(
             viewer.broadcast_event.call_args_list,
@@ -789,14 +797,16 @@ class ClicksWhileTypingTests(unittest.TestCase):
             "right-click empty space": ({"selected": []}, "Selection cleared."),
             "shift-click a node": ({"copied": [mock.call("A first")]}, "Copied: A first"),
             "shift-double-click a node": ({"copied": [mock.call("MKV")]}, "Copied sequence of: A"),
-            "ctrl-click a node": ({"copied": [], "focused": 0}, "Selected: A first"),
-            "left-click a node": ({"focused": 2}, "Selected: C"),
+            "ctrl-click a node": ({"copied": [], "focused": 0}, "Clicked: A first"),
+            "left-click a node": ({"focused": 2}, "Clicked: C"),
             "hover a node": ({"hovered": 1}, ""),
         }
         self.assertEqual(expected.keys(), self.GESTURES.keys())
         for gesture, (changes, line) in expected.items():
             with self.subTest(gesture=gesture):
                 viewer = self.make_viewer(typing=True)
+                if gesture == "right-click empty space":
+                    viewer.selected_indices = [1]  # Over an empty selection a click says nothing.
                 clipboard = self.run_gesture(viewer, self.GESTURES[gesture])
                 state = self.state(viewer, clipboard)
                 self.assertEqual({key: state[key] for key in changes}, changes)

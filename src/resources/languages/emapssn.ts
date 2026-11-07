@@ -5148,7 +5148,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Selected: {node}</source>
+        <source>Clicked: {node}</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">

@@ -7069,9 +7069,8 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{node} [分组：{groups}]</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Selected: {node}</source>
-        <translation type="unfinished">已选择：{node}</translation>
+        <translation type="obsolete">已选择：{node}</translation>
     </message>
     <message>
         <location filename="../../../web_ui/plugins/meta.py" line="+13"/>
@@ -7084,7 +7083,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+568"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+572"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7106,7 +7105,12 @@ The whole output is in {log}.</source>
         </translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-345"/>
+        <source>Clicked: {node}</source>
+        <translation type="unfinished">已点击：{node}</translation>
+    </message>
+    <message>
+        <location line="+347"/>
         <source>Selection cleared.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>

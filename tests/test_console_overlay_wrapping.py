@@ -647,9 +647,9 @@ class CommandCaretTests(unittest.TestCase):
         viewer = self.make_typing_viewer("select cluster", 3)
         viewer._update_console_text()
         placed = viewer.command_caret.shown
-        viewer._show_click_status(Message("Selected: {node}", node="Alpha"))
+        viewer._show_click_status(Message("Clicked: {node}", node="Alpha"))
         self.assertTrue(viewer.console_text.text.startswith("Cmd: select cluster"))
-        self.assertIn("Selected: Alpha", viewer.console_text.text)
+        self.assertIn("Clicked: Alpha", viewer.console_text.text)
         self.assertEqual(viewer.command_caret.shown, placed)
         # The next key shows the command alone again, with the caret where the key puts it.
         self.key(viewer, "Right")
