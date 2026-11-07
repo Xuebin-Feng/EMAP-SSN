@@ -13475,7 +13475,7 @@ Fedora / RHEL：
 <context>
     <name>TreePage</name>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+760"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+794"/>
         <source>Cluster {id}</source>
         <translation type="unfinished">簇 {id}</translation>
     </message>
@@ -13587,13 +13587,21 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+65"/>
-        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.</source>
+        <translation type="unfinished">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击或右键拖动：在网络中选择。</translation>
     </message>
     <message>
         <location line="+2"/>
+        <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.</source>
+        <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击或右键拖动：在网络中选择。</translation>
+    </message>
+    <message>
+        <source>Wheel: zoom. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
+        <translation type="obsolete">滚轮：缩放。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+    </message>
+    <message>
         <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click: select in the network.</source>
-        <translation type="unfinished">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
+        <translation type="obsolete">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/tree_session.js" line="-735"/>
