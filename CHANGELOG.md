@@ -178,7 +178,9 @@ still change before version 1.0.0.
   `settings_document`, the same partial overlay a `settings_path` file holds, so an agent
   that cannot write files can name the network, sequences, alignment and layout cache on a
   computer with no inputs saved in Config. A plain file name is found in its default
-  folder. When the inputs are missing, the error now says how to name them.
+  folder. With no edge filter saved either, the export uses the newest layout cache built
+  from those same files, and when there is none it says how to make or name one. When the
+  inputs are missing, the error now says how to name them.
   `create_subset` describes how expressions are written (`#cluster_1#`, `#clade:3#`,
   `{Length>500}`, ...), and `summarize_subset` says it gives cluster and group sizes, which
   an agent in a test looked for elsewhere.
