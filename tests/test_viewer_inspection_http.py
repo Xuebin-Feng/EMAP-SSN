@@ -122,7 +122,84 @@ class SnapshotHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         self.assertEqual(events[0],('capture',threading.get_ident()))
         self.assertTrue(all(t!=threading.get_ident() for kind,t in events if kind=='execute'))
 
+class SnapshotPartHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
+    """What the inspection route serves comes from the registry's snapshot parts, not from the server."""
+    def declare(self, **changes):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+        self.captures = []
+        def capture(viewer, options, budget):
+            self.captures.append(dict(options))
+            return {'summary': {'options': dict(options)}, 'values': [10, 20, 30]}
+        arguments = dict(overview=lambda viewer: {'ready': True}, capture=capture,
+                         queries={'query_clades': lambda frozen, snapshot, indices, args: ({'v': v} for v in frozen['values'])},
+                         summary_arguments={'include_tree': 'switch', 'tree_source': 'option'}, capability='tree_snapshots_v1')
+        arguments.update(changes)
+        registry = self.viewer.web_plugin_registry = WebPluginRegistry(self.viewer)
+        registry.register_snapshot_part('demo', 'tree', **arguments)
+    def setUp(self):
+        super().setUp()
+        self.session_url = self.url
+        self.declare()
+    def test_a_declared_query_is_served_and_the_part_arguments_reach_its_capture(self):
+        summary = self.request('get_summary', {'include_tree': True, 'tree_source': 'guide'})
+        self.assertEqual(summary['status'], 200, summary)
+        self.assertEqual(self.captures, [{'tree_source': 'guide'}])
+        self.assertEqual(summary['payload']['parts']['tree']['captured'], {'options': {'tree_source': 'guide'}})
+        self.assertIn('tree_snapshots_v1', summary['payload']['capabilities'])
+        page = self.request('query_clades', {'snapshot_id': summary['payload']['snapshot_id'], 'limit': 2})
+        self.assertEqual(page['status'], 200, page)
+        self.assertEqual(page['payload']['rows'], [{'v': 10}, {'v': 20}])
+        self.assertIsNotNone(page['payload']['next_cursor'])
+    def test_the_option_without_its_switch_is_refused_and_the_default_captures_no_part(self):
+        self.assertEqual(self.request('get_summary', {'tree_source': 'guide'})['status'], 400)
+        summary = self.request('get_summary')
+        self.assertEqual(summary['status'], 200, summary)
+        self.assertEqual(self.captures, [])
+        self.assertEqual(summary['payload']['parts'], {'tree': {'ready': True}})
+        answer = self.request('query_clades', {'snapshot_id': summary['payload']['snapshot_id']})
+        self.assertEqual(answer['status'], 400)
+        self.assertIn('include_tree=true', answer['payload']['error'])
+    def test_an_action_no_part_declares_is_refused_with_the_registry_or_without_one(self):
+        self.assertEqual(self.request('query_tree_names', {'snapshot_id': 'x', 'list': 'leaves_not_in_network'})['status'], 400)
+        self.assertEqual(self.request('query_tree_names', {'snapshot_id': 'x', 'list': 'leaves_not_in_network'})['payload']['error'],
+                         'Unknown read-only inspection action')
+        self.viewer.web_plugin_registry = None
+        for action, args in (('query_clades', {'snapshot_id': 'x'}), ('get_summary', {'include_tree': True})):
+            result = self.request(action, args)
+            self.assertEqual(result['status'], 400, result)
+        self.assertIn('Unknown read-only inspection action', self.request('query_clades', {'snapshot_id': 'x'})['payload']['error'])
+        self.assertIn('does not support: include_tree', self.request('get_summary', {'include_tree': True})['payload']['error'])
+    def test_a_part_that_refuses_to_capture_answers_400_with_its_words(self):
+        self.declare(capture=mock.Mock(side_effect=ValueError('The guide tree cannot be shown.')))
+        result = self.request('get_summary', {'include_tree': True})
+        self.assertEqual((result['status'], result['payload']['error']), (400, 'The guide tree cannot be shown.'))
+    def test_the_session_names_the_capabilities_the_parts_declare(self):
+        outcome = {}
+        def work():
+            request = urllib.request.Request(self.session_url.replace('/data', '/session'), headers={'Authorization': 'Bearer ' + self.server.inspection_token})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                outcome.update(json.loads(response.read()))
+        thread = threading.Thread(target=work); thread.start()
+        deadline = time.monotonic() + 12
+        while thread.is_alive() and time.monotonic() < deadline:
+            self.app.processEvents(); thread.join(.01)
+        self.assertIn('tree_snapshots_v1', outcome['inspection_capabilities'])
+        self.assertIn('snapshots_v1', outcome['inspection_capabilities'])
+
 class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_the_tree_needs_its_capability(self):
+        client = MCPViewerClient()
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace()), mock.patch.object(client, '_request', return_value={'inspection_capabilities':['snapshots_v1']}) as request:
+            for action, args in [('get_summary', {'include_tree':True}), ('query_clades', {'snapshot_id':'s'}), ('query_tree_names', {'snapshot_id':'s', 'list':'leaves_not_in_network'})]:
+                with self.assertRaisesRegex(MCPViewerError, 'upgrade and restart'):
+                    await client.inspect_data(action, args, 'explicit')
+            self.assertEqual(request.call_count, 3)
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace()), mock.patch.object(client, '_request', return_value={'inspection_capabilities':['snapshots_v1', 'tree_snapshots_v1']}) as request:
+            await client.inspect_data('get_summary', {'include_tree': True}, 'explicit')
+            self.assertEqual(request.call_args.args[1], '/api/mcp/v1/data')
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace()), mock.patch.object(client, '_request', return_value={'inspection_capabilities':['snapshots_v1']}) as request:
+            await client.inspect_data('get_summary', {'include_tree': False, 'tree_source': None}, 'explicit')
+            self.assertEqual(request.call_count, 2)
     async def test_attached_log_error_directs_to_command_output(self):
         client = MCPViewerClient()
         with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace(launch_id=None)):

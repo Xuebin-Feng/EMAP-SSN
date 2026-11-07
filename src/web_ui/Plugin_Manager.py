@@ -46,6 +46,9 @@ _CALLABLE_RE = re.compile(r"^[A-Za-z_]\w*$")
 _REQUIRED_MANIFEST_KEYS = frozenset({"api_version", "id", "backend", "register"})
 _OPTIONAL_MANIFEST_KEYS = frozenset({"pages"})
 _RESERVED_ROUTE_PREFIXES = ("/api/", "/fonts/")
+_PART_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+# The arguments of the summary action that the Viewer itself reads: a part may not declare them.
+INSPECTION_ARGUMENTS = frozenset({"include_visual", "include_alignment", "max_bytes", "session_id"})
 
 # The names after /api/ that the web server answers itself (the event stream,
 # the page actions and the MCP bridge). A plugin of such a name may not register
@@ -200,6 +203,34 @@ class WebPageDescriptor:
     def csp_additions(self) -> dict:
         """The relaxations as {directive: sources joined by spaces}, in the manifest's order."""
         return {directive: " ".join(sources) for directive, sources in self.csp}
+
+
+@dataclass(frozen=True)
+class SnapshotPart:
+    """One piece a plugin adds to an inspection snapshot (register_snapshot_part).
+
+    ``overview(viewer)`` is a small mapping shown in every snapshot's summary, so it
+    must stay cheap. ``capture(viewer, options, budget_bytes)`` runs on the Viewer's Qt
+    thread when a snapshot asks for the part, and returns a dict that holds the frozen
+    data and a small ``summary`` dict; the snapshot keeps it and charges its size to the
+    snapshot's memory budget. ``queries`` maps an inspection action name to
+    ``handler(frozen, snapshot_data, indices, args)``, which returns the rows of a page.
+    ``summary_arguments`` maps each argument of the summary action the part reads to
+    "switch" (asks for the part; exactly one) or "option" (what the capture takes, by that
+    name). ``capability`` is what a client checks before asking.
+    """
+
+    plugin_id: str
+    name: str
+    overview: Callable
+    capture: Callable
+    queries: Mapping
+    summary_arguments: Mapping
+    capability: str
+
+    @property
+    def switch(self) -> str:
+        return next(argument for argument, role in self.summary_arguments.items() if role == "switch")
 
 
 @dataclass(frozen=True)
@@ -523,6 +554,7 @@ class WebPluginRegistry:
         self._action_owners: dict[str, str] = {}
         self._route_owners: dict[str, str] = {}
         self._state_providers: dict[tuple[str, str], Callable] = {}
+        self._snapshot_parts: dict[str, SnapshotPart] = {}
         self._page_files: dict[str, WebPageDescriptor] = {}
         self._i18n_files: dict[str, tuple[str, str]] = {}
         self.registered_plugins: set[str] = set()
@@ -659,6 +691,84 @@ class WebPluginRegistry:
             raise WebPluginError(f"state provider '{name}' is not callable")
         self._state_providers[(plugin_id, name)] = provider
 
+    def register_snapshot_part(
+        self, plugin_id: str, name: str, *, overview: Callable, capture: Callable,
+        queries: Mapping, summary_arguments: Mapping, capability: str | None = None,
+    ):
+        """Add a part to the Viewer's inspection snapshots (SnapshotPart says what each argument is).
+
+        A plugin registering its own part again replaces it, as for an action. The part's
+        query names must not be an inspection action the Viewer itself answers, nor
+        another part's, and its summary arguments must be new ones. The capability
+        defaults to ``<name>_snapshots_v1``.
+        """
+        from desktop.Viewer_Inspection import INSPECTION_ACTIONS
+
+        self._validate_registration_owner(plugin_id)
+        if not isinstance(name, str) or not _PART_NAME_RE.match(name):
+            raise WebPluginError("snapshot-part name must be lowercase letters, digits and underscores")
+        for what, function in (("overview", overview), ("capture", capture)):
+            if not callable(function):
+                raise WebPluginError(f"snapshot part '{name}' {what} is not callable")
+        if not isinstance(queries, Mapping):
+            raise WebPluginError(f"snapshot part '{name}' queries must be a mapping")
+        if not isinstance(summary_arguments, Mapping) or not all(
+            isinstance(argument, str) and argument.strip() and role in ("switch", "option")
+            for argument, role in summary_arguments.items()
+        ):
+            raise WebPluginError(f"snapshot part '{name}' summary_arguments must map argument names to 'switch' or 'option'")
+        if list(summary_arguments.values()).count("switch") != 1:
+            raise WebPluginError(f"snapshot part '{name}' needs exactly one 'switch' summary argument")
+        capability = f"{name}_snapshots_v1" if capability is None else capability
+        if not isinstance(capability, str) or not capability.strip():
+            raise WebPluginError(f"snapshot part '{name}' capability must be a non-empty string")
+        existing = self._snapshot_parts.get(name)
+        if existing is not None and existing.plugin_id != plugin_id:
+            raise WebPluginError(f"snapshot part '{name}' is already registered by plugin '{existing.plugin_id}'")
+        others = [part for part in self._snapshot_parts.values() if part.name != name]
+        for query, handler in queries.items():
+            if not isinstance(query, str) or not _PART_NAME_RE.match(query) or not callable(handler):
+                raise WebPluginError(f"snapshot part '{name}' query '{query}' needs a plain name and a callable handler")
+            if query in INSPECTION_ACTIONS:
+                raise WebPluginError(f"snapshot part '{name}' query '{query}' is an action the Viewer answers itself")
+            if any(query in part.queries for part in others):
+                raise WebPluginError(f"snapshot part '{name}' query '{query}' is already declared by another part")
+        for argument in summary_arguments:
+            if argument in INSPECTION_ARGUMENTS or any(argument in part.summary_arguments for part in others):
+                raise WebPluginError(f"snapshot part '{name}' argument '{argument}' is already taken")
+        self._snapshot_parts[name] = SnapshotPart(
+            plugin_id, name, overview, capture, dict(queries), dict(summary_arguments), capability
+        )
+
+    def snapshot_parts(self) -> dict[str, SnapshotPart]:
+        """The parts plugins declared, by name, in name order."""
+        return dict(sorted(self._snapshot_parts.items()))
+
+    def part_queries(self) -> dict[str, str]:
+        """The inspection actions parts declare, each with the name of the part that answers it."""
+        return {query: name for name, part in self.snapshot_parts().items() for query in part.queries}
+
+    def take_part_arguments(self, arguments: dict) -> dict:
+        """Remove the summary arguments parts declare from ``arguments``; return ``{part: options}`` for the parts asked for.
+
+        A part is asked for when its switch is true; its options are the option arguments given (not None),
+        by their names. An option given while its switch is off is an error (ValueError).
+        """
+        wanted = {}
+        for name, part in self.snapshot_parts().items():
+            given = {argument: arguments.pop(argument, None) for argument in part.summary_arguments}
+            switch = given.pop(part.switch)
+            options = {argument: value for argument, value in given.items() if value is not None}
+            if switch:
+                wanted[name] = options
+            elif options:
+                raise ValueError(f"{', '.join(sorted(options))} needs {part.switch}=true")
+        return wanted
+
+    def part_capabilities(self) -> list[str]:
+        """The capability of each declared part, for the session description."""
+        return [part.capability for part in self.snapshot_parts().values()]
+
     def _page_file(self, page: WebPageDescriptor, web_root: str) -> str:
         """The file the web server serves page.path from, and the checks that it is the page's plugin's own."""
         for prefix, folder in self.static_routes.items():
@@ -767,11 +877,12 @@ class WebPluginRegistry:
             dict(self.pages),
             dict(self._page_files),
             dict(self._i18n_files),
+            dict(self._snapshot_parts),
         )
 
     def restore(self, snapshot):
         (actions, routes, action_owners, route_owners, providers, registered,
-         api_routes, pages, page_files, i18n_files_) = snapshot
+         api_routes, pages, page_files, i18n_files_, snapshot_parts) = snapshot
         self.actions.clear()
         self.actions.update(actions)
         self.static_routes.clear()
@@ -785,6 +896,7 @@ class WebPluginRegistry:
         self._state_providers = providers
         self._page_files = page_files
         self._i18n_files = i18n_files_
+        self._snapshot_parts = snapshot_parts
         self.registered_plugins = registered
 
 

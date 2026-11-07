@@ -351,5 +351,225 @@ class SnapshotAdditionalTests(SnapshotFixture, unittest.TestCase):
             with self.assertRaises(ValueError): self.call('create_subset',scope='all',expression=expr)
 
 
+class FakePartFixture:
+    """A four-node Viewer whose registry declares a part that names nothing the store knows: rows of the numbers it was given."""
+    def setUp(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+        self.v = SimpleNamespace(n_nodes=4, full_headers=['a', 'b', 'c', 'd'], visible_mask=np.array([True, False, True, True]),
+            selected_indices=[], cluster_labels=None, group_labels=None, metadata={}, edges=[], current_slider_threshold=.5)
+        self.registry = self.v.web_plugin_registry = WebPluginRegistry(self.v)
+        self.captured = []
+        def capture(viewer, options, budget):
+            self.captured.append((dict(options), budget))
+            return {'summary': {'size': options.get('size', 3)}, 'values': np.arange(options.get('size', 3) * 100)}
+        def rows(frozen, snapshot, indices, args):
+            self.seen = (list(indices), dict(args), sorted(snapshot))
+            return ({'value': int(v)} for v in frozen['values'][: int(args.get('upto', 50))])
+        self.registry.register_snapshot_part('demo', 'widget', overview=lambda viewer: {'ready': True}, capture=capture,
+            queries={'query_widgets': rows}, summary_arguments={'include_widget': 'switch', 'size': 'option'}, capability='widget_snapshots_v1')
+        self.service = ViewerInspectionService(self.v)
+        self.store = self.service.snapshots
+
+
+class SnapshotPartTests(FakePartFixture, unittest.TestCase):
+    def replace_part(self, **changes):
+        part = self.registry._snapshot_parts['widget']
+        self.registry._snapshot_parts['widget'] = type(part)(**{**vars(part), **changes})
+
+    def test_a_snapshot_without_the_part_lists_it_without_capturing(self):
+        sid = self.service.capture_snapshot()
+        summary = self.store.execute('get_summary', sid)
+        self.assertEqual(summary['parts'], {'widget': {'ready': True}})
+        self.assertNotIn('widget_snapshots_v1', summary['capabilities'])
+        self.assertEqual(self.captured, [])
+        with self.assertRaisesRegex(ViewerInspectionError, 'Recapture get_summary with include_widget=true for query_widgets'):
+            self.store.execute('query_widgets', sid)
+
+    def test_a_captured_part_adds_its_summary_and_capability(self):
+        sid = self.service.capture_snapshot(parts={'widget': {'size': 5}})
+        summary = self.store.execute('get_summary', sid)
+        self.assertEqual(summary['parts']['widget'], {'ready': True, 'captured': {'size': 5}})
+        self.assertIn('widget_snapshots_v1', summary['capabilities'])
+        options, budget = self.captured[0]
+        self.assertEqual(options, {'size': 5})
+        self.assertTrue(0 < budget <= self.store.max_bytes)
+
+    def test_the_bytes_of_a_part_are_charged_to_the_snapshot(self):
+        plain = self.service.capture_snapshot()
+        with_part = self.service.capture_snapshot(parts={'widget': {'size': 5}})
+        self.assertGreater(self.store.items[with_part]['bytes'] - self.store.items[plain]['bytes'], 5 * 100 * 8 - 1)
+        small = SnapshotStore(max_bytes=200_000)
+        with self.assertRaisesRegex(ViewerInspectionError, 'widget part exceeds'):
+            small.capture(self.service, parts={'widget': {'size': 400}})
+        self.assertEqual(len(small.items), 0)
+
+    def test_a_part_that_cannot_capture_refuses_in_words_and_keeps_nothing(self):
+        self.replace_part(capture=mock.Mock(side_effect=ValueError('No widget here.')))
+        with self.assertRaisesRegex(ViewerInspectionError, 'No widget here.'):
+            self.service.capture_snapshot(parts={'widget': {}})
+        self.assertEqual(len(self.store.items), 0)
+
+    def test_an_unknown_part_is_refused(self):
+        with self.assertRaisesRegex(ViewerInspectionError, 'Unknown snapshot part: gadget'):
+            self.service.capture_snapshot(parts={'gadget': {}})
+
+    def test_a_failing_overview_is_reported_and_does_not_stop_the_snapshot(self):
+        self.replace_part(overview=mock.Mock(side_effect=RuntimeError('overview broke')))
+        summary = self.store.execute('get_summary', self.service.capture_snapshot())
+        self.assertEqual(summary['parts']['widget'], {'error': 'overview broke'})
+
+    def test_a_declared_query_is_answered_through_the_pager(self):
+        sid = self.service.capture_snapshot(parts={'widget': {}})
+        first = self.store.execute('query_widgets', sid, limit=4, upto=10)
+        self.assertEqual([row['value'] for row in first['rows']], [0, 1, 2, 3])
+        self.assertFalse(first['complete'])
+        self.assertEqual(self.seen[0], [0, 1, 2, 3])  # no subset: every node
+        self.assertEqual(self.seen[1], {'upto': 10})  # the pager's own arguments are not the query's
+        self.assertIn('subsets', self.seen[2])
+        second = self.store.execute('query_widgets', sid, limit=100, upto=10, cursor=first['next_cursor'])
+        self.assertEqual([row['value'] for row in second['rows']], list(range(4, 10)))
+        self.assertTrue(second['complete'] and second['next_cursor'] is None)
+        with self.assertRaisesRegex(ViewerInspectionError, 'Invalid cursor'):
+            self.store.execute('query_widgets', sid, upto=11, cursor=first['next_cursor'])
+        for bad in (0, 501, 'x'):
+            with self.assertRaisesRegex(ViewerInspectionError, 'limit must be 1..500'):
+                self.store.execute('query_widgets', sid, limit=bad)
+        for bad in (1023, 65537):
+            with self.assertRaisesRegex(ViewerInspectionError, 'max_bytes must be 1024..65536'):
+                self.store.execute('query_widgets', sid, max_bytes=bad)
+
+    def test_the_byte_budget_cuts_a_page_and_a_subset_is_the_population(self):
+        sid = self.service.capture_snapshot(parts={'widget': {}})
+        page = self.store.execute('query_widgets', sid, limit=500, upto=300, max_bytes=1024)
+        self.assertLessEqual(len(encoded(page)), 1024)
+        self.assertFalse(page['complete'])
+        subset = self.store.execute('create_subset', sid, scope='visible')['subset_id']
+        self.store.execute('query_widgets', sid, subset_id=subset)
+        self.assertEqual(self.seen[0], [0, 2, 3])
+
+    def test_a_source_of_rows_that_can_start_late_does_not_make_the_rows_before(self):
+        made = []
+
+        class Late:
+            def rows_from(self, offset):
+                for position in range(offset, 20):
+                    made.append(position)
+                    yield {'position': position}
+
+        self.replace_part(queries={'query_widgets': lambda *a: Late()})
+        sid = self.service.capture_snapshot(parts={'widget': {}})
+        first = self.store.execute('query_widgets', sid, limit=5)
+        made.clear()
+        second = self.store.execute('query_widgets', sid, limit=5, cursor=first['next_cursor'])
+        self.assertEqual([row['position'] for row in second['rows']], [5, 6, 7, 8, 9])
+        self.assertEqual(made[0], 5)
+
+    def test_a_part_goes_with_its_snapshot_when_the_store_evicts_it(self):
+        first = self.service.capture_snapshot(parts={'widget': {}})
+        self.service.capture_snapshot()
+        self.service.capture_snapshot()  # only two snapshots are kept: the first goes
+        with self.assertRaisesRegex(ViewerInspectionError, 'expired, evicted'):
+            self.store.execute('query_widgets', first)
+
+    def test_without_a_registry_there_are_no_parts(self):
+        self.v.web_plugin_registry = None
+        sid = self.service.capture_snapshot()
+        self.assertEqual(self.store.execute('get_summary', sid)['parts'], {})
+        with self.assertRaisesRegex(ViewerInspectionError, 'Unknown snapshot part'):
+            self.service.capture_snapshot(parts={'widget': {}})
+        with self.assertRaisesRegex(ViewerInspectionError, 'Unknown inspection action'):
+            self.store.execute('query_widgets', sid)
+
+
+class RegistryPartTests(unittest.TestCase):
+    def registry(self):
+        from web_ui.Plugin_Manager import WebPluginRegistry
+        return WebPluginRegistry(SimpleNamespace())
+
+    def declare(self, registry, name='widget', plugin='demo', **changes):
+        arguments = dict(overview=lambda viewer: {}, capture=lambda v, o, b: {'summary': {}}, queries={'query_widgets': lambda *a: []},
+                         summary_arguments={'include_widget': 'switch', 'size': 'option'})
+        arguments.update(changes)
+        registry.register_snapshot_part(plugin, name, **arguments)
+
+    def test_registration_is_validated(self):
+        from web_ui.Plugin_Manager import WebPluginError
+        for changes in ({'overview': None}, {'capture': 3}, {'queries': []}, {'queries': {'query_widgets': 5}},
+                        {'queries': {'get_summary': lambda *a: []}}, {'queries': {'query_nodes': lambda *a: []}},
+                        {'queries': {'Bad Name': lambda *a: []}},
+                        {'summary_arguments': {'size': 'option'}}, {'summary_arguments': {'a': 'switch', 'b': 'switch'}},
+                        {'summary_arguments': {'include_widget': 'switch', 'x': 'maybe'}},
+                        {'summary_arguments': {'include_visual': 'switch'}}, {'capability': ' '}):
+            with self.subTest(changes=changes), self.assertRaises(WebPluginError):
+                self.declare(self.registry(), **changes)
+        with self.assertRaises(WebPluginError):
+            self.declare(self.registry(), name='Not Valid')
+
+    def test_one_part_cannot_take_what_another_declared(self):
+        from web_ui.Plugin_Manager import WebPluginError
+        registry = self.registry()
+        self.declare(registry)
+        with self.assertRaisesRegex(WebPluginError, 'already registered by plugin'):
+            self.declare(registry, plugin='other')
+        with self.assertRaisesRegex(WebPluginError, 'query .* already declared'):
+            self.declare(registry, name='gadget', plugin='other')
+        with self.assertRaisesRegex(WebPluginError, "argument 'size' is already taken"):
+            self.declare(registry, name='gadget', plugin='other', queries={'query_gadgets': lambda *a: []},
+                         summary_arguments={'include_gadget': 'switch', 'size': 'option'})
+        self.declare(registry)  # the same plugin again replaces its part
+        self.assertEqual(list(registry.snapshot_parts()), ['widget'])
+        self.assertEqual(registry.snapshot_parts()['widget'].capability, 'widget_snapshots_v1')
+
+    def test_the_arguments_a_part_declares_are_taken_by_name(self):
+        registry = self.registry()
+        self.declare(registry)
+        arguments = {'include_widget': True, 'size': 4, 'max_bytes': 2048}
+        self.assertEqual(registry.take_part_arguments(arguments), {'widget': {'size': 4}})
+        self.assertEqual(arguments, {'max_bytes': 2048})
+        self.assertEqual(registry.take_part_arguments({'include_widget': False, 'size': None}), {})
+        with self.assertRaisesRegex(ValueError, 'size needs include_widget=true'):
+            registry.take_part_arguments({'include_widget': False, 'size': 4})
+        self.assertEqual(registry.part_queries(), {'query_widgets': 'widget'})
+        self.assertEqual(registry.part_capabilities(), ['widget_snapshots_v1'])
+
+    def test_a_rolled_back_registration_takes_its_part_with_it(self):
+        registry = self.registry()
+        saved = registry.snapshot()
+        self.declare(registry)
+        registry.restore(saved)
+        self.assertEqual(registry.snapshot_parts(), {})
+
+
+class CentralFilesNameNoCommandTests(unittest.TestCase):
+    """The user's rule: central code names no command or page; the plugin modules declare their behaviour."""
+    FILES = ('src/desktop/Viewer_Inspection.py', 'src/web_ui/Web_Server.py', 'src/web_ui/Plugin_Manager.py')
+    WORDS = ('include_tree', 'tree_source', 'query_clades', 'query_tree_names', 'clade')
+
+    def words_in(self, text):
+        import io
+        import tokenize
+        found = set()
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type in (tokenize.COMMENT, tokenize.STRING, getattr(tokenize, 'FSTRING_MIDDLE', -1)):
+                # Any mention in prose or a literal; a bare name "tree" is what ast code calls a syntax tree.
+                lowered = token.string.lower()
+                found.update(word for word in self.WORDS + ('tree',) if word in lowered)
+            elif token.type == tokenize.NAME:
+                found.update(word for word in self.WORDS if word in token.string.lower())
+        return found
+
+    def test_the_central_files_name_no_tree_or_clade(self):
+        root = Path(__file__).resolve().parents[1]
+        for name in self.FILES:
+            with self.subTest(file=name):
+                self.assertEqual(self.words_in((root / name).read_text(encoding='utf-8')), set())
+
+    def test_the_guard_sees_a_word_in_a_comment_a_string_and_a_name(self):
+        for text in ('x = 1  # the tree view', 'x = "include_tree"', 'query_clades = 1', 'def f():\n    """A clade."""'):
+            with self.subTest(text=text):
+                self.assertTrue(self.words_in(text))
+        self.assertFalse(self.words_in('tree = ast.parse(text)\nfor node in ast.walk(tree): pass'))
+
+
 if __name__ == '__main__':
     unittest.main()

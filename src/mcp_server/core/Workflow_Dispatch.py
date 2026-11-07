@@ -19,7 +19,7 @@ PipelineAction = Literal[
     "inspect_file", "network_statistics", "export_tool_settings", "export_layout_settings", "validate_settings",
     "start_job", "start_layout_job", "start_benchmark", "list_jobs", "get_job", "wait_job", "read_log", "cancel_job",
 ]
-ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "wait_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
+ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "wait_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog", "query_clades", "query_tree_names"]
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
     "start_session", "wait_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
@@ -33,6 +33,14 @@ class Arguments(BaseModel):
 
 class DescribeArguments(Arguments):
     action: str
+
+
+class SummaryArguments(Arguments):
+    @model_validator(mode="after")
+    def check_tree_source(self):
+        if self.tree_source is not None and not self.include_tree:
+            raise ValueError("tree_source needs include_tree=true")
+        return self
 
 
 class CommandLookupArguments(Arguments):
@@ -91,11 +99,13 @@ _SPECS = {
         "capture_view": (viewer_ops, "capture_view", 'Read current canvas as a PNG image.', {}),
         "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command summaries, argument choices/aliases and syntax; supply command for detailed help without executing it.', {"command": "reset"}),
         "list_sessions": (viewer_ops, "list_viewer_sessions", "Read available sessions without selecting one.", {}),
-        "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
+        "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview; include_tree=true adds one tree (tree_source: guide, threshold or uploaded) for query_clades and query_tree_names.", {}),
         "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
         "describe_fields": (viewer_ops, "describe_viewer_fields", 'Page snapshot metadata types, missingness and provenance availability.', {'snapshot_id': 'snapshot-id'}),
         "create_subset": (viewer_ops, "create_viewer_subset", 'Intersect explicit scope with metadata/header/label/selection predicates; residues require include_alignment=true; no commands or file predicates.', {'snapshot_id': 'snapshot-id', 'scope': 'all'}),
         "summarize_subset": (viewer_ops, "summarize_viewer_subset", 'Exact metadata and membership statistics; omitted subset uses all nodes. Page complete category counts.', {'snapshot_id': 'snapshot-id'}),
+        "query_clades": (viewer_ops, "query_viewer_clades", "Read clades of the snapshot's tree, biggest first; ask for one with contains, within or min_leaves, never page them all (a 44,000-leaf tree has about 44,000).", {"snapshot_id": "snapshot-id", "min_leaves": 100, "limit": 10}),
+        "query_tree_names": (viewer_ops, "query_viewer_tree_names", "Page the names the snapshot's tree and network do not share: leaves_not_in_network, network_nodes_not_in_tree, leaves_not_in_alignment or ambiguous_names.", {"snapshot_id": "snapshot-id", "list": "leaves_not_in_network"}),
         "read_value": (viewer_ops, "read_viewer_value", 'Read exact JSON-text character slices; concatenate text then JSON-decode. Continue from next_offset.', {'snapshot_id': 'snapshot-id', 'index': 0, 'field': 'node_id'}),
         "read_log": (viewer_ops, "read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),
     },
@@ -125,6 +135,8 @@ def _build_action(workflow, name, spec):
         for key, parameter in parameters.items() if key != "ctx"
     }
     base = CommandLookupArguments if name in {'get_command_request', 'wait_command_request', 'read_command_output'} else Arguments
+    if workflow == "emapssn_viewer_data" and name == "get_summary":
+        base = SummaryArguments
     model = create_model(f"{workflow}_{name}_Arguments", __base__=base, **fields)
     return Action(module, handler_name, model, "ctx" in parameters, effects, example)
 

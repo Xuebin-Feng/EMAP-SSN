@@ -69,9 +69,16 @@ async def get_viewer_summary(
     include_visual: bool = False,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
     include_alignment: bool = False,
+    include_tree: bool = False,
+    tree_source: Literal["guide", "threshold", "uploaded"] | None = None,
 ) -> dict[str, Any]:
     """Capture an immutable snapshot; opt into alignment for residue analysis. Alignment stays in Viewer memory.
-    The summary's embedding block reports the optional embedding's model, width and node coverage, never its vectors."""
+    The summary's embedding block reports the optional embedding's model, width and node coverage, never its vectors.
+    include_tree=true also freezes one tree, for query_clades and query_tree_names: tree_source picks it (guide, the
+    alignment's guide tree; threshold, single linkage over the network's edges; uploaded, a tree file opened in Tree
+    View), by default the one Tree View opens on. Without include_tree the summary's parts.tree says which trees can be
+    captured and why one cannot, reading no tree. With it, parts.tree.captured describes the tree: source, name, file,
+    rooted, root (file, midpoint, network or artificial), has_lengths, support_kind, counts, warnings, threshold, fingerprint."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -155,6 +162,65 @@ async def query_viewer_nodes(
     arguments.pop("session_id")
     try:
         return await _viewer(ctx).inspect_data("query_nodes", arguments, session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+async def query_viewer_clades(
+    ctx: Context[AppContext],
+    snapshot_id: str,
+    min_leaves: Annotated[int | None, Field(ge=1)] = None,
+    max_leaves: Annotated[int | None, Field(ge=1)] = None,
+    within: Annotated[int | None, Field(ge=0)] = None,
+    contains: str | None = None,
+    columns: list[str] | None = None,
+    order: Literal["size", "tree"] | None = None,
+    session_id: str | None = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=500)] = 25,
+    max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
+) -> dict[str, Any]:
+    """Page the clades (internal nodes) of the tree a get_summary(include_tree=true) snapshot holds, as the tree is drawn from its root.
+    Ask for the clades you need and never page every one: a tree of 44,000 leaves has about 44,000. To learn whether a
+    group of nodes is a clade, create_subset for them and pass its id as contains: the answer is the one smallest clade
+    holding every subset node that is a leaf of the tree, with in_subset, outside_subset (0 means the subset's leaves form
+    exactly that clade) and subset_not_in_tree. Otherwise narrow with min_leaves or max_leaves (leaves a clade holds in the
+    tree), within (a clade number: the clades below it) or columns (metadata columns: each clade's top category with its
+    count, or median, over its network leaves). order is size (default: most leaves first, ties by clade number) or tree
+    (from the root, a clade before the clades below it, left to right). Rows: clade (its number, the tree's node number
+    in Tree View), parent, depth (edges from the root), height (distance from the root) and branch_length (null without
+    lengths), support (null if none), name (when the file names the clade), leaves {total, in_network, not_in_network,
+    hidden (network leaves the snapshot has not visible)}, top_clusters (up to 3 [cluster, count] over its network
+    leaves, -1 noise) and artificial (true for a threshold tree's joining root and the branches to it: they stand for no
+    score). Numbers have 4 significant digits. A leaf is a node: read it with query_nodes."""
+    arguments = dict(locals())
+    arguments.pop("ctx")
+    arguments.pop("session_id")
+    try:
+        return await _viewer(ctx).inspect_data("query_clades", arguments, session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+async def query_viewer_tree_names(
+    ctx: Context[AppContext],
+    snapshot_id: str,
+    list: Literal["leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names"],
+    session_id: str | None = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=500)] = 25,
+    max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
+) -> dict[str, Any]:
+    """Page the names behind the fit warnings of a get_summary(include_tree=true) snapshot's tree (the counts are in
+    parts.tree.captured.warnings). leaves_not_in_network: tree leaves that name no network node; network_nodes_not_in_tree:
+    network nodes no leaf names; leaves_not_in_alignment: leaves whose node has no sequence in the loaded alignment (guide
+    tree only); ambiguous_names: leaves of an uploaded tree whose name reaches a node another leaf has too. Rows have name
+    and, where one exists, leaf (the leaf's node number in the tree) and index (the network node, as query_nodes uses)."""
+    arguments = dict(locals())
+    arguments.pop("ctx")
+    arguments.pop("session_id")
+    try:
+        return await _viewer(ctx).inspect_data("query_tree_names", arguments, session_id)
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 

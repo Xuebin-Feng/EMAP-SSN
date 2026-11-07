@@ -25,6 +25,20 @@ class ViewerInspectionError(ValueError):
     """Raised when a bounded Viewer query is invalid."""
 
 
+# The inspection actions the store answers itself; a plugin's snapshot part declares the others
+# (web_ui.Plugin_Manager.WebPluginRegistry.register_snapshot_part).
+INSPECTION_ACTIONS = frozenset({
+    'get_summary', 'create_subset', 'get_residue_distribution', 'read_value', 'describe_fields', 'query_nodes',
+    'summarize_subset',
+})
+
+
+def declared_parts(viewer):
+    """The snapshot parts the Viewer's plugins declared, by name: {} for a Viewer without a registry."""
+    registry = getattr(viewer, 'web_plugin_registry', None)
+    return registry.snapshot_parts() if registry is not None else {}
+
+
 def json_value(value):
     """Convert common scientific Python values into strict JSON values."""
     if value is None or isinstance(value, (str, bool, int)):
@@ -118,9 +132,15 @@ class SnapshotStore:
         self.items = OrderedDict()
         self.lock = threading.RLock()
 
-    def capture(self, service, include_visual=False, include_alignment=False):
+    def capture(self, service, include_visual=False, include_alignment=False, parts=None):
+        """Freeze the Viewer into a snapshot; ``parts`` is {part name: options} for the plugin parts it holds too."""
         # Called exclusively through the owning Qt thread.
         v = service._viewer
+        declared = declared_parts(v)
+        parts = dict(parts or {})
+        for name in parts:
+            if name not in declared:
+                raise ViewerInspectionError(f'Unknown snapshot part: {name}')
         n = service._node_count()
         source = {'headers': getattr(v, 'full_headers', ()),
                   'metadata': {k: {'type': entry['type'], 'values': entry['values']} for k, entry in service._metadata().items()},
@@ -139,6 +159,17 @@ class SnapshotStore:
             except ValueError as error:
                 raise ViewerInspectionError(str(error)) from error
             estimate += alignment_bytes(frozen_alignment)
+        frozen_parts = {}
+        for name, options in parts.items():
+            try:
+                frozen = declared[name].capture(v, dict(options), max(0, self.max_bytes - estimate))
+            except ValueError as error:
+                raise ViewerInspectionError(str(error)) from error
+            charge = size_of(frozen)
+            if estimate + charge > self.max_bytes:
+                raise ViewerInspectionError(f'The {name} part exceeds the inspection memory budget.')
+            frozen_parts[name] = frozen
+            estimate += charge
         with self.lock:
             self._expire()
             if estimate > self.max_bytes:
@@ -173,6 +204,21 @@ class SnapshotStore:
                 'capabilities': ['describe_fields', 'create_subset', 'summarize_subset', 'query_nodes', 'read_value']}
             from Viewer_Visual_State import visual_overview
             data['overview'].update(visual_overview(v, service._configuration))
+            data['parts'] = frozen_parts
+            data['overview']['parts'] = {}
+            queries = {}
+            for name, part in declared.items():
+                try:
+                    shown = json_value(part.overview(v))
+                except Exception as error:
+                    shown = {'error': str(error)[:200]}
+                if name in frozen_parts:
+                    shown = dict(shown, captured=json_value(frozen_parts[name].get('summary')))
+                    data['overview']['capabilities'].append(part.capability)
+                    queries.update({query: (handler, frozen_parts[name]) for query, handler in part.queries.items()})
+                else:
+                    queries.update({query: (None, part.switch) for query in part.queries})
+                data['overview']['parts'][name] = shown
             data['overview']['visual_fields_available'] = list(data.get('visual', {}))
             data['overview']['alignment']['captured'] = include_alignment
             data['overview']['embedding'] = embedding_overview(v, n)
@@ -183,7 +229,8 @@ class SnapshotStore:
             if getattr(embedding, 'embed_file', None) is not None:
                 data['overview']['inputs']['embedding'] = json_value(embedding.embed_file)
             sid = uuid.uuid4().hex
-            self.items[sid] = {'data': data, 'bytes': estimate, 'touched': self.clock(), 'subsets': {}, 'active': 0, 'lock': threading.Lock()}
+            self.items[sid] = {'data': data, 'bytes': estimate, 'touched': self.clock(), 'subsets': data.setdefault('subsets', {}), 'active': 0, 'lock': threading.Lock(),
+                               'queries': queries}
             return sid
 
     def _expire(self):
@@ -307,6 +354,11 @@ class SnapshotStore:
                 if len(encoded(result)) <= budget: return result
                 end = offset + (end-offset)//2
                 if end == offset: raise ViewerInspectionError('Response budget too small')
+        if action in s['queries']:
+            handler, held = s['queries'][action]
+            if handler is None:
+                raise ViewerInspectionError(f'Recapture get_summary with {held}=true for {action}')
+            return self._page(base, handler(held, d, indices, {k: v for k, v in args.items() if k not in ('cursor', 'limit')}), action, args, budget)
         columns = args.get('columns') or []
         if any(c not in d['metadata'] for c in columns): raise ViewerInspectionError('Unknown metadata column')
         if action == 'describe_fields':
@@ -411,7 +463,11 @@ class SnapshotStore:
                 if sig != signature or offset < 0: raise ValueError()
             except (ValueError, AttributeError): raise ViewerInspectionError('Invalid cursor for this snapshot/query')
         result = dict(base, rows=[], returned_count=0, complete=True, next_cursor=None)
-        for position, row in enumerate(rows):
+        first = 0
+        if hasattr(rows, 'rows_from'):
+            # A source of rows that can begin at a row without making the ones before it.
+            rows, first = rows.rows_from(offset), offset
+        for position, row in enumerate(rows, first):
             if position < offset: continue
             candidate = deepcopy(row)
             if action == 'query_nodes':
@@ -449,8 +505,8 @@ class ViewerInspectionService:
         self._configuration = configuration
         self.snapshots = SnapshotStore()
 
-    def capture_snapshot(self, include_visual=False, include_alignment=False):
-        return self.snapshots.capture(self, include_visual, include_alignment)
+    def capture_snapshot(self, include_visual=False, include_alignment=False, parts=None):
+        return self.snapshots.capture(self, include_visual, include_alignment, parts)
 
     def command_action(self, action, arguments):
         from Viewer_Command_Portal import get_portal

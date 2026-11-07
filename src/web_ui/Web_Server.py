@@ -33,6 +33,7 @@ from PySide6 import QtCore, QtWidgets
 from desktop.Desktop_App import installed_language, language_web_font_css, translate
 from desktop.Studio_Theme import web_theme_css
 from desktop.Viewer_Inspection import (
+    INSPECTION_ACTIONS,
     ViewerInspectionError,
     ViewerInspectionService,
 )
@@ -517,6 +518,10 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         expected = f"Bearer {self.server.inspection_token}"
         return hmac.compare_digest(supplied, expected)
 
+    def _part_registry(self):
+        """The Viewer's plugin registry, which declares the snapshot parts the inspection routes serve, or None without one."""
+        return getattr(self.server.viewer, "web_plugin_registry", None)
+
     def _local_addresses(self):
         """Return the ``host:port`` and origin spellings naming this server."""
         port = self.server.server_address[1]
@@ -587,7 +592,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
-                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1", "embedding_input_v1", "window_v1"],
+                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1", "embedding_input_v1", "window_v1",
+                                                *(self._part_registry().part_capabilities() if self._part_registry() is not None else [])],
                     "window_mode": getattr(self.server.viewer, "window_mode", None),
                     "window_requested_mode": getattr(self.server.viewer, "requested_window_mode", None),
                     "window_fallback_reason": getattr(self.server.viewer, "window_fallback_reason", None),
@@ -712,13 +718,24 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 request = json.loads(body.decode("utf-8"))
                 action = request["action"]
                 from mcp_server.core.Workflow_Dispatch import REGISTRY
-                if action not in {"get_residue_distribution", "get_summary", "describe_fields", "create_subset", "summarize_subset", "query_nodes", "read_value"}:
+                registry = self._part_registry()
+                declared = registry.part_queries() if registry is not None else {}
+                if action not in {*INSPECTION_ACTIONS, *declared}:
                     raise ViewerInspectionError("Unknown read-only inspection action")
                 arguments = REGISTRY["emapssn_viewer_data"][action].model.model_validate(request.get("arguments", {})).model_dump()
                 arguments.pop("session_id", None)
                 service = self.server.inspection_bridge.service
-                sid = (self.server.inspection_bridge.request("capture_snapshot", **{key: True for key in ("include_visual", "include_alignment") if arguments.pop(key, False)})
-                       if action == "get_summary" else arguments.pop("snapshot_id"))
+                if action == "get_summary":
+                    # The arguments the plugins' snapshot parts declare are theirs: the Viewer reads them by what they declared.
+                    parts = registry.take_part_arguments(arguments) if registry is not None else {}
+                    flags = {key: True for key in ("include_visual", "include_alignment") if arguments.pop(key, False)}
+                    unsupported = sorted(key for key, value in arguments.items() if key != "max_bytes" and value not in (None, False))
+                    if unsupported:
+                        raise ViewerInspectionError(f"This Viewer does not support: {', '.join(unsupported)}")
+                    arguments = {key: value for key, value in arguments.items() if key == "max_bytes"}
+                    sid = self.server.inspection_bridge.request("capture_snapshot", **({"parts": parts} if parts else {}), **flags)
+                else:
+                    sid = arguments.pop("snapshot_id")
                 payload = service.snapshots.execute(action, sid, **arguments)
                 self._send_json(200, payload)
             except TimeoutError:

@@ -665,6 +665,8 @@ class MCPViewerClient:
             required.append("alignment_snapshots_v1")
         if arguments.get("fields") is not None:
             required.append("node_projection_v1")
+        if arguments.get("include_tree") or action in ("query_clades", "query_tree_names"):
+            required.append("tree_snapshots_v1")
         if any(cap not in capabilities.get("inspection_capabilities", []) for cap in required):
             raise MCPViewerError("Viewer lacks requested scientific inspection capabilities; upgrade and restart the Viewer.")
         return await asyncio.to_thread(self._request, session, "/api/mcp/v1/data", {"action": action, "arguments": arguments})

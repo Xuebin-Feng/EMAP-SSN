@@ -114,6 +114,27 @@ actions belong to `emapssn_viewer_data`, using its `action` and `arguments` shap
    slices using `next_offset`, then JSON-decode once to recover the exact value.
    Group-category references also supply `member_index` to identify one label
    unambiguously; omit it when retrieving the node's complete membership list.
+7. `get_summary` with `include_tree=true` also freezes one tree (capability
+   `tree_snapshots_v1`): `tree_source` is `guide`, `threshold` or `uploaded`, by default the
+   tree Tree View opens on; `tree_source` without `include_tree` is refused. Without it
+   the summary's `parts.tree` lists the trees that can be captured (`available`,
+   `opens_on`, `unavailable` with the reason for each source that cannot), reading no
+   tree file. With it, `parts.tree.captured` gives the source, name, file, `rooted`, the
+   `root` used (`file`, `midpoint`, `network` or `artificial`), `has_lengths`, `support_kind`,
+   counts, warnings, the threshold of a threshold tree and a fingerprint. A source that
+   cannot be shown is refused with the reason.
+8. `query_clades` pages the clades (internal nodes) of that tree, numbered as Tree View
+   numbers its nodes. Do not page every clade: a tree of 44,000 leaves has about 44,000.
+   `contains` takes a `create_subset` id and answers the one smallest clade holding every
+   subset node that is a leaf (`outside_subset` 0 means the subset is exactly a clade);
+   otherwise filter with `min_leaves`, `max_leaves` and `within` (a clade number), add
+   `columns` (each clade's top category or median), and set `order` to `size` (default) or
+   `tree`. Rows hold the clade number, parent, depth, height and branch length (null
+   without lengths), support, name, leaf counts (`total`, `in_network`, `not_in_network`,
+   `hidden`), up to three `top_clusters` and `artificial` for a threshold tree's joining
+   root and the branches to it. `query_tree_names` pages the names behind the fit warnings
+   (`list`: `leaves_not_in_network`, `network_nodes_not_in_tree`, `leaves_not_in_alignment`,
+   `ambiguous_names`).
 
 All snapshot data responses have a default serialized UTF-8 JSON budget of 16384
 bytes, configurable with `max_bytes` from 1024 to 65536. Pagination uses opaque

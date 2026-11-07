@@ -1303,6 +1303,154 @@ def follow_colors(viewer):
     viewer.node_update_listeners.append(viewer._tree_color_watch)
 
 
+# ---- The tree in an inspection snapshot ------------------------------------------------------------------------------
+
+# What a source that cannot be shown says, by the status the tree states give.
+SNAPSHOT_REASONS = {
+    "no_alignment": "no alignment is loaded",
+    "unnamed_alignment": "the loaded alignment's name is not one the Embedding MSA tool writes, so it has no guide tree",
+    "no_tree": "the loaded alignment has no guide tree file",
+    "unreadable": "the guide tree file cannot be read",
+    "no_overlap": "none of the tree's leaves is a node of the network",
+    "no_network": "no network is loaded",
+    "no_edges": "the network has no edges to build the tree from",
+    "no_upload": "no tree file has been opened in Tree View",
+}
+SNAPSHOT_THRESHOLD_FIELDS = ("current", "kept", "cutoff", "k", "score_kind", "top", "bottom", "groups", "forest")
+
+
+def snapshot_overview(viewer):
+    """What a snapshot's summary says of the trees, without reading any: which can be shown, which opens first, why one cannot.
+
+    ``available`` lists the sources (guide, threshold, uploaded) that can be captured as far as can be told without
+    reading a file or building the tree (a guide tree file that is there may still be unreadable), ``opens_on``
+    the one Tree View opens on (None when there is none), and ``unavailable`` the status of each source that cannot be shown.
+    """
+    opens_on, guide, threshold_reason = opening_source(viewer)
+    unavailable = {}
+    if guide["status"] != "present":
+        unavailable[SOURCE_GUIDE] = guide["status"]
+    if threshold_reason is not None:
+        unavailable[SOURCE_THRESHOLD] = threshold_reason
+    if stored_upload(viewer) is None:
+        unavailable[SOURCE_UPLOADED] = "no_upload"
+    available = [source for source in (SOURCE_GUIDE, SOURCE_THRESHOLD, SOURCE_UPLOADED) if source not in unavailable]
+    return {"available": available, "opens_on": opens_on if available else None, "unavailable": unavailable}
+
+
+def _unpacked(payload, key, dtype):
+    """The array of a page payload's base64 text, read only."""
+    return np.frombuffer(base64.b64decode(payload[key]), dtype=dtype)
+
+
+def _fingerprint(parent, length, support, labels):
+    """Eight hex digits that name a tree: the same arrays and leaf names give the same ones."""
+    digest = zlib.crc32(parent.tobytes())
+    digest = zlib.crc32(length.tobytes(), digest)
+    digest = zlib.crc32(support.tobytes(), digest)
+    return f"{zlib.crc32(chr(10).join(labels).encode('utf-8', 'surrogatepass'), digest):08x}"
+
+
+def capture_snapshot_part(viewer, options, budget_bytes):
+    """Freeze one tree for an inspection snapshot: ``options["tree_source"]`` (guide, threshold or uploaded), else the one Tree View opens on.
+
+    Read only: the choice of source Tree View keeps is not touched. Raises ValueError, in words, for a source that cannot
+    be shown or a tree too big for ``budget_bytes``. Returns what tree_snapshot reads: the arrays Tree View is sent,
+    the leaf labels, the clade names an uploaded file gives, ``artificial`` (the nodes whose place stands for no score),
+    ``not_aligned`` and ``ambiguous`` leaves, ``index`` (tree_snapshot.tree_index) and the ``summary`` the snapshot's
+    overview shows.
+    """
+    from web_ui import tree_snapshot
+
+    source = options.get("tree_source") or opening_source(viewer)[0]
+    if source not in SOURCES:
+        raise ValueError(f"Tree View does not know a tree called {str(source)[:60]}.")
+    upload = None
+    if source == SOURCE_THRESHOLD:
+        state = threshold_state(viewer)
+    elif source == SOURCE_UPLOADED:
+        upload = stored_upload(viewer)
+        state = uploaded_state(viewer)
+    else:
+        state = guide_state(viewer)
+    if state["status"] != "ok":
+        words = SNAPSHOT_REASONS.get(state["status"], state["status"])
+        detail = f": {state['reason']}" if state.get("reason") else ""
+        shown = ", ".join(snapshot_overview(viewer)["available"]) or "none"
+        raise ValueError(f"The {source} tree cannot be shown: {words} ({state['status']}{detail}). Trees that can be shown: {shown}.")
+    counts = state["counts"]
+    if counts["nodes"] * 40 + sum(len(label) + 56 for label in state["labels"]) > budget_bytes:
+        raise ValueError("The tree is too large for the snapshot memory budget.")
+    parent = _unpacked(state, "parent", "<i4")
+    length = _unpacked(state, "length", "<f4")
+    support = _unpacked(state, "support", "i1")
+    viewer_node = _unpacked(state, "viewer_node", "<i4")
+    labels = list(state["labels"])
+    index = tree_snapshot.tree_index(parent, length)
+    root = len(parent) - 1
+    artificial = np.zeros(len(parent), dtype=bool)
+    threshold = None
+    if source == SOURCE_THRESHOLD:
+        info = state["threshold"]
+        threshold = {key: info[key] for key in SNAPSHOT_THRESHOLD_FIELDS if key in info}
+        if info["forest"]:
+            # The groups that share no kept edge hang from one root put below the lowest score: its place and the
+            # lengths of the branches to it stand for no score.
+            artificial[root] = True
+            artificial[np.flatnonzero(parent == root)] = True
+        used = "artificial" if info["forest"] else "network"
+        support_kind = None
+    elif source == SOURCE_UPLOADED:
+        used = "file"
+        support_kind = "file" if (support >= 0).any() else None
+    else:
+        used = "file" if state["rooted"] is True else "midpoint"
+        support_kind = "split_stability" if (support >= 0).any() else None
+    shown = viewer_node >= 0
+    not_aligned = np.zeros(len(labels), dtype=bool)
+    if source == SOURCE_GUIDE:
+        aligned = getattr(loaded_alignment(viewer)[0], "aligned_node_mask", None)
+        headers = getattr(viewer, "full_headers", ()) or ()
+        if aligned is not None and len(aligned) == len(headers) and shown.any():
+            not_aligned[shown] = ~np.asarray(aligned, dtype=bool)[viewer_node[shown]]
+    ambiguous = np.zeros(0, dtype=np.int64)
+    if upload is not None and state["match"]["ambiguous"]:
+        ambiguous = np.asarray(_match(upload.labels, [str(header) for header in (getattr(viewer, "full_headers", ()) or ())])[2], dtype=np.int64)
+    summary = {
+        "source": source,
+        "name": state.get("name"),
+        "file": state.get("tree_path") if source == SOURCE_GUIDE else upload.name if upload is not None else None,
+        "rooted": state["rooted"],
+        "root": used,
+        "has_lengths": bool(state["has_lengths"]),
+        "support_kind": support_kind,
+        "counts": {**counts, "clades": counts["nodes"] - counts["leaves"]},
+        "warnings": [{key: warning[key] for key in ("code", "count") if key in warning} for warning in state["warnings"]],
+        "threshold": threshold,
+        "fingerprint": _fingerprint(parent, length, support, labels),
+    }
+    return {
+        "source": source, "summary": summary, "parent": parent, "length": length, "support": support,
+        "viewer_node": viewer_node, "labels": labels, "has_lengths": summary["has_lengths"],
+        "clade_names": dict(upload.clade_names) if upload is not None else {}, "artificial": artificial,
+        "not_aligned": not_aligned, "ambiguous": ambiguous, "index": index,
+    }
+
+
+def register_snapshot_part(registry):
+    """Declare Tree View's part of an inspection snapshot: ``include_tree`` asks for it, ``tree_source`` picks the tree."""
+    from web_ui import tree_snapshot
+
+    registry.register_snapshot_part(
+        "tree", "tree",
+        overview=snapshot_overview,
+        capture=capture_snapshot_part,
+        queries={"query_clades": tree_snapshot.clade_rows, "query_tree_names": tree_snapshot.name_rows},
+        summary_arguments={"include_tree": "switch", "tree_source": "option"},
+        capability="tree_snapshots_v1",
+    )
+
+
 def register_backend(registry, viewer):
     """Register Tree View's web capabilities without adding a Console button."""
     registry.register_api_route("tree", DATA_ROUTE, lambda request: handle_tree_data(viewer, request))
@@ -1318,6 +1466,7 @@ def register_backend(registry, viewer):
         "tree", UPLOAD_ROUTE, lambda request: handle_tree_upload_request(viewer, request), ("POST",),
         max_body=Web_Server.MAX_ACTION_BYTES, content_types=("application/json",),
     )
+    register_snapshot_part(registry)
     follow_colors(viewer)
 
 
