@@ -154,9 +154,25 @@ still change before version 1.0.0.
   - **With nothing to show** (no alignment, an alignment the Embedding MSA tool did not
     name, or no tree file), the page opens on a card that says why, and the command's
     result names the file it looked for.
+  - **Clades by number:** hovering over a clade or pinning it shows its number, and
+    `#clade:17#` names it in a selection expression: `select #clade:17#` selects its nodes in
+    the network, and `color`, `group`, `hide`, `logo`, `query`, `spectrum` and the Meta Data
+    download filter take it too. The number is a clade of the tree Tree View shows, and the
+    command says which tree that was.
+  - **Through MCP:** `get_summary` lists the trees that can be shown, and with
+    `include_tree=true` (and `tree_source`) holds one in the snapshot. `query_clades` pages
+    its clades (size, depth, height, branch length, support, hidden and faded leaves, top
+    clusters, metadata columns), and with `contains` gives the smallest clade that holds a
+    subset and whether the subset is that clade. `query_tree_names` pages the lists Show
+    Details shows, and `create_subset` takes `#clade:N#`.
   - **From the Agent,** a reply that opens Tree View waits for the user to press Run, as
     `meta` and `esmfold` do.
   - **In the VR viewer,** `tree` says that Tree View needs the desktop Viewer.
+- **Web pages can add to MCP snapshots and to selection expressions.** A page's backend
+  declares a snapshot part (`register_snapshot_part`: what `get_summary` says of it, what it
+  holds, the reads that answer from it) and label namespaces (`register_label_namespace`,
+  for labels like `#clade:17#`); the Viewer serves them without naming the page.
+  `docs/web_plugin_development.md` describes both.
 
 ### Changed
 
