@@ -99,9 +99,9 @@ the intended session using its identity and cache metadata, then connect. Listin
 does not select a session. With multiple candidates, resolve the intended one;
 never choose arbitrarily.
 
-For a new Viewer, first call `emapssn_viewer_control(action="export_settings")`. To select
-another cache, its optional `settings_path` can supply an overlay with
-inputs.TARGET_CACHE_PATH and necessary matching inputs. Overlays require
+For a new Viewer, first call `emapssn_viewer_control(action="export_settings")`. Its optional
+`settings_document` (or `settings_path` file) supplies an overlay naming inputs Config
+lacks or another cache (inputs.TARGET_CACHE_PATH). Overlays require
 schema_version=2 and kind="viewer", with edits inside the named sections. Keep the full export, consult
 `emapssn_viewer_control(action="get_settings_schema")`, then call `emapssn_viewer_control(action="validate_settings")` and pass its
 normalized document to `emapssn_viewer_control(action="start_session")`. Validation checks source files and

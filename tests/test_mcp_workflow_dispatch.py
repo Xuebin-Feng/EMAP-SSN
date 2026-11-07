@@ -117,7 +117,7 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
             for workflow, action, expected in [
                 # A layout export without inline inputs or fields passes no overlay.
                 ("emapssn_pipeline", "export_layout_settings", ("layout", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None)),
-                ("emapssn_viewer_control", "export_settings", ("viewer", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json")),
+                ("emapssn_viewer_control", "export_settings", ("viewer", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None)),
             ]:
                 result = await dispatch(workflow, action, {"output_path": "out.json", "settings_path": "overlay.json"}, None)
                 self.assertEqual(result, {"exported": True})
@@ -129,6 +129,46 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(overlay, {"schema_version": 2, "kind": "layout",
                                        "inputs": {"NODE_FASTA_FILE": "nodes.fasta", "INPUT_HDF5": "net.h5"},
                                        "network": {"TOP_EDGE_PERCENT": 5}, "simulation": {"DT": 0.002}})
+
+    async def test_viewer_export_takes_an_inline_overlay_and_explains_missing_inputs(self):
+        overlay = {"schema_version": 2, "kind": "viewer", "inputs": {"NODE_FASTA_FILE": "nodes.fasta"}}
+        description = await dispatch("emapssn_viewer_control", "describe", {"action": "export_settings"}, None)
+        self.assertIn("settings_document", description["arguments_schema"]["properties"])
+        self.assertIn("settings_document", description["effects"])
+        self.assertIn("plain file name resolves", description["effects"])
+        self.assertEqual(description["example"]["arguments"]["settings_document"]["kind"], "viewer")
+        with mock.patch("utilities.Headless_Settings.export_config_settings", return_value={"exported": True}) as export:
+            await dispatch("emapssn_viewer_control", "export_settings", {"settings_document": overlay}, None)
+            self.assertEqual(export.call_args.args, ("viewer", pipeline_ops._PROJECT_ROOT, None, None, overlay))
+            with self.assertRaisesRegex(ToolError, "at most one of settings_document and settings_path"):
+                await dispatch("emapssn_viewer_control", "export_settings",
+                               {"settings_document": overlay, "settings_path": "overlay.json"}, None)
+            self.assertEqual(export.call_count, 1)
+        with mock.patch("utilities.Headless_Settings.export_config_settings",
+                        side_effect=ValueError("NODE_FASTA_FILE: required nonempty path.")):
+            with self.assertRaisesRegex(ToolError, "name the inputs in settings_document"):
+                await dispatch("emapssn_viewer_control", "export_settings", {}, None)
+
+    async def test_subset_and_summary_descriptions_teach_the_expression_and_the_sizes(self):
+        from Command_Engine import SelectionExpressionError, parse_selection_expression
+        subset = await dispatch("emapssn_viewer_data", "describe", {"action": "create_subset"}, None)
+        text = subset["effects"]
+        examples = ['"kinase"', "#cluster_1#", "#noise#", "#<group name>#", "#clade:3#", "{Length>500}", "$sele$",
+                    "#cluster_1# & {Length>500}"]
+        for example in examples:
+            self.assertIn(example, text)
+        for example in examples:
+            if "<group" not in example:  # a placeholder, not an example
+                parse_selection_expression(example)
+        parse_selection_expression("#group_a# | !#noise# ^ (#clade:3# & $sele$)")
+        for operator in ("&", "|", "^", "!"):
+            self.assertIn(operator, text)
+        with self.assertRaises(SelectionExpressionError):
+            parse_selection_expression("cluster == 1")
+        self.assertIn("#cluster_1#", viewer_ops.create_viewer_subset.__doc__)
+        summary = await dispatch("emapssn_viewer_data", "describe", {"action": "summarize_subset"}, None)
+        self.assertIn("cluster and group sizes", summary["effects"])
+        self.assertIn("cluster and group sizes", viewer_ops.summarize_viewer_subset.__doc__)
 
     async def test_viewer_export_reports_saved_state_of_each_cache(self):
         # Export picks the newest cache, which may lack the clusters a saved

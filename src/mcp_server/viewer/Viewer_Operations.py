@@ -114,7 +114,10 @@ async def create_viewer_subset(
     session_id: str | None = None,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
 ) -> dict[str, Any]:
-    """Intersect scope with shared Boolean predicates, including residues on alignment snapshots; no files or commands."""
+    """Intersect scope with a Boolean expression, including residues on alignment snapshots; no files or commands.
+    Write header text in double quotes ("kinase"), labels #cluster_1#, #noise#, #<group name># and #clade:3# (needs
+    get_summary include_tree=true), metadata {Length>500} and $sele$, joined by & | ^ ! and parentheses, for example
+    #cluster_1# & {Length>500}. SQL-like text such as cluster == 1 is not an expression."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -134,7 +137,8 @@ async def summarize_viewer_subset(
     limit: Annotated[int, Field(ge=1, le=500)] = 25,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
 ) -> dict[str, Any]:
-    """Exact metadata and membership statistics; omitted subset uses all nodes. Page complete category counts."""
+    """Exact metadata statistics and cluster and group sizes in one call (membership rows: category and count; noise is
+    cluster -1); omitted subset uses all nodes. Page complete category counts."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -180,7 +184,8 @@ async def query_viewer_clades(
     limit: Annotated[int, Field(ge=1, le=500)] = 25,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
 ) -> dict[str, Any]:
-    """Page the clades (internal nodes) of the tree a get_summary(include_tree=true) snapshot holds, as the tree is drawn from its root.
+    """Page the clades (internal nodes) of the tree a get_summary(include_tree=true) snapshot holds, as the tree is drawn from its root;
+    every page's about names that root (file, midpoint, network or artificial) and whether the tree is rooted.
     Ask for the clades you need and never page every one: a tree of 44,000 leaves has about 44,000. To learn whether a
     group of nodes is a clade, create_subset for them and pass its id as contains: the answer is the one smallest clade
     holding every subset node that is a leaf of the tree, with in_subset, outside_subset (0 means the subset's leaves form
@@ -359,14 +364,17 @@ def get_viewer_settings_schema() -> dict[str, Any]:
 async def export_config_settings(
     kind: Literal["layout", "viewer"], output_path: str | None = None,
     settings_path: str | None = None,
+    settings_document: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Required first step for a new Viewer or layout: export inherited settings.
     Reads viewer_settings.json and preserves the relevant saved preferences:
     alignment/embedding/display for Viewer, generation/simulation/physics for layout.
     Change only requested fields and dependencies in the exported JSON file,
     then execute the full export; do not rebuild minimal JSON from schema defaults.
-    kind selects the contract; settings_path optionally supplies an edited JSON
-    overlay, while output_path selects the new export destination.
+    kind selects the contract; settings_path (a file) or settings_document (the same
+    partial JSON given inline, for a caller that cannot write files) optionally
+    supplies an edited overlay, at most one of them; output_path selects the new
+    export destination.
     Returns settings and cache paths with inherited Config settings.
     Layout exports select the next automatic version (a preview, not a reservation).
     Viewer exports include only inputs, alignment, embedding, visualization and
@@ -380,10 +388,20 @@ async def export_config_settings(
     or start_layout_job for a layout. Exporting does not execute either operation.
     """
     from utilities.Headless_Settings import export_config_settings as export
+    if settings_document is not None and settings_path is not None:
+        raise ToolError("Supply at most one of settings_document and settings_path.")
+    if settings_document is not None and not isinstance(settings_document, dict):
+        raise ToolError("settings_document must be a JSON object.")
     try:
-        return await asyncio.to_thread(export, kind, _PROJECT_ROOT, output_path, settings_path)
+        return await asyncio.to_thread(export, kind, _PROJECT_ROOT, output_path, settings_path, settings_document)
     except (ValueError, TypeError, KeyError, OSError) as error:
-        raise ToolError(str(error)) from error
+        message = str(error)
+        if message.startswith(("NODE_FASTA_FILE:", "INPUT_HDF5:")) and "required nonempty path" in message:
+            message = (
+                f"{message} The saved Config settings select no {message.split(':')[0]}; "
+                "name the inputs in settings_document (or settings_path), or save them in Config."
+            )
+        raise ToolError(message) from error
 
 
 async def validate_viewer_settings(
@@ -488,17 +506,25 @@ def _cache_choices(cache_path, limit=20):
     return result
 
 
-async def export_viewer_settings(output_path: str | None = None, settings_path: str | None = None) -> dict[str, Any]:
+async def export_viewer_settings(
+    output_path: str | None = None, settings_path: str | None = None,
+    settings_document: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Export inherited Viewer settings before validate_viewer_settings and launch.
-    Preserve saved preferences by editing the full export. settings_path optionally
-    supplies an edited JSON overlay, including an explicit TARGET_CACHE_PATH;
-    otherwise the newest compatible cache is selected. output_path must not exist;
+    Preserve saved preferences by editing the full export. settings_document (inline)
+    or settings_path (a file), at most one, optionally supplies a partial overlay:
+    schema_version 2, kind "viewer" and only the fields it sets, such as inputs
+    NODE_FASTA_FILE, INPUT_HDF5 and TARGET_CACHE_PATH or alignment MSA_FILE. Use it
+    when Config has no saved inputs. A plain file name resolves in the default
+    FASTA_DIR, HDF5_DIR, MSA_DIR or SAVED_LAYOUT_DIR; a path with a folder resolves
+    from the project root; $input_file$-style aliases and absolute paths also work.
+    Without a TARGET_CACHE_PATH the newest compatible cache is selected. output_path must not exist;
     omitted output paths are unique. Export writes settings but does not launch.
     cache_contents reports the selected cache's saved cluster labels, groups and
     metadata columns; other_caches lists the folder's other caches (newest first)
     by the same state, so a saved figure cache can be selected with an overlay.
     """
-    result = await export_config_settings("viewer", output_path, settings_path)
+    result = await export_config_settings("viewer", output_path, settings_path, settings_document)
     if result.get("cache_path"):
         try:
             result.update(await asyncio.to_thread(_cache_choices, result["cache_path"]))

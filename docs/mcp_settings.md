@@ -172,12 +172,27 @@ JSON document. `emapssn_pipeline(action="export_tool_settings")(tool_id, output_
 the selected tool and its required directories, inheriting `tools_settings.json`
 and filling missing values from the tool defaults. Empty selectors remain editable.
 
-The two Config export actions accept `output_path` and `settings_path`:
+The two Config export actions accept `output_path` and `settings_path`; the Viewer export also accepts `settings_document`,
+the same partial overlay given inline (at most one of the two; supplying both is an error):
 
 - `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP/PaCMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
 - `emapssn_viewer_control(action="export_settings")`: a version 2 snapshot of inputs, alignment, embedding, visualization and
   directories, with the selected existing cache. Generation settings are cache-derived. This is configuration, not window state.
+
+An agent that has only the MCP tools cannot write a file, so on a computer whose Config saves no input files it passes the
+inputs inline:
+
+```json
+{"action": "export_settings", "arguments": {"settings_document": {
+  "schema_version": 2, "kind": "viewer",
+  "inputs": {"NODE_FASTA_FILE": "nodes.fasta", "INPUT_HDF5": "network.h5"}}}}
+```
+
+An overlay names an input by plain file name (resolved in the default `FASTA_DIR`, `HDF5_DIR`, `MSA_DIR` or
+`SAVED_LAYOUT_DIR`, as the pipeline's inputs are), by a path with a folder (resolved from the project root), by a
+`$input_file$`-style alias or by an absolute path. Without saved inputs and without `settings_document` or `settings_path`
+the export fails with a message that says to name them there or save them in Config.
 
 Config inherits saved `viewer_settings.json`. An optional edited JSON file overlays
 these preferences; an existing layout document can also be re-exported as layout
@@ -779,7 +794,7 @@ exported before they existed):
 | `directories` | All directory-profile input-resolution and output directories |
 
 Export first, then change only intended fields. To select a cache during export,
-pass a version 2 overlay file as `settings_path`, for example:
+pass a version 2 overlay as `settings_path` (a file) or `settings_document` (inline), for example:
 
 ```json
 {

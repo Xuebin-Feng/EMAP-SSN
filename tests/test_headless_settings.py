@@ -267,6 +267,42 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         os.utime(second.cache_path, ns=(stamp, stamp))
         self.assertEqual(export_config_settings("viewer", self.root)["cache_path"], first.cache_path)
 
+    def test_mcp_viewer_export_names_its_inputs_inline_when_config_saves_none(self):
+        import shutil
+        from mcp.server.mcpserver.exceptions import ToolError
+        from mcp_server.viewer import Viewer_Operations
+        self.saved_config()
+        cache = self.generate(export_config_settings("layout", self.root)["settings_document"]).cache_path
+        (self.root / "viewer_settings.json").unlink()  # a computer with no saved Config
+        # A plain file name resolves in the default input folders, as the pipeline's inputs do.
+        for folder, name in (("Sequence_Sets", "set.fasta"), ("Networks_EValues", "network.h5")):
+            (self.root / "Input_Files" / folder).mkdir(parents=True)
+            shutil.copy(self.root / name, self.root / "Input_Files" / folder / name)
+        overlay = {"schema_version": 2, "kind": "viewer",
+                   "inputs": {"NODE_FASTA_FILE": "set.fasta", "INPUT_HDF5": "network.h5", "TARGET_CACHE_PATH": cache}}
+
+        async def export(**arguments):
+            return await Viewer_Operations.export_viewer_settings(**arguments)
+
+        with mock.patch.object(Viewer_Operations, "_PROJECT_ROOT", str(self.root)):
+            with self.assertRaisesRegex(ToolError, "name the inputs in settings_document .* save them in Config"):
+                asyncio.run(export(output_path=str(self.root / "none.json")))
+            result = asyncio.run(export(settings_document=overlay, output_path=str(self.root / "out.json")))
+            document = result["settings_document"]
+            self.assertEqual(set(document), {"schema_version", "kind", "inputs", "alignment", "embedding", "visualization", "directories"})
+            self.assertEqual(Path(document["inputs"]["NODE_FASTA_FILE"]),
+                             self.root / "Input_Files" / "Sequence_Sets" / "set.fasta")
+            self.assertEqual(Path(document["inputs"]["INPUT_HDF5"]),
+                             self.root / "Input_Files" / "Networks_EValues" / "network.h5")
+            self.assertEqual(Path(document["inputs"]["TARGET_CACHE_PATH"]), Path(cache))
+            self.assertTrue((self.root / "out.json").is_file())
+            with self.assertRaisesRegex(ToolError, "at most one of settings_document and settings_path"):
+                asyncio.run(export(settings_document=overlay, settings_path=str(self.root / "o.json")))
+        # The GUI and CLI keep the plain message.
+        with self.assertRaises(ValueError) as caught:
+            export_config_settings("viewer", self.root)
+        self.assertEqual(str(caught.exception), "NODE_FASTA_FILE: required nonempty path.")
+
     def test_explicit_collision_and_filename_mismatch(self):
         self.saved_config()
         document = export_config_settings("layout", self.root)["settings_document"]
