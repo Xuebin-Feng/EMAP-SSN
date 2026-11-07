@@ -130,9 +130,10 @@ still change before version 1.0.0.
     clade: hovering or clicking it acts on the leaf or clade below, and a clade's details
     count its shown and its hidden leaves. The tree follows the Viewer when colours, clusters
     or hidden nodes change, and when another alignment is loaded.
-  - **Selection, both ways:** nodes selected in the network are marked in the tree in the
-    Viewer's selection colour, with the smallest clade that holds them outlined, and their
-    neighbours in the network in its connected-node colour while the Viewer marks them.
+  - **Selection, both ways:** nodes selected in the network are marked in the tree by a
+    ring at the leaf's tip in the Viewer's selection colour, with the smallest clade that
+    holds them outlined, and their neighbours in the network by a ring in its
+    connected-node colour while the Viewer marks them.
     These colours are the ones set in Config. Right-clicking a clade or a leaf selects its
     nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
     space clears the selection. Clicking a leaf focuses its node in the network.
