@@ -487,6 +487,10 @@ class SnapshotStore:
             except (ValueError, AttributeError): raise ViewerInspectionError('Invalid cursor for this snapshot/query')
         result = dict(base, rows=[], returned_count=0, complete=True, next_cursor=None)
         first = 0
+        about = getattr(rows, 'about', None)
+        if about:
+            # A read's own small fixed facts, such as what its rows assume, ride on every page.
+            result['about'] = dict(about)
         if hasattr(rows, 'rows_from'):
             # A source of rows that can begin at a row without making the ones before it.
             rows, first = rows.rows_from(offset), offset

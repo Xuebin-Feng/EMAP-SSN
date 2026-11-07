@@ -573,3 +573,25 @@ class CentralFilesNameNoCommandTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AboutDictTests(FakePartFixture, unittest.TestCase):
+    def test_a_rows_about_dict_rides_on_every_page(self):
+        class Source:
+            about = {'root': 'file', 'rooted': True}
+            def rows_from(self, offset):
+                for position in range(offset, 6):
+                    yield {'position': position}
+
+        part = self.registry._snapshot_parts['widget']
+        self.registry._snapshot_parts['widget'] = type(part)(**{**vars(part), 'queries': {'query_widgets': lambda *a: Source()}})
+        sid = self.service.capture_snapshot(parts={'widget': {}})
+        first = self.store.execute('query_widgets', sid, limit=2)
+        last = self.store.execute('query_widgets', sid, limit=10, cursor=first['next_cursor'])
+        self.assertEqual(first['about'], {'root': 'file', 'rooted': True})
+        self.assertEqual(last['about'], {'root': 'file', 'rooted': True})
+        self.assertTrue(last['complete'])
+
+    def test_rows_without_about_add_no_field(self):
+        sid = self.service.capture_snapshot(parts={'widget': {}})
+        self.assertNotIn('about', self.store.execute('query_widgets', sid, upto=3))

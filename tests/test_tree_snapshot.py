@@ -32,7 +32,8 @@ from commands import color, select  # noqa: E402
 from desktop.Viewer_Inspection import ViewerInspectionError  # noqa: E402
 from tests.command_fixtures import reported_outcomes  # noqa: E402
 from tests.tree_fixtures import (  # noqa: E402
-    SMALL_TREE, give_edges, headers_of, make_alignment_folder, make_viewer, snapshot_viewer, upload_tree,
+    SMALL_TREE, give_edges, headers_of, make_alignment_folder, make_viewer, neighbor_joining_tree, snapshot_viewer,
+    upload_tree,
 )
 from web_ui import tree_backend, tree_snapshot  # noqa: E402
 
@@ -843,3 +844,46 @@ class LabelRegistrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AboutRootTests(CladeLabelCase):
+    """Every page of query_clades names the root its clades assume."""
+
+    def pages(self, source):
+        viewer = self.viewer(source)
+        service = viewer.service
+        sid = service.capture_snapshot(parts={"tree": {"tree_source": source}})
+        first = service.snapshots.execute("query_clades", sid, limit=1)
+        second = service.snapshots.execute("query_clades", sid, limit=1, cursor=first["next_cursor"])
+        subset = service.snapshots.execute("create_subset", sid, scope="all")["subset_id"]
+        held = service.snapshots.execute("query_clades", sid, contains=subset)
+        summary = service.snapshots.execute("get_summary", sid)["parts"]["tree"]["captured"]
+        return summary, [first, second, held]
+
+    def test_each_source_says_its_root_on_every_page(self):
+        expected = {"guide": "file", "uploaded": "file", "threshold": "network"}
+        for source, root in expected.items():
+            summary, pages = self.pages(source)
+            self.assertEqual(summary["root"], root, source)
+            for page in pages:
+                with self.subTest(source=source):
+                    self.assertEqual(page["about"], {"root": root, "rooted": summary["rooted"]})
+                    self.assertLess(len(json.dumps(page["about"])), 60)
+
+    def test_an_unrooted_guide_tree_says_midpoint(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        linkage, lengths = neighbor_joining_tree(9)
+        msa, _ = make_alignment_folder(folder.name, self.GUIDE_HEADERS, linkage=linkage, nj_branch_lengths=lengths)
+        viewer, service = snapshot_viewer(self.GUIDE_HEADERS, base=make_viewer(msa, self.GUIDE_HEADERS))
+        sid = service.capture_snapshot(parts={"tree": {"tree_source": "guide"}})
+        page = service.snapshots.execute("query_clades", sid)
+        self.assertEqual(page["about"], {"root": "midpoint", "rooted": False})
+
+    def test_a_threshold_forest_says_artificial(self):
+        headers = ["n%d" % i for i in range(6)]
+        viewer = give_edges(make_viewer(None, headers), [(0, 1), (1, 2), (3, 4), (4, 5)], [0.9, 0.8, 0.7, 0.6])
+        viewer, service = snapshot_viewer(headers, base=viewer)
+        sid = service.capture_snapshot(parts={"tree": {"tree_source": "threshold"}})
+        page = service.snapshots.execute("query_clades", sid)
+        self.assertEqual(page["about"]["root"], "artificial")

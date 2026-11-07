@@ -138,10 +138,11 @@ class Rows:
     """The rows of one read: ``count`` of them, each made when it is reached, so a page costs what it holds.
 
     A snapshot's pager starts at ``rows_from(offset)`` and does not make the rows before it.
+    ``about``, when given, is a small fixed dict the pager puts on every page of the read.
     """
 
-    def __init__(self, count, make):
-        self.count, self.make = count, make
+    def __init__(self, count, make, about=None):
+        self.count, self.make, self.about = count, make, about
 
     def rows_from(self, offset):
         for position in range(offset, self.count):
@@ -246,6 +247,9 @@ def clade_rows(frozen, snapshot, indices, args):
     clusters = leaves.cluster
     has_lengths = frozen["has_lengths"]
     total_nodes = len(parent)
+    # Clades depend on the root the tree is drawn from: every page says which one.
+    summary = frozen.get("summary") or {}
+    about = {"root": summary.get("root"), "rooted": summary.get("rooted")}
 
     def row(clade):
         low, high = int(first[clade]), int(last[clade])
@@ -292,7 +296,7 @@ def clade_rows(frozen, snapshot, indices, args):
         found["in_subset"] = inside
         found["outside_subset"] = found["leaves"]["in_network"] - inside
         found["subset_not_in_tree"] = int(len(members) - len(np.unique(leaves.viewer_node[held])))
-        return Rows(1, lambda position: found)
+        return Rows(1, lambda position: found, about)
 
     chosen = np.flatnonzero(~index["is_leaf"])
     if within is not None:
@@ -310,7 +314,7 @@ def clade_rows(frozen, snapshot, indices, args):
         chosen = chosen[np.lexsort((chosen, -size))]
     else:
         chosen = chosen[np.lexsort((-chosen, index["start"][chosen]))]
-    return Rows(len(chosen), lambda position: row(int(chosen[position])))
+    return Rows(len(chosen), lambda position: row(int(chosen[position])), about)
 
 
 def name_rows(frozen, snapshot, indices, args):
