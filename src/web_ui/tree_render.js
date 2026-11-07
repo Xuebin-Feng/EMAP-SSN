@@ -899,15 +899,20 @@ window.TreeView = window.TreeView || {};
 
     // Rings of `radius` and `thickness` (CSS pixels) round the points in `centres` (x, y pairs). Skia draws a stroke of
     // one device pixel or less on the GPU as a hairline, and a thicker one for many circles through the CPU (about
-    // 125 ms for a screenful at a device pixel ratio of 2), so a thick ring is made of one-device-pixel circles, side by
-    // side across its thickness: the same ink as the thick stroke, a hairline each.
+    // 125 ms for a screenful at a device pixel ratio of 2), so a thick ring is made of one-device-pixel circles side by
+    // side across its thickness. One pass for each device pixel of thickness leaves faint stripes where the anti-aliased
+    // edges of neighbouring passes meet; one and a half passes for each overlap enough to look like the real stroke
+    // (6 passes at a ratio of 2, about 3 ms for 1500 rings more than 4).
     function strokeRings(ctx, centres, radius, thickness, color) {
         const ratio = window.devicePixelRatio || 1;
-        const passes = Math.max(1, Math.min(8, Math.round(thickness * ratio)));
+        const device = Math.max(1, Math.round(thickness * ratio));
+        const passes = device < 2 ? 1 : Math.min(8, Math.ceil(device * 1.5));
+        // The passes are spaced evenly so that the outer edges of the first and the last lie `device` pixels apart.
+        const step = passes > 1 ? (device - 1) / (passes - 1) / ratio : 0;
         ctx.strokeStyle = color;
         ctx.lineWidth = 1 / ratio;
         for (let k = 0; k < passes; k++) {
-            const r = radius + (k - (passes - 1) / 2) / ratio;
+            const r = radius + (k - (passes - 1) / 2) * step;
             const path = new Path2D();
             for (let i = 0; i < centres.length; i += 2) {
                 path.moveTo(centres[i] + r, centres[i + 1]);
