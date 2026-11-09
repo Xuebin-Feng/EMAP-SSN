@@ -354,13 +354,28 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
             visible_mask=np.ones(nodes, dtype=bool),
             selected_indices=list(selected),
             console_text=SimpleNamespace(text=""),
-            promote_nodes=mock.Mock(),
+            node_render_order=np.arange(nodes, dtype=np.int32),
             update_nodes=mock.Mock(),
             update_console_background=mock.Mock(),
             hud_displays={},
         )
+
+        def promote_nodes(indices):
+            # The real Viewer.promote_nodes: the group goes to the end of the order, sorted.
+            values = np.asarray(indices)
+            promoted = np.flatnonzero(values) if values.dtype == np.bool_ else np.unique(values)
+            kept = viewer.node_render_order[~np.isin(viewer.node_render_order, promoted)]
+            viewer.node_render_order = np.concatenate((kept, np.sort(promoted))).astype(np.int32)
+
+        viewer.promote_nodes = mock.Mock(side_effect=promote_nodes)
         viewer.states = []
-        viewer._save_state = mock.Mock(side_effect=lambda: viewer.states.append(viewer.current_colors.copy()))
+        viewer.orders = []
+
+        def save_state():
+            viewer.states.append(viewer.current_colors.copy())
+            viewer.orders.append(viewer.node_render_order.copy())
+
+        viewer._save_state = mock.Mock(side_effect=save_state)
         return viewer
 
     def run_spectrum(self, viewer, args, network=None):
@@ -381,13 +396,35 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
         np.testing.assert_allclose(viewer.current_colors[2], cmap(1.0))  # 30 won over 20
         np.testing.assert_allclose(viewer.current_colors[3], (0.8, 0.8, 0.8, 0.4))  # no pair: the noise color
         np.testing.assert_allclose(viewer.current_colors[0], reference_rgba)
-        promoted = viewer.promote_nodes.call_args.args[0]
-        np.testing.assert_array_equal(promoted, [True, True, True, True])
+        targets, last = (call.args[0] for call in viewer.promote_nodes.call_args_list)
+        np.testing.assert_array_equal(targets, [False, True, True, True])  # the targets first
+        np.testing.assert_array_equal(last, [0])  # then the reference alone
         viewer.update_nodes.assert_called_once_with()
         self.assertIn("(min: 10, max: 30)", viewer.console_text.text)
         self.assertIn("1 node(s) with no score to it", viewer.console_text.text)
         self.assertEqual(viewer.selected_indices, [0])
         self.meta.assert_not_called()
+
+    def test_the_reference_is_drawn_last_so_it_is_always_on_top(self):
+        viewer = self.make_viewer(selected=(2,))
+        viewer.node_render_order = np.array([2, 0, 3, 1], dtype=np.int32)
+
+        self.run_spectrum(viewer, ["viridis"])
+
+        order = list(viewer.node_render_order)
+        self.assertEqual(order[-1], 2)
+        self.assertTrue(all(order.index(2) > order.index(target) for target in (0, 1, 3)))
+        viewer._save_state.assert_called_once_with()
+        np.testing.assert_array_equal(viewer.orders[0], [2, 0, 3, 1])  # undo restores this order
+
+    def test_an_expression_leaves_the_reference_out_of_the_targets_and_on_top(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis", '"node_"'])
+
+        targets = viewer.promote_nodes.call_args_list[0].args[0]
+        np.testing.assert_array_equal(targets, [False, True, True, True])
+        self.assertEqual(int(viewer.node_render_order[-1]), 0)
 
     def test_an_expression_picks_the_nodes_colored_and_sets_the_range(self):
         viewer = self.make_viewer()

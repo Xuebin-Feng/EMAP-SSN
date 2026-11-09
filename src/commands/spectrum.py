@@ -712,9 +712,9 @@ def apply(viewer, plan, result):
         has_score, scores[has_score], extras=extras,
     )
 
-    promoted = targets.copy()
-    promoted[reference] = True
-    viewer.promote_nodes(promoted)
+    # Targets first, then the reference alone, so the selected node is the last one drawn: always on top.
+    viewer.promote_nodes(targets)
+    viewer.promote_nodes(np.array([reference], dtype=np.int64))
     viewer.update_nodes()
 
     count = int(has_score.sum())
