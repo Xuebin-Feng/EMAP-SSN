@@ -658,6 +658,112 @@ class ColorStateTests(unittest.TestCase):
         self.assertLess(len(json.dumps(state)), 400_000)
 
 
+class ColorKeyPayloadTests(unittest.TestCase):
+    """What the page is told of what the colours mean: the colour key's layers and its per-node arrays."""
+
+    @staticmethod
+    def keyed(count=12, title="Clusters", labels=("Cluster 1", "Cluster 2")):
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            red, blue = (1.0, 0.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0)
+            viewer.current_colors[0:4] = red
+            viewer.current_colors[4:6] = blue
+            Node_Colors.declare_categories(viewer, title, [(labels[0], red), (labels[1], blue)], [0, 0, 0, 0, 1, 1], nodes=range(6))
+
+        return make_viewer(None, headers_of(count), colors=node_colors(count), key=declare)
+
+    def test_the_key_travels_with_the_colours_as_layers_and_arrays(self):
+        state = tree_backend.colors_state(self.keyed())
+        key = state["key"]
+        (layer,) = key["layers"]
+        self.assertEqual((layer["kind"], layer["title"]), ("categories", "Clusters"))
+        self.assertEqual([(c["label"], c["rgba"]) for c in layer["categories"]],
+                         [("Cluster 1", [255, 0, 0, 255]), ("Cluster 2", [0, 0, 255, 255])])
+        self.assertEqual((key["owner_type"], key["category_type"]), ("i2", "i2"))
+        self.assertEqual(list(unpack(key["owner"], "<i2")), [0] * 6 + [-1] * 6)
+        self.assertEqual(list(unpack(key["category"], "<i2")), [0, 0, 0, 0, 1, 1] + [-1] * 6)
+        bits = np.unpackbits(unpack(key["labelled"], np.uint8), bitorder="little")
+        self.assertEqual(list(bits[:12]), [1] * 6 + [0] * 6)
+        self.assertIsNone(key["values"])
+        json.dumps(state)
+
+    def test_a_viewer_with_no_key_sends_none(self):
+        state = tree_backend.colors_state(make_viewer(None, headers_of(5), colors=node_colors(5)))
+        self.assertEqual((state["status"], state["key"]), ("ok", None))
+
+    def test_a_gradient_sends_its_values_and_the_layer_ids_become_positions(self):
+        import matplotlib as mpl
+
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            cmap = mpl.colormaps["viridis"]
+            viewer.current_colors[0:3] = cmap([0.0, 0.5, 1.0])
+            Node_Colors.declare_categories(viewer, "First", [("A", tuple(viewer.current_colors[3]))], [0], nodes=[3])
+            Node_Colors.declare_gradient(viewer, "Length", "viridis", cmap, 10.0, 20.0, [0, 1, 2], [10.0, 15.0, 20.0],
+                                         extras=[("No value", (0.8, 0.8, 0.8, 0.4), [4])])
+
+        viewer = make_viewer(None, headers_of(6), colors=node_colors(6), key=declare)
+        viewer.current_colors[4] = (0.8, 0.8, 0.8, 0.4)
+        key = tree_backend.colors_state(viewer)["key"]
+        self.assertEqual([layer["kind"] for layer in key["layers"]], ["categories", "gradient"])
+        gradient = key["layers"][1]
+        self.assertEqual((gradient["scheme"], gradient["min"], gradient["max"], len(gradient["stops"])), ("viridis", 10.0, 20.0, 16))
+        self.assertEqual(gradient["extras"][0]["label"], "No value")
+        self.assertEqual(list(unpack(key["owner"], "<i2")), [1, 1, 1, 0, 1, -1])
+        self.assertEqual(list(unpack(key["category"], "<i2")), [-1, -1, -1, 0, 0, -1])
+        values = unpack(key["values"], "<f4")
+        self.assertEqual(list(values[:3]), [10.0, 15.0, 20.0])
+        self.assertTrue(np.isnan(values[3:]).all())
+
+    def test_a_key_that_cannot_be_read_is_no_key_and_never_stops_the_colours(self):
+        viewer = self.keyed()
+        viewer.color_key_owner = np.zeros(3, dtype=np.int32)
+        state = tree_backend.colors_state(viewer)
+        self.assertEqual((state["status"], state["key"]), ("ok", None))
+
+    def test_the_version_follows_the_key_alone(self):
+        base = tree_backend.colors_state(self.keyed())["version"]
+        self.assertEqual(tree_backend.colors_state(self.keyed())["version"], base)
+        # The same colours with another meaning: a title, a label, or no key at all.
+        self.assertNotEqual(tree_backend.colors_state(self.keyed(title="Subclusters"))["version"], base)
+        self.assertNotEqual(tree_backend.colors_state(self.keyed(labels=("Cluster 1", "Noise")))["version"], base)
+        unkeyed = self.keyed()
+        for name in ("color_key_layers", "color_key_owner", "color_key_category", "color_key_rgba", "color_key_values"):
+            setattr(unkeyed, name, None)
+        self.assertEqual(np.array_equal(self.keyed().current_colors, unkeyed.current_colors), True)
+        self.assertNotEqual(tree_backend.colors_state(unkeyed)["version"], base)
+        # Two nodes swapping categories keeps every colour but one.
+        swapped = self.keyed()
+        swapped.color_key_category[0], swapped.color_key_category[4] = 1, 0
+        self.assertNotEqual(tree_backend.colors_snapshot(swapped)["version"], base)
+
+    def test_titles_and_labels_are_kept_to_a_length(self):
+        key = tree_backend.colors_state(self.keyed(title="T" * 5000, labels=("L" * 5000, "x")))["key"]
+        self.assertEqual(len(key["layers"][0]["title"]), tree_backend.KEY_TEXT_LIMIT)
+        self.assertEqual(len(key["layers"][0]["categories"][0]["label"]), tree_backend.KEY_TEXT_LIMIT)
+
+    def test_the_key_of_forty_four_thousand_nodes_with_a_gradient_is_about_half_a_megabyte(self):
+        import matplotlib as mpl
+
+        from desktop import Node_Colors
+
+        count = 44000
+
+        def declare(viewer):
+            cmap = mpl.colormaps["viridis"]
+            values = np.linspace(0.0, 1.0, count)
+            viewer.current_colors[:] = cmap(values)
+            Node_Colors.declare_gradient(viewer, "Length", "viridis", cmap, 0.0, 1.0, np.arange(count), values)
+
+        viewer = make_viewer(None, ["n%d" % i for i in range(count)], colors=node_colors(count), key=declare)
+        key = tree_backend.colors_state(viewer)["key"]
+        sizes = {name: len(key[name]) for name in ("owner", "category", "labelled", "values")}
+        self.assertEqual(sizes["labelled"], len(base64.b64encode(bytes((count + 7) // 8))))
+        self.assertLess(sum(sizes.values()), 500_000)
+
+
 class MarksTests(unittest.TestCase):
     """The colours the selected nodes and their neighbours are outlined in are the Viewer's settings, read when asked."""
 

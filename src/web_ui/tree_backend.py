@@ -54,6 +54,7 @@ from urllib.parse import parse_qs
 import numpy as np
 
 from desktop.Desktop_App import translate
+from desktop.Node_Colors import key_state
 from utilities.Localization import Message
 from utilities.Guide_Tree_File import (
     MAX_LABEL_CHARACTERS, MAX_LEAVES, GuideTreeError, guide_tree_path_for_alignment, read_guide_tree,
@@ -1024,13 +1025,72 @@ def colors_snapshot(viewer):
         cluster = np.array(labels, dtype=np.int64, copy=True)
         cluster = np.clip(cluster, -(2**31), 2**31 - 1).astype(np.int32)
     marks = marks_state(viewer)
+    key = _key_payload(viewer, count)
     version = zlib.crc32(rgba.tobytes())
     version = zlib.crc32(hidden.tobytes(), version)
     version = zlib.crc32(repr(sorted(marks.items())).encode("ascii"), version)
     if cluster is not None:
         version = zlib.crc32(cluster.tobytes(), version)
+    # What the colours mean is part of the version: an undo can bring back the same colours with another meaning.
+    if key is not None:
+        version = zlib.crc32(json.dumps(key["layers"], sort_keys=True).encode("utf-8"), version)
+        for name in ("owner", "category", "labelled", "values"):
+            if key[name] is not None:
+                version = zlib.crc32(key[name].tobytes(), version)
     return {
-        "count": count, "rgba": rgba, "hidden": hidden, "cluster": cluster, "marks": marks, "version": version & 0xFFFFFFFF,
+        "count": count, "rgba": rgba, "hidden": hidden, "cluster": cluster, "marks": marks, "key": key,
+        "version": version & 0xFFFFFFFF,
+    }
+
+
+# The longest title or label of the colour key the page is sent. They can come from a cache file somebody shared.
+KEY_TEXT_LIMIT = 300
+
+
+def _key_text(value):
+    return str(value)[:KEY_TEXT_LIMIT]
+
+
+def _byte(channel):
+    """A color channel of the key (0 to 1) as 0 to 255."""
+    return int(min(255, max(0, round(float(channel) * 255.0))))
+
+
+def _key_payload(viewer, count):
+    """What the colours of the nodes mean (desktop.Node_Colors.key_state) as the page is sent it; None for no key.
+
+    ``layers`` are the key's layers, oldest first, as JSON-ready dicts; ``owner`` is the position in ``layers`` of the
+    layer each node belongs to (-1 for none), ``category`` its category or extra (-1 for a plain gradient value),
+    ``labelled`` whether the node still has the colour its layer expects, and ``values`` the nodes' gradient values
+    (None when no layer is a gradient; NaN for a node without one).
+    """
+    try:
+        found = key_state(viewer)
+    except Exception:
+        return None
+    if found is None or not found["layers"] or len(found["owner"]) != count:
+        return None
+    layers = []
+    position = {}
+    for layer in found["layers"]:
+        position[layer["id"]] = len(layers)
+        entry = {"kind": layer["kind"], "title": _key_text(layer["title"])}
+        slots = layer["categories"] if layer["kind"] == "categories" else layer["extras"]
+        slots = [{"label": _key_text(slot["label"]), "rgba": [_byte(c) for c in slot["rgba"]]}
+                 for slot in slots]
+        if layer["kind"] == "categories":
+            entry["categories"] = slots
+        else:
+            entry.update(scheme=_key_text(layer["scheme"]), min=layer["min"], max=layer["max"], extras=slots,
+                         stops=[[_byte(c) for c in stop] for stop in layer["stops"]])
+        layers.append(entry)
+    lookup = np.vectorize(lambda value: position.get(int(value), -1), otypes=[np.int32])
+    owner = lookup(found["owner"]) if count else np.zeros(0, dtype=np.int32)
+    has_gradient = any(layer["kind"] == "gradient" for layer in layers)
+    return {
+        "layers": layers, "owner": owner.astype(np.int32), "category": np.asarray(found["category"], dtype=np.int32),
+        "labelled": np.packbits(np.asarray(found["labelled"], dtype=bool), bitorder="little"),
+        "values": np.asarray(found["values"], dtype="<f4") if has_gradient else None,
     }
 
 
@@ -1060,6 +1120,27 @@ def colors_state(viewer):
         "hidden": _packed(found["hidden"], "u1"),
         "cluster": None if cluster is None else _packed(cluster, "<i2" if small else "<i4"),
         "cluster_type": None if cluster is None else ("i2" if small else "i4"),
+        "key": _key_state_fields(found["key"]),
+    }
+
+
+def _key_state_fields(key):
+    """The colour key as /api/tree/colors sends it, or None. Owner and category take 2 bytes each when every value fits."""
+    if key is None:
+        return None
+    sizes = {}
+    packed = {}
+    for name in ("owner", "category"):
+        array = key[name]
+        small = int(array.min()) >= -(2**15) and int(array.max()) < 2**15
+        sizes[name] = "i2" if small else "i4"
+        packed[name] = _packed(array, "<i2" if small else "<i4")
+    return {
+        "layers": key["layers"],
+        "owner": packed["owner"], "owner_type": sizes["owner"],
+        "category": packed["category"], "category_type": sizes["category"],
+        "labelled": _packed(key["labelled"], "u1"),
+        "values": None if key["values"] is None else _packed(key["values"], "<f4"),
     }
 
 

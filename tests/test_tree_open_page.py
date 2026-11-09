@@ -534,7 +534,7 @@ class DrawingTests(OpenCase):
         self.wait_for("TreeView.state.colors !== null && TreeView.state.selection.count === 2")
         found = self.state("""(() => { const s = TreeView.state, m = s.model;
             const leafOf = (node) => m.viewerNode.indexOf(node);
-            return {legend: s.colors.legend.map(e => e.css), red: s.colors.leafClass[leafOf(1)], plain: s.colors.leafClass[leafOf(0)],
+            return {legend: s.colors.unlabelled.map(e => e.css), red: s.colors.leafClass[leafOf(1)], plain: s.colors.leafClass[leafOf(0)],
                     selected: Array.from(s.selection.leaves, (k) => m.labels[k]).sort(), removed: m.labels.filter((_, k) => s.removed && s.removed[k]),
                     summary: document.getElementById('summary').textContent}; })()""")
         self.assertEqual(found["selected"], ["Homo_sapiens", "Pan_troglodytes"])

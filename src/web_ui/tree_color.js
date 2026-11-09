@@ -10,7 +10,9 @@
  * a colour kept to four bits of each channel, so that a gradient (spectrum) forms clades too and a clade is drawn
  * in a few dozen colours, not thousands. The colour a node has until something colours it is plain: it is a
  * class like the others and the tree is drawn in it, but it is the network's default, not a choice, so the legend
- * leaves it out. A clade that is neither plain nor one colour has no class and is drawn in the page's branch colour.
+ * leaves it out. What a colour means is not guessed from the colour: the Viewer's colour key (payload.key) says which
+ * layer painted a node and which of its categories or what value the node has, and the legend lists the leaves by
+ * that; only the leaves the key does not cover are listed by colour. A clade that is neither plain nor one colour has no class and is drawn in the page's branch colour.
  *
  * A node of the network that the Viewer has hidden has no place in the tree at all: `removed` marks its leaf, and
  * the layout gives it no room.
@@ -30,11 +32,8 @@ window.TreeView = window.TreeView || {};
     TV.PLAIN_CLASS = 0;
     // The share of a clade's leaves that must have one colour for the clade to be drawn in it.
     TV.PURE_SHARE = 0.9;
-    // The most colours the legend lists, and the most a folded clade's bar shows.
-    TV.LEGEND_ROWS = 12;
+    // The most colours a folded clade's bar shows.
     TV.MIX_PARTS = 4;
-    // A colour is called a cluster's when this share of the leaves that have it are in that cluster.
-    const CLUSTER_SHARE = 0.9;
 
     function classKey(r, g, b) {
         return ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
@@ -61,6 +60,108 @@ window.TreeView = window.TreeView || {};
         const to = colors.starts[cls + 1];
         return lowerBound(colors.positions, from, to, last + 1) - lowerBound(colors.positions, from, to, first);
     }
+
+    // A text from the key is text; anything else is nothing.
+    function plainText(value) {
+        return typeof value === "string" ? value : "";
+    }
+
+    function cssOf(rgba) {
+        const channel = (v) => (Number.isFinite(v) ? Math.min(255, Math.max(0, Math.round(v))) : 0);
+        return "rgb(" + channel(rgba[0]) + ", " + channel(rgba[1]) + ", " + channel(rgba[2]) + ")";
+    }
+
+    // The rows (label, colour) of a layer's categories or extras; entries that are not well formed read as empty.
+    function entriesOf(list) {
+        return (Array.isArray(list) ? list : []).map((entry) => {
+            const rgba = entry && Array.isArray(entry.rgba) && entry.rgba.length >= 3 ? entry.rgba : [0, 0, 0];
+            return { label: plainText(entry && entry.label), css: cssOf(rgba), leaves: [] };
+        });
+    }
+
+    // The colour key of a payload against the leaves of `model`: { layers, unlabelledCounts }. layers lists, newest first,
+    // each layer of the key that has a leaf shown: { kind, title, index, rows: [{ label, css, leaves, count }] and, for a
+    // gradient, scheme, min, max, stops (css colours) and bar: { leaves, values, count } }. A leaf the key does not
+    // cover, or whose node no longer has the colour the key expects, is counted in unlabelledCounts by its colour class.
+    // A key that does not fit the network is no key.
+    function decodeKey(key, colors, model, leafClass, count) {
+        const unlabelledCounts = new Int32Array(colors.classCount);
+        const covered = new Uint8Array(model.leafCount);
+        let owner = null;
+        let category = null;
+        let labelled = null;
+        let values = null;
+        let layers = null;
+        try {
+            if (key && Array.isArray(key.layers) && key.layers.length > 0) {
+                owner = TV.typedArray(key.owner, key.owner_type === "i2" ? Int16Array : Int32Array, count, "owner");
+                category = TV.typedArray(key.category, key.category_type === "i2" ? Int16Array : Int32Array, count, "category");
+                labelled = TV.typedArray(key.labelled, Uint8Array, Math.ceil(count / 8), "labelled");
+                if (key.values) values = TV.typedArray(key.values, Float32Array, count, "values");
+                layers = key.layers.every((layer) => layer && typeof layer === "object") ? key.layers : null;
+            }
+        } catch (error) {
+            layers = null;
+        }
+        const built = (layers || []).map((layer) => {
+            const gradient = layer.kind === "gradient";
+            const made = { kind: gradient ? "gradient" : "categories", title: plainText(layer.title), rows: entriesOf(gradient ? layer.extras : layer.categories), bar: null };
+            if (gradient) {
+                const stops = Array.isArray(layer.stops) ? layer.stops.filter((stop) => Array.isArray(stop) && stop.length >= 3) : [];
+                Object.assign(made, {
+                    scheme: plainText(layer.scheme), min: Number.isFinite(layer.min) ? layer.min : null,
+                    max: Number.isFinite(layer.max) ? layer.max : null, stops: stops.map(cssOf), bar: { leaves: [], values: [], count: 0 },
+                });
+            }
+            return made;
+        });
+        for (let k = 0; k < model.leafCount; k++) {
+            const cls = leafClass[k];
+            if (cls === TV.NO_CLASS) continue;
+            const node = model.viewerNode[k];
+            let placed = false;
+            if (layers && (labelled[node >> 3] >> (node & 7)) & 1) {
+                const layer = owner[node];
+                if (layer >= 0 && layer < built.length) {
+                    const made = built[layer];
+                    const slot = category[node];
+                    if (slot >= 0 && slot < made.rows.length) {
+                        made.rows[slot].leaves.push(k);
+                        placed = true;
+                    } else if (made.bar && slot === -1 && values && Number.isFinite(values[node])) {
+                        made.bar.leaves.push(k);
+                        made.bar.values.push(values[node]);
+                        placed = true;
+                    }
+                }
+            }
+            if (placed) covered[k] = 1; else unlabelledCounts[cls]++;
+        }
+        const shown = [];
+        for (let index = built.length - 1; index >= 0; index--) {
+            const made = built[index];
+            made.index = index;
+            made.rows = made.rows.filter((row) => row.leaves.length > 0);
+            for (const row of made.rows) {
+                row.count = row.leaves.length;
+                row.leaves = Int32Array.from(row.leaves);
+            }
+            if (made.bar) {
+                made.bar.count = made.bar.leaves.length;
+                made.bar.leaves = Int32Array.from(made.bar.leaves);
+                made.bar.values = Float32Array.from(made.bar.values);
+            }
+            if (made.rows.length > 0 || (made.bar && made.bar.count > 0)) shown.push(made);
+        }
+        return { layers: shown, unlabelledCounts, covered };
+    }
+
+    // The leaf numbers (sorted) of class `cls` that no layer of the colour key covers: what "Unlabelled colours" counts.
+    TV.unlabelledLeavesOfClass = function (colors, cls) {
+        const found = [];
+        for (let p = colors.starts[cls]; p < colors.starts[cls + 1]; p++) if (!colors.covered[colors.positions[p]]) found.push(colors.positions[p]);
+        return Int32Array.from(found);
+    };
 
     // The colours of a payload whose status is "ok", over the leaves of `model`. Throws an Error with a plain reason
     // when the payload cannot be colours the page can use.
@@ -116,7 +217,7 @@ window.TreeView = window.TreeView || {};
         const colors = {
             version: payload.version, count, cluster, leafClass, starts, positions, rep, classCount, removed, removedCount,
             css: rep.map((rgb) => "rgb(" + rgb.join(", ") + ")"),
-            mixCache: new Map(), labelCache: new Map(),
+            mixCache: new Map(),
         };
 
         // One pass, children before parents. cand/weight are the majority vote; present is how many leaves are shown.
@@ -167,37 +268,27 @@ window.TreeView = window.TreeView || {};
         }
         Object.assign(colors, { nodeClass, dominant, purity, present });
 
-        // The legend: the colours with the most leaves, other than plain.
+        // The legend: what the colour key says (its layers, newest first), then the colours of the leaves it does not
+        // cover, other than plain, most leaves first, all of them.
+        const keyed = decodeKey(payload.key, colors, model, leafClass, count);
+        colors.layers = keyed.layers;
+        colors.covered = keyed.covered;
         const entries = [];
         for (let c = 1; c < classCount; c++) {
-            const leaves = starts[c + 1] - starts[c];
-            if (leaves > 0) entries.push({ cls: c, count: leaves });
+            const leaves = keyed.unlabelledCounts[c];
+            if (leaves > 0) entries.push({ cls: c, count: leaves, css: colors.css[c], hex: hexOf(rep[c]) });
         }
         entries.sort((a, b) => b.count - a.count || a.cls - b.cls);
-        colors.colored = entries.length;
-        colors.legend = entries.slice(0, TV.LEGEND_ROWS).map((entry) => ({ ...entry, css: colors.css[entry.cls], hex: hexOf(rep[entry.cls]) }));
-        colors.more = entries.length - colors.legend.length;
+        colors.unlabelled = entries;
         return colors;
     };
 
-    // The cluster number that at least nine in ten of the leaves of class `cls` are in, or -1 when there is none or
-    // the Viewer has no clusters. Worked out once for each class.
-    TV.clusterOfClass = function (colors, model, cls) {
-        if (!colors.cluster) return -1;
-        if (colors.labelCache.has(cls)) return colors.labelCache.get(cls);
-        const tally = new Map();
-        const from = colors.starts[cls];
-        const to = colors.starts[cls + 1];
-        for (let p = from; p < to; p++) {
-            const id = colors.cluster[model.viewerNode[colors.positions[p]]];
-            tally.set(id, (tally.get(id) || 0) + 1);
-        }
-        let best = -1;
-        let most = 0;
-        for (const [id, n] of tally) if (n > most) { best = id; most = n; }
-        const found = best >= 0 && most >= CLUSTER_SHARE * (to - from) ? best : -1;
-        colors.labelCache.set(cls, found);
-        return found;
+    // The leaf numbers (sorted) of a gradient layer's bar whose value is from `low` to `high`.
+    TV.leavesInRange = function (layer, low, high) {
+        const found = [];
+        const { leaves, values } = layer.bar;
+        for (let p = 0; p < leaves.length; p++) if (values[p] >= low && values[p] <= high) found.push(leaves[p]);
+        return Int32Array.from(found);
     };
 
     // The colour of class `cls` as #rrggbb.

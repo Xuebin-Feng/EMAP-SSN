@@ -9289,7 +9289,31 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>TreePage</name>
     <message>
-        <source>Cluster {id}</source>
+        <source>{low} to {high}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Press or drag to mark the leaves with a value in that range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Take the marks off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mark these leaves</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unlabelled colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mark the leaves of this colour</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10002,14 +10026,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>The opened tree</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Mark the leaves of this colour</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>{count} more colours</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

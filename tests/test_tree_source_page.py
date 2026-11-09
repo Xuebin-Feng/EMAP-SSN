@@ -444,7 +444,7 @@ class CarryOverTests(SourceCase):
     def test_colours_selection_and_hidden_nodes_carry_over_a_change_of_tree_and_folds_and_view_do_not(self):
         self.start(colors=True, hidden=[3, 4], select=[1, 2])
         self.wait_for("TreeView.state.selection.count === 2")
-        before = self.state("""({legend: TreeView.state.colors.legend.map(e => e.css), removed: TreeView.state.removed.reduce((a, v) => a + v, 0)})""")
+        before = self.state("""({legend: TreeView.state.colors.unlabelled.map(e => e.css), removed: TreeView.state.removed.reduce((a, v) => a + v, 0)})""")
         self.assertEqual(before["removed"], 2)
         # Fold a clade and move the view, then change the tree.
         self.script("""const m = TreeView.state.model; for (let i = 0; i < m.nodeCount - 1; i++) if (m.childCount[i] > 0) { TreeView.toggleFold(i); break; }
@@ -455,7 +455,7 @@ class CarryOverTests(SourceCase):
         after = self.state("""(() => { const s = TreeView.state, m = s.model;
             const nodesOf = (leaves) => Array.from(leaves, (k) => m.viewerNode[k]).sort((a, b) => a - b);
             const removed = []; for (let k = 0; k < m.leafCount; k++) if (s.removed[k]) removed.push(m.viewerNode[k]);
-            return {legend: s.colors.legend.map(e => e.css), selected: nodesOf(s.selection.leaves), removed: removed.sort((a, b) => a - b),
+            return {legend: s.colors.unlabelled.map(e => e.css), selected: nodesOf(s.selection.leaves), removed: removed.sort((a, b) => a - b),
                     folds: s.collapsedCount, fitted: s.fitted, source: s.source,
                     red: m.viewerNode.findIndex(n => n === 2), class: s.colors.leafClass[m.viewerNode.findIndex(n => n === 2)]}; })()""")
         self.assertEqual(sorted(after["legend"]), sorted(before["legend"]))
@@ -466,7 +466,7 @@ class CarryOverTests(SourceCase):
         # And back to the guide tree: the same again.
         self.choose("guide")
         self.wait_for("TreeView.state.colors !== null && TreeView.state.selection.count === 2")
-        self.assertEqual(sorted(self.state("TreeView.state.colors.legend.map(e => e.css)")), sorted(before["legend"]))
+        self.assertEqual(sorted(self.state("TreeView.state.colors.unlabelled.map(e => e.css)")), sorted(before["legend"]))
         self.assertEqual(self.console_errors(), [])
 
     def test_the_viewer_hiding_a_node_leaves_it_out_of_the_threshold_tree_too(self):

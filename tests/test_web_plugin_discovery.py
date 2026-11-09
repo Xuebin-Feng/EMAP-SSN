@@ -292,7 +292,7 @@ EXPECTED_PAGE_CONTEXTS = {
     "web_ui/tree.html": "TreePage",
     "web_ui/tree_session.js": "TreePage",
     "web_ui/tree_nav.js": "TreePage",
-    **{f"web_ui/tree_{name}.js": "TreePage" for name in ("open", "read", "read_xml", "read_json")},
+    **{f"web_ui/tree_{name}.js": "TreePage" for name in ("open", "read", "read_xml", "read_json", "legend")},
 }
 
 
@@ -1351,7 +1351,7 @@ class EveryPageIsDeclaredTests(unittest.TestCase):
             staged = {path.relative_to(stage).as_posix() for path in Path(stage).rglob("*") if path.is_file()}
             manifests = {f"web_ui/plugins/{path.name}" for path in BUNDLED_PLUGIN_DIR.glob("*.py") if path.name != "__init__.py"}
         self.assertEqual(staged - manifests, set(PAGE_CONTEXTS))
-        self.assertEqual(len(staged - manifests), 22)
+        self.assertEqual(len(staged - manifests), 23)
         self.assertEqual(staged & manifests, manifests)  # each manifest, for its pages' labels
 
     def test_the_labels_the_update_lists_are_the_ones_the_pages_are_opened_with(self):

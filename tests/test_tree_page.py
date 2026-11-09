@@ -50,7 +50,7 @@ from web_ui import tree_backend  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
 PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_select.js",
-              "tree_minimap.js", "tree_session.js"]
+              "tree_minimap.js", "tree_legend.js", "tree_session.js"]
 
 # The legend's sentence about the split stability, the one place the page uses the word.
 LEGEND_NOT_BOOTSTRAP = "Stability under distance noise, not bootstrap support."
@@ -2376,7 +2376,7 @@ class PerformanceTests(TreePageMixin, unittest.TestCase):
             TreeView.fitView();
             const big = find(Math.max(100, m.leafCount / 50), m.leafCount / 5);
             if (big >= 0) { r.fold = time(() => TreeView.toggleFold(big)); r.fold_frame = time(() => TreeView.drawNow()); TreeView.toggleFold(big); }
-            r.legend_mark = time(() => TreeView.state.matches = TreeView.leavesOfClass(s.colors, s.colors.legend[0].cls));
+            r.legend_mark = time(() => TreeView.state.matches = TreeView.leavesOfClass(s.colors, s.colors.unlabelled[0].cls));
             r.marked_frame = median(Array.from({length: 3}, () => time(() => TreeView.drawNow())));
             TreeView.state.matches = new Int32Array(0);
             r.overview = time(() => { TreeView.minimapChanged(); TreeView.drawMinimap(); });
@@ -2496,13 +2496,13 @@ SPY = """
 class ColorCase(TreePageMixin, unittest.TestCase):
     """A page over the eight-leaf tree above, whose network the Viewer has coloured."""
 
-    def open_colored(self, painted=None, *, hidden=(), clusters=None, network=None, text=EIGHT_LEAVES):
+    def open_colored(self, painted=None, *, hidden=(), clusters=None, network=None, text=EIGHT_LEAVES, key=None):
         headers = list("abcdefgh")
         folder = self.make_folder()
         write_tree_file(folder, headers, text)
         count = len(network or headers)
         self.serve_headers(headers, folder=folder, tree=None, network=network,
-                           colors=node_colors(count, BASE_PAINT if painted is None else painted), hidden=hidden, clusters=clusters)
+                           colors=node_colors(count, BASE_PAINT if painted is None else painted), hidden=hidden, clusters=clusters, key=key)
         self.open_page()
         self.wait_for("TreeView.state.colors !== null")
         # The page is listening: what the Viewer says of its colours reaches it.
@@ -2514,7 +2514,7 @@ class ColorCase(TreePageMixin, unittest.TestCase):
         return self.state("""(() => { const c = TreeView.state.colors;
             return {version: c.version, leafClass: Array.from(c.leafClass), nodeClass: Array.from(c.nodeClass), dominant: Array.from(c.dominant),
                     purity: Array.from(c.purity).map(v => Math.round(v * 100) / 100), present: Array.from(c.present),
-                    legend: c.legend.map(e => ({cls: e.cls, count: e.count, css: e.css, hex: e.hex})), more: c.more, css: c.css}; })()""")
+                    unlabelled: c.unlabelled.map(e => ({cls: e.cls, count: e.count, css: e.css, hex: e.hex})), css: c.css}; })()""")
 
     def choose(self, kind, mode="lengths"):
         self.script(f"TreeView.setLayout({json.dumps(kind)}, {json.dumps(mode)}); TreeView.drawNow(); return 1")
@@ -2544,15 +2544,14 @@ class ColorModelTests(ColorCase):
         self.assertEqual((found["dominant"][14], found["purity"][14]), (1, 0.5))
         self.assertEqual((found["dominant"][6], found["purity"][6]), (1, 1.0))
 
-    def test_plain_is_drawn_but_is_no_choice_so_the_legend_leaves_it_out(self):
+    def test_plain_is_drawn_but_is_no_choice_so_the_unlabelled_colours_leave_it_out(self):
         self.open_colored()
         found = self.info()
-        self.assertEqual([entry["cls"] for entry in found["legend"]], [1, 2, 3])
-        self.assertEqual([entry["count"] for entry in found["legend"]], [4, 2, 1])
-        self.assertEqual(found["more"], 0)
+        self.assertEqual([entry["cls"] for entry in found["unlabelled"]], [1, 2, 3])
+        self.assertEqual([entry["count"] for entry in found["unlabelled"]], [4, 2, 1])
         # Nothing coloured: a tree in the plain colour, and no legend.
         self.open_colored({})
-        self.assertEqual(self.info()["legend"], [])
+        self.assertEqual(self.info()["unlabelled"], [])
         self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
 
     def test_hidden_nodes_and_nodes_outside_the_network_have_no_colour_and_do_not_count(self):
@@ -2561,7 +2560,7 @@ class ColorModelTests(ColorCase):
         self.assertEqual(found["leafClass"][2], NO_CLASS)
         # (cd) holds one leaf that is shown, which is red: the clade is red.
         self.assertEqual((found["present"][5], found["nodeClass"][5]), (1, 1))
-        self.assertEqual(found["legend"][0]["count"], 3)
+        self.assertEqual(found["unlabelled"][0]["count"], 3)
         # A leaf that is not a node of the network has no colour either; (gh) is then green all through.
         self.open_colored(network=list("abcdefg"))
         found = self.info()
@@ -2574,7 +2573,7 @@ class ColorModelTests(ColorCase):
         self.assertEqual(found["leafClass"][:4], [1, 1, 2, 1])
         # A class is drawn in the first colour met in it, exactly.
         self.assertEqual(found["css"][1], "rgb(250, 0, 0)")
-        self.assertEqual(self.state("TreeView.state.colors.legend[0].hex"), "#fa0000")
+        self.assertEqual(self.state("TreeView.state.colors.unlabelled[0].hex"), "#fa0000")
 
     def test_a_clade_that_is_not_quite_pure_takes_the_colour_by_the_votes_not_the_first_child(self):
         # Ten leaves under one parent: nine red among others and a blue one first.
@@ -2592,26 +2591,26 @@ class ColorModelTests(ColorCase):
         # Blue is met first, so it is class 1 and red class 2.
         self.assertEqual((found["dominant"][-1], found["purity"][-1], root), (2, 0.9, 2))
 
-    def test_cluster_numbers_name_the_colours_that_are_one_cluster_and_the_others_by_their_hex(self):
+    def test_a_colour_is_never_called_a_cluster_by_a_guess_it_is_its_hex_unless_the_colour_key_says_more(self):
+        # Every leaf of a colour is in one cluster, and the legend still says only the colour: the Viewer's key is what names it.
         self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
-        names = self.state("TreeView.state.colors.legend.map(e => TreeView.classLabel(e.cls))")
-        self.assertEqual(names, ["Cluster 0", "Cluster 1", "Cluster 2"])
-        # Two clusters in a colour, or none given: its #rrggbb.
-        self.open_colored(clusters=[0, 0, 5, 5, 1, 1, 2, -1])
-        self.assertEqual(self.state("TreeView.classLabel(1)"), "#ff0000")
-        self.open_colored()
-        self.assertEqual(self.state("TreeView.classLabel(2)"), "#0000ff")
+        names = self.state("TreeView.state.colors.unlabelled.map(e => TreeView.classLabel(e.cls))")
+        self.assertEqual(names, ["#ff0000", "#0000ff", "#00ff00"])
+        rows = self.state("[...document.querySelectorAll('#legend-list .legend-row .name')].map(e => e.textContent)")
+        self.assertEqual(rows, ["#ff0000", "#0000ff", "#00ff00"])
+        self.assertEqual(self.state("typeof TreeView.clusterOfClass"), "undefined")
 
-    def test_the_legend_lists_twelve_colours_and_says_how_many_more_there_are(self):
+    def test_the_legend_lists_every_colour_not_twelve(self):
         headers = headers_of(30)
         painted = {n: "#%02x%02x%02x" % (8 + 8 * n, 255 - 8 * n, (n * 37) % 256) for n in range(30)}
         self.serve_headers(headers, colors=node_colors(30, painted))
         self.open_page()
         self.wait_for("TreeView.state.colors !== null")
-        info = self.state("""({rows: document.querySelectorAll('#legend-list .legend-row').length, more: document.getElementById('legend-more').textContent,
-                               counts: TreeView.state.colors.legend.map(e => e.count)})""")
-        self.assertEqual(info["rows"], 12)
-        self.assertEqual(info["more"], "18 more colours")
+        info = self.state("""({rows: document.querySelectorAll('#legend-list .legend-row').length,
+                               more: document.getElementById('legend').textContent.includes('more colours'),
+                               counts: TreeView.state.colors.unlabelled.map(e => e.count)})""")
+        self.assertEqual(info["rows"], 30)
+        self.assertFalse(info["more"])
         self.assertEqual(info["counts"], sorted(info["counts"], reverse=True))
 
     def test_a_viewer_with_no_colours_leaves_the_tree_in_its_own(self):
@@ -2621,6 +2620,283 @@ class ColorModelTests(ColorCase):
         self.assertEqual(self.state("TreeView.state.colors"), None)
         self.assertEqual(self.state("document.getElementById('legend').classList.contains('shown')"), False)
         self.assertEqual(self.console_errors(), [])
+
+
+def cluster_key(labels=("Cluster 1", "Cluster 2"), title="Clusters"):
+    """A key for the eight-leaf network: its first four nodes are the cluster labels[0] and the next two labels[1]."""
+    from desktop import Node_Colors
+
+    def declare(viewer):
+        red, blue = tuple(float(v) for v in viewer.current_colors[0]), tuple(float(v) for v in viewer.current_colors[4])
+        Node_Colors.declare_categories(viewer, title, [(labels[0], red), (labels[1], blue)], [0, 0, 0, 0, 1, 1], nodes=range(6))
+
+    return declare
+
+
+def gradient_key(values=(0.0, 1.0, 2.0, 3.0, 4.0, 5.0)):
+    """A key for the eight-leaf network: a viridis gradient on its first six nodes, the seventh with no value."""
+    import matplotlib as mpl
+
+    from desktop import Node_Colors
+
+    def declare(viewer):
+        cmap = mpl.colormaps["viridis"]
+        low, high = min(values), max(values)
+        viewer.current_colors[:6] = cmap((np.asarray(values) - low) / (high - low))
+        gray = (0.8, 0.8, 0.8, 1.0)
+        viewer.current_colors[6] = gray
+        Node_Colors.declare_gradient(viewer, "Property length", "viridis", cmap, low, high, range(6), values,
+                                     extras=[("No value", gray, [6])])
+
+    return declare
+
+
+class KeyLegendTests(ColorCase):
+    """The legend reads the Viewer's colour key: its layers, newest first, then the colours it does not cover."""
+
+    def repaint(self):
+        """What the Viewer does when it draws its nodes again: tell its listeners."""
+        for listener in list(self.viewer.node_update_listeners):
+            listener()
+
+    def titles(self):
+        return self.state("[...document.querySelectorAll('#legend-list .legend-title')].map(e => e.textContent)")
+
+    def rows(self):
+        return self.state("""[...document.querySelectorAll('#legend-list .legend-row')].map(b => ({name: b.querySelector('.name').textContent,
+            count: b.querySelector('.count').textContent, pressed: b.getAttribute('aria-pressed')}))""")
+
+    def click_row(self, index):
+        self.js(f"document.querySelectorAll('#legend-list .legend-row')[{index}].click()")
+
+    def matches(self):
+        return self.state("Array.from(TreeView.state.matches)")
+
+    def test_a_layer_of_categories_is_a_titled_group_of_rows_with_their_leaves_and_the_rest_are_unlabelled(self):
+        self.open_colored(key=cluster_key())
+        self.assertEqual(self.titles(), ["Clusters", "Unlabelled colours"])
+        self.assertEqual(self.rows(), [
+            {"name": "Cluster 1", "count": "4", "pressed": "false"},
+            {"name": "Cluster 2", "count": "2", "pressed": "false"},
+            {"name": "#00ff00", "count": "1", "pressed": "false"},
+        ])
+
+    def test_two_categories_that_share_a_colour_are_two_rows_that_each_mark_their_own_leaves(self):
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            red = tuple(float(v) for v in viewer.current_colors[0])
+            Node_Colors.declare_categories(viewer, "Clusters", [("Cluster 1", red), ("Cluster 2", red)], [0, 0, 1, 1], nodes=range(4))
+
+        self.open_colored(key=declare)
+        self.assertEqual([row["name"] for row in self.rows()][:2], ["Cluster 1", "Cluster 2"])
+        self.click_row(1)
+        self.assertEqual(self.matches(), [2, 3])
+        self.assertEqual([row["pressed"] for row in self.rows()][:2], ["false", "true"])
+        self.click_row(0)
+        self.assertEqual(self.matches(), [0, 1])
+        self.click_row(0)
+        self.assertEqual(self.matches(), [])
+
+    def test_an_unlabelled_colour_marks_only_its_unlabelled_leaves(self):
+        # Blue is both a labelled cluster (e, f) and, once g is painted blue without a key, an unlabelled colour.
+        self.open_colored(key=cluster_key())
+        self.viewer.current_colors[6] = self.viewer.current_colors[4]
+        version = self.info()["version"]
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        names = [row["name"] for row in self.rows()]
+        self.assertEqual(names, ["Cluster 1", "Cluster 2", "#0000ff"])
+        self.click_row(2)
+        self.assertEqual(self.matches(), [6])
+
+    def test_nodes_repainted_without_a_declaration_move_to_unlabelled_colours(self):
+        self.open_colored(key=cluster_key())
+        self.viewer.current_colors[2] = (1.0, 0.5, 0.0, 1.0)
+        version = self.info()["version"]
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        rows = self.rows()
+        self.assertEqual([(row["name"], row["count"]) for row in rows],
+                         [("Cluster 1", "3"), ("Cluster 2", "2"), ("#ff8000", "1"), ("#00ff00", "1")])
+
+    def test_a_key_that_comes_after_the_colours_replaces_the_unlabelled_rows_and_one_that_goes_brings_them_back(self):
+        self.open_colored()
+        self.assertEqual(self.titles(), ["Unlabelled colours"])
+        from desktop import Node_Colors
+
+        cluster_key()(self.viewer)
+        self.repaint()
+        self.wait_for("TreeView.state.colors.layers.length === 1")
+        self.assertEqual(self.titles(), ["Clusters", "Unlabelled colours"])
+        Node_Colors.clear_key(self.viewer)
+        self.repaint()
+        self.wait_for("TreeView.state.colors.layers.length === 0")
+        self.assertEqual(self.titles(), ["Unlabelled colours"])
+        self.assertEqual(len(self.rows()), 3)
+
+    def test_a_key_that_only_means_something_else_refreshes_the_page(self):
+        self.open_colored(key=cluster_key())
+        version = self.info()["version"]
+        self.viewer.color_key_layers[0]["title"] = "Subclusters of cluster 3"
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.assertEqual(self.titles()[0], "Subclusters of cluster 3")
+
+    def test_the_newest_layer_is_listed_first(self):
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            cluster_key()(viewer)
+            green = tuple(float(v) for v in viewer.current_colors[6])
+            Node_Colors.declare_categories(viewer, "Colors", [("P1 \u2192 green", green)], [0], nodes=[6])
+
+        self.open_colored(key=declare)
+        self.assertEqual(self.titles(), ["Colors", "Clusters"])
+        self.assertEqual([row["name"] for row in self.rows()], ["P1 \u2192 green", "Cluster 1", "Cluster 2"])
+
+    def test_a_layer_of_categories_with_more_than_twelve_rows_lists_them_all_in_a_scrolling_area(self):
+        from desktop import Node_Colors
+
+        count = 40
+        headers = headers_of(count)
+        painted = {n: "#%02x%02x%02x" % (8 + 6 * n, 250 - 6 * n, (n * 37) % 256) for n in range(count)}
+
+        def declare(viewer):
+            Node_Colors.declare_categories(
+                viewer, "Clusters", [(f"Cluster {n}", tuple(float(v) for v in viewer.current_colors[n])) for n in range(count)],
+                list(range(count)))
+
+        self.serve_headers(headers, colors=node_colors(count, painted), key=declare)
+        self.open_page()
+        self.wait_for("TreeView.state.colors !== null")
+        info = self.state("""(() => { const list = document.getElementById('legend-list');
+            return {rows: list.querySelectorAll('.legend-row').length, scrolls: list.scrollHeight > list.clientHeight,
+                    overflow: getComputedStyle(list).overflowY, last: [...list.querySelectorAll('.name')].pop().textContent}; })()""")
+        self.assertEqual((info["rows"], info["overflow"], info["last"]), (count, "auto", "Cluster 39"))
+        self.assertTrue(info["scrolls"])
+
+    def test_titles_and_labels_are_text_never_markup(self):
+        hostile = ("<b>bold</b>", "<img src=x onerror=window.__pwned=1>")
+        self.open_colored(key=cluster_key(labels=hostile, title="<i>Clusters</i><script>window.__pwned=1</script>"))
+        self.pump(0.3)
+        info = self.state("""({names: [...document.querySelectorAll('#legend-list .name')].map(e => e.textContent).slice(0, 2),
+            title: document.querySelector('#legend-list .legend-title').textContent,
+            markup: document.querySelectorAll('#legend-list b, #legend-list i, #legend-list img, #legend-list script').length,
+            pwned: typeof window.__pwned})""")
+        self.assertEqual(info["names"], list(hostile))
+        self.assertEqual(info["title"], "<i>Clusters</i><script>window.__pwned=1</script>")
+        self.assertEqual((info["markup"], info["pwned"]), (0, "undefined"))
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_label_that_is_not_text_is_empty_and_a_malformed_key_is_no_key(self):
+        self.open_colored(key=cluster_key())
+        payload = self.script("""const p = await (await fetch('/api/tree/colors')).json();
+            p.key.layers[0].categories[0].label = {x: 1}; p.key.layers[0].title = 7; p.key.layers[0].categories[1].rgba = 'bad';
+            const colors = TreeView.decodeColors(p, TreeView.state.model);
+            const broken = JSON.parse(JSON.stringify(p)); broken.key.owner = 'AAAA';
+            const none = TreeView.decodeColors(broken, TreeView.state.model);
+            return {rows: colors.layers[0].rows.map(r => [r.label, r.css]), title: colors.layers[0].title,
+                    layers: none.layers.length, unlabelled: none.unlabelled.length};""")
+        self.assertEqual(payload["rows"], [["", "rgb(255, 0, 0)"], ["Cluster 2", "rgb(0, 0, 0)"]])
+        self.assertEqual((payload["title"], payload["layers"], payload["unlabelled"]), ("", 0, 3))
+
+    def test_spectrum_colours_are_never_called_clusters(self):
+        # Every leaf of a colour is in one cluster, as after a spectrum that follows a clustering: no row says so.
+        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1], key=gradient_key())
+        names = self.state("[...document.querySelectorAll('#legend-list .name, #legend-list .legend-title')].map(e => e.textContent)")
+        self.assertFalse([name for name in names if name.startswith("Cluster")], names)
+        self.assertEqual(names[0], "Property length")
+
+    def gradient_info(self):
+        return self.state("""(() => { const bar = document.querySelector('#legend-list .legend-bar');
+            const ends = [...document.querySelectorAll('#legend-list .legend-ends span')].map(e => e.textContent);
+            const range = document.querySelector('#legend-list .legend-range');
+            return {title: document.querySelector('#legend-list .legend-title').textContent,
+                    scheme: document.querySelector('#legend-list .legend-scheme').textContent, ends,
+                    background: bar.style.backgroundImage.startsWith('linear-gradient'), range: range.hidden ? '' : range.textContent,
+                    band: !document.querySelector('#legend-list .legend-band').hidden}; })()""")
+
+    def drag(self, start, end, release=True):
+        """Press on the bar at the share ``start`` of its width, move to ``end`` (None for no move) and let go (or not)."""
+        steps = [("pointerdown", start)]
+        if end is not None:
+            steps.append(("pointermove", end))
+        if release:
+            steps.append(("pointerup", start if end is None else end))
+        return self.script("""const bar = document.querySelector('#legend-list .legend-bar'), box = bar.getBoundingClientRect();
+            for (const [type, share] of %s) {
+                bar.dispatchEvent(new PointerEvent(type, {bubbles: true, clientX: box.left + box.width * share, clientY: box.top + 5, button: 0, pointerId: 7}));
+            }
+            return 1""" % json.dumps(steps))
+
+    def test_a_gradient_is_a_bar_with_its_title_scheme_minimum_and_maximum_and_its_extras_as_rows(self):
+        self.open_colored(key=gradient_key())
+        info = self.gradient_info()
+        self.assertEqual((info["title"], info["scheme"], info["ends"], info["background"]), ("Property length", "viridis", ["0", "5"], True))
+        self.assertEqual((info["range"], info["band"]), ("", False))
+        self.assertEqual(self.rows(), [{"name": "No value", "count": "1", "pressed": "false"}])
+        self.click_row(0)
+        self.assertEqual(self.matches(), [6])
+
+    def test_dragging_on_the_bar_marks_the_leaves_whose_value_is_in_the_range_and_shows_it_while_dragging(self):
+        self.open_colored(key=gradient_key())
+        # From 18% to 62% of 0 to 5 is 0.9 to 3.1: the values 1, 2 and 3.
+        self.drag(0.18, 0.62, release=False)
+        self.assertEqual(self.matches(), [1, 2, 3])
+        info = self.gradient_info()
+        self.assertEqual((info["range"], info["band"]), ("0.9 to 3.1", True))
+        self.assertEqual(self.state("TreeView.state.legendMark"), "range:0")
+        self.drag(0.18, 0.62)  # letting go leaves the marks
+        self.assertEqual(self.matches(), [1, 2, 3])
+        # Dragging back to the right edge and over the left edge covers the whole bar.
+        self.drag(0.5, 1.4)
+        self.assertEqual(self.matches(), [3, 4, 5])
+        self.drag(0.95, -0.5)
+        self.assertEqual(self.matches(), [0, 1, 2, 3, 4])
+
+    def test_a_press_on_the_bar_covers_a_narrow_range_round_the_point_and_the_clear_button_takes_it_off(self):
+        self.open_colored(key=gradient_key())
+        self.drag(0.4, None)  # value 2.0, in 1.84 to 2.16
+        self.assertEqual(self.matches(), [2])
+        self.drag(0.5, None)  # value 2.5: between two values
+        self.assertEqual(self.matches(), [])
+        self.assertEqual(self.state("TreeView.state.legendMark"), "range:0")
+        self.js("document.querySelector('#legend-list .legend-clear').click()")
+        self.assertEqual((self.matches(), self.state("TreeView.state.legendMark")), ([], None))
+        self.assertEqual(self.gradient_info()["band"], False)
+
+    def test_the_bar_answers_the_arrow_keys_and_escape(self):
+        self.open_colored(key=gradient_key())
+        key = lambda name: self.script(f"""const bar = document.querySelector('#legend-list .legend-bar'); bar.focus();
+            bar.dispatchEvent(new KeyboardEvent('keydown', {{key: '{name}', bubbles: true, cancelable: true}})); return 1""")
+        key("Home")  # the first of sixteen bands: 0 to 0.3125
+        self.assertEqual(self.matches(), [0])
+        key("End")  # the last: 4.6875 to 5
+        self.assertEqual(self.matches(), [5])
+        key("ArrowLeft")
+        self.assertEqual(self.matches(), [])
+        key("Escape")
+        self.assertEqual(self.state("TreeView.state.legendMark"), None)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_gradient_with_no_leaf_value_has_no_bar_and_a_layer_with_no_leaf_has_no_group(self):
+        # Hide every node the gradient coloured: its bar and its rows have nothing to count.
+        self.open_colored(key=gradient_key(), hidden=[0, 1, 2, 3, 4, 5])
+        self.assertEqual(self.state("document.querySelectorAll('#legend-list .legend-bar').length"), 0)
+        self.assertEqual(self.titles(), ["Property length"])
+        self.open_colored(key=gradient_key(), hidden=[0, 1, 2, 3, 4, 5, 6])
+        self.assertEqual(self.titles(), [])
+
+    def test_new_colours_take_the_marks_of_a_range_off(self):
+        self.open_colored(key=gradient_key())
+        self.drag(0.18, 0.62)
+        version = self.info()["version"]
+        self.viewer.current_colors[7] = (1.0, 0.0, 1.0, 1.0)
+        self.repaint()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.assertEqual((self.matches(), self.state("TreeView.state.legendMark")), ([], None))
+        self.assertEqual(self.gradient_info()["band"], False)
 
 
 class ColorDrawingTests(ColorCase):
@@ -2788,7 +3064,7 @@ class ColorFollowTests(ColorCase):
         after = self.info()
         # Orange is met first, so it is class 1, then red 2, blue 3 and green 4.
         self.assertEqual(after["leafClass"][:4], [1, 1, 1, 2])
-        self.assertEqual([entry["count"] for entry in after["legend"]], [3, 2, 1, 1])
+        self.assertEqual([entry["count"] for entry in after["unlabelled"]], [3, 2, 1, 1])
         self.assertEqual(self.console_errors(), [])
 
     def test_drawing_the_nodes_again_in_the_same_colours_asks_for_nothing(self):
@@ -2809,12 +3085,12 @@ class ColorFollowTests(ColorCase):
 
     def test_a_change_of_clusters_is_followed(self):
         self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
-        self.assertEqual(self.state("TreeView.classLabel(1)"), "Cluster 0")
+        self.assertEqual(self.state("TreeView.state.colors.cluster[0]"), 0)
         version = self.info()["version"]
         self.viewer.cluster_labels = np.array([4, 4, 4, 4, 1, 1, 2, -1], dtype=np.int32)
         self.repaint()
         self.wait_for(f"TreeView.state.colors.version !== {version}")
-        self.assertEqual(self.state("TreeView.classLabel(1)"), "Cluster 4")
+        self.assertEqual(self.state("TreeView.state.colors.cluster[0]"), 4)
 
     def test_a_viewer_that_loses_its_colours_leaves_the_tree_in_its_own(self):
         self.open_colored()
@@ -2835,7 +3111,7 @@ class ColorFollowTests(ColorCase):
         self.viewer.current_colors, self.viewer.visible_mask = other.current_colors, other.visible_mask
         self.viewer.broadcast_event({"type": "alignment_changed"})
         self.wait_for("TreeView.state.model.leafCount === 20 && TreeView.state.colors !== null && TreeView.state.colors.leafClass.length === 20")
-        self.assertEqual(self.state("TreeView.state.colors.legend[0].count"), 2)
+        self.assertEqual(self.state("TreeView.state.colors.unlabelled[0].count"), 2)
         self.assertEqual(self.console_errors(), [])
 
     def test_a_new_alignment_without_a_tree_says_so(self):
@@ -2863,13 +3139,15 @@ class LegendTests(ColorCase):
         return self.state("""[...document.querySelectorAll('#legend-list .legend-row')].map(b => ({name: b.querySelector('.name').textContent,
             count: b.querySelector('.count').textContent, pressed: b.getAttribute('aria-pressed'), swatch: b.querySelector('.swatch').style.backgroundColor}))""")
 
-    def test_the_legend_lists_each_colour_with_its_name_and_number_of_leaves(self):
-        self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
+    def test_colours_with_no_key_are_listed_under_unlabelled_colours_by_hex_with_their_number_of_leaves(self):
+        self.open_colored()
         self.assertEqual(self.rows(), [
-            {"name": "Cluster 0", "count": "4", "pressed": "false", "swatch": "rgb(255, 0, 0)"},
-            {"name": "Cluster 1", "count": "2", "pressed": "false", "swatch": "rgb(0, 0, 255)"},
-            {"name": "Cluster 2", "count": "1", "pressed": "false", "swatch": "rgb(0, 255, 0)"},
+            {"name": "#ff0000", "count": "4", "pressed": "false", "swatch": "rgb(255, 0, 0)"},
+            {"name": "#0000ff", "count": "2", "pressed": "false", "swatch": "rgb(0, 0, 255)"},
+            {"name": "#00ff00", "count": "1", "pressed": "false", "swatch": "rgb(0, 255, 0)"},
         ])
+        self.assertEqual(self.state("[...document.querySelectorAll('#legend-list .legend-title')].map(e => e.textContent)"),
+                         ["Unlabelled colours"])
         self.assertTrue(self.state("document.getElementById('legend').classList.contains('shown')"))
 
     def test_a_colour_marks_its_leaves_and_marks_them_off_again(self):
@@ -2929,7 +3207,7 @@ class LegendTests(ColorCase):
         for listener in list(self.viewer.node_update_listeners):
             listener()
         self.wait_for(f"TreeView.state.colors.version !== {version}")
-        self.assertEqual(self.state("[Array.from(TreeView.state.matches), TreeView.state.legendClass]"), [[], -1])
+        self.assertEqual(self.state("[Array.from(TreeView.state.matches), TreeView.state.legendMark]"), [[], None])
 
     def test_the_legend_is_inside_the_theme_and_the_page(self):
         self.open_colored()
@@ -2947,13 +3225,13 @@ class ColorHoverTests(ColorCase):
         self.wait_for("document.getElementById('tooltip').style.display === 'block'")
         return self.state("[...document.getElementById('tooltip').children].map(e => e.textContent)")
 
-    def test_a_leaf_says_its_cluster_and_a_clade_says_the_colour_most_of_its_leaves_have(self):
+    def test_a_leaf_says_its_cluster_and_a_clade_says_the_colour_most_of_its_leaves_have_in_hex(self):
         self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])
         self.choose("rectangular")
         leaf = self.hover_text(0)
         self.assertIn("Cluster: 0", leaf)
         clade = self.hover_text(6)
-        self.assertIn("Colour of 100% of its leaves: Cluster 0", clade)
+        self.assertIn("Colour of 100% of its leaves: #ff0000", clade)
 
     def test_a_leaf_with_no_cluster_and_a_clade_with_no_dominant_colour_say_nothing_of_them(self):
         self.open_colored(clusters=[0, 0, 0, 0, 1, 1, 2, -1])

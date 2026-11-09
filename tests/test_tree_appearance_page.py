@@ -180,13 +180,13 @@ class PlainColourTests(AppearanceCase):
 
     def test_the_legend_leaves_plain_out_and_its_counts_are_of_the_colours_alone(self):
         self.open_tree()
-        found = self.state("""({legend: TreeView.state.colors.legend.map(e => [e.cls, e.count]),
+        found = self.state("""({unlabelled: TreeView.state.colors.unlabelled.map(e => [e.cls, e.count]),
             plain: TreeView.state.colors.leafClass.filter(c => c === 0).length,
             rows: document.querySelectorAll('#legend-list .legend-row').length})""")
-        self.assertEqual(found["legend"], [[1, 4], [2, 2], [3, 1]])
+        self.assertEqual(found["unlabelled"], [[1, 4], [2, 2], [3, 1]])
         self.assertEqual((found["plain"], found["rows"]), (1, 3))
         self.open_tree({})
-        self.assertEqual(self.state("TreeView.state.colors.legend.length"), 0)
+        self.assertEqual(self.state("TreeView.state.colors.unlabelled.length"), 0)
         self.assertFalse(self.state("document.getElementById('legend').classList.contains('shown')"))
 
     def test_a_leaf_that_is_not_a_node_of_the_network_is_faded_not_plain(self):
@@ -531,7 +531,7 @@ class AccentTests(AppearanceCase):
         self.open_tree()
         self.choose("rectangular")
         self.script("document.querySelector('#legend-list .legend-row').click(); return 1")
-        self.wait_for("TreeView.state.legendClass >= 0")
+        self.wait_for("TreeView.state.legendMark !== null")
         found = self.spied("""
             const s = TreeView.state, accent = TreeView.rgbOf(s.palette.accent);
             return {accent, rings: drawn.filter(e => e.main && e.bare && e.op === 'stroke').map(e => e.style),
@@ -539,7 +539,7 @@ class AccentTests(AppearanceCase):
         self.assertEqual(found["marked"], [0, 1, 2, 3])
         self.assertIn(found["accent"], found["rings"])
         self.script("document.querySelector('#legend-list .legend-row').click(); return 1")
-        self.wait_for("TreeView.state.legendClass === -1")
+        self.wait_for("TreeView.state.legendMark === null")
         self.assertEqual(self.state("TreeView.state.matches.length"), 0)
 
     def test_the_ruler_and_the_overview_map_mark_the_matches_in_the_accent(self):
@@ -679,7 +679,7 @@ class HiddenNodeTests(AppearanceCase):
     def test_the_legend_counts_are_of_the_nodes_left(self):
         self.open_tree()
         self.hide([0, 1])
-        counts = self.state("TreeView.state.colors.legend.map(e => [e.cls, e.count])")
+        counts = self.state("TreeView.state.colors.unlabelled.map(e => [e.cls, e.count])")
         self.assertEqual(counts[0], [1, 2])  # two of the four red leaves are left
         self.assertEqual(self.state("document.querySelector('#legend-list .legend-row .count').textContent"), "2")
 

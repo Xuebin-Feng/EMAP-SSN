@@ -157,13 +157,14 @@ def node_colors(count, painted=None):
     return colors
 
 
-def make_viewer(msa_path, headers, *, aligned=None, loaded=True, colors=None, hidden=None, clusters=None):
+def make_viewer(msa_path, headers, *, aligned=None, loaded=True, colors=None, hidden=None, clusters=None, key=None):
     """The little of a Viewer that Tree View reads: its alignment manager and its network's headers.
 
     aligned: which nodes of the network the alignment holds (all by default). loaded=False is an alignment that
     failed to load: its manager has a path and no rows. colors, hidden and clusters are what the Viewer holds of the
     nodes' colours (an array of RGBA), the nodes that are hidden (a list of node numbers) and their clusters
-    (a list, -1 for none); left out, the Viewer has none of them.
+    (a list, -1 for none); left out, the Viewer has none of them. key is a function that declares what the colours
+    mean, called with the viewer once it holds them (desktop.Node_Colors.declare_categories and declare_gradient).
     """
     mask = np.ones(len(headers), dtype=bool) if aligned is None else np.asarray(aligned, dtype=bool)
     alignment = SimpleNamespace(
@@ -178,6 +179,8 @@ def make_viewer(msa_path, headers, *, aligned=None, loaded=True, colors=None, hi
         viewer.visible_mask[list(hidden or [])] = False
     if clusters is not None:
         viewer.cluster_labels = np.asarray(clusters, dtype=np.int32)
+    if key is not None:
+        key(viewer)
     return viewer
 
 

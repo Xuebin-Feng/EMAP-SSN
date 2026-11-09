@@ -28,6 +28,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 
+from desktop import Node_Colors
 from web_ui import Web_Server, tree_backend
 
 
@@ -150,19 +151,19 @@ class TreePageMixin:
         viewer.broadcast_event = broadcast_event
         return server
 
-    def serve_headers(self, headers, *, network=None, folder=None, colors=None, hidden=None, clusters=None, **options):
+    def serve_headers(self, headers, *, network=None, folder=None, colors=None, hidden=None, clusters=None, key=None, **options):
         """Write the alignment and tree of ``headers``, and serve the page over a Viewer holding them.
 
         colors, hidden and clusters are what the Viewer holds of its nodes' colours, which are hidden, and their clusters
-        (tree_fixtures.make_viewer).
+        (tree_fixtures.make_viewer); key declares what the colours mean (its ``key`` argument).
         """
         folder = folder or self.make_folder()
         msa, tree = tree_fixtures.make_alignment_folder(folder, headers, **options)
         viewer = server_viewer()
         fixture = tree_fixtures.make_viewer(msa, headers if network is None else network,
-                                            colors=colors, hidden=hidden, clusters=clusters)
+                                            colors=colors, hidden=hidden, clusters=clusters, key=key)
         viewer.alignment, viewer.full_headers, viewer.n_nodes = fixture.alignment, fixture.full_headers, fixture.n_nodes
-        for name in ("current_colors", "visible_mask", "cluster_labels"):
+        for name in ("current_colors", "visible_mask", "cluster_labels", *Node_Colors.KEY_ATTRIBUTES, "_color_key_last_id"):
             if hasattr(fixture, name):
                 setattr(viewer, name, getattr(fixture, name))
         self.viewer, self.msa, self.tree_file = viewer, msa, tree

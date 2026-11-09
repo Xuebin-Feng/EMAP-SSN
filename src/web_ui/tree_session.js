@@ -250,59 +250,12 @@ window.TreeView = window.TreeView || {};
 
     // ---- The colours of the network ----------------------------------------------------------------------------
 
-    let legendOpen = true;
     let colorsLoading = false;
     let colorsAgain = false;
 
-    // The legend: the colours the leaves have, most leaves first, each of them a button that marks its leaves.
-    function showLegend() {
-        const colors = state.colors;
-        const legend = $("legend");
-        const list = $("legend-list");
-        list.replaceChildren();
-        const rows = colors ? colors.legend : [];
-        legend.classList.toggle("shown", rows.length > 0);
-        if (!rows.length) return;
-        for (const entry of rows) {
-            const item = document.createElement("li");
-            const button = document.createElement("button");
-            button.className = "legend-row";
-            button.setAttribute("aria-pressed", String(state.legendClass === entry.cls));
-            button.title = t("Mark the leaves of this colour");
-            const swatch = document.createElement("span");
-            swatch.className = "swatch";
-            swatch.style.backgroundColor = entry.css;
-            const name = document.createElement("span");
-            name.className = "name";
-            name.textContent = TV.classLabel(entry.cls);
-            const count = document.createElement("span");
-            count.className = "count";
-            count.textContent = entry.count.toLocaleString();
-            button.append(swatch, name, count);
-            button.addEventListener("click", () => markColor(entry.cls));
-            item.appendChild(button);
-            list.appendChild(item);
-        }
-        const more = $("legend-more");
-        more.hidden = !(colors.more > 0);
-        if (colors.more > 0) more.textContent = t("{count} more colours", { count: colors.more.toLocaleString() });
-        list.hidden = !legendOpen;
-        more.hidden = more.hidden || !legendOpen;
-        $("legend-toggle").setAttribute("aria-expanded", String(legendOpen));
-        setIcon($("legend-icon"), legendOpen ? "chevron-up" : "chevron-down");
-    }
-
-    // Mark the leaves of one colour as a search marks what it found; the same button again takes the marks off.
-    function markColor(cls) {
-        const colors = state.colors;
-        if (!colors) return;
-        if (state.legendClass === cls) {
-            state.legendClass = -1;
-            state.matches = new Int32Array(0);
-        } else {
-            state.legendClass = cls;
-            state.matches = TV.leavesOfClass(colors, cls);
-        }
+    // Mark leaves as a search marks what it finds (the legend's rows and bars do); no leaves takes the marks off.
+    TV.markLeaves = function (leaves) {
+        state.matches = leaves;
         state.current = -1;
         state.query = "";
         $("search-input").value = "";
@@ -310,8 +263,7 @@ window.TreeView = window.TreeView || {};
         showSearch(0);
         TV.minimapChanged();
         TV.requestDraw();
-        showLegend();
-    }
+    };
 
     // The colours the Viewer outlines its selected nodes and their neighbours in, as the page draws them, and whether it
     // outlines the neighbours at all.
@@ -334,10 +286,11 @@ window.TreeView = window.TreeView || {};
         const marksBefore = JSON.stringify(state.marks);
         if (payload && payload.marks && payload.marks.selected && payload.marks.connected) state.marks = marksOf(payload.marks);
         // A colour the legend marked that is no longer there marks nothing.
-        const marked = state.legendClass;
+        const marked = state.legendMark;
         state.colors = colors;
-        if (marked >= 0) {
-            state.legendClass = -1;
+        if (marked !== null) {
+            state.legendMark = null;
+            state.legendRange = null;
             state.matches = new Int32Array(0);
             state.current = -1;
         }
@@ -346,7 +299,7 @@ window.TreeView = window.TreeView || {};
             if (state.query) showSearch(TV.runSearch(state.query));
             showLayoutControls();
         }
-        showLegend();
+        TV.showLegend();
         if (state.pinned < 0) showPinned(-1);
         TV.minimapChanged();
         TV.drawNow();
@@ -918,7 +871,8 @@ window.TreeView = window.TreeView || {};
         state.cut = model.threshold && Number.isFinite(model.threshold.current) ? model.threshold.current : null;
         state.colors = null;
         state.removed = null;
-        state.legendClass = -1;
+        state.legendMark = null;
+        state.legendRange = null;
         TV.resetFolds();
         // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted.
         state.kind = TV.defaultLayoutKind(model);
@@ -938,7 +892,7 @@ window.TreeView = window.TreeView || {};
         showDetails(payload, model);
         showBanner();
         showPinned(-1);
-        showLegend();
+        TV.showLegend();
         // A tree the user opened has the report of its match; the card shows after an opening (tree_open.js), not at every load.
         $("report-btn").hidden = !model.uploaded;
         $("match-report").classList.remove("shown");
@@ -985,9 +939,10 @@ window.TreeView = window.TreeView || {};
 
     function search(value) {
         // What a search finds replaces what the legend marked.
-        if (state.legendClass >= 0) {
-            state.legendClass = -1;
-            showLegend();
+        if (state.legendMark !== null) {
+            state.legendMark = null;
+            state.legendRange = null;
+            TV.refreshLegendMarks();
         }
         const count = TV.runSearch(value);
         if (count) TV.stepMatch(1); else TV.requestDraw();
@@ -1135,10 +1090,7 @@ window.TreeView = window.TreeView || {};
         attachBanner();
         $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown")));
         $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown")));
-        $("legend-toggle").addEventListener("click", () => {
-            legendOpen = !legendOpen;
-            showLegend();
-        });
+        $("legend-toggle").addEventListener("click", () => TV.toggleLegend());
         $("empty-retry").addEventListener("click", () => TV.loadTree());
         $("empty-copy").addEventListener("click", copyPath);
         $("search-prev").addEventListener("click", () => step(-1));

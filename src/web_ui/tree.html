@@ -313,14 +313,14 @@
             display: none;
             width: 210px;
             max-height: calc(50% - 8px);
-            overflow: auto;
+            flex-direction: column;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
             font-size: 12px;
         }
-        .legend.shown { display: block; }
+        .legend.shown { display: flex; }
         .legend-head {
             display: flex;
             align-items: center;
@@ -334,8 +334,33 @@
             font-weight: 600;
             cursor: pointer;
         }
-        .legend-list { list-style: none; margin: 0; padding: 0 4px 6px; }
+        /* The list scrolls under the heading: every row of every layer is in it */
+        .legend-head { flex: none; }
+        .legend-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 4px 6px; }
         .legend-list[hidden] { display: none; }
+        .legend-rows { list-style: none; margin: 0; padding: 0; }
+        .legend-group + .legend-group { margin-top: 6px; border-top: 1px solid var(--border-color); padding-top: 4px; }
+        .legend-title { margin: 0; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+        .legend-scheme { padding: 0 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft); }
+        .legend-scale { padding: 2px 6px 4px; }
+        .legend-bar {
+            position: relative;
+            height: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-muted);
+            cursor: crosshair;
+            touch-action: none;
+        }
+        .legend-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .legend-band { position: absolute; top: -3px; bottom: -3px; min-width: 2px; border: 2px solid var(--accent); border-radius: 3px; background-color: var(--accent-soft); pointer-events: none; box-sizing: border-box; }
+        .legend-band[hidden] { display: none; }
+        .legend-ends { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+        .legend-range-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 0; }
+        .legend-range { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .legend-range[hidden], .legend-clear[hidden] { display: none; }
+        .legend-clear { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; cursor: pointer; }
+        .legend-clear:hover { text-decoration: underline; }
         .legend-row {
             display: flex;
             align-items: center;
@@ -355,8 +380,6 @@
         .legend-row .swatch { flex: none; width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; }
         .legend-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .legend-row .count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
-        .legend-more { padding: 0 10px 8px; color: var(--text-soft); }
-        .legend-more[hidden] { display: none; }
 
         /* The legend of the split stability dots, at the foot of the drawing */
         .support-legend {
@@ -651,8 +674,7 @@
         <canvas class="minimap" id="minimap" hidden title="The whole tree. Press or drag to move there." aria-label="Overview of the whole tree"></canvas>
         <aside class="legend" id="legend" aria-label="The colours of the network">
             <button class="legend-head" id="legend-toggle" aria-expanded="true" title="Show or hide the list of colours"><span data-i18n>Colours</span><svg class="icon" id="legend-icon" aria-hidden="true"><use href="#i-chevron-up"/></svg></button>
-            <ul class="legend-list" id="legend-list"></ul>
-            <div class="legend-more" id="legend-more" hidden></div>
+            <div class="legend-list" id="legend-list"></div>
         </aside>
         <aside class="support-legend" id="support-legend" hidden aria-label="The stability of the splits">
             <button class="head" id="support-btn" aria-pressed="false" title="Show how stable each split is under distance noise, as dots on the clades, where the tree is zoomed in"><span id="support-title" data-i18n>Split stability</span></button>
@@ -699,6 +721,7 @@
     <script src="/tree_read.js"></script>
     <script src="/tree_read_xml.js"></script>
     <script src="/tree_read_json.js"></script>
+    <script src="/tree_legend.js"></script>
     <script src="/tree_session.js"></script>
     <script src="/tree_open.js"></script>
 </body>

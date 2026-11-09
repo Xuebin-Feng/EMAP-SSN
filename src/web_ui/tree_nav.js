@@ -37,9 +37,11 @@ window.TreeView = window.TreeView || {};
         // Bumped whenever the folds change, for what is kept about them (TV.cladeBelow).
         foldVersion: 0,
         leafHidden: null,
-        // The colours of the network (tree_color.js), or null; and the colour class whose leaves the legend marks, or -1.
+        // The colours of the network (tree_color.js), or null; and the legend entry whose leaves are marked (a key such
+        // as "row:2:0", "colour:5" or "range:1"), or null; and the range a gradient bar marks, { layer, low, high }, or null.
         colors: null,
-        legendClass: -1,
+        legendMark: null,
+        legendRange: null,
         // The selection the network has, as the tree sees it (tree_select.js), a layer of its own beside the matches;
         // and whether the stability of each split is drawn.
         selection: { leaves: new Int32Array(0), connected: new Int32Array(0), clade: -1, focus: -1, count: 0 },
@@ -788,10 +790,9 @@ window.TreeView = window.TreeView || {};
     }
 
     // The lines of text that describe node i: { title, lines }. Every header is the file's text, shown as text.
-    // What to call a colour of the network: "Cluster 7" when the leaves that have it are one cluster, else its #rrggbb.
+    // What to call a colour of the network: its #rrggbb. What a colour means is the legend's to say, from the Viewer's colour key.
     TV.classLabel = function (cls) {
-        const id = TV.clusterOfClass(state.colors, state.model, cls);
-        return id >= 0 ? t("Cluster {id}", { id }) : TV.classHex(state.colors, cls);
+        return TV.classHex(state.colors, cls);
     };
 
     TV.describeNode = function (i) {
