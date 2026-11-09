@@ -55,6 +55,7 @@ modules = [
     "test_subcluster_command",
     "test_viewer_undo_redo",
     "test_viewer_undo_snapshots",
+    "test_vr_command_engine_names",
     "test_zoom_command",
 ]
 
