@@ -1,6 +1,7 @@
 """The `distribution` command (commands/distribution.py): nodes colored by the residue at one position."""
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -186,6 +187,15 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(len(viewer.history), 1)
         viewer.undo()
         np.testing.assert_array_equal(viewer.current_colors, np.tile(START, (4, 1)))
+
+    def test_the_table_columns_line_up_with_the_header(self):
+        _, output, _ = self.run_distribution(list("KKKRRG-X"), ["[1]"])
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+        lines = [ansi.sub("", line) for line in output.splitlines() if line.startswith("| ")]
+        self.assertEqual(len(lines), 6)  # header, K, R, G, gap, other
+        bars = [[i for i, c in enumerate(line) if c == "|"] for line in lines]
+        for line, positions in zip(lines, bars):
+            self.assertEqual(positions, bars[0], line)
 
     def test_help_prints(self):
         output = StringIO()
