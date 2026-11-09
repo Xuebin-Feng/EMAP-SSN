@@ -305,6 +305,12 @@ still change before version 1.0.0.
 - **`spectrum` gives nodes with no value `cluster`'s noise color.** Nodes whose property
   value is missing, non-numeric or infinite used to be an opaque gray; they now get the
   translucent light gray `cluster` gives unclustered nodes, as `distribution` gives gaps.
+- **VR notes what the headset cannot show after any command.** The VR terminal's
+  "(Not shown in the headset: ...)" note used to follow a fixed list of commands. It now
+  follows any command that changes node shapes, transparency, node positions after the
+  headset connects, or the selection, so `distribution`, `spectrum`'s similarity mode and
+  new commands get it too, as does a side effect such as `hide` dropping hidden nodes from
+  the selection. VR's `help` reads the summary each of its own commands declares.
 
 ### Fixed
 
