@@ -631,7 +631,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-query" data-source-sha256="c056d6e660652a2799451a20731a7ed7714d7a3cedbfaaa0c078e737b9cfe77d">
+            <section class="command-card" id="cmd-query" data-source-sha256="b8cac713be0787ce93a74f6b345195703311da2888eb077659a90101ffdc3979">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">query</span>
@@ -656,7 +656,7 @@
                     <li><strong>鼠标选择（回退 1）：</strong>省略表达式时，查询查看器中当前选中的节点。</li>
                     <li><strong>整个网络（回退 2）：</strong>既没有给出表达式也没有选中节点时，查询网络中的所有可见节点。</li>
                     <li><strong>无匹配：</strong>没有任何节点匹配的表达式会成功，并附带一条未匹配到序列的提示。匹配的节点若都不在已加载的 MSA 中，则没有可查询的内容，命令失败。</li>
-                    <li><strong>仅限可见节点：</strong>与 <code>color</code>、<code>spectrum</code>、<code>select</code> 和 <code>group</code> 一样，<code>query</code> 会跳过隐藏节点。表达式可能匹配它们，选中节点也可能包含它们，但只有可见节点会被计入，序列总数和两种模式下的每个百分比都是如此；只匹配隐藏节点的表达式会成功，并附带一条未匹配到序列的提示，与匹配不到任何节点的表达式一样。</li>
+                    <li><strong>仅限可见节点：</strong>与 <code>color</code>、<code>spectrum</code>、<code>select</code> 和 <code>group</code> 一样，<code>query</code> 会跳过隐藏节点。表达式可能匹配它们，选中节点也可能包含它们，但只有可见节点会被计入，序列总数和两种模式下的每个百分比都是如此；只匹配隐藏节点的表达式会成功，并附带一条说明该表达式只匹配隐藏节点的提示，就像匹配不到任何节点的表达式会成功并附带一条未匹配到序列的提示一样。</li>
                 </ul>
 
                 <div class="subheading">核心参数</div>

@@ -655,7 +655,7 @@
                     <li><strong>Mouse Selection (Fallback 1):</strong> If expression is omitted, queries the nodes currently selected in the viewer.</li>
                     <li><strong>Global Network (Fallback 2):</strong> If no expression is provided and no selection exists, queries ALL visible nodes in the network.</li>
                     <li><strong>No match:</strong> An expression that matches no node succeeds with a note that no sequences matched. Nodes that match but are not in the loaded MSA leave nothing to query, and the command fails.</li>
-                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code>, <code>select</code> and <code>group</code>, <code>query</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes are counted, in the sequence total and in every percentage, in both modes. An expression that matches only hidden nodes succeeds with a note that no sequence matched, as one that matches nothing does.</li>
+                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code>, <code>select</code> and <code>group</code>, <code>query</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes are counted, in the sequence total and in every percentage, in both modes. An expression that matches only hidden nodes succeeds with a note that the expression matched only hidden nodes, as one that matches nothing succeeds with a note that no sequence matched.</li>
                 </ul>
 
                 <div class="subheading">Core Arguments</div>

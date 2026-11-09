@@ -343,7 +343,10 @@ class QueryPositionBreakdownTests(unittest.TestCase):
         records = list(zip(headers, ["R", "R", "H"]))
         succeeded = []
 
-        with mock.patch.object(Command_Engine, "command_succeeded", lambda viewer, msg: succeeded.append(str(msg))),                 mock.patch.object(Command_Engine, "command_failed", side_effect=AssertionError("must not fail")):
+        with (
+            mock.patch.object(Command_Engine, "command_succeeded", lambda viewer, msg: succeeded.append(str(msg))),
+            mock.patch.object(Command_Engine, "command_failed", side_effect=AssertionError("must not fail")),
+        ):
             viewer, output = self.run_query(records, headers, ['"h1"', "[1]"], hidden={2})
 
         note = "The expression '\"h1\"' matched only hidden nodes, which query skips. Aborting query."

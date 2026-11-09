@@ -413,7 +413,7 @@ def print_help():
 
       * Hidden nodes are skipped: only visible nodes are counted, even when the
         selection or expression covers hidden ones. An expression that matches
-        only hidden nodes succeeds and reports that no visible sequence matched.
+        only hidden nodes succeeds with a note that it matched only hidden nodes.
 
     Syntax Modes:
       1. Position Breakdown Mode:
