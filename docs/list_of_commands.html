@@ -653,8 +653,9 @@
                 <ul>
                     <li><strong>Explicit Expression:</strong> Runs query on nodes matching the expression (e.g. <code>#cluster_1#</code>).</li>
                     <li><strong>Mouse Selection (Fallback 1):</strong> If expression is omitted, queries the nodes currently selected in the viewer.</li>
-                    <li><strong>Global Network (Fallback 2):</strong> If no expression is provided and no selection exists, queries ALL nodes in the network.</li>
+                    <li><strong>Global Network (Fallback 2):</strong> If no expression is provided and no selection exists, queries ALL visible nodes in the network.</li>
                     <li><strong>No match:</strong> An expression that matches no node succeeds with a note that no sequences matched. Nodes that match but are not in the loaded MSA leave nothing to query, and the command fails.</li>
+                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code>, <code>select</code> and <code>group</code>, <code>query</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes are counted, in the sequence total and in every percentage, in both modes. An expression that matches only hidden nodes succeeds with a note that no sequence matched, as one that matches nothing does.</li>
                 </ul>
 
                 <div class="subheading">Core Arguments</div>
@@ -884,7 +885,7 @@
                 <ul>
                     <li><strong>Implicit UI Targeting:</strong> Selecting nodes in the viewer with the mouse and running <code>group [NAME]</code> assigns that group label directly to the selection.</li>
                     <li><strong>Advanced Expression Targeting:</strong> Use the Expression Interpreter to assign labels to thousands of nodes instantly. Multiple expressions and names can be chained, e.g. <code>group P106 mutant "Human" human_proteins</code>.</li>
-                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code> and <code>select</code>, <code>group</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes receive the label; an expression that matches only hidden nodes labels none, as one that matches nothing does. Labels a node already carries are kept when it is hidden.</li>
+                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code>, <code>select</code> and <code>query</code>, <code>group</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes receive the label; an expression that matches only hidden nodes labels none, as one that matches nothing does. Labels a node already carries are kept when it is hidden.</li>
                 </ul>
 
                 <div class="subheading">Managing Groups</div>

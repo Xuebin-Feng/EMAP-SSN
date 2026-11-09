@@ -4480,7 +4480,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>No selection found. Defaulting to all visible nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Query</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The expression &apos;{expression}&apos; matched only hidden nodes, which query skips. Aborting query.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

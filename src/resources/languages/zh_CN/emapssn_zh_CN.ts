@@ -4746,7 +4746,7 @@ Command-line usage:
         <translation type="unfinished">“{text}”不是布尔选择表达式。</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+105"/>
         <source>Label &apos;{label}&apos; is ambiguous because it names both a &apos;{namespace}&apos; label and a custom group. Rename or remove the custom group before using this label.</source>
         <translation type="unfinished">标签“{label}”有歧义，因为它既是“{namespace}”标签，又是某个自定义分组的名称。请先重命名或删除该自定义分组，再使用此标签。</translation>
     </message>
@@ -4791,7 +4791,7 @@ Command-line usage:
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Engine.py" line="+196"/>
+        <location filename="../../../Command_Engine.py" line="+205"/>
         <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
         <translation type="unfinished">错误：脚本第 {line} 行以反斜杠结尾，但其后没有可供该命令续写的行。未运行任何命令。</translation>
     </message>
@@ -4833,7 +4833,7 @@ Command-line usage:
         <location line="+52"/>
         <location line="+15"/>
         <location line="+10"/>
-        <location filename="../../../commands/query.py" line="+563"/>
+        <location filename="../../../commands/query.py" line="+578"/>
         <location filename="../../../commands/reset.py" line="+25"/>
         <location filename="../../../commands/select.py" line="-196"/>
         <location filename="../../../web_ui/agent_backend.py" line="+373"/>
@@ -4862,7 +4862,7 @@ Command-line usage:
         <location filename="../../../commands/meta.py" line="-137"/>
         <location filename="../../../commands/offset.py" line="+110"/>
         <location filename="../../../commands/print.py" line="-152"/>
-        <location filename="../../../commands/query.py" line="-237"/>
+        <location filename="../../../commands/query.py" line="-251"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+197"/>
@@ -5984,7 +5984,6 @@ Command-line usage:
     </message>
     <message>
         <location line="-50"/>
-        <location filename="../../../commands/query.py" line="+46"/>
         <source>No selection found. Defaulting to ALL nodes.</source>
         <translation type="unfinished">没有选中节点，默认使用全部节点。</translation>
     </message>
@@ -6227,7 +6226,7 @@ Command-line usage:
         <translation type="unfinished">保存 {format} 出错。请查看控制台。</translation>
     </message>
     <message>
-        <location filename="../../../commands/query.py" line="-450"/>
+        <location filename="../../../commands/query.py" line="-405"/>
         <source>Invalid frequency Boolean expression. Ensure operators and parentheses are complete.</source>
         <translation type="unfinished">无效的频率布尔表达式。请确保运算符和括号完整。</translation>
     </message>
@@ -6247,7 +6246,7 @@ Command-line usage:
         <translation type="unfinished">其他（各低于 1%）：{percent}</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+99"/>
         <source>Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.</source>
         <translation type="unfinished">错误：query 命令需要 POSITIONS 或 LOGIC_ARGUMENT 参数。</translation>
     </message>
@@ -6267,12 +6266,22 @@ Command-line usage:
         <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 语法（例如 [10-20] 或 [K&gt;10%]）。</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+17"/>
+        <source>No selection found. Defaulting to all visible nodes.</source>
+        <translation type="unfinished">没有选中节点，默认使用全部可见节点。</translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Query</source>
         <translation type="unfinished">查询</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+23"/>
+        <source>The expression &apos;{expression}&apos; matched only hidden nodes, which query skips. Aborting query.</source>
+        <translation type="unfinished">表达式“{expression}”只匹配隐藏节点，而 query 会跳过隐藏节点，已中止查询。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>No sequences matched the expression &apos;{expression}&apos;. Aborting query.</source>
         <translation type="unfinished">没有序列符合表达式“{expression}”，已中止查询。</translation>
     </message>

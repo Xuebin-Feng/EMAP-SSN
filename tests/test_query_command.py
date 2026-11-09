@@ -236,14 +236,15 @@ class QueryFrequencyLogicTests(unittest.TestCase):
         text = " ".join(output.getvalue().split())
         self.assertIn("1 means 100%", text)
         self.assertIn("5 means 5%", text)
-        self.assertIn("Hidden nodes are included", text)
+        self.assertIn("Hidden nodes are skipped", text)
+        self.assertIn("ALL VISIBLE nodes", text)
         self.assertIn("write several residues as a group, (KR)", text)
 
 
 class QueryPositionBreakdownTests(unittest.TestCase):
     """The per-position residue breakdown `query` prints for a node subset."""
 
-    def run_query(self, records, headers, args, cluster_labels=None, metadata=None, console=True):
+    def run_query(self, records, headers, args, cluster_labels=None, metadata=None, console=True, hidden=None, selected=None):
         """Run `query` with ARGS on an MSA loaded as the Viewer loads it."""
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -255,7 +256,8 @@ class QueryPositionBreakdownTests(unittest.TestCase):
             alignment=alignment,
             alignment_offset=0,
             full_headers=list(headers),
-            selected_indices=[],
+            selected_indices=list(selected or []),
+            visible_mask=np.array([i not in (hidden or ()) for i in range(len(headers))], dtype=bool),
             cluster_labels=None if cluster_labels is None else np.asarray(cluster_labels),
             group_labels=None,
             metadata=metadata,
@@ -291,6 +293,65 @@ class QueryPositionBreakdownTests(unittest.TestCase):
             ],
         )
         self.assertEqual(viewer.console_text.text, "Queried 1 position. Check the Console.")
+
+    def test_hidden_nodes_are_skipped_in_the_position_breakdown(self):
+        headers = ["arginine", "histidine", "gap", "alanine"]
+        records = list(zip(headers, ["R", "H", "-", "A"]))
+
+        viewer, output = self.run_query(
+            records, headers, ["#cluster_1#", "[1]"], cluster_labels=[1, 1, 1, 2], hidden={1}
+        )
+
+        # The hidden histidine row is outside the 2 sequences and the percentages.
+        self.assertIn("QUERY SUBSET: '#cluster_1#' (2 sequences mapped)", output)
+        self.assertEqual(self.position_lines(output), ["Pos 1       	Gap  50.0% | R  50.0%"])
+        self.assertEqual(viewer.console_text.text, "Queried 1 position. Check the Console.")
+
+    def test_hidden_nodes_are_skipped_in_the_frequency_search(self):
+        headers = ["r1", "r2", "h1", "h2"]
+        records = list(zip(headers, ["R", "R", "H", "H"]))
+
+        # Visible: r1, r2 and h2, so R is 2 of 3. With h1 counted it would be 2 of 4 = 50%.
+        _, output = self.run_query(records, headers, ['"*"', "[R>60%]"], hidden={2})
+
+        self.assertIn("QUERY POSITION SEARCH SUBSET: '\"*\"' (3 sequences mapped)", output)
+        self.assertIn("Matching Positions (1 found):", output)
+        self.assertEqual(self.position_lines(output), ["Pos 1       	Gap   0.0% | R  66.7% | H  33.3%"])
+
+    def test_no_selection_falls_back_to_the_visible_nodes_only(self):
+        headers = ["r1", "r2", "h1", "h2"]
+        records = list(zip(headers, ["R", "R", "H", "H"]))
+
+        viewer, output = self.run_query(records, headers, ["[1]"], hidden={0, 1})
+
+        self.assertIn("Defaulting to all visible nodes", output)
+        self.assertIn("(2 sequences mapped)", output)
+        self.assertEqual(self.position_lines(output), ["Pos 1       	Gap   0.0% | H 100.0%"])
+        self.assertEqual(viewer.console_text.text, "Queried 1 position. Check the Console.")
+
+    def test_a_selection_holding_hidden_nodes_counts_only_the_visible_ones(self):
+        headers = ["r1", "r2", "h1"]
+        records = list(zip(headers, ["R", "R", "H"]))
+
+        _, output = self.run_query(records, headers, ["[1]"], hidden={2}, selected=[1, 2])
+
+        self.assertIn("(1 sequences mapped)", output)
+        self.assertEqual(self.position_lines(output), ["Pos 1       	Gap   0.0% | R 100.0%"])
+
+    def test_an_expression_matching_only_hidden_nodes_succeeds_with_a_note(self):
+        headers = ["r1", "r2", "h1"]
+        records = list(zip(headers, ["R", "R", "H"]))
+        succeeded = []
+
+        with mock.patch.object(Command_Engine, "command_succeeded", lambda viewer, msg: succeeded.append(str(msg))),                 mock.patch.object(Command_Engine, "command_failed", side_effect=AssertionError("must not fail")):
+            viewer, output = self.run_query(records, headers, ['"h1"', "[1]"], hidden={2})
+
+        note = "The expression '\"h1\"' matched only hidden nodes, which query skips. Aborting query."
+        self.assertIn(note, output)
+        self.assertEqual(viewer.console_text.text, note)
+        self.assertEqual(succeeded, [note])
+        self.assertEqual(self.position_lines(output), [])
+        self.assertNotIn("QUERY", output)
 
     @staticmethod
     def other_lines(output):

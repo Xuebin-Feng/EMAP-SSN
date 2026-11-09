@@ -34,7 +34,7 @@ from desktop.Command_Metadata import argument, entry, EXPRESSION
 AGENT_POLICY = 'run'
 
 CATALOG_ENTRY = entry('Print alignment-position distributions or search positions by residue-frequency logic; requires a nonempty MSA.',
-    argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all nodes. An expression that matches no node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
+    argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all visible nodes. Hidden nodes are skipped. An expression that matches no visible node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
     argument('positions_or_logic', 'Required brackets: positions/ranges separated by commas or by spaces, not both, as in [1,5,20-30] or [1 5 20-30] (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.'),
     requires=('alignment',))
 
@@ -409,10 +409,11 @@ def print_help():
 
       * QUICK USE: If no expression is provided, the command automatically targets 
         the nodes currently selected in the viewer. If no nodes are selected, it 
-        defaults to querying ALL nodes in the entire network.
+        defaults to querying ALL VISIBLE nodes in the network.
 
-      * Hidden nodes are included: they are used whenever the selection or
-        expression covers them.
+      * Hidden nodes are skipped: only visible nodes are counted, even when the
+        selection or expression covers hidden ones. An expression that matches
+        only hidden nodes succeeds and reports that no visible sequence matched.
 
     Syntax Modes:
       1. Position Breakdown Mode:
@@ -543,8 +544,8 @@ def run(viewer, args):
     if expr == "$sele$" and not Command_Engine.command_selection(viewer):
         expr = '"*"'  # The wildcard string matches all headers
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, Message("No selection found. Defaulting to ALL nodes."))
-        print("No nodes selected. Defaulting to ALL nodes in the network.")
+            Command_Engine.show_status(viewer, Message("No selection found. Defaulting to all visible nodes."))
+        print("No nodes selected. Defaulting to all visible nodes in the network.")
 
     # --- 3. Compute Subset Rows ---
     # expr is never empty here, so every query runs on an evaluated subset.
@@ -567,6 +568,15 @@ def run(viewer, args):
         Command_Engine.report_selection_error(viewer, expr, e, Message("Query"))
         return
 
+    # Hidden nodes are outside the command's target domain, even when the
+    # expression or the selection covers them, as in color, group and spectrum.
+    visible = getattr(viewer, 'visible_mask', None)
+    n_hidden_matched = 0
+    if visible is not None:
+        visible = np.asarray(visible, dtype=bool)
+        n_hidden_matched = int(np.sum(mask & ~visible))
+        mask = mask & visible
+
     valid_nodes = np.where(mask)[0]
     aln_rows = viewer_to_aln[valid_nodes]
     target_rows = aln_rows[aln_rows != -1]
@@ -577,7 +587,12 @@ def run(viewer, args):
         # A valid expression may match no node, which is not a failure. Nodes
         # that match but are not in the alignment leave nothing to query, which is.
         nothing_matched = len(valid_nodes) == 0
-        if nothing_matched:
+        if nothing_matched and n_hidden_matched:
+            msg = Message(
+                "The expression '{expression}' matched only hidden nodes, which query skips. Aborting query.",
+                expression=expr,
+            )
+        elif nothing_matched:
             msg = Message("No sequences matched the expression '{expression}'. Aborting query.", expression=expr)
         else:
             msg = Message(
