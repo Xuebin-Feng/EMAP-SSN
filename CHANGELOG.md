@@ -195,6 +195,17 @@ still change before version 1.0.0.
   - The position is numbered as in `query`. A list, a range or a frequency comparison is
     refused and changes nothing.
   - The Console gets a table of the residues there, with counts and percentages.
+- **`spectrum` colors nodes by their similarity to one node.** With exactly one node
+  selected and no `{PROPERTY}`, `spectrum` colors the expression's visible matches, or all
+  visible nodes, by each one's score to the selected node: the score the network stores for
+  that pair, read back from the network file, so pairs the Viewer did not load count too.
+  - The selected node gets a vivid color that the chosen scheme does not contain: lime,
+    magenta, gold, cyan, black or white, whichever is farthest from the scheme's colors
+    (gold for `coolwarm`, magenta for `viridis`). It stays selected.
+  - Nodes with no stored pair to it get the noise color and stay out of the range. Higher
+    scores run toward the end of the scheme, for every network type.
+  - The file is read on the command queue's worker thread: about 0.3 s for 48.7 million
+    pairs. The metadata legend does not show this gradient.
 
 ### Changed
 
@@ -271,6 +282,9 @@ still change before version 1.0.0.
   node and ignore the selection; it now colors the selected nodes, and all visible nodes
   only when nothing is selected, as `query` and `logo` do. The gradient's minimum and
   maximum come from the nodes it colors, as with an expression.
+- **`spectrum` gives nodes with no value `cluster`'s noise color.** Nodes whose property
+  value is missing, non-numeric or infinite used to be an opaque gray; they now get the
+  translucent light gray `cluster` gives unclustered nodes, as `distribution` gives gaps.
 
 ### Fixed
 
