@@ -3458,6 +3458,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Cluster {number}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Noise</source>
         <translation type="unfinished"></translation>
     </message>

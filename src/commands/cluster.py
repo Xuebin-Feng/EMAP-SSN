@@ -644,7 +644,7 @@ def apply(viewer, plan, result):
 
     # What the colors mean: a category for each cluster, by id, and Noise last; two clusters that share a color stay two.
     named = [slot for slot, lbl in enumerate(unique_labels) if lbl != -1]
-    categories = [(f"Cluster {unique_labels[slot]}", slot_colors[slot]) for slot in named]
+    categories = [(Message("Cluster {number}", number=int(unique_labels[slot])), slot_colors[slot]) for slot in named]
     category_of_slot = np.full(len(unique_labels), len(named))
     category_of_slot[named] = np.arange(len(named))
     if len(named) < len(unique_labels):

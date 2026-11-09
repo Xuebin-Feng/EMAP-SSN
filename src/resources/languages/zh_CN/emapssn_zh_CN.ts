@@ -4985,7 +4985,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+39"/>
+        <source>Cluster {number}</source>
+        <translation type="unfinished">聚类 {number}</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <location filename="../../../commands/subcluster.py" line="+353"/>
         <source>Noise</source>
         <translation type="unfinished">噪声</translation>

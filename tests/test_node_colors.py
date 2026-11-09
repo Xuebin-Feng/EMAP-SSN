@@ -221,7 +221,8 @@ class PlainViewerTests(unittest.TestCase):
         declare_categories(viewer, "t", [("a", GRAY)], np.zeros(6, dtype=int))
         viewer.n_nodes = 7
         viewer.current_colors = np.tile(GRAY, (7, 1))
-        self.assertIsNone(key_state(viewer))
+        with redirect_stdout(io.StringIO()):
+            self.assertIsNone(key_state(viewer))
 
 
 class UndoTests(unittest.TestCase):
@@ -292,6 +293,154 @@ class UndoTests(unittest.TestCase):
         self.assertEqual(key_state(viewer)["owner"].tolist(), [1, 1, -1, -1, -1, -1])
 
 
+def good_key_viewer():
+    viewer = plain_viewer()
+    paint(viewer, slice(0, 6), RED)
+    declare_categories(viewer, Message("Clusters"), [(Message("Cluster {number}", number=1), RED)],
+                       np.zeros(6, dtype=int))
+    return viewer
+
+
+class MalformedKeyTests(unittest.TestCase):
+    """A layout cache is shared and untrusted: whatever it put in the key's attributes reads as no key or a trimmed one."""
+
+    def state_after(self, damage):
+        viewer = good_key_viewer()
+        damage(viewer)
+        with redirect_stdout(io.StringIO()):
+            return viewer, key_state(viewer)
+
+    def test_layers_that_are_not_a_list_of_layers_read_as_no_key(self):
+        for bad in ("text", 7, {"id": 1}, ["text"], [None], [{"kind": "categories"}]):
+            with self.subTest(bad=bad):
+                _, state = self.state_after(lambda v: setattr(v, "color_key_layers", bad))
+                self.assertIsNone(state)
+
+    def test_a_layer_that_is_malformed_is_dropped_and_a_good_one_beside_it_stays(self):
+        def damage(viewer):
+            good = viewer.color_key_layers[0]
+            viewer.color_key_layers = ["text", {**good, "id": None}, {**good, "id": True}, {**good, "kind": "other"},
+                                       {**good, "categories": [{"label": "a", "rgba": [1, 0, 0]}]},  # 3 numbers
+                                       {**good, "categories": [{"rgba": [1, 0, 0, 1]}]},  # no label
+                                       {**good, "categories": "none"},
+                                       {**good, "title": 5},
+                                       {**good, "id": 9, "title": {"values": {}}},  # a dict title with no template
+                                       good]
+        viewer, state = self.state_after(damage)
+        self.assertEqual([layer["id"] for layer in state["layers"]], [1])
+        self.assertTrue(state["labelled"].all())
+
+    def test_a_gradient_with_a_bad_range_or_stops_is_dropped(self):
+        viewer = plain_viewer()
+        declare_gradient(viewer, "t", "viridis", mpl.colormaps["viridis"], 0, 1, [0], [0.5])
+        good = viewer.color_key_layers[0]
+        for name, bad in (("min", "low"), ("max", [1]), ("stops", [[1, 2]]), ("stops", "x"), ("extras", None),
+                          ("scheme", 3)):
+            with self.subTest(name=name):
+                viewer.color_key_layers = [{**good, name: bad}]
+                with redirect_stdout(io.StringIO()):
+                    self.assertIsNone(key_state(viewer))
+        viewer.color_key_layers = [{**good, "min": None, "max": None}]
+        self.assertIsNotNone(key_state(viewer))
+
+    def test_a_template_cannot_read_attributes_or_items_or_a_missing_value(self):
+        def title_of(template, values=None):
+            def damage(viewer):
+                viewer.color_key_layers[0]["title"] = {
+                    "template": template, "values": {"x": [7], "number": 3} if values is None else values}
+            return self.state_after(damage)[1]["layers"][0]["title"]
+        self.assertEqual(title_of("{x.__class__}"), "{x.__class__}")
+        self.assertEqual(title_of("{x[0]}"), "{x[0]}")
+        self.assertEqual(title_of("{missing}"), "{missing}")
+        self.assertEqual(title_of("{number!r}"), "{number!r}")
+        self.assertEqual(title_of("{number:>5}"), "{number:>5}")
+        self.assertEqual(title_of("{}"), "{}")
+        self.assertEqual(title_of("{unclosed"), "{unclosed")
+        self.assertEqual(title_of("n={number} {{literal}}"), "n=3 {literal}")
+        self.assertEqual(title_of("{x}"), "[7]")  # a value that is not text shows as str()
+        self.assertEqual(title_of("{number}", values="not a dict"), "{number}")
+
+    def test_a_label_that_is_a_dict_without_a_template_drops_the_layer_and_never_raises(self):
+        def damage(viewer):
+            viewer.color_key_layers[0]["categories"][0] = {"label": {"values": {}}, "rgba": [1, 0, 0, 1]}
+        self.assertIsNone(self.state_after(damage)[1])
+        self.assertEqual(Node_Colors.shown({"values": {}}), "")
+        self.assertEqual(Node_Colors.shown(None), "None")
+
+    def test_arrays_of_the_wrong_shape_or_dtype_read_as_no_key(self):
+        cases = {
+            "color_key_owner": [np.zeros(5, np.int32), np.zeros((6, 1), np.int32), np.array(["a"] * 6),
+                                np.full(6, 2 ** 40, dtype=np.int64), np.zeros(6, np.float32), "x", [1] * 6],
+            "color_key_category": [np.zeros(7, np.int32), np.zeros(6, object)],
+            "color_key_rgba": [np.zeros((6, 3), np.uint8), np.zeros(6, np.uint8), np.full((6, 4), 300, np.int64),
+                               np.full((6, 4), -1, np.int64)],
+            "color_key_values": [np.zeros(2, np.float32), np.array(["a"] * 6)],
+        }
+        for name, bad_arrays in cases.items():
+            for bad in bad_arrays:
+                with self.subTest(name=name, bad=repr(bad)[:30]):
+                    self.assertIsNone(self.state_after(lambda v: setattr(v, name, bad))[1])
+
+    def test_a_compatible_dtype_is_converted(self):
+        def damage(viewer):
+            viewer.color_key_owner = viewer.color_key_owner.astype(np.int64)
+            viewer.color_key_rgba = viewer.color_key_rgba.astype(np.int64)
+            viewer.color_key_values = viewer.color_key_values.astype(np.float64)
+        state = self.state_after(damage)[1]
+        self.assertTrue(state["labelled"].all())
+        self.assertEqual((state["owner"].dtype, state["rgba"].dtype, state["values"].dtype),
+                         (np.int32, np.uint8, np.float32))
+
+    def test_a_category_the_layer_does_not_have_is_unlabelled(self):
+        def damage(viewer):
+            viewer.color_key_category[:2] = [5, -3]
+        state = self.state_after(damage)[1]
+        self.assertEqual(state["labelled"].tolist(), [False, False, True, True, True, True])
+
+    def test_one_warning_line_is_printed_once_for_a_damaged_key_and_none_for_a_sound_one(self):
+        viewer = good_key_viewer()
+        with redirect_stdout(io.StringIO()) as printed:
+            key_state(viewer)
+        self.assertEqual(printed.getvalue(), "")
+        viewer.color_key_layers = ["text"]
+        with redirect_stdout(io.StringIO()) as printed:
+            key_state(viewer)
+            key_state(viewer)
+        self.assertEqual(printed.getvalue().count("Warning: the color key"), 1)
+
+    def test_a_declaration_after_a_bad_key_starts_afresh_or_keeps_what_was_readable(self):
+        for name, bad in (("color_key_layers", "text"), ("color_key_layers", [None, 5]), ("color_key_owner", "x"),
+                          ("color_key_rgba", np.zeros((2, 2))), ("color_key_values", None), ("color_key_category", 3)):
+            with self.subTest(name=name):
+                viewer = good_key_viewer()
+                setattr(viewer, name, bad)
+                paint(viewer, [2], BLUE)
+                with redirect_stdout(io.StringIO()):
+                    declare_categories(viewer, "again", [("blue", BLUE)], [0], nodes=[2])
+                    state = key_state(viewer)
+                self.assertEqual(state["layers"][-1]["title"], "again")
+                self.assertEqual(state["owner"][2], state["layers"][-1]["id"])
+                self.assertTrue(state["labelled"][2])
+
+    def test_a_node_owned_by_a_layer_that_was_dropped_does_not_pass_to_a_new_layer_with_its_id(self):
+        viewer = good_key_viewer()
+        viewer.color_key_layers = [{**viewer.color_key_layers[0], "id": 1, "title": 5}]  # unreadable, so dropped
+        viewer._color_key_last_id = 0
+        paint(viewer, [0], BLUE)
+        with redirect_stdout(io.StringIO()):
+            declare_categories(viewer, "new", [("blue", BLUE)], [0], nodes=[0])
+        state = key_state(viewer)
+        self.assertEqual(state["layers"][0]["id"], 1)
+        self.assertEqual(state["owner"].tolist(), [1, -1, -1, -1, -1, -1])
+
+    def test_clearing_nodes_of_a_bad_key_does_not_raise(self):
+        viewer = good_key_viewer()
+        viewer.color_key_owner = "x"
+        with redirect_stdout(io.StringIO()):
+            clear_key(viewer, nodes=[0])
+        self.assertIsNone(key_state(viewer))
+
+
 class TranslationTests(unittest.TestCase):
     def test_a_title_and_a_fixed_label_are_shown_in_the_current_language_and_data_labels_are_not(self):
         from desktop.Desktop_App import message_translator
@@ -310,6 +459,9 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(chinese[0]["title"], "聚类")
         self.assertEqual([entry["label"] for entry in chinese[0]["categories"]], ["Cluster 3", "噪声"])
         self.assertEqual(chinese[1]["title"], "位置 53 的残基")
+        numbered = plain_viewer()
+        declare_categories(numbered, "t", [(Message("Cluster {number}", number=3), RED)], [0], nodes=[0])
+        self.assertEqual(key_state(numbered)["layers"][0]["categories"][0]["label"], "聚类 3")
         self.assertEqual(chinese[1]["categories"][0]["label"], "空位")
         # What is stored stays English, so the cache reads in whichever language is shown when it is read.
         self.assertEqual(viewer.color_key_layers[0]["title"]["template"], "Clusters")
