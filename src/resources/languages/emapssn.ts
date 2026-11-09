@@ -3518,6 +3518,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: &apos;{bare}&apos; in the set &apos;{set}&apos; is read as a color (a gray level), so the set has two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: The attribute set &apos;{set}&apos; has two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A set holds at most one color, one alpha, one scale and one shape.</source>
         <translation type="unfinished"></translation>
     </message>

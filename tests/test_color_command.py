@@ -705,6 +705,41 @@ class ColorSetRefusalTests(unittest.TestCase):
                     f"'{second}'. A set holds at most one color, one alpha, one scale and one shape.",
                 )
 
+    def test_a_bare_number_clashing_with_a_color_says_it_is_read_as_a_gray_level(self):
+        for text, bare, other in (
+            ("<green,0.5,*>", "0.5", "green"), ("<0.5,green>", "0.5", "green"), ("<red 1 star>", "1", "red"),
+            ("<green,.25>", ".25", "green"), ("<#00f,0.5,2x>", "0.5", "#00f"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    self.assert_refused(f"#cluster_1# {text}"),
+                    f"Error: '{bare}' in the set '{text}' is read as a color (a gray level), so the set has two "
+                    f"colors, '{other}' and '{bare}'. Write an alpha as a percent, e.g. 50%.",
+                )
+
+    def test_a_bare_number_alone_is_still_a_gray_color_and_other_clashes_keep_their_message(self):
+        viewer = target_viewer()
+        run_line(viewer, '#cluster_1# <0.5>')
+        np.testing.assert_allclose(viewer.current_colors[[0, 3], :3], [mcolors.to_rgba("0.5")[:3]] * 2)
+        self.assertIn("two items of one kind, 'red' and 'blue'", self.assert_refused("#cluster_1# <red,blue>"))
+        self.assertIn("two items of one kind, '50%' and '20%'", self.assert_refused("#cluster_1# <0.5,50%,20%>"))
+
+    def test_the_help_and_the_catalog_say_what_a_bare_number_a_symbol_and_a_left_out_item_are(self):
+        with redirect_stdout(io.StringIO()) as printed:
+            color.print_help()
+        help_text = " ".join(printed.getvalue().split())
+        for phrase in ("An attribute left out stays as each node has it", "A bare 0.5 is not an alpha",
+                       "Symbols such as * and + are shapes (VisPy markers), not wildcards"):
+            self.assertIn(phrase, help_text)
+        added = [line for line in printed.getvalue().splitlines()
+                 if any(word in line for word in ("left out", "bare 0.5", "VisPy markers", "are shapes"))]
+        self.assertEqual(len(added), 4)  # one more line for the symbol
+        self.assertLessEqual(max(len(line) for line in added), 82)  # the width of the help's other lines
+        catalog = " ".join(str(color.CATALOG_ENTRY).split())
+        for phrase in ("An attribute left out stays as each node has it", "A bare number such as 0.5 is not an alpha",
+                       "Symbols such as * and + are shapes, not wildcards"):
+            self.assertIn(phrase, catalog)
+
     def test_an_unknown_item_is_refused_by_name(self):
         for text, item in {
             "<red,blu>": "blu", "<blu>": "blu", "<red 50 star>": "50", "<red,50>": "50",

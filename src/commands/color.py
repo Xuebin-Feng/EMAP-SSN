@@ -31,11 +31,11 @@ AGENT_POLICY = 'run'
 CATALOG_ENTRY = entry('Apply color, alpha, scale, or shape assignments to visible nodes.',
     argument('action', 'reset restores configured node colors, alpha included.', choice('reset')),
     argument('expression', EXPRESSION + ' Omission targets selected nodes; assignments may be chained.'),
-    argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes. Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
+    argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. An attribute left out stays as each node has it. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes. Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
     argument('color', 'Optional Matplotlib color name or hex color; at least one visual attribute is needed. A color alone keeps each node\'s alpha. An 8-digit hex such as #ff000080 sets the color and the alpha. Outside a set, a valid selection expression takes precedence, so C53 selects cysteine 53 and x2 selects residue X at position 2.'),
-    argument('alpha', 'Optional opacity: a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%. An alpha alone keeps each node\'s color; 100% makes translucent nodes opaque again. Not combinable with an 8-digit hex color for one target.'),
+    argument('alpha', 'Optional opacity: a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%. An alpha alone keeps each node\'s color; 100% makes translucent nodes opaque again. A bare number such as 0.5 is not an alpha: it is read as a gray color. Not combinable with an 8-digit hex color for one target.'),
     argument('scale', 'Optional multiplier of the configured node size: a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.'),
-    argument('shape', 'Optional VisPy marker token; circle and triangle are explicit parser aliases.',
+    argument('shape', 'Optional VisPy marker token; circle and triangle are explicit parser aliases. Symbols such as * and + are shapes, not wildcards.',
         choice('disc', 'circle'), choice('arrow'), choice('ring'), choice('clobber'), choice('square'), choice('x'),
         choice('diamond'), choice('vbar'), choice('hbar'), choice('cross'), choice('tailed_arrow'),
         choice('triangle_up', 'triangle'), choice('triangle_down'), choice('star'), choice('cross_lines'),
@@ -73,17 +73,20 @@ def print_help():
       The attributes of one target go in a set: <ITEM,ITEM,...> or <ITEM ITEM ...>,
       written literally with the angle brackets. A set holds 1 to 4 items, in any
       order, at most one of each kind. Separate the items all with commas (spaces
-      around the commas are ignored) or all with spaces, never with both.
+      around the commas are ignored) or all with spaces, never with both. An
+      attribute left out stays as each node has it.
         1. Color: Name (red, blue) or Hex (#ff0000). An 8-digit hex (#ff000080)
            also sets the alpha. A color alone keeps each node's alpha.
         2. Alpha: A number from 0 to 100 suffixed with % (50%, 12.5%, 0%). An alpha
            alone keeps each node's color. Use 100% to make nodes opaque again.
+           A bare 0.5 is not an alpha: it is read as a gray color.
         3. Scale: Suffix with 'x' (e.g., 2x, 0.5x, 0x). Scales must be finite and
            non-negative, and small enough to give a finite node size.
            Old x2 scale syntax is removed; x2 now selects residue X at position 2.
         4. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
            (The shapes > and -> end a word, so in a set written with spaces
-           name them arrow and tailed_arrow.)
+           name them arrow and tailed_arrow.) Symbols such as * and + are shapes
+           (VisPy markers), not wildcards.
       A set follows its expression as a word of its own (#cluster_1# <red,50%>)
       or glued to it (#cluster_1#<red 50%>). With no expression before it, a set
       targets the selected nodes. Give a target one set, and start the next target
@@ -272,6 +275,15 @@ def _read_alpha(text):
     return percent
 
 
+def _is_gray_level(text):
+    """Whether `text` is a bare number, which Matplotlib reads as a gray level: 0.5 is gray, not an alpha."""
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
 def _read_item(text):
     """What attribute `text` is, as (kind, value), or None when it is none of the four.
 
@@ -388,6 +400,16 @@ def _read_set(text):
             ))
         kind, value = read
         if kind in seen:
+            if kind == _COLOR:
+                # An alpha written without its % (0.5) is read as a gray level, so it clashes with the color.
+                bare = next((one for one in (seen[kind], item) if _is_gray_level(one)), None)
+                if bare is not None:
+                    other = item if bare == seen[kind] else seen[kind]
+                    raise _Refusal(Message(
+                        "Error: '{bare}' in the set '{set}' is read as a color (a gray level), so the set has two "
+                        "colors, '{other}' and '{bare}'. Write an alpha as a percent, e.g. 50%.",
+                        bare=bare, set=text, other=other,
+                    ))
             raise _Refusal(Message(
                 "Error: The attribute set '{set}' has two items of one kind, '{first}' and '{second}'. "
                 "A set holds at most one color, one alpha, one scale and one shape.",

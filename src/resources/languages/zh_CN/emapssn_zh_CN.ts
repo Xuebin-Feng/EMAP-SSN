@@ -4850,7 +4850,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
         <location filename="../../../commands/cluster.py" line="+391"/>
-        <location filename="../../../commands/color.py" line="+505"/>
+        <location filename="../../../commands/color.py" line="+527"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
         <location filename="../../../commands/embedding.py" line="+79"/>
@@ -5035,7 +5035,7 @@ Command-line usage:
         <translation type="obsolete">错误：color 命令至少需要一个属性（颜色、缩放倍数或形状）或表达式。</translation>
     </message>
     <message>
-        <location filename="../../../commands/color.py" line="-269"/>
+        <location filename="../../../commands/color.py" line="-288"/>
         <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
         <translation type="unfinished">错误：无效的缩放倍数“{scale}”。缩放倍数是一个有限的非负数，后接 x，例如 2x、0.5x 或 0x。</translation>
     </message>
@@ -5046,7 +5046,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-80"/>
-        <location line="+380"/>
+        <location line="+399"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -5055,7 +5055,7 @@ Command-line usage:
         <translation type="obsolete">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="-355"/>
+        <location line="-374"/>
         <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
         <translation type="unfinished">错误：“{first}”和“{second}”都为同一目标设置了不透明度。不透明度只能给出一次，要么写在 8 位十六进制颜色中，要么写成 N%。</translation>
     </message>
@@ -5065,13 +5065,13 @@ Command-line usage:
         <translation type="unfinished">错误：无效的不透明度“{alpha}”。不透明度是 0 到 100 之间的数字，后接 %，例如 50%、12.5% 或 0%。</translation>
     </message>
     <message>
-        <location line="+87"/>
-        <location line="+107"/>
+        <location line="+96"/>
+        <location line="+117"/>
         <source>Error: Malformed attribute set &apos;{set}&apos;. A set is &lt;ITEM,ITEM,...&gt; or &lt;ITEM ITEM ...&gt;: opened by &lt;, closed by &gt; and holding no empty item and no other &lt;.</source>
         <translation type="unfinished">错误：属性集“{set}”格式不正确。属性集写作 &lt;项,项,...&gt; 或 &lt;项 项 ...&gt;：以 &lt; 开头，以 &gt; 结尾，不含空项，其中也不含其他 &lt;。</translation>
     </message>
     <message>
-        <location line="-97"/>
+        <location line="-107"/>
         <source>Error: The attribute set &apos;{set}&apos; is empty. A set holds 1 to 4 attributes, e.g. &lt;red,50%,star&gt; or &lt;red 50% star&gt;.</source>
         <translation type="unfinished">错误：属性集“{set}”为空。属性集包含 1 到 4 个属性，例如 &lt;red,50%,star&gt; 或 &lt;red 50% star&gt;。</translation>
     </message>
@@ -5086,7 +5086,12 @@ Command-line usage:
         <translation type="unfinished">错误：属性集“{set}”中有未知属性“{item}”。应为颜色、形如 50% 的不透明度、形如 2x 的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+12"/>
+        <source>Error: &apos;{bare}&apos; in the set &apos;{set}&apos; is read as a color (a gray level), so the set has two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished">错误：属性集“{set}”中的“{bare}”被读作颜色（灰度值），因此该集合有两个颜色“{other}”和“{bare}”。不透明度请写成百分数，例如 50%。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Error: The attribute set &apos;{set}&apos; has two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A set holds at most one color, one alpha, one scale and one shape.</source>
         <translation type="unfinished">错误：属性集“{set}”中有两个同类项“{first}”和“{second}”。一个属性集最多包含一个颜色、一个不透明度、一个缩放倍数和一个形状。</translation>
     </message>
@@ -15962,7 +15967,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished">尚未描述任何颜色。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Unlabelled colours</source>
         <translation type="unfinished">未标注的颜色</translation>
     </message>
@@ -15972,7 +15977,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished">选中此颜色的节点</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+53"/>
         <source>Select these nodes</source>
         <translation type="unfinished">选中这些节点</translation>
     </message>
