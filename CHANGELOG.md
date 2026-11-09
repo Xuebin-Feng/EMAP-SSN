@@ -226,6 +226,15 @@ still change before version 1.0.0.
   - Undo and redo restore the key with the colors, and `save` keeps it in the session
     file. A key in a shared file is checked before use: a malformed one is ignored, and
     its text is shown as plain text.
+- **The Viewer shows the same legend as a card.** Below the Undo and Redo buttons, a card
+  lists what the colors mean, as Tree View does, and moves aside as the sidebar slides
+  open. It appears when a command first describes its colors and collapses to a Legend
+  tab.
+  - Clicking a row selects its visible nodes, Ctrl-click adds them, and clicking the row
+    that is the selection clears it. Pressing or dragging on a gradient bar selects the
+    nodes in that range. Commands can then act on them as `$sele$`.
+  - It stays out of the way: hidden while the session card is open, never in a `print`
+    picture, and about 0.2 ms per redraw at 44,000 nodes when nothing it shows changed.
 
 ### Changed
 
