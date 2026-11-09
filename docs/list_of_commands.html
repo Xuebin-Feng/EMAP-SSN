@@ -109,6 +109,7 @@
                 <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
                 <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
+                <li class="menu-item" data-target="cmd-distribution"><a href="#cmd-distribution"><span>distribution</span></a></li>
             </ul>
 
             <div class="menu-category">Analysis</div>
@@ -679,6 +680,51 @@
                     <li class="example-item"><span>query [(RHK)&gt;50%]</span><button class="copy-btn" onclick="copyText('query [(RHK)>50%]', this)">Copy</button></li>
                     <li class="example-item"><span>query [((RHK)&gt;50%)&amp;((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%)&amp;((DE)>20%)]', this)">Copy</button></li>
                     <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%)&amp;(K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%)&amp;(K>5%)]', this)">Copy</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-distribution">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">distribution</span>
+                        <span class="command-card-desc-title">&ndash; Residue Distribution Coloring Tool</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">distribution [expression] &lt;position&gt;</div>
+                    <button class="copy-btn" onclick="copyText('distribution', this)">Copy</button>
+                </div>
+                <p><strong>Overview:</strong> Colors nodes by the amino acid each has at one alignment position, and prints a table of the residues found there with their counts and percentages.</p>
+
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. The position is numbered exactly as in <code>query</code>: with an active reference, positions use reference-anchored numbering and the session offset; without one, retained alignment columns are numbered sequentially from 1.</p>
+                </div>
+
+                <div class="subheading">Targeting &amp; Fallbacks</div>
+                <ul>
+                    <li><strong>Explicit Expression:</strong> Colors the nodes matching the expression (e.g. <code>#cluster_1#</code>). The expression and the bracketed position may come in either order.</li>
+                    <li><strong>Mouse Selection (Fallback 1):</strong> If expression is omitted, colors the nodes currently selected in the viewer.</li>
+                    <li><strong>Global Network (Fallback 2):</strong> If no expression is provided and no selection exists, colors ALL visible nodes in the network.</li>
+                    <li><strong>No match:</strong> An expression that matches no visible node succeeds with a note and changes nothing; so does one that matches only hidden nodes. Nodes that match but are not in the loaded MSA keep their colors, and the status line counts them; if none of the matched nodes is in the MSA, the command fails.</li>
+                    <li><strong>Visible Nodes Only:</strong> Hidden nodes are always skipped and keep their colors, even when the expression or the selection covers them. Nodes outside the target keep their colors too.</li>
+                </ul>
+
+                <div class="subheading">Core Arguments</div>
+                <ul>
+                    <li><strong>Position:</strong> Exactly one displayed alignment position in brackets, such as <code>[120]</code>, <code>[(-1)]</code> or <code>[106.1]</code>; <code>E</code>/<code>END</code> is the last displayed position. A list, a range or a frequency comparison is refused with an error that says only one position is allowed, and nothing changes.</li>
+                    <li><strong>Colors:</strong> Each residue has one fixed color, in upper or lower case. Related residues share a hue, the more common one darker: K and R blue, D and E red, N and Q magenta, S and T orange, I and V green, L and M olive, F and Y brown, W and H purple, A and G cyan, P and C gold. Gaps and every other symbol (X, B, Z, U, O, *) take the grey of the noise nodes in <code>cluster</code>, so grey means no residue.</li>
+                    <li><strong>Output:</strong> A table lists each residue present at the position with its name in its color, its node count and its percent of the colored nodes, largest first, then a <code>gap</code> row and an <code>other</code> row when present, followed by a status line such as <code>Colored 412 nodes by the residue at position 120.</code></li>
+                    <li><strong>Undo:</strong> One <code>undo</code> restores the colors the command changed.</li>
+                </ul>
+
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>distribution [120]</span><button class="copy-btn" onclick="copyText('distribution [120]', this)">Copy</button></li>
+                    <li class="example-item"><span>distribution #cluster_1# [120]</span><button class="copy-btn" onclick="copyText('distribution #cluster_1# [120]', this)">Copy</button></li>
+                    <li class="example-item"><span>distribution [END] #cluster_1#</span><button class="copy-btn" onclick="copyText('distribution [END] #cluster_1#', this)">Copy</button></li>
+                    <li class="example-item"><span>distribution {Length&gt;500} [(-1)]</span><button class="copy-btn" onclick="copyText('distribution {Length>500} [(-1)]', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1413,7 +1459,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help, #cmd-jobs'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold, #cmd-tree'))

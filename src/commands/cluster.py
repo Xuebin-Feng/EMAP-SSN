@@ -80,6 +80,9 @@ def library_missing(name):
     return importlib.util.find_spec(name) is None
 
 
+# Grey, translucent: the color of the nodes no cluster holds (distribution uses it for gaps).
+NOISE_COLOR = (0.8, 0.8, 0.8, 0.4)
+
 def get_colored_cluster_name(cid, name_str, color_map=None):
     if cid == -1:
         # Grey for noise
@@ -635,7 +638,7 @@ def apply(viewer, plan, result):
     slot_colors = np.empty((len(unique_labels), 4))
     for slot, lbl in enumerate(unique_labels):
         if lbl == -1:
-            slot_colors[slot] = (0.8, 0.8, 0.8, 0.4) # Grey for noise
+            slot_colors[slot] = NOISE_COLOR
         else:
             r, g, b = color_map[lbl]
             slot_colors[slot] = (r, g, b, 1.0)

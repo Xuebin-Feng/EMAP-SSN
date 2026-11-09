@@ -83,6 +83,7 @@ CANVAS_MARKED = frozenset({
     "commands/cluster.py",
     "commands/color.py",
     "commands/console.py",
+    "commands/distribution.py",
     "commands/embedding.py",
     "commands/esmfold.py",
     "commands/export.py",

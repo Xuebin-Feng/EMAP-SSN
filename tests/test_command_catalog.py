@@ -26,7 +26,7 @@ from desktop.Viewer_Inspection import command_catalog, _command_syntax  # noqa: 
 
 # The commands that ship in src/commands. A test that names them checks what is known of them; none is a list that
 # a command added later has to join.
-SHIPPED = ('agent', 'alignment', 'cluster', 'color', 'console', 'embedding', 'esmfold', 'export', 'group', 'help', 'hide',
+SHIPPED = ('agent', 'alignment', 'cluster', 'color', 'console', 'distribution', 'embedding', 'esmfold', 'export', 'group', 'help', 'hide',
            'jobs', 'label', 'logo', 'meta', 'offset', 'print', 'query', 'redo', 'reference', 'reset', 'run', 'save',
            'select', 'spectrum', 'subcluster', 'undo', 'zoom')
 
@@ -170,7 +170,7 @@ class RequiredInputTests(unittest.TestCase):
                 self.assertEqual(len(entry['requires']), len(set(entry['requires'])))
         self.assertEqual(
             {name for name, metadata in COMMAND_METADATA.items() if 'alignment' in metadata['requires'] and name in SHIPPED},
-            {'label', 'logo', 'query'},
+            {'distribution', 'label', 'logo', 'query'},
         )
 
     def test_the_embedding_is_required_exactly_where_require_embedding_is_called(self):
@@ -390,6 +390,7 @@ TODAYS_POLICY = {
     'alignment': ('approve', {}),
     'cluster': ('run', {}),
     'color': ('run', {}),
+    'distribution': ('run', {}),
     'console': ('refuse', {}),
     'embedding': ('approve', {}),
     'esmfold': ('approve', {}),
@@ -426,6 +427,7 @@ TODAYS_POLICY = {
 RUNS_WITHOUT_REVIEW = {
     'cluster': {'*'},
     'color': {'*'},
+    'distribution': {'*'},
     'group': {'*'},
     'hide': {'*'},
     'jobs': {'*'},

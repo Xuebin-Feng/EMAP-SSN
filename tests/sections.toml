@@ -19,6 +19,7 @@ modules = [
     "test_alignment_offset",
     "test_cluster_command",
     "test_color_command",
+    "test_distribution_command",
     "test_command_catalog",
     "test_command_declarations",
     "test_command_embedding",

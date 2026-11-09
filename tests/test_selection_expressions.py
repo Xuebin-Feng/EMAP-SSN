@@ -995,7 +995,7 @@ class LabelNamespaceTests(unittest.TestCase):
         # command modules both viewers share may only hand over the viewer.
         import ast
         files = [os.path.join(SRC_DIR, "commands", name + ".py")
-                 for name in ("color", "group", "hide", "logo", "query", "select", "spectrum")]
+                 for name in ("color", "distribution", "group", "hide", "logo", "query", "select", "spectrum")]
         files.append(os.path.join(SRC_DIR, "Metadata_Core.py"))
         for path in files:
             with open(path, encoding="utf-8") as handle:

@@ -4816,6 +4816,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="+112"/>
         <location line="+16"/>
         <location line="+127"/>
+        <location filename="../../../commands/distribution.py" line="+119"/>
         <location filename="../../../commands/esmfold.py" line="+156"/>
         <location line="+584"/>
         <location line="+172"/>
@@ -4848,9 +4849,10 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
-        <location filename="../../../commands/cluster.py" line="+390"/>
+        <location filename="../../../commands/cluster.py" line="+393"/>
         <location filename="../../../commands/color.py" line="+504"/>
         <location filename="../../../commands/console.py" line="+64"/>
+        <location filename="../../../commands/distribution.py" line="+42"/>
         <location filename="../../../commands/embedding.py" line="+79"/>
         <location filename="../../../commands/esmfold.py" line="-239"/>
         <location filename="../../../commands/export.py" line="+141"/>
@@ -6251,12 +6253,74 @@ Command-line usage:
         <translation type="unfinished">错误：query 命令需要 POSITIONS 或 LOGIC_ARGUMENT 参数。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location filename="../../../commands/distribution.py" line="-40"/>
+        <source>Error: distribution takes only one alignment position, such as [120] or [END]; a list, a range or a frequency comparison is not allowed.</source>
+        <translation type="unfinished">错误：distribution 只接受一个比对位置，如 [120] 或 [END]；不允许使用列表、范围或频率比较。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Error: Position {position} is not in the active alignment mapping.</source>
+        <translation type="unfinished">错误：位置 {position} 不在当前比对的映射中。</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Error: Distribution command requires a bracketed POSITION parameter.</source>
+        <translation type="unfinished">错误：Distribution 命令需要一个放在方括号中的 POSITION 参数。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <location filename="../../../commands/query.py" line="+16"/>
         <source>Error: No alignment loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载比对。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
+        <source>Error: The selected MSA contains no aligned rows for the current network. Distribution analysis is unavailable.</source>
+        <translation type="unfinished">错误：所选 MSA 中没有与当前网络对应的比对行，无法进行分布分析。</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [120] or [END]).</source>
+        <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 写法（例如 [120] 或 [END]）。</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Distribution</source>
+        <translation type="unfinished">分布</translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>The expression &apos;{expression}&apos; matched only hidden nodes, which distribution skips. Nothing was colored.</source>
+        <translation type="unfinished">表达式“{expression}”只匹配隐藏节点，而 distribution 会跳过隐藏节点，没有给任何节点着色。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was colored.</source>
+        <translation type="unfinished">没有序列符合表达式“{expression}”，没有给任何节点着色。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment. Nothing was colored.</source>
+        <translation type="unfinished">
+            <numerusform>表达式“{expression}”匹配了 %n 个节点，但都不在比对中，没有给任何节点着色。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+54"/>
+        <source>Colored %n node(s) by the residue at position {position}.</source>
+        <translation type="unfinished">
+            <numerusform>已按位置 {position} 上的残基给 %n 个节点着色。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>%n matched node(s) not in the alignment kept their colors.</source>
+        <translation type="unfinished">
+            <numerusform>匹配的节点中有 %n 个不在比对中，保持原有颜色。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../../../commands/query.py" line="+7"/>
         <source>Error: The selected MSA contains no aligned rows for the current network. Query analysis is unavailable.</source>
         <translation type="unfinished">错误：所选 MSA 中没有当前网络的已比对行，无法进行查询分析。</translation>
     </message>
@@ -6266,12 +6330,13 @@ Command-line usage:
         <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 语法（例如 [10-20] 或 [K&gt;10%]）。</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location filename="../../../commands/distribution.py" line="-104"/>
+        <location filename="../../../commands/query.py" line="+17"/>
         <source>No selection found. Defaulting to all visible nodes.</source>
         <translation type="unfinished">没有选中节点，默认使用全部可见节点。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location filename="../../../commands/query.py" line="+21"/>
         <source>Query</source>
         <translation type="unfinished">查询</translation>
     </message>

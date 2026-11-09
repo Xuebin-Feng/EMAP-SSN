@@ -151,8 +151,9 @@ class RemovingAnyOneCommandTests(unittest.TestCase):
                 self.assertEqual(set(self.probe["removed"][name]["unimportable"]), expected)
             if expected != {name}:
                 dependent[name] = sorted(expected - {name})
-        self.assertEqual(dependent, {"cluster": ["label", "subcluster"], "group": ["cluster", "label", "subcluster"],
-                                     "logo": ["label"]})
+        self.assertEqual(dependent, {"cluster": ["distribution", "label", "subcluster"],
+                                     "group": ["cluster", "distribution", "label", "subcluster"],
+                                     "logo": ["label"], "query": ["distribution"]})
 
     def test_a_command_that_cannot_be_imported_without_another_reports_the_dependency_when_typed(self):
         for name, removed in self.probe["removed"].items():

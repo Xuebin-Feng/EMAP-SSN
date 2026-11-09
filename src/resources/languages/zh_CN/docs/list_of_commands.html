@@ -69,7 +69,7 @@
         </div>
     </header>
 
-    <aside id="sidebar" data-source-sha256="352b6faff84bbed11db929f9ba0af204db4d6bddc006f6254deec1caf57634d2">
+    <aside id="sidebar" data-source-sha256="8d149baf5ce6bf43763d6aed4a8bc9e8ad3b45d48f1917f6010c4c85131427ab">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN 命令参考</div>
             <div class="sidebar-subtitle">交互式手册与设置指南</div>
@@ -110,6 +110,7 @@
                 <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
                 <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
+                <li class="menu-item" data-target="cmd-distribution"><a href="#cmd-distribution"><span>distribution</span></a></li>
             </ul>
 
             <div class="menu-category">分析</div>
@@ -680,6 +681,51 @@
                     <li class="example-item"><span>query [(RHK)&gt;50%]</span><button class="copy-btn" onclick="copyText('query [(RHK)>50%]', this)">复制</button></li>
                     <li class="example-item"><span>query [((RHK)&gt;50%)&amp;((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%)&amp;((DE)>20%)]', this)">复制</button></li>
                     <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%)&amp;(K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%)&amp;(K>5%)]', this)">复制</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-distribution" data-source-sha256="d199044b23ec7aff9e9798104783e750615932500c9b8aae535afc0e9cadc8b5">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">distribution</span>
+                        <span class="command-card-desc-title">&ndash; 残基分布着色工具</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">distribution [expression] &lt;position&gt;</div>
+                    <button class="copy-btn" onclick="copyText('distribution', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>按每个节点在某一个比对位置上的氨基酸给节点着色，并打印该位置上出现的各残基及其数量和百分比的表格。</p>
+
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>前提条件</div>
+                    <p>需要已加载的 MSA，且至少有一行映射到当前网络。位置的编号与 <code>query</code> 完全相同：有生效的参考序列时，位置使用以参考序列为锚的编号和会话偏移量；没有时，从 1 开始按顺序给保留的比对列编号。</p>
+                </div>
+
+                <div class="subheading">定位与回退</div>
+                <ul>
+                    <li><strong>显式表达式：</strong>给匹配该表达式的节点着色（例如 <code>#cluster_1#</code>）。表达式和方括号中的位置可以按任意顺序给出。</li>
+                    <li><strong>鼠标选择（回退 1）：</strong>省略表达式时，给查看器中当前选中的节点着色。</li>
+                    <li><strong>整个网络（回退 2）：</strong>既没有给出表达式也没有选中节点时，给网络中的所有可见节点着色。</li>
+                    <li><strong>无匹配：</strong>没有任何可见节点匹配的表达式会成功并附带提示，不改变任何颜色；只匹配隐藏节点的表达式同样如此。匹配的节点若不在已加载的 MSA 中，则保持原有颜色，状态行会统计它们的数量；如果匹配的节点都不在 MSA 中，命令失败。</li>
+                    <li><strong>仅限可见节点：</strong>隐藏节点始终被跳过并保持原有颜色，即使表达式或选中节点包含它们也是如此。目标之外的节点同样保持原有颜色。</li>
+                </ul>
+
+                <div class="subheading">核心参数</div>
+                <ul>
+                    <li><strong>位置：</strong>方括号内恰好一个显示的比对位置，如 <code>[120]</code>、<code>[(-1)]</code> 或 <code>[106.1]</code>；<code>E</code>/<code>END</code> 表示最后一个显示的位置。列表、范围或频率比较会被拒绝，错误信息会说明只允许一个位置，并且不会改变任何内容。</li>
+                    <li><strong>颜色：</strong>每种残基有一个固定的颜色，不区分大小写。相近的残基共用同一色相，较常见的一种颜色较深：K 与 R 为蓝色，D 与 E 为红色，N 与 Q 为品红色，S 与 T 为橙色，I 与 V 为绿色，L 与 M 为橄榄色，F 与 Y 为棕色，W 与 H 为紫色，A 与 G 为青色，P 与 C 为金色。空位和所有其他符号（X、B、Z、U、O、*）使用 <code>cluster</code> 中噪声节点的灰色，因此灰色表示没有残基。</li>
+                    <li><strong>输出：</strong>表格列出该位置上出现的每种残基，残基名称按其颜色显示，并给出节点数量和占被着色节点的百分比，按从大到小排列；若存在，再列出 <code>gap</code> 行和 <code>other</code> 行；最后是一条状态行，如 <code>Colored 412 nodes by the residue at position 120.</code></li>
+                    <li><strong>撤销：</strong>一次 <code>undo</code> 即可恢复该命令改变的颜色。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>distribution [120]</span><button class="copy-btn" onclick="copyText('distribution [120]', this)">复制</button></li>
+                    <li class="example-item"><span>distribution #cluster_1# [120]</span><button class="copy-btn" onclick="copyText('distribution #cluster_1# [120]', this)">复制</button></li>
+                    <li class="example-item"><span>distribution [END] #cluster_1#</span><button class="copy-btn" onclick="copyText('distribution [END] #cluster_1#', this)">复制</button></li>
+                    <li class="example-item"><span>distribution {Length&gt;500} [(-1)]</span><button class="copy-btn" onclick="copyText('distribution {Length>500} [(-1)]', this)">复制</button></li>
                 </ul>
             </section>
 
@@ -1412,7 +1458,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help, #cmd-jobs'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold, #cmd-tree'))

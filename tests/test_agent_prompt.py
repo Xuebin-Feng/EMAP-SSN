@@ -26,7 +26,7 @@ COMMANDS = sorted(path.stem for path in COMMANDS_DIR.glob('*.py') if not path.st
 # The commands that have an item, in the order of their numbers. The order is each module's AGENT_PROMPT_ORDER; a
 # command added later may come between them, so the test keeps the relative order of these.
 ITEM_ORDER = ['color', 'select', 'hide', 'reset', 'zoom', 'undo', 'redo', 'save', 'run', 'reference', 'offset', 'alignment',
-              'embedding', 'query', 'cluster', 'subcluster', 'spectrum', 'meta', 'group', 'export', 'label', 'logo', 'print',
+              'embedding', 'query', 'distribution', 'cluster', 'subcluster', 'spectrum', 'meta', 'group', 'export', 'label', 'logo', 'print',
               'esmfold', 'tree', 'jobs']
 
 # Commands the prompt does not describe yet, as a command whose item is still to be written (jobs was

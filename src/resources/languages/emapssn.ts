@@ -3566,6 +3566,64 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: distribution takes only one alignment position, such as [120] or [END]; a list, a range or a frequency comparison is not allowed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Position {position} is not in the active alignment mapping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Distribution command requires a bracketed POSITION parameter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No alignment loaded in the viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network. Distribution analysis is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [120] or [END]).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No selection found. Defaulting to all visible nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Distribution</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The expression &apos;{expression}&apos; matched only hidden nodes, which distribution skips. Nothing was colored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was colored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment. Nothing was colored.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Colored %n node(s) by the residue at position {position}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n matched node(s) not in the alignment kept their colors.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Embedding selection cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4468,19 +4526,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: No alignment loaded in the viewer.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: The selected MSA contains no aligned rows for the current network. Query analysis is unavailable.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K&gt;10%]).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>No selection found. Defaulting to all visible nodes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
