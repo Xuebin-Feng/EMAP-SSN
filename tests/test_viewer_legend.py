@@ -378,6 +378,30 @@ class PlacementTests(LegendCase):
                 self.assertGreater(self.shown(card).height(), 40)
                 self.assertFalse(card.scroll.verticalScrollBar().maximum() == 0)   # the content scrolls
 
+    def test_the_open_card_is_never_shorter_than_its_rows_after_the_key_changes(self):
+        # A rebuilt body's new widgets stay hidden until a queued event, so its size hint was 0 when the
+        # card was placed right after a refresh: the card kept its heading's height (rows cut off).
+        from desktop.Viewer_Widgets import ControlsCard
+        for opened_first in (True, False):
+            with self.subTest(opened_first=opened_first):
+                viewer = self.build_legend((1400, 900), with_key=False, opened=opened_first)
+                card = viewer.legend_card
+                for step, name in enumerate(("one", "two")):
+                    rows = [(f"{name} {i}", RED if i else GREEN) for i in range(3)]
+                    first = step * 4
+                    viewer.current_colors[first:first + 3] = RED
+                    Node_Colors.declare_categories(viewer, "Colors", rows, [0, 1, 2], nodes=np.arange(first, first + 3))
+                    viewer._notify_node_update_listeners()
+                    self.settle()
+                    if not card.is_open():
+                        self.click_legend_button(viewer)
+                    wanted = card.natural_height() - 2 * ControlsCard.SHADOW
+                    self.assertGreater(wanted, 100)
+                    self.assertGreaterEqual(self.shown(card).height(), wanted - 1)
+                    for rowlist in self.lists(card):
+                        self.assertTrue(card.scroll.viewport().rect().contains(
+                            rowlist.mapTo(card.scroll.viewport(), rowlist.rect().bottomLeft())))
+
     def test_mouse_events_on_the_card_stop_at_it_but_not_in_its_shadow(self):
         viewer = self.build_legend()
         card = viewer.legend_card

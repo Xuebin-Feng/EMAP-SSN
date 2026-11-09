@@ -640,6 +640,7 @@ class LegendCard(QWidget):
             empty.setWordWrap(True)
             self.body_layout.addWidget(empty)
             self.body_layout.addStretch(1)
+            self._show_built()
             return
         for layer in model["layers"]:
             self._add_section(self._layer_group(layer))
@@ -652,7 +653,23 @@ class LegendCard(QWidget):
             group.layout().addWidget(rowlist)
             self._add_section(group)
         self.body_layout.addStretch(1)
+        self._show_built()
         self._show_ranges()
+
+    def _show_built(self):
+        """Show what _rebuild put in the body, now.
+
+        A widget added to a layout whose window is shown stays hidden until a queued event shows it, and a
+        layout counts a hidden widget as nothing: until then body.sizeHint() is 0 or only the first
+        sections, so natural_height() (and the card's height placed from it) was far too short right after
+        a rebuild. Showing the sections here makes the layout see them at once. (The range labels and
+        Clear buttons were hidden on purpose and stay so; _show_ranges decides them.)
+        """
+        for index in range(self.body_layout.count()):
+            widget = self.body_layout.itemAt(index).widget()
+            if widget is not None:
+                widget.show()
+        self.body_layout.invalidate()
 
     def _add_section(self, section):
         """Add a section to the body, a separator before it unless it is the first (as the session card's sections are)."""
