@@ -329,6 +329,9 @@ still change before version 1.0.0.
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
   and below. They now fit their text, with 6 px at the sides.
+- **The Viewer's legend card could shrink to its heading.** When colors changed while the
+  card was open, for example with a second `color` command, the card kept the height of
+  its title and cut off every row. It is now as tall as its rows, up to its scroll limit.
 - **The BLASTP Directory setting was ignored** when the BLAST all-vs-all tool ran from the
   Tools window's Save & Run or as an MCP job. It used whatever BLAST+ it found on PATH or
   in the standard folders, and failed with "blastp not found" when BLAST+ was only in the
