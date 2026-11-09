@@ -4867,7 +4867,7 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="-251"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
-        <location filename="../../../commands/spectrum.py" line="+230"/>
+        <location filename="../../../commands/spectrum.py" line="+226"/>
         <location filename="../../../commands/subcluster.py" line="+234"/>
         <location filename="../../../commands/tree.py" line="+130"/>
         <source>Help information printed to the Console</source>
@@ -6703,7 +6703,7 @@ Command-line usage:
         <translation type="unfinished">错误：不支持的选择模式“{mode}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/spectrum.py" line="-280"/>
+        <location filename="../../../commands/spectrum.py" line="-275"/>
         <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
         <translation type="unfinished">
             <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用渐变色着色。</numerusform>
@@ -6722,12 +6722,11 @@ Command-line usage:
         <translation type="unfinished">[警告：找不到“{scheme}”，改用 coolwarm]</translation>
     </message>
     <message>
-        <location line="+119"/>
         <source>Error: Missing arguments for spectrum coloring.</source>
-        <translation type="unfinished">错误：渐变色着色缺少参数。</translation>
+        <translation type="obsolete">错误：渐变色着色缺少参数。</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+136"/>
         <source>Error: Legacy spectrum prefixes are no longer supported. Use &apos;{syntax}&apos;.</source>
         <translation type="unfinished">错误：不再支持旧的 spectrum 前缀。请使用 &apos;{syntax}&apos;。</translation>
     </message>
@@ -6789,8 +6788,8 @@ Command-line usage:
         <translation type="unfinished">所选节点为{color}（{hex}）；与它没有得分的 {missing} 个节点着噪声色，并被排除在范围之外。</translation>
     </message>
     <message>
-        <location line="-525"/>
-        <location line="+71"/>
+        <location line="-519"/>
+        <location line="+65"/>
         <source>Spectrum</source>
         <translation type="unfinished">渐变色</translation>
     </message>

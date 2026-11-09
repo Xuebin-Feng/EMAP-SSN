@@ -1231,7 +1231,7 @@
                 
                 <div class="subheading">Arguments</div>
                 <ul>
-                    <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression. It may be left out only with exactly one node selected, which starts the similarity mode below; with none or several selected, leaving it out is an error.</li>
+                    <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression. It may be left out only with exactly one node selected, which starts the similarity mode below (a bare <code>spectrum</code> does, with the default scheme); with none or several selected, leaving it out is an error.</li>
                     <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>. Names are not case-sensitive (<code>Viridis</code> is <code>viridis</code>); an unrecognized name is an error and changes no colors. A token that forms a complete selection expression is read as an expression before it is tried as a colormap name.</li>
                     <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, the selected nodes are colored; when nothing is selected, all visible nodes in the network are. Hidden nodes are never colored. The gradient's minimum and maximum come from the targeted visible nodes only. Targeted nodes whose property value is missing, non-numeric, or infinite get the noise color (the translucent light gray the <code>cluster</code> command gives unclustered nodes) and are excluded from the numeric minimum/maximum range.</li>
                     <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
@@ -1261,6 +1261,7 @@
                     <li class="example-item"><span>spectrum plasma {Length}</span><button class="copy-btn" onclick="copyText('spectrum plasma {Length}', this)">Copy</button></li>
                     <li class="example-item"><span>spectrum #cluster_1# {Length} coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# {Length} coolwarm', this)">Copy</button></li>
                     <li class="example-item"><span>spectrum {Organism=*coli*} {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Organism=*coli*} {Length}', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum</span><button class="copy-btn" onclick="copyText('spectrum', this)">Copy</button></li>
                     <li class="example-item"><span>spectrum viridis</span><button class="copy-btn" onclick="copyText('spectrum viridis', this)">Copy</button></li>
                 </ul>
             </section>

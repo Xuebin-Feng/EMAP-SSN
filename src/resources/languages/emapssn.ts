@@ -4862,10 +4862,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Missing arguments for spectrum coloring.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: Legacy spectrum prefixes are no longer supported. Use &apos;{syntax}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>

@@ -442,6 +442,29 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
             np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
             viewer._save_state.assert_not_called()
 
+    def test_bare_spectrum_with_one_node_selected_runs_the_similarity_mode(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, [])
+
+        cmap = mpl.colormaps["coolwarm"]
+        name, _, rgba = spectrum.reference_color(cmap)
+        self.assertEqual(name, "lime")
+        np.testing.assert_allclose(viewer.current_colors[0], rgba)
+        np.testing.assert_allclose(viewer.current_colors[1], cmap(0.0))
+        np.testing.assert_allclose(viewer.current_colors[2], cmap(1.0))
+        np.testing.assert_allclose(viewer.current_colors[3], (0.8, 0.8, 0.8, 0.4))
+
+    def test_bare_spectrum_without_exactly_one_node_selected_fails_and_changes_nothing(self):
+        for selected in ((), (0, 1)):
+            viewer = self.make_viewer(selected=selected)
+
+            self.run_spectrum(viewer, [])
+
+            self.assertIn("select exactly one node to color by similarity", viewer.console_text.text)
+            np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+            viewer._save_state.assert_not_called()
+
     def test_a_property_keeps_the_ordinary_mode_with_one_node_selected(self):
         viewer = self.make_viewer()
 

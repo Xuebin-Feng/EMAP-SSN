@@ -45,6 +45,7 @@ AGENT_PROMPT = """
 - Colors visible nodes by values from exactly one loaded numerical metadata property enclosed in braces. A bare target such as `{Length}` selects the spectrum property, while a complete predicate such as `{Length>500}` remains a Boolean selection expression. The expression, property, and optional standalone color scheme may appear in any order.
 - If EXPRESSION is omitted, the current selection is targeted; when there is no selection, all visible nodes are. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes whose value is missing, non-numeric, or infinite are excluded from the gradient minimum/maximum and get the noise color the cluster command gives unclustered nodes (translucent light gray).
 - With exactly one node selected and no property, the visible nodes (or those the expression matches) are colored by their similarity score to that node, read from the network file, and the selected node gets a color outside the scheme; nodes with no score to it get that noise color.
+- A bare `spectrum` with exactly one node selected runs the similarity mode with the default scheme over all visible nodes.
 - The default Matplotlib color scheme is `coolwarm`. Scheme names are not case-sensitive. An unrecognized scheme is an error that changes no colors, so use a Matplotlib colormap name such as `viridis`. Do not emit the removed `prop:`, `property:`, `scheme:`, or `color:` forms.
 """
 
@@ -149,6 +150,7 @@ def print_help():
       spectrum {Length} plasma
       spectrum #cluster_1# {Length} coolwarm
       spectrum {Organism=*coli*} {Length}
+      spectrum                    (one node selected: similarity to it, coolwarm)
       spectrum viridis            (one node selected: similarity to it)
     """)
 
@@ -207,13 +209,7 @@ def _expression_mask(viewer, expr):
 
 def plan(viewer, args):
     """Read the arguments: a SpectrumPlan, or None when help ran or they were refused."""
-    if not args:
-        print_help()
-        if hasattr(viewer, 'console_text'):
-            msg = Message("Error: Missing arguments for spectrum coloring.")
-            Command_Engine.show_status(viewer, msg)
-            Command_Engine.command_failed(viewer, msg)
-        return
+    # No arguments is the similarity mode with its defaults when one node is selected, an error otherwise (start).
 
     # Parse command-specific roles before Boolean-expression classification.
     expr = None
