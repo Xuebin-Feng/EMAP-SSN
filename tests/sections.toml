@@ -86,6 +86,7 @@ modules = [
     "test_viewer_listeners",
     "test_viewer_inspection_http",
     "test_viewer_jobs_card",
+    "test_viewer_legend",
     "test_viewer_markers",
     "test_viewer_motion",
     "test_viewer_mouse_gestures",

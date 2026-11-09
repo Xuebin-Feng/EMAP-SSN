@@ -219,8 +219,9 @@ from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
 from desktop.Viewer_Vsync import apply_window_swap_interval, vsync_enabled
-from desktop.Viewer_History import HistoryButtons, history_availability
-from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, ViewerJobs, job_lines
+from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability
+from desktop.Viewer_Legend import LegendCard
+from desktop.Viewer_Jobs import BADGE_GAP, BADGE_HEIGHT, JobsBadge, ViewerJobs, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
@@ -1239,6 +1240,7 @@ class MainViewer:
         self._build_history_buttons()
         self._build_fps_overlay()
         self._build_jobs_badge()
+        self._build_legend()
         self._build_command_caret()
         
         # Initialize thread-safe QtCommunicator for server commands
@@ -3852,6 +3854,7 @@ class MainViewer:
             if badge is not None:
                 # Under the top-right row (the toggle's), right-aligned with it.
                 badge.place(self._top_row_right(left), 25 + FPS_HEIGHT / 2 + BADGE_GAP)
+            self._place_legend()
 
     def _top_row_right(self, left):
         """The right edge of the canvas's top-right row (the Undo and Redo buttons, with the frame
@@ -3913,6 +3916,64 @@ class MainViewer:
         self.jobs_badge = JobsBadge(self.canvas)
         self.reposition_expand_btn()
 
+    def _build_legend(self):
+        """The legend card (desktop.Viewer_Legend) at the canvas's top right, under the Undo and Redo buttons.
+
+        It follows what the nodes' colors mean: the node update listeners tell it the nodes were drawn again,
+        and it refreshes once per turn of the event loop. A Viewer with no window (headless, or hidden and
+        not on screen) has none. It is built after the window theme is applied, which its colors read.
+        """
+        if not self.shows_windows():
+            return
+        card = LegendCard(self, self.canvas.native)
+        card.relayout = self._place_legend
+        self.legend_card = card
+        if getattr(self, 'node_update_listeners', None) is None:
+            self.node_update_listeners = []
+        self.node_update_listeners.append(card.schedule_refresh)
+        card.refresh()
+
+    def _place_legend(self):
+        """Put the legend card under the Undo and Redo buttons, right edges level, clear of the sidebar and the bottom rows.
+
+        Its top is BADGE_GAP under the row, or under the jobs badge while that shows; it moves with the
+        sidebar's slide as the row does (_top_row_right); and it stops short of the status lines above the
+        slider row (_status_hud_position), the card scrolling inside.
+        """
+        card = getattr(self, 'legend_card', None)
+        if card is None or not hasattr(self, 'canvas'):
+            return
+        width, height = self.canvas.size
+        left = round(width - _sidebar_room(self))
+        right = self._top_row_right(left)
+        top = 25 + HISTORY_BUTTON_SIZE / 2 + BADGE_GAP
+        badge = getattr(self, 'jobs_badge', None)
+        if badge is not None and not badge.isHidden():
+            top += BADGE_HEIGHT + BADGE_GAP
+        spacing = getattr(self, 'hud_layout', {}).get("status_line_spacing", 34.0)
+        bottom = _slider_row_centre(height) - 2 * spacing - spacing / 2 - BADGE_GAP / 2
+        card.place(right, top, bottom, right - SESSION_CARD_MARGIN)
+
+    def select_by_hand(self, nodes, *, announce=True):
+        """Make ``nodes`` the selection as a box selection does, and return whether something was selected before.
+
+        The commands hear of it (_note_hand_selection), the highlight is redrawn and the web pages told once
+        (update_selection_visual), and the status line says what is selected. With announce False the pages and
+        the status line are left for announce_hand_selection, once a gesture ends.
+        """
+        had_selection = bool(self.selected_indices)
+        self.selected_indices = [int(node) for node in nodes]
+        self._note_hand_selection()
+        self.update_selection_visual(broadcast=announce)
+        if announce:
+            self._show_selection_status(had_selection)
+        return had_selection
+
+    def announce_hand_selection(self, had_selection):
+        """Tell the web pages and the status line of a selection select_by_hand(announce=False) made."""
+        self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
+        self._show_selection_status(had_selection)
+
     def _on_background_jobs_changed(self):
         """A lane or a running job changed: the badge counts again and an open card lists them again."""
         self._refresh_jobs_badge()
@@ -3924,6 +3985,7 @@ class MainViewer:
         badge = getattr(self, 'jobs_badge', None)
         if badge is not None:
             badge.show_jobs(job_lines(getattr(self, 'background_job_scheduler', None)))
+            self._place_legend()
 
     def _note_hand_selection(self):
         """A selection was made by hand: it is newer than every command given so far."""

@@ -10975,4 +10975,47 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
 </context>
+<context>
+    <name>ViewerLegend</name>
+    <message>
+        <source>Legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Collapse the legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expand the legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unlabelled colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the nodes of this color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select these nodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Press or drag to select the nodes with a value in that range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear the selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{low} to {high}</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
 </TS>

@@ -7190,7 +7190,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1680"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1682"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7272,7 +7272,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+585"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+645"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7294,12 +7294,12 @@ The whole output is in {log}.</source>
         </translation>
     </message>
     <message>
-        <location line="-358"/>
+        <location line="-418"/>
         <source>Clicked: {node}</source>
         <translation type="unfinished">已点击：{node}</translation>
     </message>
     <message>
-        <location line="+360"/>
+        <location line="+420"/>
         <source>Selection cleared.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
@@ -14249,7 +14249,7 @@ Fedora / RHEL：
         <translation type="unfinished">已打开的树</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_legend.js" line="+106"/>
+        <location filename="../../../web_ui/tree_legend.js" line="+108"/>
         <source>{low} to {high}</source>
         <translation type="unfinished">{low} 至 {high}</translation>
     </message>
@@ -14259,7 +14259,7 @@ Fedora / RHEL：
         <translation type="unfinished">按下或拖动以标出数值在该范围内的叶节点</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+15"/>
         <source>Clear</source>
         <translation type="unfinished">清除</translation>
     </message>
@@ -15466,7 +15466,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2307"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2367"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -15938,6 +15938,59 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <location line="+3"/>
         <source>Redo (Ctrl+Y)</source>
         <translation type="unfinished">重做（Ctrl+Y）</translation>
+    </message>
+</context>
+<context>
+    <name>ViewerLegend</name>
+    <message>
+        <location filename="../../../desktop/Viewer_Legend.py" line="+466"/>
+        <source>Legend</source>
+        <translation type="unfinished">图例</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Collapse the legend</source>
+        <translation type="unfinished">收起图例</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Expand the legend</source>
+        <translation type="unfinished">展开图例</translation>
+    </message>
+    <message>
+        <location line="+113"/>
+        <source>Unlabelled colours</source>
+        <translation type="unfinished">未标注的颜色</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Select the nodes of this color</source>
+        <translation type="unfinished">选中此颜色的节点</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Select these nodes</source>
+        <translation type="unfinished">选中这些节点</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Press or drag to select the nodes with a value in that range</source>
+        <translation type="unfinished">按下或拖动以选中数值在该范围内的节点</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Clear</source>
+        <translation type="unfinished">清除</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Clear the selection</source>
+        <translation type="unfinished">清除选择</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>{low} to {high}</source>
+        <translation type="unfinished">{low} 至 {high}</translation>
     </message>
 </context>
 </TS>
