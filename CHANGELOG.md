@@ -226,15 +226,18 @@ still change before version 1.0.0.
   - Undo and redo restore the key with the colors, and `save` keeps it in the session
     file. A key in a shared file is checked before use: a malformed one is ignored, and
     its text is shown as plain text.
-- **The Viewer shows the same legend as a card.** Below the Undo and Redo buttons, a card
-  lists what the colors mean, as Tree View does, and moves aside as the sidebar slides
-  open. It appears when a command first describes its colors and collapses to a Legend
-  tab.
+- **The Viewer shows the same legend.** A Legend button, left of Undo in the top-right
+  row, opens a white card in the session card's style that lists what the colors mean, as
+  Tree View does. The button or the card's × closes it, and it moves aside as the sidebar
+  slides open.
   - Clicking a row selects its visible nodes, Ctrl-click adds them, and clicking the row
     that is the selection clears it. Pressing or dragging on a gradient bar selects the
-    nodes in that range. Commands can then act on them as `$sele$`.
-  - It stays out of the way: hidden while the session card is open, never in a `print`
-    picture, and about 0.2 ms per redraw at 44,000 nodes when nothing it shows changed.
+    nodes in that range. Commands can then act on them as `$sele$`. The card stays open
+    while you click rows or the network.
+  - The legend and the session card can be open together: the session card narrows to sit
+    beside the legend, or in a small window the legend gets shorter above it. The legend
+    is never in a `print` picture, and costs about 0.2 ms per redraw at 44,000 nodes when
+    nothing it shows changed.
 
 ### Changed
 
@@ -323,6 +326,9 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
+  twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
+  and below. They now fit their text, with 6 px at the sides.
 - **The BLASTP Directory setting was ignored** when the BLAST all-vs-all tool ran from the
   Tools window's Save & Run or as an MCP job. It used whatever BLAST+ it found on PATH or
   in the standard folders, and failed with "blastp not found" when BLAST+ was only in the
