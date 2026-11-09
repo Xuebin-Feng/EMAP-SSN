@@ -216,6 +216,14 @@ class ShowingTests(LegendCase):
         counts = {row["label"]: row["count"] for row in legend_model(viewer)["layers"][1]["rows"]}
         self.assertEqual(counts, {"A": 1, "B": 2})
 
+    def test_a_change_of_alpha_alone_keeps_the_nodes_rows(self):
+        viewer = self.build_legend()
+        before = legend_model(viewer)
+        viewer.current_colors[2, 3] = 0.5      # a node of a labelled layer, only fainter
+        after = legend_model(viewer)
+        self.assertEqual(after["layers"][1]["rows"], before["layers"][1]["rows"])
+        self.assertEqual(after["unlabelled"], before["unlabelled"])
+
     def test_labels_are_plain_text(self):
         viewer = self.build_legend(with_key=False)
         viewer.current_colors[0:2] = RED

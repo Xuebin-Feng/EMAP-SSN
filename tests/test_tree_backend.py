@@ -688,6 +688,13 @@ class ColorKeyPayloadTests(unittest.TestCase):
         self.assertIsNone(key["values"])
         json.dumps(state)
 
+    def test_a_node_that_only_changed_alpha_stays_labelled_in_the_payload(self):
+        viewer = self.keyed()
+        viewer.current_colors[0] = (1.0, 0.0, 0.0, 0.5)  # still red, fainter
+        viewer.current_colors[1] = (1.0, 0.0, 0.1, 1.0)  # another color
+        bits = np.unpackbits(unpack(tree_backend.colors_state(viewer)["key"]["labelled"], np.uint8), bitorder="little")
+        self.assertEqual(list(bits[:6]), [1, 0, 1, 1, 1, 1])
+
     def test_a_viewer_with_no_key_sends_none(self):
         state = tree_backend.colors_state(make_viewer(None, headers_of(5), colors=node_colors(5)))
         self.assertEqual((state["status"], state["key"]), ("ok", None))

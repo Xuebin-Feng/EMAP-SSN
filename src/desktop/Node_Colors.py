@@ -296,8 +296,8 @@ def key_state(viewer):
 
     Returns None when the Viewer has no key (or one that cannot be read); otherwise a dict: "layers" (the
     layer dicts, with title and labels as text), "owner", "category", "rgba", "values" (the node arrays), and
-    "labelled", a bool per node that is True while the node's current color still is the one its owner
-    expects. Never raises, whatever a loaded cache put in the key's attributes.
+    "labelled", a bool per node that is True while the node's current color (its alpha aside) still is the
+    one its owner expects. Never raises, whatever a loaded cache put in the key's attributes.
     """
     layers, arrays = _checked_key(viewer)
     colors = getattr(viewer, "current_colors", None)
@@ -305,7 +305,8 @@ def key_state(viewer):
     if not layers or arrays is None or not isinstance(colors, np.ndarray) or colors.shape != (n, 4):
         return None
     owner, category, rgba, values = (array.copy() for array in arrays)
-    labelled = np.all(rgba == _rounded(colors), axis=1)
+    # Alpha is left out: a node that only got fainter or stronger still is the color its row names.
+    labelled = np.all(rgba[:, :3] == _rounded(colors)[:, :3], axis=1)
     shown_layers, owned = [], np.zeros(n, dtype=bool)
     for layer in layers:
         layer = copy.deepcopy(layer)

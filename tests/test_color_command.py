@@ -1024,11 +1024,11 @@ class ColorKeyTests(unittest.TestCase):
         self.assertEqual([layer['id'] for layer in state['layers']], [2, 3])
         self.assertEqual(state['owner'].tolist(), [3, 3, 2])
 
-    def test_an_alpha_changed_without_a_new_color_makes_those_nodes_unlabelled(self):
+    def test_an_alpha_changed_without_a_new_color_keeps_those_nodes_labelled(self):
         viewer = Viewer('.')
         color.run(viewer, ['#cluster_0#', 'red'])
         color.run(viewer, ['"one"', '50%'])
-        self.assertEqual(self.state(viewer)['labelled'].tolist(), [False, True, False])
+        self.assertEqual(self.state(viewer)['labelled'].tolist(), [True, True, False])
 
     def test_reset_colors_clears_the_key(self):
         viewer = Viewer('.')

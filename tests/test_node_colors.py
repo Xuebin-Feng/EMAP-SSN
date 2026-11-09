@@ -131,10 +131,21 @@ class CategoriesTests(unittest.TestCase):
         paint(viewer, slice(0, 6), RED)
         declare_categories(viewer, "first", [("red", RED)], np.zeros(6, dtype=int))
         paint(viewer, [2], BLUE)
-        paint(viewer, [3], (1.0, 0.0, 0.0, 0.5))  # the same color at another alpha is another color
+        paint(viewer, [3], (1.0, 0.0, 0.5, 1.0))  # another color
         self.assertEqual(key_state(viewer)["labelled"].tolist(), [True, True, False, False, True, True])
         paint(viewer, [2], RED)  # painted back to what the key expects
         self.assertTrue(key_state(viewer)["labelled"][2])
+
+    def test_a_change_of_alpha_alone_keeps_the_node_labelled(self):
+        viewer = plain_viewer()
+        paint(viewer, slice(0, 6), RED)
+        declare_categories(viewer, "first", [("red", RED)], np.zeros(6, dtype=int))
+        paint(viewer, [3], (1.0, 0.0, 0.0, 0.5))  # still red, only fainter
+        paint(viewer, [4], (1.0, 0.0, 0.0, 0.0))
+        paint(viewer, [5], (1.0, 0.0, 0.01, 0.5))  # a different color as well
+        state = key_state(viewer)
+        self.assertEqual(state["labelled"].tolist(), [True, True, True, True, True, False])
+        self.assertEqual(state["rgba"][3].tolist(), [255, 0, 0, 255])  # the recorded alpha stays
 
     def test_colors_are_compared_as_the_page_gets_them_rounded_to_a_byte(self):
         viewer = plain_viewer()
