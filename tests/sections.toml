@@ -38,6 +38,7 @@ modules = [
     "test_label_command",
     "test_logo_command",
     "test_msa_sanitization",
+    "test_node_colors",
     "test_node_render_order",
     "test_output_names",
     "test_position_lists",

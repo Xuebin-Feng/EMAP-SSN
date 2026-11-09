@@ -548,6 +548,50 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
         self.assertIs(spectrum.MISSING_COLOR, Node_Colors.NOISE_COLOR)
         self.assertIs(cluster.NOISE_COLOR, Node_Colors.NOISE_COLOR)
 
+    def test_similarity_mode_declares_its_gradient_the_missing_nodes_and_the_reference(self):
+        from desktop.Node_Colors import key_state
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis"])
+
+        state = key_state(viewer)
+        (layer,) = state["layers"]
+        self.assertEqual((layer["kind"], layer["title"], layer["scheme"]), ("gradient", "Similarity to node_0", "viridis"))
+        self.assertEqual((layer["min"], layer["max"], len(layer["stops"])), (10.0, 30.0, 16))
+        self.assertEqual([entry["label"] for entry in layer["extras"]], ["No score", "Selected: node_0"])
+        np.testing.assert_allclose(layer["extras"][0]["rgba"], spectrum.MISSING_COLOR)
+        np.testing.assert_allclose(layer["extras"][1]["rgba"], spectrum.reference_color(mpl.colormaps["viridis"])[2])
+        self.assertEqual(state["owner"].tolist(), [1, 1, 1, 1])
+        self.assertEqual(state["category"].tolist(), [1, -1, -1, 0])  # the reference, two scores, one with none
+        self.assertEqual(state["values"][1:3].tolist(), [10.0, 30.0])
+        self.assertTrue(np.isnan(state["values"][[0, 3]]).all())
+        self.assertTrue(state["labelled"].all())
+
+    def test_property_mode_declares_the_property_gradient_and_the_nodes_it_has_no_value_for(self):
+        from desktop.Node_Colors import key_state
+        viewer = self.make_viewer(selected=())
+        viewer.metadata["Length"]["values"] = np.array([5.0, np.nan, 15.0, 25.0])
+        viewer.visible_mask = np.array([True, True, True, False])
+
+        self.run_spectrum(viewer, ["{Length}", "plasma"])
+
+        state = key_state(viewer)
+        (layer,) = state["layers"]
+        self.assertEqual((layer["title"], layer["scheme"], layer["min"], layer["max"]), ("Length", "plasma", 5.0, 15.0))
+        self.assertEqual([entry["label"] for entry in layer["extras"]], ["No value"])
+        self.assertEqual(state["owner"].tolist(), [1, 1, 1, -1])  # the hidden node was not painted
+        self.assertEqual(state["category"].tolist(), [-1, 0, -1, -1])
+        self.assertEqual(state["values"][[0, 2]].tolist(), [5.0, 15.0])
+        self.assertTrue(state["labelled"][:3].all())
+
+    def test_a_property_run_without_a_missing_value_has_no_extras(self):
+        from desktop.Node_Colors import key_state
+        viewer = self.make_viewer(selected=())
+
+        self.run_spectrum(viewer, ["{Length}", "viridis"])
+
+        self.assertEqual(key_state(viewer)["layers"][0]["extras"], [])
+
     def test_the_plan_is_heavy_only_without_a_property(self):
         viewer = self.make_viewer()
         self.assertTrue(spectrum.plan(viewer, ["viridis"]).heavy)

@@ -24,7 +24,7 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 import Command_Engine
 import EMAPSSN_Config as cfg
-from desktop.Node_Colors import NOISE_COLOR
+from desktop.Node_Colors import NOISE_COLOR, declare_gradient
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 from desktop.Command_Metadata import argument, entry, EXPRESSION
@@ -419,6 +419,12 @@ def _color_by_property(viewer, plan):
     if np.any(nan_mask):
         viewer.current_colors[nan_mask] = NOISE_COLOR
 
+    # What the colors mean: the property's gradient, and "No value" for the nodes the property leaves out.
+    declare_gradient(
+        viewer, matched_key, scheme_name, cmap, vmin, vmax, full_valid_mask, values[full_valid_mask],
+        extras=[(Message("No value"), NOISE_COLOR, nan_mask)] if np.any(nan_mask) else [],
+    )
+
     # Update viewer
     viewer.promote_nodes(mask)
     viewer.update_nodes()
@@ -696,6 +702,15 @@ def apply(viewer, plan, result):
         vmin = vmax = None
     viewer.current_colors[missing] = MISSING_COLOR
     viewer.current_colors[reference] = color_rgba
+
+    # What the colors mean: the similarity gradient, "No score" for nodes with none, and the reference node.
+    extras = [(Message("Selected: {header}", header=inputs.header), color_rgba, [reference])]
+    if np.any(missing):
+        extras.insert(0, (Message("No score"), MISSING_COLOR, missing))
+    declare_gradient(
+        viewer, Message("Similarity to {header}", header=inputs.header), inputs.scheme_name, cmap, vmin, vmax,
+        has_score, scores[has_score], extras=extras,
+    )
 
     promoted = targets.copy()
     promoted[reference] = True

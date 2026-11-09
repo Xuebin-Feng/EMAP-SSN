@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
-from desktop.Node_Colors import NOISE_COLOR
+from desktop.Node_Colors import NOISE_COLOR, declare_categories
 import re
 import os
 from utilities.Localization import JoinedMessage, Message
@@ -577,6 +577,16 @@ def apply(viewer, plan, result):
             r, g, b = color_map[m]
             slot_colors[slot] = (r, g, b, 1.0)
     viewer.current_colors[subgraph_nodes] = slot_colors[local_slots]
+
+    # What the colors mean: a category for each subcluster group, and Noise last when the run paints noise.
+    named = [slot for slot, m in enumerate(unique_local.tolist()) if m != -1]
+    categories = [(group_names[int(unique_local[slot])], slot_colors[slot]) for slot in named]
+    category_of_slot = np.full(len(unique_local), len(named))
+    category_of_slot[named] = np.arange(len(named))
+    if len(named) < len(unique_local):
+        categories.append((Message("Noise"), NOISE_COLOR))
+    declare_categories(viewer, Message("Subclusters of cluster {cluster}", cluster=cluster_id),
+                       categories, category_of_slot[local_slots], nodes=subgraph_nodes)
 
     viewer.update_nodes()
 

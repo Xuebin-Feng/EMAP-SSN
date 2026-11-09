@@ -3457,6 +3457,14 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message>
+        <source>Noise</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clusters</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
@@ -3536,6 +3544,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Colors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Applied: {stats}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3610,6 +3622,18 @@ Command-line usage:
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Gap</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue at {position}</source>
+        <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
         <source>Colored %n node(s) by the residue at position {position}.</source>
@@ -4906,6 +4930,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>No value</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4923,6 +4951,18 @@ Command-line usage:
     </message>
     <message>
         <source>Error: Similarity coloring reads the network file, which was not found: &apos;{path}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selected: {header}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Similarity to {header}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4983,6 +5023,10 @@ Command-line usage:
     </message>
     <message>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Subclusters of cluster {cluster}</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">

@@ -197,6 +197,33 @@ class DistributionTests(unittest.TestCase):
         for line, positions in zip(lines, bars):
             self.assertEqual(positions, bars[0], line)
 
+    def test_the_residues_gap_and_other_are_the_categories_in_the_tables_order(self):
+        from desktop.Node_Colors import key_state
+        viewer, _, _ = self.run_distribution(list("KKKRRG-X"), ["[1]"], hidden=(7,))
+
+        state = key_state(viewer)
+        (layer,) = state["layers"]
+        self.assertEqual(layer["title"], "Residue at 1")
+        self.assertEqual([entry["label"] for entry in layer["categories"]], ["K", "R", "G", "Gap"])  # the hidden X is not counted
+        np.testing.assert_allclose(layer["categories"][0]["rgba"], rgba("K"))
+        np.testing.assert_allclose(layer["categories"][3]["rgba"], NOISE)
+        self.assertEqual(state["owner"].tolist(), [1] * 7 + [-1])
+        self.assertEqual(state["category"].tolist(), [0, 0, 0, 1, 1, 2, 3, -1])
+        self.assertTrue(state["labelled"][:7].all())
+
+    def test_other_symbols_have_a_category_of_their_own(self):
+        from desktop.Node_Colors import key_state
+        viewer, _, _ = self.run_distribution(list("AX*-"), ["[1]"])
+
+        labels = [entry["label"] for entry in key_state(viewer)["layers"][0]["categories"]]
+        self.assertEqual(labels, ["A", "Gap", "Other"])
+        self.assertEqual(key_state(viewer)["category"].tolist(), [0, 2, 2, 1])
+
+    def test_nothing_colored_declares_nothing(self):
+        from desktop.Node_Colors import key_state
+        viewer, _, _ = self.run_distribution(list("KRDE"), ['"nobody"', "[1]"])
+        self.assertIsNone(key_state(viewer))
+
     def test_help_prints(self):
         output = StringIO()
         with redirect_stdout(output):

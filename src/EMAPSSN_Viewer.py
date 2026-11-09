@@ -680,7 +680,14 @@ CUSTOM_ATTRIBUTES_INIT = {
     # Add your custom attributes here:
     # The commands whose Console buttons come back when a session loads. The name is from the days
     # these were sidebar buttons: session files hold it.
-    "sidebar_buttons_to_persist": []
+    "sidebar_buttons_to_persist": [],
+    # What the node colors mean (desktop/Node_Colors.py): registered here so that every undo step holds them,
+    # even before a command has painted, and `save` writes them once they exist.
+    "color_key_layers": None,
+    "color_key_owner": None,
+    "color_key_category": None,
+    "color_key_rgba": None,
+    "color_key_values": None,
 }
 
 # Cacheable attributes that undo and redo leave alone. The list of buttons

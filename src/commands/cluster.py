@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
-from desktop.Node_Colors import NOISE_COLOR
+from desktop.Node_Colors import NOISE_COLOR, declare_categories
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import importlib.util
@@ -641,6 +641,15 @@ def apply(viewer, plan, result):
             r, g, b = color_map[lbl]
             slot_colors[slot] = (r, g, b, 1.0)
     viewer.current_colors[:n_nodes] = slot_colors[label_slots]
+
+    # What the colors mean: a category for each cluster, by id, and Noise last; two clusters that share a color stay two.
+    named = [slot for slot, lbl in enumerate(unique_labels) if lbl != -1]
+    categories = [(f"Cluster {unique_labels[slot]}", slot_colors[slot]) for slot in named]
+    category_of_slot = np.full(len(unique_labels), len(named))
+    category_of_slot[named] = np.arange(len(named))
+    if len(named) < len(unique_labels):
+        categories.append((Message("Noise"), NOISE_COLOR))
+    declare_categories(viewer, Message("Clusters"), categories, category_of_slot[label_slots])
 
     viewer.update_nodes()
 

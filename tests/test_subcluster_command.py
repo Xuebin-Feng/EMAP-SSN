@@ -168,6 +168,30 @@ def real_viewer():
     return viewer
 
 
+class SubclusterColorKeyTests(unittest.TestCase):
+    """subcluster declares what its colors mean: its subcluster groups, for the nodes of its cluster only."""
+
+    def test_the_groups_are_the_categories_and_only_the_clusters_nodes_are_owned(self):
+        from desktop.Node_Colors import key_state
+
+        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        run_command(subcluster_command, viewer, ["cluster_1", "0.2", "3"])
+
+        state = key_state(viewer)
+        (layer,) = state["layers"]
+        self.assertEqual(layer["title"], "Subclusters of cluster 1")
+        labels = [entry["label"] for entry in layer["categories"]]
+        groups = sorted({name for names in viewer.group_labels for name in names})
+        self.assertEqual([label for label in labels if label != "Noise"], groups)
+        in_cluster = np.array(NETWORK_CLUSTERS) == 1
+        np.testing.assert_array_equal(state["owner"] == 1, in_cluster)
+        for node in np.flatnonzero(in_cluster):
+            names = sorted(viewer.group_labels[node])
+            label = labels[state["category"][node]]
+            self.assertEqual([label] if names else ["Noise"], names or [label])
+        self.assertEqual(state["labelled"].tolist(), in_cluster.tolist())
+
+
 class JaccardAndMCLSubclusterTests(unittest.TestCase):
     def subcluster(self, args, viewer=None):
         if viewer is None:

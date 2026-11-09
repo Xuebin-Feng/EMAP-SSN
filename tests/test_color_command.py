@@ -979,5 +979,63 @@ class ColorAlphaPortalTests(PortalFixture, unittest.TestCase):
         )
 
 
+class ColorKeyTests(unittest.TestCase):
+    """color declares what its colors mean (desktop/Node_Colors.py): one category for each expression and color it applied."""
+
+    def state(self, viewer):
+        from desktop.Node_Colors import key_state
+        return key_state(viewer)
+
+    def test_each_pair_is_a_category_named_with_the_color_as_typed(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red', '#cluster_1#', '#00f', '2x'])
+
+        state = self.state(viewer)
+        (layer,) = state['layers']
+        self.assertEqual(layer['title'], 'Colors')
+        self.assertEqual([entry['label'] for entry in layer['categories']],
+                         ['#cluster_0# → red', '#cluster_1# → #00f'])
+        np.testing.assert_allclose(layer['categories'][0]['rgba'], mcolors.to_rgba('red'))
+        self.assertEqual(state['owner'].tolist(), [1, 1, 1])
+        self.assertEqual(state['category'].tolist(), [0, 0, 1])
+        self.assertTrue(state['labelled'].all())
+
+    def test_pairs_that_set_no_color_declare_nothing(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', '2x', '#cluster_1#', 'square'])
+        self.assertIsNone(self.state(viewer))
+
+    def test_a_later_pair_takes_a_node_from_an_earlier_one_in_the_same_run(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red', '"two"', 'green'])
+        state = self.state(viewer)
+        self.assertEqual(state['category'].tolist(), [0, 1, -1])
+        self.assertEqual(state['owner'].tolist(), [1, 1, -1])
+
+    def test_a_second_run_is_a_layer_of_its_own_and_one_it_covers_entirely_is_dropped(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red'])
+        color.run(viewer, ['"three"', 'blue'])
+        state = self.state(viewer)
+        self.assertEqual([layer['id'] for layer in state['layers']], [1, 2])
+        self.assertEqual(state['owner'].tolist(), [1, 1, 2])
+        color.run(viewer, ['#cluster_0#', 'green'])
+        state = self.state(viewer)
+        self.assertEqual([layer['id'] for layer in state['layers']], [2, 3])
+        self.assertEqual(state['owner'].tolist(), [3, 3, 2])
+
+    def test_an_alpha_changed_without_a_new_color_makes_those_nodes_unlabelled(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red'])
+        color.run(viewer, ['"one"', '50%'])
+        self.assertEqual(self.state(viewer)['labelled'].tolist(), [False, True, False])
+
+    def test_reset_colors_clears_the_key(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red'])
+        color.reset(viewer, 'color')
+        self.assertIsNone(self.state(viewer))
+
+
 if __name__ == "__main__":
     unittest.main()

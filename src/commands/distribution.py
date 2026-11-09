@@ -17,7 +17,7 @@ import numpy as np
 import matplotlib.colors as mcolors
 import Command_Engine
 from commands.cluster import get_colored_cluster_name
-from desktop.Node_Colors import NOISE_COLOR
+from desktop.Node_Colors import NOISE_COLOR, declare_categories
 from commands.query import _QUERY_POSITION_RANGE_RE, parse_query_positions
 from utilities.Localization import JoinedMessage, Message
 from utilities.Sequence_Utils import rejoin_split_brackets, split_position_list
@@ -282,6 +282,20 @@ def run(viewer, args):
                       key=lambda item: (-item[0], item[1]))
     n_gap = counts.get(None, 0)
     n_other = sum(n for letter, n in counts.items() if letter is not None and letter not in _RESIDUE_RGBA)
+    # What the colors mean: the residues in the table's order, then Gap and Other when present.
+    categories = [(letter, _RESIDUE_RGBA[letter]) for _, letter in residues]
+    slot_of = {letter: slot for slot, (_, letter) in enumerate(residues)}
+    if n_gap:
+        slot_of[None] = len(categories)
+        categories.append((Message("Gap"), _NOISE_RGBA))
+    if n_other:
+        other_slot = len(categories)
+        categories.append((Message("Other"), _NOISE_RGBA))
+    slots = np.empty(len(nodes), dtype=np.int32)
+    for code, letter in letters.items():
+        slots[codes == code] = slot_of[letter] if letter in slot_of else other_slot
+    declare_categories(viewer, Message("Residue at {position}", position=label), categories, slots, nodes=nodes)
+
     rows = [(letter, f"{letter:<5}", n) for n, letter in residues]
     if n_gap:
         rows.append((-1, f"{'gap':<5}", n_gap))

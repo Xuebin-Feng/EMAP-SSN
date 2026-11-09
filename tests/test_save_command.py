@@ -471,11 +471,41 @@ class CustomDatasetLoadingTests(HeadlessSettingsFixture, unittest.TestCase):
                                         "custom_scores": np.array([1.0])})
         viewer, _printed = self.load()
         snapshot = viewer._get_custom_attributes_snapshot()
-        self.assertEqual(set(snapshot), {"custom_scores"})
+        from desktop.Node_Colors import KEY_ATTRIBUTES
+        self.assertEqual(set(snapshot), {"custom_scores", *KEY_ATTRIBUTES})  # the color key is always registered
         viewer._apply_custom_attributes_snapshot(snapshot)
         from EMAPSSN_Viewer import MainViewer
         self.assertIs(viewer.process_command.__func__, MainViewer.process_command)
         self.assertNotIn("_private_value", vars(viewer))
+
+
+    def test_a_cache_saved_with_a_color_key_loads_it_back_and_one_saved_without_loads_none(self):
+        from desktop.Node_Colors import KEY_ATTRIBUTES, declare_categories, key_state
+        from utilities.Localization import Message
+
+        viewer, _printed = self.load()
+        self.assertTrue(set(KEY_ATTRIBUTES) <= viewer._cacheable_attrs)
+        self.assertTrue(all(getattr(viewer, name) is None for name in KEY_ATTRIBUTES))  # an old cache: no key
+        self.assertIsNone(key_state(viewer))
+        saved = self.save(viewer, "no_key.h5")
+        with h5py.File(saved, "r") as cache:
+            self.assertFalse(set(KEY_ATTRIBUTES) & set(cache.keys()))
+        self.assertIsNone(key_state(self.load(path=saved)[0]))
+
+        viewer.current_colors[:] = [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]
+        declare_categories(viewer, Message("Clusters"), [("Cluster 1", (1, 0, 0, 1)), (Message("Noise"), (0, 0, 1, 1))], [0, 1])
+        saved = self.save(viewer, "with_key.h5")
+        with h5py.File(saved, "r") as cache:
+            self.assertTrue(cache["color_key_layers"].attrs["is_json"])
+            self.assertEqual(cache["color_key_owner"].dtype, np.int32)
+            self.assertEqual(cache["color_key_rgba"].dtype, np.uint8)
+        again, printed = self.load(path=saved)
+        self.assertNotIn("ignoring", printed)
+        before, after = key_state(viewer), key_state(again)
+        self.assertEqual(after["layers"], before["layers"])
+        for name in ("owner", "category", "rgba", "values", "labelled"):
+            np.testing.assert_array_equal(after[name], before[name])
+        self.assertEqual(after["layers"][0]["categories"][1]["label"], "Noise")
 
 
 if __name__ == "__main__":

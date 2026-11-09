@@ -4850,7 +4850,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
         <location filename="../../../commands/cluster.py" line="+391"/>
-        <location filename="../../../commands/color.py" line="+504"/>
+        <location filename="../../../commands/color.py" line="+505"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
         <location filename="../../../commands/embedding.py" line="+79"/>
@@ -4984,8 +4984,19 @@ Command-line usage:
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
         </translation>
     </message>
+    <message>
+        <location line="+43"/>
+        <location filename="../../../commands/subcluster.py" line="+353"/>
+        <source>Noise</source>
+        <translation type="unfinished">噪声</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clusters</source>
+        <translation type="unfinished">聚类</translation>
+    </message>
     <message numerus="yes">
-        <location line="+74"/>
+        <location line="+39"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -4996,8 +5007,8 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-167"/>
-        <location filename="../../../commands/subcluster.py" line="+166"/>
+        <location line="-176"/>
+        <location filename="../../../commands/subcluster.py" line="-187"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
@@ -5008,7 +5019,7 @@ Command-line usage:
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+141"/>
+        <location line="+150"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -5030,7 +5041,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-80"/>
-        <location line="+378"/>
+        <location line="+380"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -5039,7 +5050,7 @@ Command-line usage:
         <translation type="obsolete">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="-353"/>
+        <location line="-355"/>
         <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
         <translation type="unfinished">错误：“{first}”和“{second}”都为同一目标设置了不透明度。不透明度只能给出一次，要么写在 8 位十六进制颜色中，要么写成 N%。</translation>
     </message>
@@ -5100,14 +5111,19 @@ Command-line usage:
         <translation type="unfinished">错误：未找到有效的赋值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+71"/>
+        <location line="+76"/>
         <source>%n node(s) ({properties})</source>
         <translation type="unfinished">
             <numerusform>%n 个节点（{properties}）</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
+        <source>Colors</source>
+        <translation type="unfinished">颜色</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Applied: {stats}</source>
         <translation type="unfinished">已应用：{stats}</translation>
     </message>
@@ -5644,7 +5660,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-456"/>
+        <location filename="../../../commands/cluster.py" line="-465"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
         <location filename="../../../commands/hide.py" line="+58"/>
@@ -6305,8 +6321,23 @@ Command-line usage:
             <numerusform>表达式“{expression}”匹配了 %n 个节点，但都不在比对中，没有给任何节点着色。</numerusform>
         </translation>
     </message>
+    <message>
+        <location line="+43"/>
+        <source>Gap</source>
+        <translation type="unfinished">空位</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Other</source>
+        <translation type="unfinished">其他</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Residue at {position}</source>
+        <translation type="unfinished">位置 {position} 的残基</translation>
+    </message>
     <message numerus="yes">
-        <location line="+54"/>
+        <location line="+18"/>
         <source>Colored %n node(s) by the residue at position {position}.</source>
         <translation type="unfinished">
             <numerusform>已按位置 {position} 上的残基给 %n 个节点着色。</numerusform>
@@ -6330,7 +6361,7 @@ Command-line usage:
         <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 语法（例如 [10-20] 或 [K&gt;10%]）。</translation>
     </message>
     <message>
-        <location filename="../../../commands/distribution.py" line="-104"/>
+        <location filename="../../../commands/distribution.py" line="-118"/>
         <location filename="../../../commands/query.py" line="+17"/>
         <location filename="../../../commands/spectrum.py" line="+134"/>
         <source>No selection found. Defaulting to all visible nodes.</source>
@@ -6746,7 +6777,12 @@ Command-line usage:
         <translation type="unfinished">错误：spectrum 最多只接受一个配色方案。</translation>
     </message>
     <message>
-        <location line="+317"/>
+        <location line="+164"/>
+        <source>No value</source>
+        <translation type="unfinished">无数值</translation>
+    </message>
+    <message>
+        <location line="+162"/>
         <source>Error: The network file no longer matches the nodes loaded in the Viewer ({missing} of them are not in it).</source>
         <translation type="unfinished">错误：网络文件与查看器已加载的节点不再匹配（其中 {missing} 个不在文件中）。</translation>
     </message>
@@ -6766,7 +6802,22 @@ Command-line usage:
         <translation type="unfinished">错误：相似度着色需要读取网络文件，但未找到该文件：“{path}”。</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+73"/>
+        <source>Selected: {header}</source>
+        <translation type="unfinished">已选：{header}</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No score</source>
+        <translation type="unfinished">无得分</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Similarity to {header}</source>
+        <translation type="unfinished">与 {header} 的相似度</translation>
+    </message>
+    <message>
+        <location line="+13"/>
         <source>No target node has a score to {header}; {missing} node(s) get the noise color.</source>
         <translation type="unfinished">没有目标节点与 {header} 有得分；{missing} 个节点着噪声色。</translation>
     </message>
@@ -6788,7 +6839,7 @@ Command-line usage:
         <translation type="unfinished">所选节点为{color}（{hex}）；与它没有得分的 {missing} 个节点着噪声色，并被排除在范围之外。</translation>
     </message>
     <message>
-        <location line="-519"/>
+        <location line="-539"/>
         <location line="+65"/>
         <source>Spectrum</source>
         <translation type="unfinished">渐变色</translation>
@@ -6804,12 +6855,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location line="+310"/>
+        <location line="+319"/>
         <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
         <translation type="unfinished">错误：未知的配色方案“{scheme}”。请使用 matplotlib 颜色映射名称，例如 viridis；完整列表见 &apos;spectrum help&apos;。</translation>
     </message>
     <message>
-        <location line="-300"/>
+        <location line="-309"/>
         <source>Error: No metadata loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载元数据。</translation>
     </message>
@@ -6825,18 +6876,18 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location line="+276"/>
+        <location line="+285"/>
         <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
         <translation type="unfinished">没有节点符合筛选条件（只为可见节点着色）。</translation>
     </message>
     <message>
-        <location line="-251"/>
+        <location line="-260"/>
         <source>Warning: No valid numerical values found in &apos;{property}&apos; for the selected nodes.</source>
         <translation type="unfinished">警告：所选节点的“{property}”中没有有效的数值。</translation>
     </message>
     <message>
-        <location line="+48"/>
-        <location line="+292"/>
+        <location line="+54"/>
+        <location line="+306"/>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished">（最小值：{min}，最大值：{max}）</translation>
     </message>
@@ -6896,8 +6947,13 @@ Command-line usage:
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
         <translation type="unfinished">{cluster} 中没有子簇达到最小簇大小 {min_size}；未做任何更改。</translation>
     </message>
+    <message>
+        <location line="+58"/>
+        <source>Subclusters of cluster {cluster}</source>
+        <translation type="unfinished">聚类 {cluster} 的子聚类</translation>
+    </message>
     <message numerus="yes">
-        <location line="+73"/>
+        <location line="+25"/>
         <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 在 {cluster} 中找到 %n 个子簇。</numerusform>
@@ -7129,7 +7185,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1673"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1680"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>

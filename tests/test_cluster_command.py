@@ -1056,6 +1056,51 @@ class GeneratedSubclusterGroupTests(unittest.TestCase):
         self.assertIn("removes the generated subcluster_N_M groups", action)
 
 
+class ClusterColorKeyTests(unittest.TestCase):
+    """cluster declares what its colors mean (desktop/Node_Colors.py): a category for each cluster and one for noise."""
+
+    def run_barbell(self, color_map=None):
+        viewer = network_viewer(7, BARBELL_EDGES)
+        patched = mock.patch.object(cluster, "get_cluster_color_map", return_value=color_map) if color_map else mock.MagicMock()
+        with patched:
+            run_command(cluster, viewer, ["jaccard", "0.5", "3"])
+        return viewer
+
+    def test_every_cluster_and_the_noise_is_a_category_and_every_node_is_owned(self):
+        from desktop.Node_Colors import key_state
+
+        state = key_state(self.run_barbell())
+
+        (layer,) = state["layers"]
+        self.assertEqual(layer["title"], "Clusters")
+        self.assertEqual([entry["label"] for entry in layer["categories"]], ["Cluster 1", "Cluster 2", "Noise"])
+        np.testing.assert_allclose(layer["categories"][2]["rgba"], (0.8, 0.8, 0.8, 0.4))
+        self.assertEqual(state["owner"].tolist(), [1] * 7)
+        self.assertEqual(state["category"].tolist(), [0, 0, 0, 1, 1, 1, 2])
+        self.assertTrue(state["labelled"].all())
+
+    def test_two_clusters_that_share_a_color_stay_two_categories(self):
+        from desktop.Node_Colors import key_state
+
+        state = key_state(self.run_barbell({1: (1.0, 0.0, 0.0), 2: (1.0, 0.0, 0.0)}))
+
+        labels = [entry["label"] for entry in state["layers"][0]["categories"]]
+        self.assertEqual(labels, ["Cluster 1", "Cluster 2", "Noise"])
+        self.assertEqual(state["rgba"][0].tolist(), state["rgba"][3].tolist())
+        self.assertEqual(state["category"].tolist(), [0, 0, 0, 1, 1, 1, 2])
+
+    def test_a_run_without_noise_has_no_noise_category_and_a_new_run_replaces_the_layer(self):
+        from desktop.Node_Colors import key_state
+
+        viewer = network_viewer(7, BARBELL_EDGES)
+        run_command(cluster, viewer, ["jaccard", "0.5", "1"])  # no node is noise at size 1
+        first = key_state(viewer)
+        self.assertEqual([e["label"] for e in first["layers"][0]["categories"]][-1], "Cluster 3")
+        run_command(cluster, viewer, ["jaccard", "0.5", "3"])
+        second = key_state(viewer)
+        self.assertEqual([layer["id"] for layer in second["layers"]], [2])
+
+
 class FirstUseOnTheGuiThreadTests(unittest.TestCase):
     """The first cluster or subcluster command of a session loads nothing slow on the GUI thread.
 

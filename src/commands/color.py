@@ -20,6 +20,7 @@ import numpy as np
 import matplotlib.colors as mcolors
 import EMAPSSN_Config as cfg
 import Command_Engine
+from desktop.Node_Colors import clear_key, declare_categories
 from utilities.Localization import JoinedMessage, Message
 from desktop.Command_Metadata import argument, choice, entry, plain_choices, EXPRESSION
 
@@ -523,6 +524,8 @@ def run(viewer, args):
     stats = []
     state_saved = False  # <--- NEW FLAG
     modified_nodes = np.zeros(viewer.n_nodes, dtype=bool)
+    key_pairs = []  # ("expression → color as typed", RGBA) of each pair that set a color: its color key category
+    key_slots = np.full(viewer.n_nodes, -1, dtype=np.int32)  # each node's last such pair
 
     evaluated_assignments = []
     for expr, attributes in assignments:
@@ -567,6 +570,9 @@ def run(viewer, args):
         # alpha, and an alpha keeps each node's color.
         if attributes.rgb is not None:
             viewer.current_colors[mask, :3] = attributes.rgb
+            swatch = (*attributes.rgb, 1.0 if attributes.alpha is None else attributes.alpha)
+            key_pairs.append((f"{expr} → {attributes.color}", swatch))
+            key_slots[mask] = len(key_pairs) - 1
         if attributes.alpha is not None:
             viewer.current_colors[mask, 3] = attributes.alpha
 
@@ -585,6 +591,9 @@ def run(viewer, args):
         if attributes.shape: labels.append(attributes.shape)
         stats.append(Message("%n node(s) ({properties})", n=count, properties=', '.join(labels)))
 
+    if key_pairs:
+        painted = key_slots >= 0
+        declare_categories(viewer, Message("Colors"), key_pairs, key_slots[painted], nodes=painted)
     if total_modified > 0:
         viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()
@@ -627,4 +636,5 @@ def reset(viewer, target):
     from commands.reset import ResetOutcome
     if hasattr(viewer, 'current_colors'):
         viewer.current_colors[:] = mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)
+    clear_key(viewer)
     return ResetOutcome("colors", nodes=True)
