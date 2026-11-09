@@ -1012,17 +1012,40 @@ class ColorKeyTests(unittest.TestCase):
         self.assertEqual(state['category'].tolist(), [0, 1, -1])
         self.assertEqual(state['owner'].tolist(), [1, 1, -1])
 
-    def test_a_second_run_is_a_layer_of_its_own_and_one_it_covers_entirely_is_dropped(self):
+    def test_successive_runs_share_one_colors_layer_in_the_order_run(self):
         viewer = Viewer('.')
         color.run(viewer, ['#cluster_0#', 'red'])
         color.run(viewer, ['"three"', 'blue'])
         state = self.state(viewer)
-        self.assertEqual([layer['id'] for layer in state['layers']], [1, 2])
-        self.assertEqual(state['owner'].tolist(), [1, 1, 2])
-        color.run(viewer, ['#cluster_0#', 'green'])
+        (layer,) = state['layers']
+        self.assertEqual((layer['id'], layer['title']), (1, 'Colors'))
+        self.assertEqual([entry['label'] for entry in layer['categories']], ['#cluster_0# → red', '"three" → blue'])
+        self.assertEqual(state['owner'].tolist(), [1, 1, 1])
+        self.assertEqual(state['category'].tolist(), [0, 0, 1])
+
+    def test_an_identical_row_is_combined_and_a_row_nobody_holds_any_more_goes(self):
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red'])
+        color.run(viewer, ['#cluster_0#', 'red', '"three"', 'blue'])  # the same row again, and a new one
         state = self.state(viewer)
-        self.assertEqual([layer['id'] for layer in state['layers']], [2, 3])
-        self.assertEqual(state['owner'].tolist(), [3, 3, 2])
+        self.assertEqual([entry['label'] for entry in state['layers'][0]['categories']],
+                         ['#cluster_0# → red', '"three" → blue'])
+        color.run(viewer, ['#cluster_0#', 'green'])  # nothing holds the red row now
+        state = self.state(viewer)
+        self.assertEqual([entry['label'] for entry in state['layers'][0]['categories']],
+                         ['"three" → blue', '#cluster_0# → green'])
+        self.assertEqual(state['category'].tolist(), [1, 1, 0])
+        self.assertEqual([layer['id'] for layer in state['layers']], [1])
+
+    def test_another_command_that_declares_keeps_a_layer_of_its_own(self):
+        from desktop.Node_Colors import declare_categories
+        viewer = Viewer('.')
+        color.run(viewer, ['#cluster_0#', 'red'])
+        viewer.current_colors[2] = (0.0, 0.0, 1.0, 1.0)
+        declare_categories(viewer, 'Clusters', [('x', (0.0, 0.0, 1.0, 1.0))], [0], nodes=[2])
+        color.run(viewer, ['"one"', 'green'])
+        self.assertEqual([(layer['id'], layer['title']) for layer in self.state(viewer)['layers']],
+                         [(1, 'Colors'), (2, 'Clusters')])
 
     def test_an_alpha_changed_without_a_new_color_keeps_those_nodes_labelled(self):
         viewer = Viewer('.')

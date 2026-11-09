@@ -27,7 +27,8 @@ NOISE_COLOR = (0.8, 0.8, 0.8, 0.4)
 # attributes (EMAPSSN_Viewer.CUSTOM_ATTRIBUTES_INIT), so undo, redo, save and load carry it:
 #
 #   color_key_layers    list of JSON-safe dicts, oldest first. A categories layer is {"id", "kind":
-#                       "categories", "title", "categories": [{"label", "rgba"}, ...]}; a gradient layer is
+#                       "categories", "title", "categories": [{"label", "rgba"}, ...]}, and may carry
+#                       "extend": True (see declare_categories); a gradient layer is
 #                       {"id", "kind": "gradient", "title", "scheme", "min", "max", "stops": 16 [r, g, b]
 #                       of the colormap, "extras": [{"label", "rgba"}, ...]}. A title or label is plain
 #                       text, or a text() dict that key_state shows in the current language.
@@ -141,7 +142,7 @@ def _layer_ok(layer):
     if not _text_ok(layer.get("title")):
         return False
     if layer.get("kind") == "categories":
-        return _entries_ok(layer.get("categories"))
+        return _entries_ok(layer.get("categories")) and isinstance(layer.get("extend", False), bool)
     if layer.get("kind") == "gradient":
         stops = layer.get("stops")
         return (_entries_ok(layer.get("extras")) and isinstance(layer.get("scheme"), str)
@@ -242,17 +243,63 @@ def _entry(label, rgba):
     return {"label": text(label), "rgba": [float(channel) for channel in rgba]}
 
 
-def declare_categories(viewer, title, categories, slots, nodes=None):
+def declare_categories(viewer, title, categories, slots, nodes=None, extend=False):
     """Declare that ``nodes`` (None for all; a mask or node numbers) now show the colors of a categories layer.
 
     ``categories`` is a list of (label, RGBA) pairs, ``slots`` the category of each of the nodes (indexes into
     it). Title and labels are Message or str. Call it after current_colors holds the new colors.
+
+    With ``extend`` the layer is an extendable one: a later declaration with ``extend`` and the same title adds
+    its categories to it, in the order declared, instead of starting a layer. A category with the label and
+    color of one the layer has is that one. The layer keeps its id and its place among the layers, and a
+    category that no node holds any more is dropped.
     """
     layers = _begin(viewer)
     nodes = _node_indices(viewer, nodes)
-    layer = _new_layer(viewer, "categories", title, categories=[_entry(label, rgba) for label, rgba in categories])
-    _paint(viewer, layer, nodes, np.asarray(slots, dtype=np.int32))
+    entries = [_entry(label, rgba) for label, rgba in categories]
+    slots = np.asarray(slots, dtype=np.int32)
+    if extend:
+        stored = text(title)
+        same = [at for at, layer in enumerate(layers)
+                if layer["kind"] == "categories" and layer.get("extend") is True and layer["title"] == stored]
+        if same:
+            _extend(viewer, layers, same[-1], entries, slots, nodes)
+            return
+    layer = _new_layer(viewer, "categories", title, categories=entries, **({"extend": True} if extend else {}))
+    _paint(viewer, layer, nodes, slots)
     _prune(viewer, layers + [layer])
+
+
+def _extend(viewer, layers, at, entries, slots, nodes):
+    """Paint ``nodes`` as categories ``entries`` of the extendable layer ``layers[at]``, in a new layer dict.
+
+    Nothing the old layer dict or the list of layers holds is changed: an undo step may hold them.
+    """
+    old = layers[at]
+    merged = list(old["categories"])
+    place = []
+    for entry in entries:
+        if entry not in merged:
+            merged.append(entry)
+        place.append(merged.index(entry))
+    _paint(viewer, old, nodes, np.asarray(place, dtype=np.int32)[slots])
+    # A category no node holds (a node holds it while it is the layer's and still shows its color) goes, and
+    # a node that no longer shows the color its category names is released, so the layer cannot grow.
+    owner, category = viewer.color_key_owner, viewer.color_key_category
+    mine = (owner == old["id"]) & (category >= 0) & (category < len(merged))
+    holding = mine & np.all(viewer.color_key_rgba[:, :3] == _rounded(viewer.current_colors)[:, :3], axis=1)
+    released = (owner == old["id"]) & ~holding
+    owner[released] = -1
+    category[released] = -1
+    viewer.color_key_rgba[released] = 0
+    viewer.color_key_values[released] = np.nan
+    used = np.unique(category[holding])
+    remap = np.full(len(merged), -1, dtype=np.int32)
+    remap[used] = np.arange(len(used), dtype=np.int32)
+    category[holding] = remap[category[holding]]
+    updated = dict(old, categories=[merged[slot] for slot in used.tolist()])
+    layers = layers[:at] + [updated] + layers[at + 1:]
+    _prune(viewer, layers)
 
 
 def declare_gradient(viewer, title, scheme, colormap, low, high, nodes, values, extras=()):

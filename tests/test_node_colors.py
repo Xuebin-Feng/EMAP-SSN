@@ -4,6 +4,7 @@ Commands that paint nodes declare their colors; the record is cacheable Viewer a
 and load carry it. What each command declares is tested with the command (test_cluster_command and the others);
 here are the helpers, their takeover and pruning rules, undo and redo, and the shown language."""
 
+import copy
 import io
 import json
 import os
@@ -173,6 +174,153 @@ class CategoriesTests(unittest.TestCase):
         clear_key(viewer)
         clear_key(viewer, nodes=[0])
         self.assertIsNone(key_state(viewer))
+
+
+class ExtendableLayerTests(unittest.TestCase):
+    """declare_categories(extend=True): runs of one command share a layer, and the layer stays bounded."""
+
+    def run_of(self, viewer, nodes, color, label, title="Colors"):
+        paint(viewer, nodes, color)
+        declare_categories(viewer, title, [(label, color)], np.zeros(len(nodes), dtype=int), nodes=nodes, extend=True)
+
+    def test_a_second_run_adds_its_rows_to_the_layer_of_the_first(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0, 1], RED, "a -> red")
+        self.run_of(viewer, [2], BLUE, "b -> blue")
+        state = key_state(viewer)
+        (layer,) = state["layers"]
+        self.assertEqual((layer["id"], layer["title"]), (1, "Colors"))
+        self.assertEqual([entry["label"] for entry in layer["categories"]], ["a -> red", "b -> blue"])
+        self.assertEqual(state["owner"].tolist(), [1, 1, 1, -1, -1, -1])
+        self.assertEqual(state["category"].tolist(), [0, 0, 1, -1, -1, -1])
+        self.assertEqual(state["labelled"].tolist(), [True] * 3 + [False] * 3)
+
+    def test_a_row_with_the_same_label_and_color_is_the_same_category(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0], RED, "a -> red")
+        self.run_of(viewer, [1, 2], RED, "a -> red")
+        self.run_of(viewer, [3], RED, "other -> red")  # another label is another row
+        self.run_of(viewer, [4], (0.9, 0.0, 0.0, 1.0), "a -> red")  # another color is another row
+        state = key_state(viewer)
+        self.assertEqual(len(state["layers"][0]["categories"]), 3)
+        self.assertEqual(state["category"].tolist(), [0, 0, 0, 1, 2, -1])
+
+    def test_a_row_no_node_holds_any_more_is_dropped_and_the_categories_renumbered(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0, 1], RED, "a -> red")
+        self.run_of(viewer, [2], BLUE, "b -> blue")
+        self.run_of(viewer, [0, 1], GREEN, "c -> green")  # takes every node of the first row
+        state = key_state(viewer)
+        self.assertEqual([entry["label"] for entry in state["layers"][0]["categories"]], ["b -> blue", "c -> green"])
+        self.assertEqual(state["category"].tolist(), [1, 1, 0, -1, -1, -1])
+        self.assertTrue(state["labelled"][:3].all())
+
+    def test_a_node_painted_over_without_a_declaration_no_longer_holds_its_row(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0, 1], RED, "a -> red")
+        paint(viewer, [0, 1], BLUE)  # a command that declares nothing
+        self.run_of(viewer, [2], GREEN, "b -> green")
+        state = key_state(viewer)
+        self.assertEqual([entry["label"] for entry in state["layers"][0]["categories"]], ["b -> green"])
+        self.assertEqual(state["owner"].tolist(), [-1, -1, 1, -1, -1, -1])
+
+    def test_a_node_that_only_got_fainter_still_holds_its_row(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0, 1], RED, "a -> red")
+        paint(viewer, [0, 1], (1.0, 0.0, 0.0, 0.5))
+        self.run_of(viewer, [2], GREEN, "b -> green")
+        self.assertEqual(len(key_state(viewer)["layers"][0]["categories"]), 2)
+
+    def test_the_layer_keeps_its_place_among_the_layers_and_other_declarations_are_not_merged(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0], RED, "a -> red")
+        paint(viewer, [3], BLUE)
+        declare_categories(viewer, "Clusters", [("c", BLUE)], [0], nodes=[3])  # no extend
+        paint(viewer, [4], BLUE)
+        declare_categories(viewer, "Colors", [("c", BLUE)], [0], nodes=[4])    # same title, no extend
+        self.run_of(viewer, [1], GREEN, "b -> green")
+        layers = key_state(viewer)["layers"]
+        self.assertEqual([(layer["id"], layer["title"]) for layer in layers], [(1, "Colors"), (2, "Clusters"), (3, "Colors")])
+        self.assertEqual([entry["label"] for entry in layers[0]["categories"]], ["a -> red", "b -> green"])
+
+    def test_nodes_a_run_takes_from_another_layer_leave_it(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0], RED, "a -> red")
+        paint(viewer, [1, 2], BLUE)
+        declare_categories(viewer, "Clusters", [("c", BLUE)], [0, 0], nodes=[1, 2])
+        self.run_of(viewer, [1, 2], GREEN, "b -> green")
+        state = key_state(viewer)
+        self.assertEqual([layer["title"] for layer in state["layers"]], ["Colors"])  # Clusters owns none now
+
+    def test_the_old_layer_dict_and_arrays_are_never_mutated(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0, 1], RED, "a -> red")
+        layers, owner, category = viewer.color_key_layers, viewer.color_key_owner, viewer.color_key_category
+        frozen = (copy.deepcopy(layers), owner.copy(), category.copy())
+        self.run_of(viewer, [0, 1], GREEN, "b -> green")  # empties the first row
+        self.assertEqual(layers, frozen[0])
+        np.testing.assert_array_equal(owner, frozen[1])
+        np.testing.assert_array_equal(category, frozen[2])
+        self.assertIsNot(viewer.color_key_layers, layers)
+        self.assertIsNot(viewer.color_key_owner, owner)
+
+    def test_undo_and_redo_restore_the_key_from_before_the_merge_exactly(self):
+        viewer = history_viewer()
+        for nodes, color, label in (([0, 1], RED, "a -> red"), ([2], BLUE, "b -> blue")):
+            viewer._save_state()
+            self.run_of(viewer, nodes, color, label)
+        merged = key_state(viewer)
+        viewer._save_state()
+        self.run_of(viewer, [0, 1], GREEN, "c -> green")  # merges, and drops the first row
+        after = key_state(viewer)
+        self.assertNotEqual(after["layers"], merged["layers"])
+
+        def undo():
+            with redirect_stdout(io.StringIO()):
+                return viewer._do_undo()
+
+        def redo():
+            with redirect_stdout(io.StringIO()):
+                return viewer._do_redo()
+
+        self.assertTrue(undo())
+        back = key_state(viewer)
+        self.assertEqual(back["layers"], merged["layers"])
+        for name in ("owner", "category", "rgba", "values", "labelled"):
+            np.testing.assert_array_equal(back[name], merged[name])
+        self.assertTrue(redo())
+        again = key_state(viewer)
+        self.assertEqual(again["layers"], after["layers"])
+        for name in ("owner", "category", "rgba", "values", "labelled"):
+            np.testing.assert_array_equal(again[name], after[name])
+
+    def test_the_layer_flag_survives_json_and_a_key_saved_without_it_still_loads(self):
+        viewer = plain_viewer()
+        self.run_of(viewer, [0], RED, "a -> red")
+        self.assertIs(viewer.color_key_layers[0]["extend"], True)
+        viewer.color_key_layers = json.loads(json.dumps(viewer.color_key_layers))
+        self.run_of(viewer, [1], BLUE, "b -> blue")
+        self.assertEqual(len(key_state(viewer)["layers"][0]["categories"]), 2)
+        # A key from before the flag existed: it loads, and a new run starts an extendable layer beside it.
+        old = good_key_viewer()
+        self.assertNotIn("extend", old.color_key_layers[0])
+        self.assertEqual(len(key_state(old)["layers"]), 1)
+        self.run_of(old, [1], BLUE, "x -> blue", title="Clusters")
+        self.assertEqual([layer["id"] for layer in key_state(old)["layers"]], [1, 2])
+
+    def test_a_malformed_flag_drops_the_layer_like_any_other_bad_field(self):
+        for bad in ("yes", 1, None, [], {}):
+            with self.subTest(bad=bad):
+                viewer = plain_viewer()
+                self.run_of(viewer, [0], RED, "a -> red")
+                viewer.color_key_layers = [dict(viewer.color_key_layers[0], extend=bad)]
+                with redirect_stdout(io.StringIO()) as printed:
+                    self.assertIsNone(key_state(viewer))
+                self.assertIn("damaged", printed.getvalue())
+        viewer = plain_viewer()
+        self.run_of(viewer, [0], RED, "a -> red")
+        viewer.color_key_layers = [dict(viewer.color_key_layers[0], extend=False)]
+        self.assertIsNotNone(key_state(viewer))
 
 
 class GradientTests(unittest.TestCase):

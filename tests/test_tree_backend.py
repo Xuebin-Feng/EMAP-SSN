@@ -695,6 +695,23 @@ class ColorKeyPayloadTests(unittest.TestCase):
         bits = np.unpackbits(unpack(tree_backend.colors_state(viewer)["key"]["labelled"], np.uint8), bitorder="little")
         self.assertEqual(list(bits[:6]), [1, 0, 1, 1, 1, 1])
 
+    def test_two_runs_of_an_extendable_layer_are_one_layer_in_the_payload(self):
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            red, blue = (1.0, 0.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0)
+            for nodes, color, label in (([0, 1, 2], red, "a → red"), ([3, 4], blue, "b → blue"), ([5], red, "a → red")):
+                viewer.current_colors[nodes] = color
+                Node_Colors.declare_categories(viewer, "Colors", [(label, color)], [0] * len(nodes), nodes=nodes,
+                                               extend=True)
+
+        key = tree_backend.colors_state(make_viewer(None, headers_of(8), colors=node_colors(8), key=declare))["key"]
+        (layer,) = key["layers"]
+        self.assertEqual(layer["title"], "Colors")
+        self.assertEqual([c["label"] for c in layer["categories"]], ["a → red", "b → blue"])
+        self.assertEqual(list(unpack(key["owner"], "<i2")), [0] * 6 + [-1] * 2)
+        self.assertEqual(list(unpack(key["category"], "<i2")), [0, 0, 0, 1, 1, 0, -1, -1])
+
     def test_a_viewer_with_no_key_sends_none(self):
         state = tree_backend.colors_state(make_viewer(None, headers_of(5), colors=node_colors(5)))
         self.assertEqual((state["status"], state["key"]), ("ok", None))

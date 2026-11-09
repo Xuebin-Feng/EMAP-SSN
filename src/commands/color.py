@@ -593,7 +593,7 @@ def run(viewer, args):
 
     if key_pairs:
         painted = key_slots >= 0
-        declare_categories(viewer, Message("Colors"), key_pairs, key_slots[painted], nodes=painted)
+        declare_categories(viewer, Message("Colors"), key_pairs, key_slots[painted], nodes=painted, extend=True)
     if total_modified > 0:
         viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()

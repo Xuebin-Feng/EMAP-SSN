@@ -224,6 +224,19 @@ class ShowingTests(LegendCase):
         self.assertEqual(after["layers"][1]["rows"], before["layers"][1]["rows"])
         self.assertEqual(after["unlabelled"], before["unlabelled"])
 
+    def test_two_runs_of_an_extendable_layer_show_one_section_with_both_rows(self):
+        viewer = self.build_legend(with_key=False)
+        card = viewer.legend_card
+        for nodes, color, label in ((range(0, 3), RED, "a → red"), (range(3, 5), GREEN, "b → green")):
+            nodes = list(nodes)
+            viewer.current_colors[nodes] = color
+            Node_Colors.declare_categories(viewer, "Colors", [(label, color)], [0] * len(nodes), nodes=nodes, extend=True)
+        viewer._notify_node_update_listeners()
+        self.settle()
+        self.assertEqual(self.titles(card), ["Colors"])
+        (rowlist,) = self.lists(card)
+        self.assertEqual([(label, count) for _, label, count in rowlist.rows()], [("a → red", "3"), ("b → green", "2")])
+
     def test_labels_are_plain_text(self):
         viewer = self.build_legend(with_key=False)
         viewer.current_colors[0:2] = RED
