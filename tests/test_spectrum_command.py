@@ -217,6 +217,40 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         promoted_mask = viewer.promote_nodes.call_args.args[0]
         np.testing.assert_array_equal(promoted_mask, [True, False, True])
 
+    def test_no_expression_colors_only_the_selected_visible_nodes(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0, 4.0])
+        viewer.selected_indices = [1, 3]
+        viewer.visible_mask = np.array([True, True, True, False])
+
+        self.run_spectrum(viewer, ["{Length}"], io.StringIO())
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [False, True, False, False])
+        # The range comes from the targeted nodes, as with `$sele$`.
+        self.assertIn("min: 2.0, max: 2.0", viewer.console_text.text)
+        self.assertEqual(viewer.current_colors[0].tolist(), [0, 0, 0, 0])
+
+    def test_no_expression_and_no_selection_colors_all_visible_nodes(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0])
+        viewer.visible_mask = np.array([True, False, True])
+        output = io.StringIO()
+
+        self.run_spectrum(viewer, ["{Length}"], output)
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [True, False, True])
+        self.assertIn("Defaulting to all visible nodes", output.getvalue())
+        self.assertEqual(viewer.current_colors[1].tolist(), [0, 0, 0, 0])
+
+    def test_an_expression_overrides_the_selection(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0])
+        viewer.selected_indices = [0]
+
+        self.run_spectrum(viewer, ['"node_2"', "{Length}"], io.StringIO())
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [False, False, True])
+
     def test_legacy_prefixes_are_rejected_without_mutation(self):
         for legacy in ("prop:Length", "property:Length", "scheme:viridis", "color:plasma"):
             with self.subTest(legacy=legacy):

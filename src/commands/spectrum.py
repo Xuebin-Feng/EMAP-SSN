@@ -31,7 +31,7 @@ AGENT_POLICY = 'run'
 
 CATALOG_ENTRY = entry('Color visible nodes by a numerical metadata property.',
     argument('property', 'Required bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order.'),
-    argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
+    argument('expression', EXPRESSION + ' Defaults to the selected nodes, otherwise all visible nodes.'),
     argument('color_scheme', 'Optional installed Matplotlib colormap name, default coolwarm; names are not case-sensitive, and an unknown name is an error. A token that is also a valid selection expression is read as the expression.'))
 
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
@@ -39,7 +39,7 @@ AGENT_PROMPT_ORDER = 170
 AGENT_PROMPT = """
 `spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]`
 - Colors visible nodes by values from exactly one loaded numerical metadata property enclosed in braces. A bare target such as `{Length}` selects the spectrum property, while a complete predicate such as `{Length>500}` remains a Boolean selection expression. The expression, property, and optional standalone color scheme may appear in any order.
-- If EXPRESSION is omitted, all visible nodes are targeted. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes whose value is missing, non-numeric, or infinite are excluded from the gradient minimum/maximum and colored light gray.
+- If EXPRESSION is omitted, the current selection is targeted; when there is no selection, all visible nodes are. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes whose value is missing, non-numeric, or infinite are excluded from the gradient minimum/maximum and colored light gray.
 - The default Matplotlib color scheme is `coolwarm`. Scheme names are not case-sensitive. An unrecognized scheme is an error that changes no colors, so use a Matplotlib colormap name such as `viridis`. Do not emit the removed `prop:`, `property:`, `scheme:`, or `color:` forms.
 """
 
@@ -98,7 +98,8 @@ def print_help():
 
     Description:
       Colors nodes along a color gradient (spectrum) based on the values of a numerical property.
-      You can optionally target a subset of nodes using a logical expression.
+      You can optionally target a subset of nodes using a logical expression; without
+      one, the selected nodes are colored, or all visible nodes when nothing is selected.
       The sequence of the arguments does not matter.
 
       * IMPORTANT: This command only applies to visible nodes.
@@ -121,7 +122,8 @@ def print_help():
                                 * Miscellaneous: jet, rainbow, turbo, ocean, terrain, cubehelix, 
                                   gnuplot, gnuplot2, flag, prism, gist_earth, nipy_spectral
       [EXPRESSION]            - (Optional) Logical expression to select which nodes are colored.
-                                If omitted, all visible nodes in the network are colored.
+                                If omitted, the selected nodes are colored; when nothing is
+                                selected, all visible nodes in the network are.
 
     Selection Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and
@@ -323,8 +325,15 @@ def run(viewer, args):
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, Message("Spectrum"))
             return
+    elif Command_Engine.command_selection(viewer):
+        # No expression: the selection, as if `$sele$` had been typed.
+        mask = Command_Engine.get_selected_mask(viewer)
     else:
+        # Nothing selected: every visible node, with the note query gives.
         mask = np.ones(viewer.n_nodes, dtype=bool)
+        if hasattr(viewer, 'console_text'):
+            Command_Engine.show_status(viewer, Message("No selection found. Defaulting to all visible nodes."))
+        print("No nodes selected. Defaulting to all visible nodes in the network.")
 
     # Restrict to visible nodes
     mask = mask & viewer.visible_mask
