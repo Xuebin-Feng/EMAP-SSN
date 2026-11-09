@@ -507,6 +507,88 @@ class CustomDatasetLoadingTests(HeadlessSettingsFixture, unittest.TestCase):
             np.testing.assert_array_equal(after[name], before[name])
         self.assertEqual(after["layers"][0]["categories"][1]["label"], "Noise")
 
+    def painted(self, viewer):
+        """Two nodes, red and green, as a command that declares a color key leaves them."""
+        from desktop.Node_Colors import declare_categories
+        viewer.current_colors[:] = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]
+        declare_categories(viewer, "Clusters", [("A", (1, 0, 0, 1)), ("B", (0, 1, 0, 1))], [0, 1])
+
+    def test_a_saved_session_keeps_its_rows_and_later_color_runs_add_to_it(self):
+        from desktop.Node_Colors import declare_categories, key_state
+        from desktop.Viewer_Legend import legend_model
+
+        viewer, _printed = self.load()
+        self.painted(viewer)
+        again, printed = self.load(path=self.save(viewer, "session.h5"))
+        self.assertNotIn("damaged", printed)
+        state = key_state(again)
+        self.assertEqual([layer["title"] for layer in state["layers"]], ["Clusters"])
+        self.assertTrue(state["labelled"].all())
+        model = legend_model(again)
+        self.assertEqual([(row["label"], row["count"]) for row in model["layers"][0]["rows"]], [("A", 1), ("B", 1)])
+        self.assertEqual(model["unlabelled"], [])
+        # Two color runs afterwards (node 0 recolored twice): the loaded rows stay, and one Colors layer follows.
+        for color, label in (((0.0, 0.0, 1.0, 1.0), "n0 -> blue"), ((1.0, 1.0, 0.0, 1.0), "n0 -> yellow")):
+            again.current_colors[0] = color
+            declare_categories(again, "Colors", [(label, color)], [0], nodes=[0], extend=True)
+        state = key_state(again)
+        self.assertEqual([layer["title"] for layer in state["layers"]], ["Clusters", "Colors"])
+        self.assertEqual([entry["label"] for entry in state["layers"][1]["categories"]], ["n0 -> yellow"])
+        self.assertTrue(state["labelled"].all())
+        self.assertEqual(legend_model(again)["unlabelled"], [])
+
+    def test_a_session_saved_with_colors_but_no_key_shows_them_unlabelled(self):
+        # What a session saved before the color key existed looks like: the colors come back, and nothing says
+        # what they mean, so the legend lists them under "Unlabelled colours". That is expected, not a loss.
+        from desktop.Node_Colors import declare_categories, key_state
+        from desktop.Viewer_Legend import legend_model
+
+        viewer, _printed = self.load()
+        viewer.current_colors[:] = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]
+        self.assertIsNone(viewer.color_key_layers)
+        saved = self.save(viewer, "old_session.h5")
+        with h5py.File(saved, "r") as cache:
+            self.assertFalse([name for name in cache.keys() if name.startswith("color_key")])
+        again, printed = self.load(path=saved)
+        self.assertNotIn("damaged", printed)
+        np.testing.assert_array_equal(again.current_colors[:, :3], [[1, 0, 0], [0, 1, 0]])
+        self.assertIsNone(key_state(again))
+        self.assertIsNone(legend_model(again))  # no key: the card shows its plain line, not the colors
+        again.current_colors[0] = (0.0, 0.0, 1.0, 1.0)
+        declare_categories(again, "Colors", [("n0 -> blue", (0.0, 0.0, 1.0, 1.0))], [0], nodes=[0], extend=True)
+        model = legend_model(again)
+        self.assertEqual([layer["title"] for layer in model["layers"]], ["Colors"])
+        self.assertEqual([(entry["hex"], entry["count"]) for entry in model["unlabelled"]], [("#00ff00", 1)])
+
+    def test_a_damaged_key_in_a_session_is_dropped_with_one_warning_and_the_colors_survive(self):
+        from desktop.Node_Colors import declare_categories, key_state
+        from desktop.Viewer_Legend import legend_model
+
+        viewer, _printed = self.load()
+        self.painted(viewer)
+        for damage in ({"color_key_layers": {"not": "a list"}},
+                       {"color_key_layers": [{"id": 1, "kind": "categories"}]},
+                       {"color_key_owner": np.zeros(7, dtype=np.int32)}):
+            with self.subTest(damage=list(damage)):
+                saved = self.save(viewer, "damaged.h5")
+                with h5py.File(saved, "a") as cache:
+                    for name, value in damage.items():
+                        del cache[name]
+                        if isinstance(value, np.ndarray):
+                            cache.create_dataset(name, data=value)
+                        else:
+                            cache.create_dataset(name, data=json.dumps(value)).attrs["is_json"] = True
+                again, printed = self.load(path=saved)
+                np.testing.assert_array_equal(again.current_colors[:, :3], [[1, 0, 0], [0, 1, 0]])
+                with redirect_stdout(io.StringIO()) as warned:
+                    self.assertIsNone(key_state(again))
+                    key_state(again)
+                self.assertEqual(warned.getvalue().count("the color key of the loaded layout was damaged"), 1)
+                self.assertIsNone(legend_model(again))
+                again.current_colors[0] = (0.0, 0.0, 1.0, 1.0)  # a new declaration starts from nothing
+                declare_categories(again, "Colors", [("n0 -> blue", (0, 0, 1, 1))], [0], nodes=[0], extend=True)
+                self.assertEqual([layer["title"] for layer in key_state(again)["layers"]], ["Colors"])
+
 
 if __name__ == "__main__":
     unittest.main()
