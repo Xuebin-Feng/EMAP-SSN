@@ -512,10 +512,13 @@ def _srgb_to_lab(rgb):
     return np.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], axis=-1)
 
 
-def reference_color(cmap):
-    """(name, hex, rgba) of the candidate farthest, in CIELAB, from every color of the map and from the noise color."""
+def reference_color(cmap, background=None):
+    """(name, hex, rgba) of the candidate farthest, in CIELAB, from every color of the map, from the noise color and from the canvas ``background`` when given."""
     from matplotlib.colors import to_rgb
-    palette = np.vstack([np.asarray(cmap(np.linspace(0.0, 1.0, 256)))[:, :3], MISSING_COLOR[:3]])
+    colors = [np.asarray(cmap(np.linspace(0.0, 1.0, 256)))[:, :3], np.asarray(MISSING_COLOR[:3])[None, :]]
+    if background is not None:
+        colors.append(np.asarray(background, dtype=float)[None, :3])
+    palette = np.vstack(colors)
     palette_lab = _srgb_to_lab(palette)
     best = None
     for name, hex_code in REFERENCE_CANDIDATES:
@@ -679,7 +682,9 @@ def apply(viewer, plan, result):
     missing = targets & ~np.isfinite(scores)
 
     cmap, cmap_ok = get_colormap(inputs.scheme_name)
-    color_name, color_hex, color_rgba = reference_color(cmap)
+    canvas = getattr(viewer, 'canvas', None)
+    background = getattr(getattr(canvas, 'bgcolor', None), 'rgba', None)
+    color_name, color_hex, color_rgba = reference_color(cmap, background)
     viewer._save_state()
 
     scored = scores[has_score]

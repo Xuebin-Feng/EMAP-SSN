@@ -432,6 +432,22 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
         # coolwarm runs blue to red through a light gray: lime or gold stand apart from it.
         self.assertIn(spectrum.reference_color(mpl.colormaps["coolwarm"])[0], ("lime", "gold"))
 
+    def test_the_reference_color_stands_apart_from_the_canvas_background(self):
+        dark = mcolors.ListedColormap(["#00E676", "#FF00FF", "#FFD600", "#00E5FF", "#000000"])  # every candidate but white
+        self.assertEqual(spectrum.reference_color(dark)[0], "white")
+        on_white = spectrum.reference_color(dark, (1.0, 1.0, 1.0, 1.0))
+        self.assertNotEqual(on_white[0], "white")
+        coolwarm = mpl.colormaps["coolwarm"]
+        self.assertEqual(spectrum.reference_color(coolwarm, (1.0, 1.0, 1.0, 1.0))[0], "lime")
+        self.assertEqual(spectrum.reference_color(coolwarm), spectrum.reference_color(coolwarm, None))
+
+    def test_the_viewers_canvas_background_is_passed_on(self):
+        viewer = self.make_viewer()
+        viewer.canvas = SimpleNamespace(bgcolor=SimpleNamespace(rgba=np.array([1.0, 1.0, 1.0, 1.0])))
+        with mock.patch.object(spectrum, "reference_color", wraps=spectrum.reference_color) as picker:
+            self.run_spectrum(viewer, ["viridis"])
+        np.testing.assert_array_equal(picker.call_args.args[1], [1.0, 1.0, 1.0, 1.0])
+
     def test_no_property_and_not_exactly_one_node_selected_fails_and_names_the_mode(self):
         for selected in ((), (0, 1)):
             viewer = self.make_viewer(selected=selected)
