@@ -203,7 +203,7 @@ still change before version 1.0.0.
   - The selected node gets a vivid color that the chosen scheme does not contain: lime,
     magenta, gold, cyan, black or white, whichever is farthest from the scheme's colors,
     the noise color and the canvas background (lime for `coolwarm`, magenta for
-    `viridis`). It stays selected.
+    `viridis`). It stays selected and is drawn above every other node.
   - Nodes with no stored pair to it get the noise color and stay out of the range. Higher
     scores run toward the end of the scheme, for every network type.
   - The file is read on the command queue's worker thread: about 0.3 s for 48.7 million
