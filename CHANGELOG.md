@@ -219,6 +219,9 @@ still change before version 1.0.0.
     the minimum and the maximum, and rows for "No value", "No score" or the selected node.
     Pressing or dragging on the bar marks the leaves whose value lies in that range; arrow
     keys step through it and Escape clears.
+  - Every `color` run adds its rows to one "Colors" list, in the order run, and a row
+    typed the same way with the same color is one row. A node keeps its row when only
+    its alpha changes, as after `color #cluster_1# 50%`.
   - Colors no command described, such as a cache's own colors or nodes painted over since,
     are listed under "Unlabelled colours" by hex code. The 12-row cap is gone, and so are
     the "Cluster N" labels the legend used to guess, which could name a spectrum's colors
@@ -323,6 +326,10 @@ still change before version 1.0.0.
   headset connects, or the selection, so `distribution`, `spectrum`'s similarity mode and
   new commands get it too, as does a side effect such as `hide` dropping hidden nodes from
   the selection. VR's `help` reads the summary each of its own commands declares.
+- **`color` says when a bare number was meant as an alpha.** Matplotlib reads `0.5` as a
+  gray color, so `<green,0.5>` is two colors. The refusal now says that `0.5` was read as a
+  gray and that an alpha is written `50%`. The help adds that an attribute left out stays
+  as it is, and that symbols such as `*` and `+` are shapes, not wildcards.
 
 ### Fixed
 
