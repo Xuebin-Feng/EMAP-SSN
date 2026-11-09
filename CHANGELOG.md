@@ -184,6 +184,17 @@ still change before version 1.0.0.
   `create_subset` describes how expressions are written (`#cluster_1#`, `#clade:3#`,
   `{Length>500}`, ...), and `summarize_subset` says it gives cluster and group sizes, which
   an agent in a test looked for elsewhere.
+- **`distribution` colors nodes by their residue at one alignment position.**
+  `distribution [EXPRESSION] [POSITION]`, as in `distribution #cluster_1# [120]`, gives
+  each residue a fixed color. The 20 amino acids form 10 chemistry pairs that share a hue,
+  one dark and one light, such as K/R in blues and D/E in reds, from tab20 with its grey
+  pair swapped for tab20b's gold. Gaps and other symbols take `cluster`'s noise grey.
+  - It colors the expression's matches, else the selection, else all visible nodes. Hidden
+    nodes, nodes outside the target and nodes not in the alignment keep their colors, and
+    one undo restores the rest.
+  - The position is numbered as in `query`. A list, a range or a frequency comparison is
+    refused and changes nothing.
+  - The Console gets a table of the residues there, with counts and percentages.
 
 ### Changed
 
