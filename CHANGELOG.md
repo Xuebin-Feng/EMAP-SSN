@@ -256,6 +256,10 @@ still change before version 1.0.0.
   the expression matched it, and with nothing selected `query` ran on every node; it now
   runs on every visible node. An expression that matches only hidden nodes succeeds with a
   note that says so.
+- **`spectrum` with no expression colors the selection.** It used to color every visible
+  node and ignore the selection; it now colors the selected nodes, and all visible nodes
+  only when nothing is selected, as `query` and `logo` do. The gradient's minimum and
+  maximum come from the nodes it colors, as with an expression.
 
 ### Fixed
 
