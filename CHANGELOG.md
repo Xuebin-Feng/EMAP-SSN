@@ -199,9 +199,11 @@ still change before version 1.0.0.
   selected and no `{PROPERTY}`, `spectrum` colors the expression's visible matches, or all
   visible nodes, by each one's score to the selected node: the score the network stores for
   that pair, read back from the network file, so pairs the Viewer did not load count too.
+  A bare `spectrum` does this with `coolwarm`.
   - The selected node gets a vivid color that the chosen scheme does not contain: lime,
-    magenta, gold, cyan, black or white, whichever is farthest from the scheme's colors
-    (gold for `coolwarm`, magenta for `viridis`). It stays selected.
+    magenta, gold, cyan, black or white, whichever is farthest from the scheme's colors,
+    the noise color and the canvas background (lime for `coolwarm`, magenta for
+    `viridis`). It stays selected.
   - Nodes with no stored pair to it get the noise color and stay out of the range. Higher
     scores run toward the end of the scheme, for every network type.
   - The file is read on the command queue's worker thread: about 0.3 s for 48.7 million
