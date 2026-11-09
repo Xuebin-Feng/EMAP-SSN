@@ -1231,10 +1231,18 @@
                 
                 <div class="subheading">Arguments</div>
                 <ul>
-                    <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression.</li>
+                    <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression. It may be left out only with exactly one node selected, which starts the similarity mode below; with none or several selected, leaving it out is an error.</li>
                     <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>. Names are not case-sensitive (<code>Viridis</code> is <code>viridis</code>); an unrecognized name is an error and changes no colors. A token that forms a complete selection expression is read as an expression before it is tried as a colormap name.</li>
-                    <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, the selected nodes are colored; when nothing is selected, all visible nodes in the network are. Hidden nodes are never colored. The gradient's minimum and maximum come from the targeted visible nodes only. Targeted nodes whose property value is missing, non-numeric, or infinite are colored light gray and excluded from the numeric minimum/maximum range.</li>
+                    <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, the selected nodes are colored; when nothing is selected, all visible nodes in the network are. Hidden nodes are never colored. The gradient's minimum and maximum come from the targeted visible nodes only. Targeted nodes whose property value is missing, non-numeric, or infinite get the noise color (the translucent light gray the <code>cluster</code> command gives unclustered nodes) and are excluded from the numeric minimum/maximum range.</li>
                     <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
+                </ul>
+
+                <div class="subheading">Similarity mode</div>
+                <ul>
+                    <li><strong>Trigger:</strong> Exactly one node is selected and no <code>{&lt;property_name&gt;}</code> is given. The visible nodes are colored by their similarity score to the selected node: the score the network plot draws its edges with (higher means more similar), read back from the network file, so every pair in the file counts, not only the edges the Viewer loaded. A pair stored more than once counts at its highest score.</li>
+                    <li><strong>Targets:</strong> The visible nodes the expression matches, or all visible nodes when there is none (not the selection, which is a single node). Hidden nodes are never colored. The color scheme works as in the normal mode.</li>
+                    <li><strong>Colors:</strong> The lowest score among the targets takes the start of the scheme and the highest the end; the selected node itself is left out of that range. Nodes with no pair to the selected node get the same noise color and are left out of the range. The selected node is colored a vivid color chosen to stand apart from the scheme (lime, magenta, gold, cyan, black or white, whichever is farthest from the scheme and from the noise color), whether or not the expression matches it, and it stays selected.</li>
+                    <li><strong>Errors:</strong> If the network file is missing or unreadable, or no longer holds the nodes the Viewer loaded, the command fails and recolors nothing. The metadata HUD is not opened in this mode, since the scores are not a metadata column. Undo restores the colors.</li>
                 </ul>
 
                 <div class="subheading">Colormap Schemes</div>
@@ -1253,6 +1261,7 @@
                     <li class="example-item"><span>spectrum plasma {Length}</span><button class="copy-btn" onclick="copyText('spectrum plasma {Length}', this)">Copy</button></li>
                     <li class="example-item"><span>spectrum #cluster_1# {Length} coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# {Length} coolwarm', this)">Copy</button></li>
                     <li class="example-item"><span>spectrum {Organism=*coli*} {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Organism=*coli*} {Length}', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum viridis</span><button class="copy-btn" onclick="copyText('spectrum viridis', this)">Copy</button></li>
                 </ul>
             </section>
 

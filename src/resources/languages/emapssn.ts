@@ -4858,6 +4858,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Spectrum</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Missing arguments for spectrum coloring.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4878,15 +4882,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Spectrum</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: Unrecognized extra spectrum argument &apos;{argument}&apos;. Only one color scheme may be supplied.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Target property must be specified as {syntax}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4915,6 +4911,40 @@ Command-line usage:
     </message>
     <message>
         <source>(min: {min}, max: {max})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The network file no longer matches the nodes loaded in the Viewer ({missing} of them are not in it).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The network file &apos;{path}&apos; could not be read ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Target property must be specified as {syntax}, or select exactly one node to color by similarity to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Similarity coloring reads the network file, which was not found: &apos;{path}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No target node has a score to {header}; {missing} node(s) get the noise color.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Colored %n node(s) by similarity to {header} (scores {minimum} to {maximum}); {missing} have no score to it.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Similarity spectrum to {header} {range} with scheme &apos;{scheme}&apos;: higher scores run toward the end of the scheme.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The selected node is {color} ({hex}); {missing} node(s) with no score to it get the noise color and are left out of the range.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

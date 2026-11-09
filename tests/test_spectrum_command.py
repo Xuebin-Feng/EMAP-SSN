@@ -112,7 +112,7 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         for index, position in enumerate((0.0, 0.5, 1.0)):
             np.testing.assert_allclose(viewer.current_colors[index], cmap(position))
         np.testing.assert_array_equal(
-            viewer.current_colors[3:], [(0.7, 0.7, 0.7, 1.0)] * 2
+            viewer.current_colors[3:], [(0.8, 0.8, 0.8, 0.4)] * 2
         )
         self.assertIn("applied to 3 nodes", viewer.console_text.text)
         self.assertIn("(min: 350.0, max: 600.0)", viewer.console_text.text)
@@ -314,6 +314,205 @@ class SpectrumSelectionPrecedenceTests(unittest.TestCase):
             spectrum.run(viewer, ['K54', '{Length}', 'viridis'])
         np.testing.assert_allclose(viewer.current_colors[1], mpl.colormaps['viridis'](.5))
         np.testing.assert_array_equal(viewer.current_colors[[0, 2]], np.ones((2, 4)))
+
+
+class SpectrumSimilarityModeTests(unittest.TestCase):
+    """One node selected and no {PROPERTY}: the nodes are colored by their score to it, from the network file."""
+
+    def setUp(self):
+        import tempfile
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        # Five network nodes; the Viewer holds the first four. Pairs: 0-1 = 10; 0-2 stored both ways
+        # (20, then 30 reversed: 30 wins); 1-2 = 99 (not the reference's); 0-3 has none;
+        # 0-4 = 500 reaches a node the Viewer did not load.
+        self.network = self.write_network(
+            [f"node_{index}" for index in range(5)],
+            [(0, 1, 10.0), (0, 2, 20.0), (2, 0, 30.0), (1, 2, 99.0), (0, 4, 500.0)],
+        )
+
+    def write_network(self, headers, pairs, name="network.h5"):
+        import h5py
+        path = os.path.join(self.folder.name, name)
+        with h5py.File(path, "w") as network:
+            network.attrs["model_name"] = "BLAST"
+            network.create_dataset("headers", data=[header.encode() for header in headers])
+            network.create_dataset("i", data=np.array([p[0] for p in pairs], dtype=np.uint16))
+            network.create_dataset("j", data=np.array([p[1] for p in pairs], dtype=np.uint16))
+            network.create_dataset("score", data=np.array([p[2] for p in pairs], dtype=np.float32))
+        return path
+
+    def make_viewer(self, selected=(0,), nodes=4):
+        viewer = SimpleNamespace(
+            n_nodes=nodes,
+            full_headers=[f"node_{index}" for index in range(nodes)],
+            cluster_labels=None,
+            group_labels=[set() for _ in range(nodes)],
+            alignment=None,
+            metadata={"Length": {"type": "number", "values": np.arange(1.0, nodes + 1)}},
+            current_colors=np.zeros((nodes, 4), dtype=float),
+            visible_mask=np.ones(nodes, dtype=bool),
+            selected_indices=list(selected),
+            console_text=SimpleNamespace(text=""),
+            promote_nodes=mock.Mock(),
+            update_nodes=mock.Mock(),
+            update_console_background=mock.Mock(),
+            hud_displays={},
+        )
+        viewer.states = []
+        viewer._save_state = mock.Mock(side_effect=lambda: viewer.states.append(viewer.current_colors.copy()))
+        return viewer
+
+    def run_spectrum(self, viewer, args, network=None):
+        with mock.patch("commands.meta.run") as meta, \
+                mock.patch.object(spectrum.cfg, "INPUT_HDF5", network or self.network, create=True), \
+                mock.patch.object(sys, "stdout", io.StringIO()):
+            spectrum.run(viewer, args)
+        self.meta = meta
+
+    def test_scores_come_from_the_file_with_the_reference_and_missing_colored_apart(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis"])
+
+        cmap = mpl.colormaps["viridis"]
+        _, _, reference_rgba = spectrum.reference_color(cmap)
+        np.testing.assert_allclose(viewer.current_colors[1], cmap(0.0))  # score 10, the lowest
+        np.testing.assert_allclose(viewer.current_colors[2], cmap(1.0))  # 30 won over 20
+        np.testing.assert_allclose(viewer.current_colors[3], (0.8, 0.8, 0.8, 0.4))  # no pair: the noise color
+        np.testing.assert_allclose(viewer.current_colors[0], reference_rgba)
+        promoted = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted, [True, True, True, True])
+        viewer.update_nodes.assert_called_once_with()
+        self.assertIn("(min: 10, max: 30)", viewer.console_text.text)
+        self.assertIn("1 node(s) with no score to it", viewer.console_text.text)
+        self.assertEqual(viewer.selected_indices, [0])
+        self.meta.assert_not_called()
+
+    def test_an_expression_picks_the_nodes_colored_and_sets_the_range(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis", '"node_2"'])
+
+        cmap = mpl.colormaps["viridis"]
+        np.testing.assert_allclose(viewer.current_colors[2], cmap(0.5))  # alone: the range is one score
+        np.testing.assert_array_equal(viewer.current_colors[1], [0, 0, 0, 0])
+        np.testing.assert_array_equal(viewer.current_colors[3], [0, 0, 0, 0])
+        np.testing.assert_allclose(viewer.current_colors[0], spectrum.reference_color(cmap)[2])
+
+    def test_without_an_expression_every_visible_node_is_a_target_not_the_selection(self):
+        viewer = self.make_viewer()
+        viewer.visible_mask = np.array([True, False, True, True])
+
+        self.run_spectrum(viewer, ["viridis"])
+
+        cmap = mpl.colormaps["viridis"]
+        np.testing.assert_array_equal(viewer.current_colors[1], [0, 0, 0, 0])  # hidden: untouched
+        np.testing.assert_allclose(viewer.current_colors[2], cmap(0.5))
+        np.testing.assert_allclose(viewer.current_colors[3], spectrum.MISSING_COLOR)
+
+    def test_a_reference_the_expression_does_not_match_still_gets_its_color(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["coolwarm", '"node_1"'])
+
+        np.testing.assert_allclose(
+            viewer.current_colors[0], spectrum.reference_color(mpl.colormaps["coolwarm"])[2]
+        )
+
+    def test_the_reference_color_is_not_in_the_scheme(self):
+        from matplotlib.colors import to_hex
+        for scheme in ("coolwarm", "viridis"):
+            cmap = mpl.colormaps[scheme]
+            name, hex_code, rgba = spectrum.reference_color(cmap)
+            self.assertIn(name, [candidate[0] for candidate in spectrum.REFERENCE_CANDIDATES])
+            self.assertEqual(to_hex(rgba).upper(), hex_code)
+            samples = np.asarray(cmap(np.linspace(0, 1, 256)))[:, :3]
+            self.assertGreater(np.min(np.linalg.norm(samples - np.asarray(rgba[:3]), axis=1)), 0.3)
+        # coolwarm runs blue to red through a light gray: lime or gold stand apart from it.
+        self.assertIn(spectrum.reference_color(mpl.colormaps["coolwarm"])[0], ("lime", "gold"))
+
+    def test_no_property_and_not_exactly_one_node_selected_fails_and_names_the_mode(self):
+        for selected in ((), (0, 1)):
+            viewer = self.make_viewer(selected=selected)
+
+            self.run_spectrum(viewer, ["viridis"])
+
+            self.assertIn("select exactly one node to color by similarity", viewer.console_text.text)
+            np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+            viewer._save_state.assert_not_called()
+
+    def test_a_property_keeps_the_ordinary_mode_with_one_node_selected(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["{Length}"])
+
+        promoted = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted, [True, False, False, False])  # the selection, as before
+        np.testing.assert_allclose(viewer.current_colors[0], mpl.colormaps["coolwarm"](0.5))
+        self.meta.assert_called_once()
+
+    def test_a_missing_network_file_fails_and_changes_nothing(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis"], network=os.path.join(self.folder.name, "gone.h5"))
+
+        self.assertIn("network file", viewer.console_text.text)
+        np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+        viewer._save_state.assert_not_called()
+        viewer.promote_nodes.assert_not_called()
+
+    def test_an_unreadable_network_file_fails_and_changes_nothing(self):
+        viewer = self.make_viewer()
+        broken = os.path.join(self.folder.name, "broken.h5")
+        with open(broken, "wb") as handle:
+            handle.write(b"not an hdf5 file")
+
+        self.run_spectrum(viewer, ["viridis"], network=broken)
+
+        self.assertIn("could not be read", viewer.console_text.text)
+        np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+        viewer._save_state.assert_not_called()
+
+    def test_headers_that_no_longer_match_fail_and_change_nothing(self):
+        viewer = self.make_viewer()
+        other = self.write_network(["node_0", "node_1", "node_2"], [(0, 1, 10.0)], name="other.h5")
+
+        self.run_spectrum(viewer, ["viridis"], network=other)
+
+        self.assertIn("no longer matches", viewer.console_text.text)
+        np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+        viewer._save_state.assert_not_called()
+
+    def test_the_undo_state_is_saved_once_before_any_color_changes(self):
+        viewer = self.make_viewer()
+
+        self.run_spectrum(viewer, ["viridis"])
+
+        viewer._save_state.assert_called_once_with()
+        np.testing.assert_array_equal(viewer.states[0], np.zeros((4, 4)))
+
+    def test_no_visible_target_succeeds_with_a_note_and_changes_nothing(self):
+        viewer = self.make_viewer()
+        viewer.visible_mask = np.array([True, False, False, False])
+
+        self.run_spectrum(viewer, ["viridis", '"node_1"'])
+
+        self.assertIn("No nodes matched", viewer.console_text.text)
+        np.testing.assert_array_equal(viewer.current_colors, np.zeros((4, 4)))
+        viewer._save_state.assert_not_called()
+
+    def test_the_noise_color_is_shared_and_pinned(self):
+        from desktop import Node_Colors
+        from commands import cluster
+        self.assertEqual(Node_Colors.NOISE_COLOR, (0.8, 0.8, 0.8, 0.4))
+        self.assertIs(spectrum.MISSING_COLOR, Node_Colors.NOISE_COLOR)
+        self.assertIs(cluster.NOISE_COLOR, Node_Colors.NOISE_COLOR)
+
+    def test_the_plan_is_heavy_only_without_a_property(self):
+        viewer = self.make_viewer()
+        self.assertTrue(spectrum.plan(viewer, ["viridis"]).heavy)
+        self.assertFalse(spectrum.plan(viewer, ["{Length}"]).heavy)
 
 
 if __name__ == "__main__":

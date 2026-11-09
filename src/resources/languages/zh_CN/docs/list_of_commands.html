@@ -1214,7 +1214,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-spectrum" data-source-sha256="9ae62d874eacfa62619a4ef093c4a232600e775e34d016375efe3726b044273e">
+            <section class="command-card" id="cmd-spectrum" data-source-sha256="5452438889455475305d1c7de3ce8e9b6a996ce774bb4c6131bfe485475233ee">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">spectrum</span>
@@ -1230,10 +1230,18 @@
                 
                 <div class="subheading">参数</div>
                 <ul>
-                    <li><strong>{&lt;property_name&gt;}：</strong>必须恰好有一个数值型元数据属性（例如 <code>{Length}</code>）。单独的大括号目标选中的是渐变色属性，而完整的条件（如 <code>{Length&gt;500}</code>）仍是布尔节点表达式。</li>
+                    <li><strong>{&lt;property_name&gt;}：</strong>必须恰好有一个数值型元数据属性（例如 <code>{Length}</code>）。单独的大括号目标选中的是渐变色属性，而完整的条件（如 <code>{Length&gt;500}</code>）仍是布尔节点表达式。只有在恰好选中一个节点时才可以省略它，这会启动下面的相似度模式；选中零个或多个节点时省略它会报错。</li>
                     <li><strong>&lt;color_scheme&gt;：</strong>（可选）一个独立的 Matplotlib 颜色映射名称。默认为 <code>coolwarm</code>。名称不区分大小写（<code>Viridis</code> 即 <code>viridis</code>）；无法识别的名称会报错，且不改变任何颜色。构成完整选择表达式的词元会先被当作表达式读取，然后才会尝试当作颜色映射名称。</li>
-                    <li><strong>[expression]：</strong>（可选）用于选择为哪些可见节点着色的逻辑表达式。省略时，为当前选中的节点着色；没有选中节点时，为网络中所有可见节点着色。隐藏节点永远不会被着色。渐变的最小值和最大值只取自目标可见节点。属性值缺失、非数值或为无穷大的目标节点会着浅灰色，并被排除在数值的最小/最大范围之外。</li>
+                    <li><strong>[expression]：</strong>（可选）用于选择为哪些可见节点着色的逻辑表达式。省略时，为当前选中的节点着色；没有选中节点时，为网络中所有可见节点着色。隐藏节点永远不会被着色。渐变的最小值和最大值只取自目标可见节点。属性值缺失、非数值或为无穷大的目标节点会着噪声色（<code>cluster</code> 命令给未聚类节点使用的半透明浅灰色），并被排除在数值的最小/最大范围之外。</li>
                     <li><strong>顺序：</strong>属性、表达式和配色方案可以按任意顺序出现，因为每个角色都会在执行前先分类。旧的 <code>prop:</code>、<code>property:</code>、<code>scheme:</code> 和 <code>color:</code> 写法不再被接受。</li>
+                </ul>
+
+                <div class="subheading">相似度模式</div>
+                <ul>
+                    <li><strong>触发条件：</strong>恰好选中一个节点，且没有给出 <code>{&lt;property_name&gt;}</code>。可见节点会按其与所选节点的相似度得分着色：这个得分就是网络图绘制边时使用的得分（越高越相似），从网络文件中读回，因此文件中的每一对都会计入，而不只是查看器已加载的边。同一对节点被存储多次时，取其最高得分。</li>
+                    <li><strong>目标节点：</strong>表达式匹配的可见节点；没有表达式时为所有可见节点（而不是选中的节点，因为它只有一个）。隐藏节点永远不会被着色。配色方案的用法与普通模式相同。</li>
+                    <li><strong>颜色：</strong>目标节点中得分最低者取配色方案的起点，最高者取终点；所选节点本身不计入该范围。与所选节点没有配对的节点着同样的噪声色，并被排除在范围之外。所选节点本身着一种与配色方案明显不同的鲜艳颜色（青柠绿、品红、金黄、青色、黑色或白色，取与该配色方案及噪声色距离最远者），无论表达式是否匹配它，它都保持选中。</li>
+                    <li><strong>错误：</strong>网络文件缺失、无法读取，或不再包含查看器已加载的节点时，命令会失败且不改变任何颜色。该模式不会打开元数据 HUD，因为得分不是元数据列。撤销会恢复颜色。</li>
                 </ul>
 
                 <div class="subheading">颜色映射方案</div>
@@ -1252,6 +1260,7 @@
                     <li class="example-item"><span>spectrum plasma {Length}</span><button class="copy-btn" onclick="copyText('spectrum plasma {Length}', this)">复制</button></li>
                     <li class="example-item"><span>spectrum #cluster_1# {Length} coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# {Length} coolwarm', this)">复制</button></li>
                     <li class="example-item"><span>spectrum {Organism=*coli*} {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Organism=*coli*} {Length}', this)">复制</button></li>
+                    <li class="example-item"><span>spectrum viridis</span><button class="copy-btn" onclick="copyText('spectrum viridis', this)">复制</button></li>
                 </ul>
             </section>
 

@@ -16,7 +16,8 @@
 import numpy as np
 import matplotlib.colors as mcolors
 import Command_Engine
-from commands.cluster import NOISE_COLOR, get_colored_cluster_name
+from commands.cluster import get_colored_cluster_name
+from desktop.Node_Colors import NOISE_COLOR
 from commands.query import _QUERY_POSITION_RANGE_RE, parse_query_positions
 from utilities.Localization import JoinedMessage, Message
 from utilities.Sequence_Utils import rejoin_split_brackets, split_position_list

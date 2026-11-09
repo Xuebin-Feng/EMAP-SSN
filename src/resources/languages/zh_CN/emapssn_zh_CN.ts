@@ -4816,7 +4816,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="+112"/>
         <location line="+16"/>
         <location line="+127"/>
-        <location filename="../../../commands/distribution.py" line="+119"/>
+        <location filename="../../../commands/distribution.py" line="+120"/>
         <location filename="../../../commands/esmfold.py" line="+156"/>
         <location line="+584"/>
         <location line="+172"/>
@@ -4849,7 +4849,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
-        <location filename="../../../commands/cluster.py" line="+393"/>
+        <location filename="../../../commands/cluster.py" line="+391"/>
         <location filename="../../../commands/color.py" line="+504"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
@@ -4867,8 +4867,8 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="-251"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
-        <location filename="../../../commands/spectrum.py" line="+197"/>
-        <location filename="../../../commands/subcluster.py" line="+233"/>
+        <location filename="../../../commands/spectrum.py" line="+230"/>
+        <location filename="../../../commands/subcluster.py" line="+234"/>
         <location filename="../../../commands/tree.py" line="+130"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
@@ -6332,6 +6332,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/distribution.py" line="-104"/>
         <location filename="../../../commands/query.py" line="+17"/>
+        <location filename="../../../commands/spectrum.py" line="+134"/>
         <source>No selection found. Defaulting to all visible nodes.</source>
         <translation type="unfinished">没有选中节点，默认使用全部可见节点。</translation>
     </message>
@@ -6702,7 +6703,7 @@ Command-line usage:
         <translation type="unfinished">错误：不支持的选择模式“{mode}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/spectrum.py" line="-118"/>
+        <location filename="../../../commands/spectrum.py" line="-280"/>
         <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
         <translation type="unfinished">
             <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用渐变色着色。</numerusform>
@@ -6721,7 +6722,7 @@ Command-line usage:
         <translation type="unfinished">[警告：找不到“{scheme}”，改用 coolwarm]</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+119"/>
         <source>Error: Missing arguments for spectrum coloring.</source>
         <translation type="unfinished">错误：渐变色着色缺少参数。</translation>
     </message>
@@ -6746,28 +6747,70 @@ Command-line usage:
         <translation type="unfinished">错误：spectrum 最多只接受一个配色方案。</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <location line="+82"/>
+        <location line="+317"/>
+        <source>Error: The network file no longer matches the nodes loaded in the Viewer ({missing} of them are not in it).</source>
+        <translation type="unfinished">错误：网络文件与查看器已加载的节点不再匹配（其中 {missing} 个不在文件中）。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Error: The network file &apos;{path}&apos; could not be read ({error}).</source>
+        <translation type="unfinished">错误：无法读取网络文件“{path}”（{error}）。</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Error: Target property must be specified as {syntax}, or select exactly one node to color by similarity to it.</source>
+        <translation type="unfinished">错误：必须以 {syntax} 的形式指定目标属性，或者恰好选中一个节点，按与它的相似度着色。</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Error: Similarity coloring reads the network file, which was not found: &apos;{path}&apos;.</source>
+        <translation type="unfinished">错误：相似度着色需要读取网络文件，但未找到该文件：“{path}”。</translation>
+    </message>
+    <message>
+        <location line="+79"/>
+        <source>No target node has a score to {header}; {missing} node(s) get the noise color.</source>
+        <translation type="unfinished">没有目标节点与 {header} 有得分；{missing} 个节点着噪声色。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Colored %n node(s) by similarity to {header} (scores {minimum} to {maximum}); {missing} have no score to it.</source>
+        <translation type="unfinished">
+            <numerusform>按与 {header} 的相似度为 %n 个节点着色（得分 {minimum} 至 {maximum}）；{missing} 个与它没有得分。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Similarity spectrum to {header} {range} with scheme &apos;{scheme}&apos;: higher scores run toward the end of the scheme.</source>
+        <translation type="unfinished">与 {header} 的相似度渐变色 {range}，配色方案“{scheme}”：得分越高越靠近配色方案的末端。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The selected node is {color} ({hex}); {missing} node(s) with no score to it get the noise color and are left out of the range.</source>
+        <translation type="unfinished">所选节点为{color}（{hex}）；与它没有得分的 {missing} 个节点着噪声色，并被排除在范围之外。</translation>
+    </message>
+    <message>
+        <location line="-525"/>
+        <location line="+71"/>
         <source>Spectrum</source>
         <translation type="unfinished">渐变色</translation>
     </message>
     <message>
-        <location line="-78"/>
+        <location line="+4"/>
         <source>Error: Unrecognized extra spectrum argument &apos;{argument}&apos;. Only one color scheme may be supplied.</source>
         <translation type="unfinished">错误：无法识别多余的 spectrum 参数“{argument}”。只能提供一个配色方案。</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>Error: Target property must be specified as {syntax}.</source>
-        <translation type="unfinished">错误：目标属性必须以 {syntax} 的形式指定。</translation>
+        <translation type="obsolete">错误：目标属性必须以 {syntax} 的形式指定。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+29"/>
+        <location line="+310"/>
         <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
         <translation type="unfinished">错误：未知的配色方案“{scheme}”。请使用 matplotlib 颜色映射名称，例如 viridis；完整列表见 &apos;spectrum help&apos;。</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="-300"/>
         <source>Error: No metadata loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载元数据。</translation>
     </message>
@@ -6782,17 +6825,19 @@ Command-line usage:
         <translation type="unfinished">错误：属性“{property}”不是数值型（类型为“{type}”）。渐变色着色需要数值型属性。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+29"/>
+        <location line="+276"/>
         <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
         <translation type="unfinished">没有节点符合筛选条件（只为可见节点着色）。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="-251"/>
         <source>Warning: No valid numerical values found in &apos;{property}&apos; for the selected nodes.</source>
         <translation type="unfinished">警告：所选节点的“{property}”中没有有效的数值。</translation>
     </message>
     <message>
         <location line="+48"/>
+        <location line="+292"/>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished">（最小值：{min}，最大值：{max}）</translation>
     </message>

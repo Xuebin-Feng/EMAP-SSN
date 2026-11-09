@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
+from desktop.Node_Colors import NOISE_COLOR
 import re
 import os
 from utilities.Localization import JoinedMessage, Message
@@ -571,7 +572,7 @@ def apply(viewer, plan, result):
     slot_colors = np.empty((len(unique_local), 4))
     for slot, m in enumerate(unique_local.tolist()):
         if m == -1:
-            slot_colors[slot] = (0.8, 0.8, 0.8, 0.4)  # Grey for noise
+            slot_colors[slot] = NOISE_COLOR  # Grey for noise
         else:
             r, g, b = color_map[m]
             slot_colors[slot] = (r, g, b, 1.0)

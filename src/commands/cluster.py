@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
+from desktop.Node_Colors import NOISE_COLOR
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import importlib.util
@@ -79,9 +80,6 @@ def library_missing(name):
         return sys.modules[name] is None
     return importlib.util.find_spec(name) is None
 
-
-# Grey, translucent: the color of the nodes no cluster holds (distribution uses it for gaps).
-NOISE_COLOR = (0.8, 0.8, 0.8, 0.4)
 
 def get_colored_cluster_name(cid, name_str, color_map=None):
     if cid == -1:
@@ -638,7 +636,7 @@ def apply(viewer, plan, result):
     slot_colors = np.empty((len(unique_labels), 4))
     for slot, lbl in enumerate(unique_labels):
         if lbl == -1:
-            slot_colors[slot] = NOISE_COLOR
+            slot_colors[slot] = NOISE_COLOR  # Grey for noise
         else:
             r, g, b = color_map[lbl]
             slot_colors[slot] = (r, g, b, 1.0)
