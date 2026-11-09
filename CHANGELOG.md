@@ -208,6 +208,24 @@ still change before version 1.0.0.
     scores run toward the end of the scheme, for every network type.
   - The file is read on the command queue's worker thread: about 0.3 s for 48.7 million
     pairs. The metadata legend does not show this gradient.
+- **Tree View's legend says what the colors mean.** Commands that color nodes now record
+  what their colors stand for, and the legend shows that instead of guessing from cluster
+  numbers.
+  - `cluster`, `subcluster`, `color` and `distribution` give a titled list: "Clusters" with
+    "Cluster 3" and "Noise", "Residue at 120" with each residue, or "Colors" with
+    "P106 → red". Every row shows, in a scrolling list, with its leaf count. Clicking a row
+    marks that row's leaves, so two clusters that happen to share a color mark separately.
+  - `spectrum` gives one color bar with the property (or "Similarity to X"), the scheme,
+    the minimum and the maximum, and rows for "No value", "No score" or the selected node.
+    Pressing or dragging on the bar marks the leaves whose value lies in that range; arrow
+    keys step through it and Escape clears.
+  - Colors no command described, such as a cache's own colors or nodes painted over since,
+    are listed under "Unlabelled colours" by hex code. The 12-row cap is gone, and so are
+    the "Cluster N" labels the legend used to guess, which could name a spectrum's colors
+    after a cluster.
+  - Undo and redo restore the key with the colors, and `save` keeps it in the session
+    file. A key in a shared file is checked before use: a malformed one is ignored, and
+    its text is shown as plain text.
 
 ### Changed
 
