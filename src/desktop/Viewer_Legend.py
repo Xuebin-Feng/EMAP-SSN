@@ -28,6 +28,8 @@ itself stops at it, and nothing in it takes the keyboard, so [ENTER] still opens
 
 from __future__ import annotations
 
+import zlib
+
 import numpy as np
 from PySide6 import QtCore
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, Signal
@@ -43,7 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.Node_Colors import key_state
+from desktop.Node_Colors import KEY_ATTRIBUTES, key_state
 from desktop.Studio_Theme import TOKENS, studio_icon
 
 LEGEND_WIDTH = 240        # the expanded card's width, in px, in a window with room for it
@@ -402,6 +404,8 @@ class LegendCard(QWidget):
         self.expanded = True      # remembered for as long as the Viewer lives
         self.model = None
         self.relayout = None      # called after a refresh changed what the card shows
+        self.suppressed = False   # True while another card (the session card) is open where this one would be
+        self._seen = None         # what the last refresh read: (checksum of colors and shown nodes, the key's objects)
         self._pending = False
         self._style_key = None
         self._range = None        # (layer id, low, high, the selection it made) of the last bar pick
@@ -484,6 +488,7 @@ class LegendCard(QWidget):
         if event.type() == QEvent.Type.LanguageChange:
             self._retitle()
             self.model = None
+            self._seen = None
             self.schedule_refresh()
         super().changeEvent(event)
 
@@ -532,13 +537,35 @@ class LegendCard(QWidget):
         except RuntimeError:  # the card was deleted with its window
             pass
 
+    def _fingerprint(self):
+        """What the legend is made from, cheaply: a checksum of the colors and the shown-nodes mask, and the key's objects.
+
+        Every command that changes the key makes new arrays and a new list (Node_Colors._begin), and undo and
+        redo restore copies, so the key's objects stand for their contents; the colors and the mask are
+        changed in place, so their bytes are summed (about 0.3 ms at 44,000 nodes).
+        """
+        crc = 0
+        for name in ("current_colors", "visible_mask"):
+            array = getattr(self.viewer, name, None)
+            if isinstance(array, np.ndarray):
+                crc = zlib.crc32(array if array.flags.c_contiguous else np.ascontiguousarray(array), crc)
+        return crc, tuple(getattr(self.viewer, name, None) for name in KEY_ATTRIBUTES)
+
     def refresh(self):
-        """Read the key again and show it. Nothing is rebuilt when what it says did not change."""
+        """Read the key again and show it. Nothing is counted or rebuilt when nothing it is made from changed."""
         self._pending = False
+        seen = self._fingerprint()
+        t = TOKENS
+        style_now = (t["surface"], t["text"], t["accent_text"])
+        before = self._seen
+        if (before is not None and style_now == self._style_key and seen[0] == before[0]
+                and all(a is b for a, b in zip(seen[1], before[1]))):
+            self._check_range()
+            return
+        self._seen = seen
         model = legend_model(self.viewer)
         self._check_range()
-        t = TOKENS
-        if (t["surface"], t["text"], t["accent_text"]) != self._style_key:
+        if style_now != self._style_key:
             self._style()
             self._retitle()
             model_changed = True
@@ -734,7 +761,7 @@ class LegendCard(QWidget):
 
     def place(self, right, top, bottom, room):
         """Put the card's right edge at ``right`` and top at ``top`` (canvas px), no lower than ``bottom``, no wider than ``room``."""
-        if self.model is None:
+        if self.model is None or self.suppressed:
             self.hide()
             return
         margins = self.layout().contentsMargins()

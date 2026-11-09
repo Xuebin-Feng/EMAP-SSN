@@ -287,6 +287,7 @@ class ControlsCard(QWidget):
                  area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
+        self.on_closed = None   # called when the card is closed (its owner re-places what sits near it)
         self.anchor = anchor
         self.session = session
         self.area = area
@@ -790,6 +791,11 @@ class ControlsCard(QWidget):
             self._jobs_resized()
         return self
 
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        if self.on_closed is not None:
+            self.on_closed()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -873,9 +879,11 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None,
+                 card_changed=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
+        self.card_changed = card_changed   # called after the card opens or closes
         self.title = title
         self.text_source = text
         self.host = host
@@ -929,7 +937,16 @@ class ControlsButton(QPushButton):
                                  area=self.area, command=self.command,
                                  command_line_open=self.command_line_open,
                                  jobs=self.jobs, confirm_stop=self.confirm_stop)
-        return self.card.open()
+        self.card.on_closed = self._card_closed
+        opened = self.card.open()
+        if self.card_changed is not None:
+            self.card_changed()
+        return opened
+
+    def _card_closed(self):
+        # The card is hidden only after its close event: tell the owner once that has happened.
+        if self.card_changed is not None:
+            QtCore.QTimer.singleShot(0, self.card_changed)
 
     def refresh_card(self):
         """Bring an open card's session up to date; nothing happens while it is closed."""

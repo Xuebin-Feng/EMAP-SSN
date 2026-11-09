@@ -1481,6 +1481,8 @@ class MainViewer:
             command_line_open=lambda: getattr(self, 'console_mode', False),
             # The background jobs the card lists, and its buttons that arrange them.
             jobs=ViewerJobs(self),
+            # The legend card gives way while this card is open (_place_legend).
+            card_changed=self._place_legend,
         )
         overlay_layout.addWidget(self.controls_button)
 
@@ -3923,15 +3925,36 @@ class MainViewer:
         and it refreshes once per turn of the event loop. A Viewer with no window (headless, or hidden and
         not on screen) has none. It is built after the window theme is applied, which its colors read.
         """
-        if not self.shows_windows():
-            return
+        if getattr(self, 'node_update_listeners', None) is None:
+            self.node_update_listeners = []
+        self.node_update_listeners.append(self._legend_listener)
+        control = getattr(self, 'window_control', None)
+        if control is not None:
+            control.on_shown = self._legend_listener
+        self._ensure_legend()
+
+    def _ensure_legend(self):
+        """The legend card, made now if this Viewer shows windows and has none yet; None for a Viewer that does not.
+
+        A hidden Viewer has no card until its window is shown (ViewerWindow.on_shown) or the nodes are drawn
+        again while it is.
+        """
+        card = getattr(self, 'legend_card', None)
+        if card is not None:
+            return card
+        if not self.shows_windows() or not hasattr(self, 'canvas'):
+            return None
         card = LegendCard(self, self.canvas.native)
         card.relayout = self._place_legend
         self.legend_card = card
-        if getattr(self, 'node_update_listeners', None) is None:
-            self.node_update_listeners = []
-        self.node_update_listeners.append(card.schedule_refresh)
         card.refresh()
+        return card
+
+    def _legend_listener(self):
+        """A node update listener: the legend refreshes once this turn (and exists, once windows are shown)."""
+        card = self._ensure_legend()
+        if card is not None:
+            card.schedule_refresh()
 
     def _place_legend(self):
         """Put the legend card under the Undo and Redo buttons, right edges level, clear of the sidebar and the bottom rows.
@@ -3952,6 +3975,10 @@ class MainViewer:
             top += BADGE_HEIGHT + BADGE_GAP
         spacing = getattr(self, 'hud_layout', {}).get("status_line_spacing", 34.0)
         bottom = _slider_row_centre(height) - 2 * spacing - spacing / 2 - BADGE_GAP / 2
+        # The session card (the info button's) opens over the canvas, wide and from the slider row up: the
+        # legend gives way while it is open, so the two never cover each other.
+        button = getattr(self, 'controls_button', None)
+        card.suppressed = button is not None and button.card_is_open()
         card.place(right, top, bottom, right - SESSION_CARD_MARGIN)
 
     def select_by_hand(self, nodes, *, announce=True):

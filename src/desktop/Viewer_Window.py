@@ -244,6 +244,7 @@ class ViewerWindow:
         self._shown = False          # a hidden Viewer's window is on screen
         self._pinned = False         # topmost until first activated (Windows)
         self._watcher = None
+        self.on_shown = None         # called when show() has put the window on screen
 
     # ---- the question the rest of the Viewer asks
 
@@ -291,6 +292,8 @@ class ViewerWindow:
             window.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         self._shown = True
         self._present()
+        if self.on_shown is not None:
+            self.on_shown()
         return self.state()
 
     def hide(self):

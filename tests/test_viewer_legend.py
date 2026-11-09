@@ -393,6 +393,102 @@ class PressCounter(QObject):
         return False
 
 
+class SessionCardTests(LegendCase):
+    def open_info_card(self, viewer):
+        from PySide6.QtCore import QRect
+        from desktop.Viewer_Widgets import ControlsButton
+        native = viewer.canvas.native
+        button = ControlsButton("Session and controls", "[ENTER] Command | [LeftClick] Highlight", parent=native, host=native,
+                                area=lambda: QRect(8, 96, native.width() - 16, native.height() - 104),
+                                card_changed=viewer._place_legend)
+        button.setGeometry(15, native.height() - 60, 28, 28)
+        button.show()
+        viewer.controls_button = button
+        return button
+
+    def test_the_legend_gives_way_while_the_session_card_is_open(self):
+        for size in ((1400, 900), (563, 300)):
+            with self.subTest(size=size):
+                viewer = self.build_legend(size)
+                legend = viewer.legend_card
+                button = self.open_info_card(viewer)
+                self.assertFalse(legend.isHidden())
+                button.toggle_card()
+                self.settle()
+                info = button.card
+                self.assertFalse(info.isHidden())
+                self.assertTrue(legend.isHidden())
+                self.assertFalse(legend.isVisible() and legend.geometry().intersects(info.geometry()))
+                # Closed by its x (not the button): the legend comes back where it was.
+                info.close()
+                self.settle()
+                self.assertFalse(legend.isHidden())
+                self.assertEqual(legend.geometry().right(), viewer.history_buttons.redo.geometry().right())
+                button.toggle_card()
+                self.settle()
+                self.assertTrue(legend.isHidden())
+                button.toggle_card()
+                self.settle()
+                self.assertFalse(legend.isHidden())
+
+
+class KeyRuleTests(LegendCase):
+    def test_no_key_means_no_card_even_when_nodes_are_colored(self):
+        viewer = self.build_legend(with_key=False)
+        viewer.current_colors[0:5] = RED               # a cache's own colors: no key declared
+        viewer.current_colors[5] = ODD
+        viewer._notify_node_update_listeners()
+        self.settle()
+        self.assertIsNone(viewer.color_key_layers)
+        self.assertTrue(viewer.legend_card.isHidden())
+        self.assertIsNone(legend_model(viewer))
+
+    def test_a_key_that_covers_nothing_shown_keeps_the_card_for_the_unlabelled_colors(self):
+        viewer = self.build_legend()
+        viewer.visible_mask[:] = False
+        viewer.visible_mask[[11]] = True             # only the node no layer covers is shown
+        viewer._notify_node_update_listeners()
+        self.settle()
+        model = legend_model(viewer)
+        self.assertEqual(model["layers"], [])
+        self.assertEqual([entry["hex"] for entry in model["unlabelled"]], ["#3366cc"])
+        self.assertFalse(viewer.legend_card.isHidden())
+        self.assertEqual(self.titles(viewer.legend_card), ["Unlabelled colours"])
+
+
+class CostTests(LegendCase):
+    def test_an_update_that_changed_nothing_the_legend_shows_counts_nothing(self):
+        viewer = self.build_legend()
+        with mock.patch.object(Viewer_Legend, "legend_model", wraps=legend_model) as spy:
+            for _ in range(5):
+                viewer.pos[0] += 1.0                                   # a node drag: positions move, colors do not
+                viewer._notify_node_update_listeners()
+                self.settle()
+            self.assertEqual(spy.call_count, 0)
+            viewer.current_colors[9] = ODD                             # a recolor, in place
+            viewer._notify_node_update_listeners()
+            self.settle()
+            self.assertEqual(spy.call_count, 1)
+            viewer.visible_mask[0] = False                             # a hide, in place
+            viewer._notify_node_update_listeners()
+            self.settle()
+            self.assertEqual(spy.call_count, 2)
+            viewer.selected_indices = [1]                              # a selection alone is not what it shows
+            viewer._notify_node_update_listeners()
+            self.settle()
+            self.assertEqual(spy.call_count, 2)
+
+    def test_a_new_key_with_the_same_colors_is_noticed(self):
+        viewer = self.build_legend()
+        first = self.titles(viewer.legend_card)
+        viewer.color_key_layers = [dict(layer, title="Renamed") if layer["title"] == "Clusters" else layer
+                                   for layer in viewer.color_key_layers]
+        viewer._notify_node_update_listeners()
+        self.settle()
+        self.assertIn("Renamed", self.titles(viewer.legend_card))
+        self.assertNotEqual(first, self.titles(viewer.legend_card))
+
+
 class KeepingCurrentTests(LegendCase):
     def test_undo_updates_it(self):
         viewer = self.build_legend(with_key=False)
@@ -415,6 +511,7 @@ class KeepingCurrentTests(LegendCase):
         viewer = self.build_legend()
         card = viewer.legend_card
         with mock.patch.object(Viewer_Legend, "legend_model", wraps=legend_model) as spy:
+            viewer.current_colors[9] = ODD
             for _ in range(6):
                 viewer._notify_node_update_listeners()
             self.assertEqual(spy.call_count, 0)           # nothing until the turn ends
@@ -459,17 +556,45 @@ class KeepingCurrentTests(LegendCase):
 
 
 class WindowlessTests(LegendCase):
+    def hidden_viewer(self, flags):
+        viewer = self.build(toggle=False)
+        for name, value in flags.items():
+            setattr(viewer, name, value)
+        viewer.node_update_listeners = []
+        viewer._build_legend()
+        return viewer
+
     def test_a_viewer_with_no_window_creates_no_card(self):
         for flags in ({"headless": True}, {"window_control": SimpleNamespace(shows_windows=lambda: False)}):
             with self.subTest(flags=flags):
-                viewer = self.build(toggle=False)
-                for name, value in flags.items():
-                    setattr(viewer, name, value)
-                viewer.node_update_listeners = []
-                viewer._build_legend()
+                viewer = self.hidden_viewer(flags)
+                viewer._legend_listener()
                 self.assertIsNone(getattr(viewer, "legend_card", None))
-                self.assertEqual(viewer.node_update_listeners, [])
                 viewer._place_legend()      # and placing it is harmless
+
+    def test_a_hidden_viewer_gets_its_card_when_it_is_shown(self):
+        shown = {"yes": False}
+        control = SimpleNamespace(shows_windows=lambda: shown["yes"], on_shown=None)
+        viewer = self.hidden_viewer({"window_control": control})
+        self.assertIsNone(getattr(viewer, "legend_card", None))
+        viewer._notify_node_update_listeners()
+        self.assertIsNone(getattr(viewer, "legend_card", None))
+        shown["yes"] = True
+        self.assertEqual(control.on_shown, viewer._legend_listener)     # what ViewerWindow.show() calls
+        viewer._notify_node_update_listeners()                        # the next refresh makes it
+        self.assertIsNotNone(viewer.legend_card)
+        self.settle()
+
+    def test_showing_the_window_makes_the_card(self):
+        from desktop.Viewer_Window import HIDDEN, ViewerWindow
+        viewer = self.build(toggle=False)
+        control = ViewerWindow(viewer.main_window, HIDDEN, platform="linux", alert=lambda *args: None)
+        viewer.window_control = control
+        viewer.node_update_listeners = []
+        viewer._build_legend()
+        self.assertIsNone(getattr(viewer, "legend_card", None))
+        control.show()
+        self.assertIsNotNone(viewer.legend_card)
 
 
 class PrintTests(LegendCase):
