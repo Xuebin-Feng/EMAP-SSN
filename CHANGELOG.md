@@ -250,6 +250,12 @@ still change before version 1.0.0.
   `Clicked: <node>` and the console `Node clicked: <header>`. A left click marks a node
   without changing the selection that commands act on, which reports
   `Selected 12 node(s).`
+- **`query` skips hidden nodes, as `color`, `group`, `select` and `spectrum` do.** Both
+  forms, `query [positions]` and `query <expression> [positions]`, count visible nodes
+  only, in the sequence total and in every percentage. A hidden node used to count whenever
+  the expression matched it, and with nothing selected `query` ran on every node; it now
+  runs on every visible node. An expression that matches only hidden nodes succeeds with a
+  note that says so.
 
 ### Fixed
 
