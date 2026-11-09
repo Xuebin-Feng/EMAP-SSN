@@ -5,7 +5,11 @@
 """The Viewer's Undo and Redo buttons, over the canvas's top right, for a user who does not use the keys.
 
 * **The buttons** are two icon buttons (Lucide undo-2 and redo-2) in the frame-rate
-  row, Undo to the left of Redo. A click does what Ctrl+Z or Ctrl+Y does: the Viewer
+  row, Undo to the left of Redo. When the Viewer gives a ``legend`` action there is a
+  third, always there, left of Undo (the Lucide palette icon): it opens and closes the
+  legend card (desktop/Viewer_Legend.py) and shows a checked look while the card is open
+  (show_legend_open). It is one of the row's buttons, so the row's width, which the frame
+  rate and the command line are placed against, counts it. A click does what Ctrl+Z or Ctrl+Y does: the Viewer
   gives them its own undo_by_hand and redo_by_hand, so the status line's messages, and
   the undo that takes back a command that waits or runs, are the keys' too. The frame
   rate, when shown, and the sidebar's toggle keep their places beside them
@@ -89,11 +93,20 @@ class HistoryButton(QPushButton):
             QPushButton#{object_name}:pressed {{
                 background: {t['separator']}; border-color: {t['separator']};
             }}
+            QPushButton#{object_name}:checked {{
+                background: {t['separator']}; border-color: {t['accent_soft']};
+            }}
             QPushButton#{object_name}:disabled {{
                 background: {t['field_disabled']}; border-color: {t['border']};
             }}
         """)
         self.clicked.connect(lambda _checked=False: clicked())
+
+    def show_checked(self, checked):
+        """Show the checked look (a toggle button whose action is open), changing nothing else."""
+        checked = bool(checked)
+        if checked != self.isChecked():
+            self.setChecked(checked)
 
     def show_enabled(self, enabled):
         """Enable or disable the button, changing nothing else: it keeps its place and size."""
@@ -105,9 +118,18 @@ class HistoryButton(QPushButton):
 
 
 class HistoryButtons:
-    """The Undo and Redo buttons on the VisPy canvas ``canvas``'s window; undo() and redo() are what a click calls."""
+    """The Undo and Redo buttons, and the legend's, on the VisPy canvas ``canvas``'s window.
 
-    def __init__(self, canvas, undo, redo):
+    undo() and redo() are what a click calls; legend(), when given, is what a click on the legend button calls.
+    """
+
+    def __init__(self, canvas, undo, redo, legend=None):
+        self.legend = None
+        if legend is not None:
+            self.legend = HistoryButton(
+                canvas.native, "viewerLegendButton", "palette",
+                QtCore.QCoreApplication.translate("ViewerLegend", "Legend"), legend)
+            self.legend.setCheckable(True)
         self.undo = HistoryButton(
             canvas.native, "viewerUndoButton", "undo-2",
             QtCore.QCoreApplication.translate("ViewerHistory", "Undo (Ctrl+Z)"), undo)
@@ -119,24 +141,30 @@ class HistoryButtons:
             button.show()
 
     def buttons(self):
-        """The two buttons, left to right."""
-        return (self.undo, self.redo)
+        """The buttons, left to right: the legend's when there is one, Undo, Redo."""
+        return ((self.legend,) if self.legend is not None else ()) + (self.undo, self.redo)
 
-    @staticmethod
-    def width():
-        """The pair's width, in px: the room it takes in the row."""
-        return 2 * HISTORY_BUTTON_SIZE + HISTORY_BUTTON_GAP
+    def width(self):
+        """The buttons' width together, in px: the room they take in the row."""
+        count = len(self.buttons())
+        return count * HISTORY_BUTTON_SIZE + (count - 1) * HISTORY_BUTTON_GAP
 
     def place(self, right, centre_y):
-        """Put the pair's right edge at right, centred on centre_y (canvas px). A button already there is not moved."""
+        """Put the buttons' right edge at right, centred on centre_y (canvas px). A button already there is not moved."""
         right = int(round(right))
         top = int(round(centre_y - HISTORY_BUTTON_SIZE / 2))
-        redo_left = right - HISTORY_BUTTON_SIZE
-        undo_left = redo_left - HISTORY_BUTTON_GAP - HISTORY_BUTTON_SIZE
-        for button, left in ((self.undo, undo_left), (self.redo, redo_left)):
+        step = HISTORY_BUTTON_SIZE + HISTORY_BUTTON_GAP
+        buttons = self.buttons()
+        for index, button in enumerate(buttons):
+            left = right - HISTORY_BUTTON_SIZE - (len(buttons) - 1 - index) * step
             target = QtCore.QRect(left, top, HISTORY_BUTTON_SIZE, HISTORY_BUTTON_SIZE)
             if button.geometry() != target:
                 button.setGeometry(target)
+
+    def show_legend_open(self, is_open):
+        """Show the legend button checked while its card is open."""
+        if self.legend is not None:
+            self.legend.show_checked(is_open)
 
     def show_state(self, can_undo, can_redo):
         """Enable each button as its action can be done; neither moves."""

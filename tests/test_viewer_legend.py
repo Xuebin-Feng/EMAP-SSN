@@ -8,8 +8,9 @@ The card shows what the colors of the network mean, as the color key says: its l
 shown (not hidden) nodes, then the colors the key does not cover. A click on a row selects its nodes the way a
 box selection does, Ctrl adds them, the same row again clears; a press or drag on a gradient bar selects the
 nodes whose value is in its range, the selection moving as the drag goes and the pages and the status line
-hearing of it once, when it is let go. It sits under the Undo and Redo buttons and follows the sidebar. Offscreen
-Qt only: how it looks has not been checked on a screen here.
+hearing of it once, when it is let go. A Legend button in the top-right row, left of Undo, opens and closes it
+(a card like the session card, on white); it hangs under the row, follows the sidebar, and shares the room with the
+session card without overlapping it. Offscreen Qt only: how it looks has not been checked on a screen here.
 """
 import os
 import sys
@@ -27,13 +28,17 @@ if SRC_DIR not in sys.path:
 
 import EMAPSSN_Config as cfg  # noqa: E402
 import EMAPSSN_Viewer  # noqa: E402
+from desktop import Studio_Theme  # noqa: E402
 from commands import print as print_command  # noqa: E402
 from desktop import Node_Colors, Viewer_Legend  # noqa: E402
 from desktop.Desktop_App import PSEUDO_LANGUAGE, install_translations  # noqa: E402
 from desktop.Viewer_Legend import LegendCard, _GradientBar, _ElidedLabel, _RowList, legend_model  # noqa: E402
+from desktop.Viewer_History import HISTORY_BUTTON_GAP, HISTORY_BUTTON_SIZE  # noqa: E402
+from desktop.Viewer_Fps import FPS_GAP  # noqa: E402
 from EMAPSSN_Viewer import SLIDER_ROW_BOTTOM, SLIDER_ROW_HEIGHT  # noqa: E402
 from matplotlib import colormaps  # noqa: E402
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, Qt  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QToolTip  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from tests.test_viewer_history_buttons import ViewerCase  # noqa: E402
 from tests.test_viewer_undo_redo import quietly  # noqa: E402
@@ -46,13 +51,14 @@ N = 12
 # Nodes 0-2 are cluster A, 3-4 cluster B; 5-8 a gradient of the values 0 to 3; 9 is unpainted;
 # 10 is the gradient's "No value" extra; 11 has a color no layer declared.
 CTRL = Qt.KeyboardModifier.ControlModifier
+SIZES_UNDER_TEST = ((1400, 900), (563, 300))   # a roomy window, and the Viewer's smallest
 
 
 class LegendCase(ViewerCase):
     """A Viewer with the legend, around the stand-in canvas of the history buttons' tests, and a key to show."""
 
-    def build_legend(self, size=(1400, 900), *, toggle=False, with_key=True, n=N):
-        viewer = self.build(size, toggle=toggle)
+    def build_legend(self, size=(1400, 900), *, toggle=False, with_key=True, n=N, opened=True, fps=False):
+        viewer = self.build(size, toggle=toggle, fps=fps)
         viewer.n_nodes = n
         viewer.pos = np.zeros((n, 2), dtype=np.float32)
         viewer.visible_mask = np.ones(n, dtype=bool)
@@ -81,7 +87,19 @@ class LegendCase(ViewerCase):
             self.declare(viewer)
         viewer.reposition_expand_btn()
         self.settle()
+        if opened:
+            self.click_legend_button(viewer)
         return viewer
+
+    def click_legend_button(self, viewer):
+        """A real click on the Legend button, which opens the card, or closes it if it is open."""
+        QTest.mouseClick(viewer.history_buttons.legend, Qt.MouseButton.LeftButton)
+        self.settle()
+
+    @staticmethod
+    def shown(card):
+        """The card's rectangle in canvas px (inside its shadow)."""
+        return card.visible_rect()
 
     def settle(self):
         self.app.processEvents()
@@ -122,15 +140,33 @@ class LegendCase(ViewerCase):
 
 
 class ShowingTests(LegendCase):
-    def test_no_key_gives_no_card_and_the_first_key_shows_it_expanded(self):
-        viewer = self.build_legend(with_key=False)
+    def test_a_key_that_appears_does_not_open_the_card_and_the_open_card_follows_it(self):
+        viewer = self.build_legend(with_key=False, opened=False)
         card = viewer.legend_card
         self.assertTrue(card.isHidden())
         self.assertIsNone(legend_model(viewer))
         self.declare(viewer)
+        self.assertTrue(card.isHidden())                   # no auto-open
+        self.assertFalse(card.is_open())
+        self.click_legend_button(viewer)
         self.assertFalse(card.isHidden())
-        self.assertTrue(card.expanded)
-        self.assertFalse(card.scroll.isHidden())
+        self.assertEqual(self.titles(card), ["Spectrum", "Clusters", "Unlabelled colours"])
+        self.assertTrue(card.scroll.isVisible() or not card.scroll.isHidden())
+
+    def test_without_a_key_the_open_card_says_so_in_one_plain_line_naming_no_command(self):
+        viewer = self.build_legend(with_key=False)
+        card = viewer.legend_card
+        self.assertFalse(card.isHidden())
+        lines = [label for label in card.body.findChildren(QLabel) if label.objectName() == "legendEmpty"]
+        self.assertEqual([line.text() for line in lines], ["No colours have been described yet."])
+        self.assertEqual(self.titles(card), [])
+        self.assertEqual(self.lists(card), [])
+        commands = {path.stem.lower() for path in (Path(SRC_DIR) / "commands").glob("*.py") if path.stem != "__init__"}
+        words = {word.strip(".,").lower() for word in lines[0].text().split()}
+        self.assertEqual(words & commands, set())
+        # A key that arrives replaces the line as it is told.
+        self.declare(viewer)
+        self.assertEqual([label for label in card.body.findChildren(QLabel) if label.objectName() == "legendEmpty"], [])
 
     def test_layers_are_listed_newest_first_with_titles_rows_and_counts(self):
         viewer = self.build_legend()
@@ -156,7 +192,7 @@ class ShowingTests(LegendCase):
         viewer.visible_mask[:] = False
         viewer._notify_node_update_listeners()
         self.settle()
-        self.assertTrue(card.isHidden())                               # nothing shown to describe: no card
+        self.assertIsNone(card.model)                                  # nothing shown to describe: the plain line
 
     def test_a_gradient_shows_its_title_scheme_bar_and_ends(self):
         viewer = self.build_legend()
@@ -282,23 +318,23 @@ class SelectionTests(LegendCase):
 
 
 class PlacementTests(LegendCase):
-    def test_it_sits_under_the_undo_and_redo_buttons_right_edges_level(self):
+    def test_it_hangs_under_the_top_right_row_right_edges_level(self):
         viewer = self.build_legend()
-        card = viewer.legend_card.geometry()
+        card = self.shown(viewer.legend_card)
         redo = viewer.history_buttons.redo.geometry()
-        self.assertEqual(card.right(), redo.right())
+        self.assertEqual(card.right(), redo.right() + 1)
         self.assertEqual(card.top() - redo.bottom() - 1, EMAPSSN_Viewer.BADGE_GAP)
-        self.assertLessEqual(card.left(), redo.left())
+        self.assertLessEqual(card.left(), viewer.history_buttons.legend.geometry().left())
 
     def test_it_moves_down_while_the_jobs_badge_shows(self):
         viewer = self.build_legend()
-        before = viewer.legend_card.geometry().top()
+        before = self.shown(viewer.legend_card).top()
         viewer.jobs_badge.show_jobs(["a job"])
         viewer._place_legend()
-        self.assertGreater(viewer.legend_card.geometry().top(), viewer.jobs_badge.geometry().bottom())
+        self.assertGreater(self.shown(viewer.legend_card).top(), viewer.jobs_badge.geometry().bottom())
         viewer.jobs_badge.show_jobs([])
         viewer._place_legend()
-        self.assertEqual(viewer.legend_card.geometry().top(), before)
+        self.assertEqual(self.shown(viewer.legend_card).top(), before)
 
     def test_it_follows_the_sidebar_and_never_sits_under_it(self):
         patch = mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True)
@@ -310,14 +346,14 @@ class PlacementTests(LegendCase):
         self.settle()
         opened = viewer.legend_card.geometry()
         self.assertLess(opened.right(), closed.right())
-        self.assertLess(opened.right(), viewer.right_panel.geometry().left())
-        self.assertLess(opened.right(), viewer.toggle_sidebar_btn.geometry().left())
-        self.assertEqual(opened.right(), viewer.history_buttons.redo.geometry().right())
+        self.assertLess(self.shown(viewer.legend_card).right(), viewer.right_panel.geometry().left())
+        self.assertLess(self.shown(viewer.legend_card).right(), viewer.toggle_sidebar_btn.geometry().left())
+        self.assertEqual(self.shown(viewer.legend_card).right(), viewer.history_buttons.redo.geometry().right() + 1)
         # Mid-slide too, as the slide width is what the row follows.
         for width in (30.0, 90.0, 150.0):
             viewer._sidebar_slide_width = width
             viewer.reposition_expand_btn()
-            self.assertLess(viewer.legend_card.geometry().right(), viewer.right_panel.geometry().left())
+            self.assertLess(self.shown(viewer.legend_card).right(), viewer.right_panel.geometry().left())
         viewer._sidebar_slide_width = None
         viewer.set_sidebar_visible(False, animate=False)
         self.settle()
@@ -337,46 +373,142 @@ class PlacementTests(LegendCase):
                 self.assertGreater(card.natural_height(), 2000)
                 height = viewer.canvas.size[1]
                 slider_top = height - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT
-                self.assertLess(card.geometry().bottom(), slider_top - 2 * 34 + 17 + 1)
-                self.assertLess(card.geometry().bottom(), slider_top)
-                self.assertGreater(card.geometry().height(), 40)
+                self.assertLess(self.shown(card).bottom(), slider_top - 2 * 34 + 17 + 1)
+                self.assertLess(self.shown(card).bottom(), slider_top)
+                self.assertGreater(self.shown(card).height(), 40)
                 self.assertFalse(card.scroll.verticalScrollBar().maximum() == 0)   # the content scrolls
 
-    def test_collapse_and_expand(self):
-        viewer = self.build_legend()
-        card = viewer.legend_card
-        full = card.geometry()
-        QTest.mouseClick(card.header, Qt.MouseButton.LeftButton)
-        self.settle()
-        self.assertFalse(card.expanded)
-        self.assertTrue(card.scroll.isHidden())
-        self.assertFalse(card.isHidden())
-        tab = card.geometry()
-        self.assertLess(tab.height(), full.height())
-        self.assertLess(tab.width(), full.width())
-        self.assertEqual(tab.right(), full.right())
-        # The state is kept while the key changes under it, even through a time with no card.
-        viewer.visible_mask[:] = False
-        viewer._notify_node_update_listeners()
-        self.settle()
-        self.assertTrue(card.isHidden())
-        viewer.visible_mask[:] = True
-        viewer._notify_node_update_listeners()
-        self.settle()
-        self.assertFalse(card.isHidden())
-        self.assertTrue(card.scroll.isHidden())
-        QTest.mouseClick(card.header, Qt.MouseButton.LeftButton)
-        self.settle()
-        self.assertTrue(card.expanded)
-        self.assertEqual(card.geometry(), full)
-
-    def test_mouse_events_on_the_card_stop_at_it(self):
+    def test_mouse_events_on_the_card_stop_at_it_but_not_in_its_shadow(self):
         viewer = self.build_legend()
         card = viewer.legend_card
         seen = PressCounter(card.parentWidget())
+        body = card.card_rect()
         # The card's padding, where no widget of it takes a press: it must stop at the card, not reach the canvas.
-        QTest.mouseClick(card, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(3, card.height() - 3))
+        QTest.mouseClick(card, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(int(body.left()) + 3, int(body.bottom()) - 3))
         self.assertEqual(seen.reached_parent, 0)
+        # The shadow's margin is not the card: a click there is the network's, as at the session card.
+        QTest.mouseClick(card, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(2, card.height() - 2))
+        self.assertEqual(seen.reached_parent, 1)
+
+
+class ButtonTests(LegendCase):
+    def test_the_button_is_in_the_row_left_of_undo_and_counts_in_the_rows_width(self):
+        for size in SIZES_UNDER_TEST:
+            with self.subTest(size=size):
+                viewer = self.build_legend(size, opened=False, fps=True)
+                buttons = viewer.history_buttons
+                legend, undo, redo = buttons.legend.geometry(), buttons.undo.geometry(), buttons.redo.geometry()
+                self.assertEqual(buttons.buttons(), (buttons.legend, buttons.undo, buttons.redo))
+                self.assertEqual(legend.size(), undo.size())
+                self.assertEqual((legend.width(), legend.height()), (HISTORY_BUTTON_SIZE, HISTORY_BUTTON_SIZE))
+                self.assertEqual(legend.top(), undo.top())
+                self.assertEqual(undo.left() - legend.right() - 1, HISTORY_BUTTON_GAP)
+                self.assertEqual(buttons.width(), 3 * HISTORY_BUTTON_SIZE + 2 * HISTORY_BUTTON_GAP)
+                self.assertEqual(redo.right() - legend.left() + 1, buttons.width())
+                # The frame rate sits FPS_GAP left of the whole row, and the command line left of that.
+                overlay = viewer.fps_overlay
+                self.assertEqual(overlay.geometry().right() + 1 + FPS_GAP, legend.left())
+                self.assertLessEqual(viewer._command_line_right(), overlay.geometry().left() - FPS_GAP)
+                self.assertLess(viewer._command_line_right(), legend.left())
+
+    def test_it_is_always_there_with_the_icon_a_tooltip_and_the_buttons_look(self):
+        viewer = self.build_legend(with_key=False, opened=False)
+        button = viewer.history_buttons.legend
+        undo = viewer.history_buttons.undo
+        self.assertFalse(button.isHidden())
+        self.assertTrue(button.isEnabled())
+        self.assertEqual(button.toolTip(), "Legend")
+        self.assertEqual(button.accessibleName(), "Legend")
+        self.assertFalse(button.icon().isNull())
+        self.assertEqual(button.iconSize(), undo.iconSize())
+        self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        # The same sheet as the others, with a checked look added.
+        self.assertIn(":checked", button.styleSheet())
+        self.assertTrue(button.isCheckable())
+        self.assertFalse(undo.isCheckable())
+
+    def test_a_click_opens_the_card_and_a_second_click_or_the_x_closes_it(self):
+        viewer = self.build_legend(opened=False)
+        card, button = viewer.legend_card, viewer.history_buttons.legend
+        self.assertTrue(card.isHidden())
+        self.assertFalse(button.isChecked())
+        self.click_legend_button(viewer)
+        self.assertFalse(card.isHidden())
+        self.assertTrue(button.isChecked())
+        self.click_legend_button(viewer)
+        self.assertTrue(card.isHidden())
+        self.assertFalse(button.isChecked())
+        self.click_legend_button(viewer)
+        self.assertTrue(button.isChecked())
+        QTest.mouseClick(card.close_button, Qt.MouseButton.LeftButton)
+        self.settle()
+        self.assertTrue(card.isHidden())
+        self.assertFalse(button.isChecked())              # the x un-checks the button
+        self.assertEqual(card.close_button.toolTip(), "Close")
+        # The card reads the key as it is when it opens.
+        viewer.visible_mask[[3, 4]] = False
+        viewer._notify_node_update_listeners()
+        self.settle()
+        self.click_legend_button(viewer)
+        self.assertEqual([(label, count) for _, label, count in self.lists(card)[1].rows()], [("A", "3")])
+
+    def test_it_is_not_a_popup_and_stays_open_through_clicks_on_the_canvas_and_its_rows(self):
+        viewer = self.build_legend()
+        card = viewer.legend_card
+        self.assertFalse(card.windowFlags() & Qt.WindowType.Popup)
+        self.assertIs(card.parentWidget(), viewer.canvas.native)
+        QTest.mouseClick(viewer.canvas.native, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(300, 400))
+        self.settle()
+        self.assertFalse(card.isHidden())
+        self.click_row(self.lists(card)[1], 0)
+        self.assertFalse(card.isHidden())
+        self.assertEqual(sorted(viewer.selected_indices), [0, 1, 2])
+
+    def test_the_card_is_white_and_shaped_like_the_session_cards(self):
+        from desktop.Viewer_Widgets import ControlsCard
+        viewer = self.build_legend()
+        card = viewer.legend_card
+        card.resize(card.size())
+        image = card.grab().toImage()
+        centre = self.shown(card).center().toPoint()
+        self.assertEqual(image.pixelColor(centre.x() - card.x(), centre.y() - card.y()).name(), "#ffffff")
+        self.assertEqual(Viewer_Legend.WHITE, "#ffffff")
+        self.assertNotEqual(Studio_Theme.TOKENS["tint"].lower(), "#ffffff")
+        # Its margins, spacing and close button are the session card's.
+        self.assertEqual(card.close_button.width(), ControlsCard.CLOSE_SIZE)
+        self.assertEqual(card.layout().spacing(), 10)
+        self.assertIn("QFrame#controlsSeparator", card.styleSheet())
+        self.assertEqual(len([f for f in card.body.findChildren(QFrame) if f.objectName() == "controlsSeparator"]),
+                         len(self.titles(card)) - 1)
+
+
+class TooltipTests(LegendCase):
+    def test_a_tooltip_box_fits_its_text(self):
+        viewer = self.build_legend(opened=False)
+        widgets = (viewer.history_buttons.legend, viewer.history_buttons.undo, viewer.history_buttons.redo)
+        for widget in widgets:
+            with self.subTest(widget=widget.objectName()):
+                QToolTip.hideText()
+                QToolTip.showText(widget.mapToGlobal(QPoint(5, 5)), widget.toolTip(), widget)
+                self.settle()
+                tip = next(w for w in QApplication.topLevelWidgets() if w.metaObject().className() == "QTipLabel")
+                metrics = tip.fontMetrics()
+                text = metrics.boundingRect(tip.text())
+                extra_x, extra_y = tip.width() - text.width(), tip.height() - text.height()
+                # About 6 px round the text at each side and 5 above and below; it was 18 and 14 (Qt adds
+                # the style sheet's padding to a margin that is already that padding).
+                self.assertLessEqual(extra_x, 2 * 8 + 4)
+                self.assertLessEqual(extra_y, 2 * 7 + 4)
+                self.assertGreaterEqual(extra_x, 2 * 4)
+                self.assertLessEqual(tip.margin(), 3)
+                QToolTip.hideText()
+
+    def test_the_style_sheet_has_no_padding_for_qt_to_double(self):
+        sheet = Studio_Theme.studio_stylesheet()
+        rule = sheet[sheet.index("QToolTip {"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("padding: 0px", rule)
 
 
 class PressCounter(QObject):
@@ -393,54 +525,154 @@ class PressCounter(QObject):
         return False
 
 
+INFO = {"node_count": 44000, "visible_node_count": 43000, "edge_count": 5000000, "shown_edge_count": 100000,
+        "inputs": {key: f"C:/Users/someone/EMAP-SSN/Cache/{key}_file_name.fasta"
+                   for key in ("sequence_set", "network", "layout_cache", "alignment", "embedding")},
+        "directories": {}, "project_root": "C:/Users/someone/EMAP-SSN"}
+
+
 class SessionCardTests(LegendCase):
     def open_info_card(self, viewer):
-        from PySide6.QtCore import QRect
         from desktop.Viewer_Widgets import ControlsButton
         native = viewer.canvas.native
         button = ControlsButton("Session and controls", "[ENTER] Command | [LeftClick] Highlight", parent=native, host=native,
-                                area=lambda: QRect(8, 96, native.width() - 16, native.height() - 104),
-                                card_changed=viewer._place_legend)
+                                session=lambda: INFO, controls_title="Mouse and keyboard controls",
+                                area=viewer._session_card_area, card_changed=viewer._place_legend)
         button.setGeometry(15, native.height() - 60, 28, 28)
         button.show()
         viewer.controls_button = button
         return button
 
-    def test_the_legend_gives_way_while_the_session_card_is_open(self):
-        for size in ((1400, 900), (563, 300)):
+    def both_open(self, size):
+        viewer = self.build_legend(size)
+        button = self.open_info_card(viewer)
+        button.toggle_card()
+        self.settle()
+        return viewer, button
+
+    @staticmethod
+    def session_rect(button):
+        info = button.card
+        return info.card_rect().translated(info.pos().x(), info.pos().y())
+
+    def assert_apart(self, viewer, button):
+        legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+        self.assertFalse(legend.intersects(session), (legend, session))
+        # Neither goes out of the canvas.
+        canvas = QRectF(0, 0, *viewer.canvas.size)
+        self.assertTrue(canvas.contains(legend), (legend, canvas))
+
+    def test_both_cards_open_at_once_and_never_overlap(self):
+        for size in SIZES_UNDER_TEST:
             with self.subTest(size=size):
-                viewer = self.build_legend(size)
-                legend = viewer.legend_card
-                button = self.open_info_card(viewer)
-                self.assertFalse(legend.isHidden())
+                viewer, button = self.both_open(size)
+                self.assertFalse(viewer.legend_card.isHidden())
+                self.assertFalse(button.card.isHidden())
+                self.assert_apart(viewer, button)
+                # Closing either leaves the other where it belongs; opening it again is apart again.
+                button.card.close()
+                self.settle()
+                self.assertFalse(viewer.legend_card.isHidden())
                 button.toggle_card()
                 self.settle()
-                info = button.card
-                self.assertFalse(info.isHidden())
-                self.assertTrue(legend.isHidden())
-                self.assertFalse(legend.isVisible() and legend.geometry().intersects(info.geometry()))
-                # Closed by its x (not the button): the legend comes back where it was.
-                info.close()
-                self.settle()
-                self.assertFalse(legend.isHidden())
-                self.assertEqual(legend.geometry().right(), viewer.history_buttons.redo.geometry().right())
-                button.toggle_card()
-                self.settle()
-                self.assertTrue(legend.isHidden())
-                button.toggle_card()
-                self.settle()
-                self.assertFalse(legend.isHidden())
+                self.assert_apart(viewer, button)
+                self.click_legend_button(viewer)
+                self.assertTrue(viewer.legend_card.isHidden())
+                self.assertFalse(button.card.isHidden())
+                self.click_legend_button(viewer)
+                self.assert_apart(viewer, button)
+
+    def test_in_a_wide_window_the_session_card_stays_whole_beside_the_legend(self):
+        viewer, button = self.both_open((1400, 900))
+        legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+        self.assertLess(session.right() + EMAPSSN_Viewer.LEGEND_CARD_GAP, legend.left() + 1)
+        self.assertEqual(legend.top(), 48)                                  # not cut short: the full height
+        self.assertGreater(legend.height(), 150)
+
+    def test_in_a_middling_window_the_session_card_is_narrowed_to_end_left_of_the_legend(self):
+        viewer, button = self.both_open((1000, 900))
+        legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+        self.assertLessEqual(session.right() + EMAPSSN_Viewer.LEGEND_CARD_GAP, legend.left())
+        self.assertGreaterEqual(session.width(), EMAPSSN_Viewer.SESSION_CARD_MIN_WIDTH)
+        self.assertLess(session.width(), button.card.natural_size().width() - 16)    # narrower than it likes
+        self.assert_apart(viewer, button)
+
+    def test_in_a_narrow_window_the_legends_height_is_cut_to_end_above_the_session_card(self):
+        viewer, button = self.both_open((700, 700))
+        legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+        self.assertGreater(session.right() + EMAPSSN_Viewer.LEGEND_CARD_GAP, legend.left())   # side by side is no room
+        self.assertLessEqual(legend.bottom() + EMAPSSN_Viewer.LEGEND_CARD_GAP, session.top() + 0.5)
+        self.assert_apart(viewer, button)
+
+    def test_opening_closing_resizing_and_the_sidebar_lay_the_cards_out_again(self):
+        patch = mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        viewer = self.build_legend(toggle=True)
+        button = self.open_info_card(viewer)
+        button.toggle_card()
+        self.settle()
+        self.assert_apart(viewer, button)
+        before = self.shown(viewer.legend_card)
+        # A resize.
+        for size in ((1100, 800), (900, 700), (1400, 900)):
+            viewer.canvas.size = size
+            viewer.reposition_expand_btn()
+            self.settle()
+            self.assert_apart(viewer, button)
+            self.assertEqual(self.shown(viewer.legend_card).right(), viewer.history_buttons.redo.geometry().right() + 1)
+        self.assertEqual(self.shown(viewer.legend_card), before)
+        # The sidebar slides open: the legend moves left with the row and the cards still keep apart.
+        viewer.set_sidebar_visible(True, animate=False)
+        self.settle()
+        self.assertLess(self.shown(viewer.legend_card).right(), before.right())
+        self.assert_apart(viewer, button)
+        for width in (30.0, 90.0, 150.0):
+            viewer._sidebar_slide_width = width
+            viewer.reposition_expand_btn()
+            self.assert_apart(viewer, button)
+        viewer._sidebar_slide_width = None
+        viewer.set_sidebar_visible(False, animate=False)
+        self.settle()
+        self.assertEqual(self.shown(viewer.legend_card), before)
+
+    def test_row_clicks_still_select_while_the_session_card_is_open(self):
+        viewer, button = self.both_open((1400, 900))
+        self.click_row(self.lists(viewer.legend_card)[1], 0)
+        self.assertEqual(sorted(viewer.selected_indices), [0, 1, 2])
+        self.assertFalse(button.card.isHidden())
+        self.assertFalse(viewer.legend_card.isHidden())
+        self.drag_row_bar(viewer)
+
+    def drag_row_bar(self, viewer):
+        bar = viewer.legend_card.body.findChildren(_GradientBar)[0]
+        QTest.mouseClick(bar, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(bar.width() - 2, 6))
+        self.settle()
+        self.assertEqual(sorted(viewer.selected_indices), [8])
+
+    def test_the_minimum_window_width_covers_the_top_row(self):
+        viewer = self.build_legend(fps=True)
+        buttons = viewer.history_buttons
+        need = 20 + EMAPSSN_Viewer.COMMAND_LINE_MIN_WIDTH + FPS_GAP + buttons.width() + FPS_GAP \
+            + viewer.fps_overlay.widest_width(rate_only=True) + 10
+        self.assertEqual(viewer._top_row_width(), need)
+        self.assertGreaterEqual(viewer.main_window.minimumWidth(), need)
+        # At the least the window may be, the command line keeps its least width beside the row.
+        viewer.canvas.size = (viewer.main_window.minimumWidth(), 300)
+        viewer.reposition_expand_btn()
+        self.assertGreaterEqual(viewer._command_line_right() - 20, EMAPSSN_Viewer.COMMAND_LINE_MIN_WIDTH)
 
 
 class KeyRuleTests(LegendCase):
-    def test_no_key_means_no_card_even_when_nodes_are_colored(self):
+    def test_no_key_means_no_rows_even_when_nodes_are_colored(self):
         viewer = self.build_legend(with_key=False)
         viewer.current_colors[0:5] = RED               # a cache's own colors: no key declared
         viewer.current_colors[5] = ODD
         viewer._notify_node_update_listeners()
         self.settle()
         self.assertIsNone(viewer.color_key_layers)
-        self.assertTrue(viewer.legend_card.isHidden())
+        self.assertIsNone(viewer.legend_card.model)                    # the card has its one plain line, and no rows
+        self.assertEqual(self.lists(viewer.legend_card), [])
         self.assertIsNone(legend_model(viewer))
 
     def test_a_key_that_covers_nothing_shown_keeps_the_card_for_the_unlabelled_colors(self):
@@ -498,13 +730,14 @@ class KeepingCurrentTests(LegendCase):
         Node_Colors.declare_categories(viewer, "Clusters", [("A", RED)], [0, 0], nodes=[0, 1])
         viewer._notify_node_update_listeners()
         self.settle()
-        self.assertFalse(card.isHidden())
+        self.assertIsNotNone(card.model)
+        self.assertEqual(self.titles(card), ["Clusters"])
         self.assertTrue(quietly(viewer._do_undo))
         self.settle()
-        self.assertTrue(card.isHidden())
+        self.assertIsNone(card.model)
+        self.assertEqual(self.titles(card), [])
         self.assertTrue(quietly(viewer._do_redo))
         self.settle()
-        self.assertFalse(card.isHidden())
         self.assertEqual(self.titles(card), ["Clusters"])
 
     def test_a_burst_of_updates_is_one_refresh(self):
@@ -547,11 +780,12 @@ class KeepingCurrentTests(LegendCase):
     def test_it_follows_the_language(self):
         viewer = self.build_legend()
         card = viewer.legend_card
-        self.assertEqual(card.header.text(), "Legend")
+        button = viewer.history_buttons.legend
+        self.assertEqual((card.heading.text(), button.toolTip()), ("Legend", "Legend"))
         self.addCleanup(install_translations, self.app, None)
         install_translations(self.app, PSEUDO_LANGUAGE)
         self.settle()
-        self.assertNotEqual(card.header.text(), "Legend")
+        self.assertNotEqual(card.heading.text(), "Legend")
         self.assertNotIn("Unlabelled colours", self.titles(card))
 
 

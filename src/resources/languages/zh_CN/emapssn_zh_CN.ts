@@ -7190,7 +7190,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1682"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1706"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7272,12 +7272,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+645"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+704"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+146"/>
+        <location line="+169"/>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
@@ -7287,19 +7287,19 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="-534"/>
+        <location line="-558"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="-418"/>
+        <location line="-476"/>
         <source>Clicked: {node}</source>
         <translation type="unfinished">已点击：{node}</translation>
     </message>
     <message>
-        <location line="+420"/>
+        <location line="+478"/>
         <source>Selection cleared.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
@@ -15466,7 +15466,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2367"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2425"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -15475,7 +15475,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-180"/>
+        <location line="-197"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -15493,7 +15493,7 @@ Fedora / RHEL：
         <translation type="obsolete">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点 | [右键 + 拖动 + Shift] 直线移动 | [右键 + 拖动 + 滚轮] 旋转节点（Shift：精细） | [Esc] 取消拖动</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+67"/>
         <source>Zoom: {zoom}%</source>
         <translation type="unfinished">缩放：{zoom}%</translation>
     </message>
@@ -15503,7 +15503,7 @@ Fedora / RHEL：
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-29"/>
+        <location line="-31"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect | [Scroll] Zoom | [Esc] Cancel Drag | Nodes keep their layout positions</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [左键 + 拖动] 平移 | [左键 + Shift] 复制节点标题 | [左键双击 + Shift] 复制节点序列 | [右键] 选择/清除 | [右键 + Shift] 添加/移除节点 | [右键 + 拖动] 框选 | [滚轮] 缩放 | [Esc] 取消拖动 | 节点保持其布局位置</translation>
     </message>
@@ -15513,7 +15513,7 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [左键 + 拖动] 平移 | [左键 + Shift] 复制节点标题 | [左键双击 + Shift] 复制节点序列 | [右键] 选择/清除 | [右键 + Shift] 添加/移除节点 | [右键 + 拖动] 框选/移动节点 | [右键 + 拖动 + Shift] 直线移动（45° 步进） | [右键 + 拖动 + 滚轮] 绕抓取点旋转 | [右键 + 拖动 + Ctrl] 旋转节点（Shift：15° 步进） | [滚轮] 缩放 | [滚轮 + Ctrl] 绕光标旋转 | [Esc] 取消拖动</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+30"/>
         <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
     </message>
@@ -15531,7 +15531,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2106"/>
+        <location line="+2121"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -15706,17 +15706,17 @@ Fedora / RHEL：
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+677"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="-13"/>
+        <location line="-533"/>
         <source>Session</source>
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+135"/>
+        <location line="+113"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>
@@ -15930,7 +15930,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerHistory</name>
     <message>
-        <location filename="../../../desktop/Viewer_History.py" line="+113"/>
+        <location filename="../../../desktop/Viewer_History.py" line="+135"/>
         <source>Undo (Ctrl+Z)</source>
         <translation type="unfinished">撤销（Ctrl+Z）</translation>
     </message>
@@ -15943,22 +15943,26 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerLegend</name>
     <message>
-        <location filename="../../../desktop/Viewer_Legend.py" line="+466"/>
+        <location line="-7"/>
+        <location filename="../../../desktop/Viewer_Legend.py" line="+482"/>
         <source>Legend</source>
         <translation type="unfinished">图例</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Collapse the legend</source>
-        <translation type="unfinished">收起图例</translation>
+        <translation type="obsolete">收起图例</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Expand the legend</source>
-        <translation type="unfinished">展开图例</translation>
+        <translation type="obsolete">展开图例</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location filename="../../../desktop/Viewer_Legend.py" line="+156"/>
+        <source>No colours have been described yet.</source>
+        <translation type="unfinished">尚未描述任何颜色。</translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Unlabelled colours</source>
         <translation type="unfinished">未标注的颜色</translation>
     </message>
@@ -15968,7 +15972,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished">选中此颜色的节点</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Select these nodes</source>
         <translation type="unfinished">选中这些节点</translation>
     </message>

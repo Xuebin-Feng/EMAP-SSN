@@ -4,8 +4,9 @@
 
 """The Viewer's legend card: what the colors of the network mean, as the color key says (desktop/Node_Colors.py).
 
-It is the legend Tree View shows (web_ui/tree_legend.js), as a card at the canvas's top right, under the Undo and
-Redo buttons. It reads only the key's layers, kinds, titles and labels, so it names no command.
+It is the legend Tree View shows (web_ui/tree_legend.js), as a card at the canvas's top right, under the top-right
+row, opened by the row's Legend button (desktop/Viewer_History.py). It reads only the key's layers, kinds, titles
+and labels, so it names no command.
 
 * The layers are listed newest first, counting the nodes that are shown (not hidden) only; a layer or a row with
   no shown node is left out. A layer of categories is a title and a row for each category: a swatch, the label
@@ -18,8 +19,13 @@ Redo buttons. It reads only the key's layers, kinds, titles and labels, so it na
   whose value lies in the range it covers, shown as "{low} to {high}". Hidden nodes are never selected. The
   selection goes the way a box selection's does (MainViewer.select_by_hand): the bar's drag moves the
   selection as it goes and tells the web pages and the status line once, when it is let go.
-* The header collapses the card to a small tab and expands it again; it is remembered as long as the Viewer lives.
-  The card shows while the key has something to show, and is not there without it.
+* The card opens and closes with the Legend button (a second click closes it) or with its x, and only then: it never
+  opens by itself when a key appears. It is not a popup: it stays open while the user clicks its rows, the canvas
+  or the session card. While no key has been declared it says so in one plain line. It looks like the session
+  card (desktop/Viewer_Widgets.py): the same shadow, corners, heading, x button, separators between its sections
+  and text styles, on a white body where the session card's is the theme's tint. Both cards can be open: the
+  Viewer places them so they never overlap (MainViewer._place_legend), and the card's height is capped, its
+  content scrolling.
 * Labels and titles come from a layout cache somebody may have shared: they are only ever drawn as plain text.
 
 The card is a child of the canvas, so the network works under the mouse as usual; every mouse event on the card
@@ -46,13 +52,14 @@ from PySide6.QtWidgets import (
 )
 
 from desktop.Node_Colors import KEY_ATTRIBUTES, key_state
-from desktop.Studio_Theme import TOKENS, studio_icon
+from desktop.Studio_Theme import TOKENS
+from desktop.Viewer_Widgets import ControlsCard, card_close_button, card_qss, card_separator, paint_card
 
-LEGEND_WIDTH = 240        # the expanded card's width, in px, in a window with room for it
-LEGEND_MIN_WIDTH = 120    # the least a card shrinks to in a narrow window
-PAD = 10                  # inside the card
-HEADER_HEIGHT = 26
-ROW_HEIGHT = 22
+LEGEND_WIDTH = 260        # the card's width (its body, not its shadow), in px, in a window with room for it
+LEGEND_MIN_WIDTH = 140    # the least a card shrinks to in a narrow window
+WHITE = "#ffffff"         # the card's body: white, not the theme's tint
+SECTION_GAP = 10          # between the sections of the body, the session card's
+ROW_HEIGHT = 24
 SWATCH = 12
 BAR_HEIGHT = 14
 BAR_DRAG_PIXELS = 3       # a press that moves less than this is a press, not a drag
@@ -390,8 +397,10 @@ class _GradientBar(QWidget):
 class LegendCard(QWidget):
     """The card (see the module's description). ``viewer`` is the MainViewer; ``parent`` is the canvas's widget.
 
-    refresh() reads the Viewer's key and rebuilds what changed; schedule_refresh() asks for one refresh at the end
-    of the event loop's turn however often it is called, which is what the Viewer's node update listeners call.
+    open_card() and close_card() show and hide it as the Legend button asks (toggle()), and call ``toggled`` with
+    whether it is open. refresh() reads the Viewer's key and rebuilds what changed; schedule_refresh() asks for
+    one refresh at the end of the event loop's turn however often it is called, which is what the Viewer's node
+    update listeners call (nothing happens while the card is closed: opening it refreshes).
     place() puts the card's right edge at ``right``, its top at ``top``, and keeps its bottom above ``bottom``.
     """
 
@@ -401,10 +410,10 @@ class LegendCard(QWidget):
         self.setObjectName("viewerLegendCard")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.setMouseTracking(True)
-        self.expanded = True      # remembered for as long as the Viewer lives
+        self.opened = False
         self.model = None
         self.relayout = None      # called after a refresh changed what the card shows
-        self.suppressed = False   # True while another card (the session card) is open where this one would be
+        self.toggled = None       # called with whether the card is open, after it opened or closed
         self._seen = None         # what the last refresh read: (checksum of colors and shown nodes, the key's objects)
         self._pending = False
         self._style_key = None
@@ -414,32 +423,41 @@ class LegendCard(QWidget):
         self._range_labels = {}
         self._range_buttons = {}
 
+        # The session card's margins: the shadow's room, the padding, and room at the right for the scroll bar.
+        margin = ControlsCard.SHADOW
+        top = margin - 2
+        pad = ControlsCard.PAD
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(PAD, 4, PAD, PAD)
-        layout.setSpacing(2)
-        self.header = QPushButton()
-        self.header.setObjectName("legendHeader")
-        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.header.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.header.setIconSize(QSize(14, 14))
-        self.header.setFixedHeight(HEADER_HEIGHT)
-        self.header.clicked.connect(self.toggle)
-        layout.addWidget(self.header)
+        layout.setContentsMargins(margin + pad, top + pad - 4, margin + pad - 6, 2 * margin - top + pad)
+        layout.setSpacing(10)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(4)
+        self.heading = QLabel()
+        self.heading.setObjectName("controlsHeading")
+        header.addWidget(self.heading)
+        header.addStretch(1)
+        self.close_button = card_close_button(ControlsCard.CLOSE_SIZE, self.close_card)
+        header.addWidget(self.close_button)
+        layout.addLayout(header)
         self.scroll = QScrollArea()
-        self.scroll.setObjectName("legendScroll")
+        self.scroll.setObjectName("controlsScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.body = QWidget()
-        self.body.setObjectName("legendBody")
+        self.body.setObjectName("controlsBody")
         self.body_layout = QVBoxLayout(self.body)
-        self.body_layout.setContentsMargins(0, 4, 6, 0)
-        self.body_layout.setSpacing(8)
+        self.body_layout.setContentsMargins(0, 0, 6, 0)
+        self.body_layout.setSpacing(SECTION_GAP)
         self.scroll.setWidget(self.body)
         layout.addWidget(self.scroll, 1)
         self._style()
         self._retitle()
+        self._rebuild(None)
+        for child in self.findChildren(QWidget):
+            child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hide()
 
     # --- looks ---
@@ -447,41 +465,31 @@ class LegendCard(QWidget):
     def _style(self):
         t = TOKENS
         self._style_key = (t["surface"], t["text"], t["accent_text"])
-        self.setStyleSheet(f"""
-            QPushButton#legendHeader {{
-                background: transparent; border: none; border-radius: 6px; color: {t['text']};
-                font-weight: 600; text-align: left; padding: 2px 6px; min-height: 0px;
-            }}
-            QPushButton#legendHeader:hover {{ background: {t['tint_hover']}; }}
+        self.setStyleSheet(card_qss(t, ControlsCard.CLOSE_SIZE) + f"""
             QLabel#legendTitle {{ color: {t['text']}; font-weight: 600; }}
             QLabel#legendScheme, QLabel#legendEnd {{ color: {t['text_muted']}; }}
             QLabel#legendRange {{ color: {t['text']}; }}
+            QLabel#legendEmpty {{ color: {t['text_soft']}; }}
             QPushButton#legendClear {{
                 background: transparent; border: none; border-radius: 5px; color: {t['accent_text']};
                 font-weight: 600; padding: 1px 6px; min-height: 0px;
             }}
             QPushButton#legendClear:hover {{ background: {t['tint_hover']}; }}
-            QScrollArea#legendScroll, QWidget#legendBody {{ background: transparent; border: none; }}
-            QScrollArea#legendScroll > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
         """)
 
     def _retitle(self):
-        """The header's text, icon and tooltip, in the current language and for the card's state."""
-        self.header.setText(QtCore.QCoreApplication.translate("ViewerLegend", "Legend"))
-        self.header.setIcon(studio_icon("chevron-up" if self.expanded else "chevron-down", TOKENS["text_muted"]))
-        tip = QtCore.QCoreApplication.translate("ViewerLegend", "Collapse the legend") if self.expanded else QtCore.QCoreApplication.translate("ViewerLegend", "Expand the legend")
-        self.header.setToolTip(tip)
-        self.header.setAccessibleName(tip)
+        """The heading's text, in the current language."""
+        self.heading.setText(QtCore.QCoreApplication.translate("ViewerLegend", "Legend"))
+        self.setAccessibleName(self.heading.text())
+
+    def card_rect(self):
+        """Where the card is, inside the shadow's margin (the session card's)."""
+        margin = ControlsCard.SHADOW
+        return QRectF(margin, margin - 2, self.width() - 2 * margin, self.height() - 2 * margin)
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        fill = QColor(TOKENS["surface"])
-        fill.setAlphaF(0.95)
-        painter.setPen(QPen(QColor(TOKENS["border"]), 1.0))
-        painter.setBrush(fill)
-        radius = TOKENS["radius_card"]
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+        paint_card(painter, self.card_rect(), ControlsCard.RADIUS, QColor(WHITE))
         painter.end()
 
     def changeEvent(self, event):
@@ -492,31 +500,61 @@ class LegendCard(QWidget):
             self.schedule_refresh()
         super().changeEvent(event)
 
-    # A mouse event no widget in the card took stops here, so the canvas never sees one meant for the card.
+    # A mouse event no widget in the card took stops here, so the canvas never sees one meant for the card;
+    # one in the shadow's margin, which is not the card, goes through to the canvas (as the session card's).
+    def _take(self, event, position):
+        if self.card_rect().contains(position):
+            event.accept()
+        else:
+            event.ignore()
+
     def mousePressEvent(self, event):
-        event.accept()
+        self._take(event, event.position())
 
     def mouseReleaseEvent(self, event):
-        event.accept()
+        self._take(event, event.position())
 
     def mouseDoubleClickEvent(self, event):
-        event.accept()
+        self._take(event, event.position())
 
     def mouseMoveEvent(self, event):
-        event.accept()
+        self._take(event, event.position())
 
     def wheelEvent(self, event):
-        event.accept()
+        self._take(event, event.position())
 
     def contextMenuEvent(self, event):
-        event.accept()
+        self._take(event, QPointF(event.pos()))
 
     # --- state ---
 
+    def is_open(self):
+        return self.opened
+
     def toggle(self):
-        """Collapse the card to its tab, or expand it again."""
-        self.expanded = not self.expanded
-        self._retitle()
+        """Open the card, or close it when it is open (the Legend button)."""
+        if self.opened:
+            self.close_card()
+        else:
+            self.open_card()
+
+    def open_card(self):
+        """Show the card, reading the key as it is now."""
+        if self.opened:
+            return
+        self.opened = True
+        self.refresh()
+        if self.toggled is not None:
+            self.toggled(True)
+
+    def close_card(self):
+        """Hide the card (its x, or a second click on the Legend button)."""
+        if not self.opened:
+            return
+        self.opened = False
+        self.hide()
+        if self.toggled is not None:
+            self.toggled(False)
         self._relayout()
 
     def _relayout(self):
@@ -525,7 +563,7 @@ class LegendCard(QWidget):
 
     def schedule_refresh(self):
         """Refresh once at the end of this turn of the event loop, however many times this is called."""
-        if self._pending:
+        if self._pending or not self.opened:
             return
         self._pending = True
         QTimer.singleShot(0, self._refresh_now)
@@ -574,10 +612,6 @@ class LegendCard(QWidget):
         if model_changed:
             self.model = model
             self._rebuild(model)
-        if model is None:
-            self.hide()
-        elif self.relayout is None:
-            self.show()
         self._relayout()
 
     def _check_range(self):
@@ -601,9 +635,14 @@ class LegendCard(QWidget):
         self._range_labels = {}
         self._range_buttons = {}
         if model is None:
+            empty = QLabel(QtCore.QCoreApplication.translate("ViewerLegend", "No colours have been described yet."))
+            empty.setObjectName("legendEmpty")
+            empty.setWordWrap(True)
+            self.body_layout.addWidget(empty)
+            self.body_layout.addStretch(1)
             return
         for layer in model["layers"]:
-            self.body_layout.addWidget(self._layer_group(layer))
+            self._add_section(self._layer_group(layer))
         if model["unlabelled"]:
             group = self._group(QtCore.QCoreApplication.translate("ViewerLegend", "Unlabelled colours"))
             rows = [(entry["rgb"], entry["hex"], entry["count"]) for entry in model["unlabelled"]]
@@ -611,16 +650,22 @@ class LegendCard(QWidget):
             rowlist.activated.connect(lambda index, ctrl, found=model["unlabelled"]:
                                       self._pick_row(nodes_of_colour(self.viewer, found[index]["cls"]), ctrl))
             group.layout().addWidget(rowlist)
-            self.body_layout.addWidget(group)
+            self._add_section(group)
         self.body_layout.addStretch(1)
         self._show_ranges()
+
+    def _add_section(self, section):
+        """Add a section to the body, a separator before it unless it is the first (as the session card's sections are)."""
+        if self.body_layout.count():
+            self.body_layout.addWidget(card_separator())
+        self.body_layout.addWidget(section)
 
     @staticmethod
     def _group(title):
         group = QWidget()
         layout = QVBoxLayout(group)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(ControlsCard.ROW_GAP - 2)
         label = _ElidedLabel(title)
         label.setObjectName("legendTitle")
         layout.addWidget(label)
@@ -753,33 +798,51 @@ class LegendCard(QWidget):
 
     # --- where it sits ---
 
-    def natural_height(self):
-        """The height the card would like when expanded: the header and everything under it."""
+    def natural_height(self, width=None):
+        """The height the card would like (its widget's, shadow included) at the card width ``width``: the heading's
+        row and everything under it, a line that wraps taking its lines."""
         self.body_layout.activate()
-        return self.layout().contentsMargins().top() + HEADER_HEIGHT + self.layout().spacing() \
-            + self.body.sizeHint().height() + self.layout().contentsMargins().bottom()
+        margins = self.layout().contentsMargins()
+        body = self.body.sizeHint().height()
+        if width is not None and self.body_layout.hasHeightForWidth():
+            inner = width + 2 * ControlsCard.SHADOW - margins.left() - margins.right()
+            body = max(body, self.body_layout.totalHeightForWidth(max(1, inner)))
+        return margins.top() + ControlsCard.CLOSE_SIZE + self.layout().spacing() + body + margins.bottom()
+
+    def minimum_card_height(self):
+        """The least height the card shrinks to, its heading's row alone (card, not widget)."""
+        margins = self.layout().contentsMargins()
+        return margins.top() + ControlsCard.CLOSE_SIZE + margins.bottom() - 2 * ControlsCard.SHADOW
+
+    def card_width(self, room):
+        """The card's width in a window that leaves it ``room`` px: LEGEND_WIDTH, or less down to LEGEND_MIN_WIDTH."""
+        return max(LEGEND_MIN_WIDTH, min(LEGEND_WIDTH, int(room)))
 
     def place(self, right, top, bottom, room):
-        """Put the card's right edge at ``right`` and top at ``top`` (canvas px), no lower than ``bottom``, no wider than ``room``."""
-        if self.model is None or self.suppressed:
+        """Put the card's right edge at ``right`` and top at ``top`` (canvas px), no lower than ``bottom``, no wider than ``room``.
+
+        These are the card's own edges, inside its shadow: the widget is a little larger all round.
+        """
+        if not self.opened:
             self.hide()
             return
-        margins = self.layout().contentsMargins()
-        if self.expanded:
-            self.scroll.show()
-            width = max(LEGEND_MIN_WIDTH, min(LEGEND_WIDTH, int(room)))
-            height = max(margins.top() + HEADER_HEIGHT + margins.bottom(), min(self.natural_height(), int(bottom - top)))
-        else:
-            self.scroll.hide()
-            metrics = QFontMetrics(self.header.font())
-            width = min(int(room), metrics.horizontalAdvance(self.header.text()) + 2 * PAD + 40)
-            height = margins.top() + HEADER_HEIGHT + margins.bottom()
-        target = QtCore.QRect(int(round(right)) - width, int(round(top)), width, height)
+        shadow = ControlsCard.SHADOW
+        width = self.card_width(room)
+        wanted = self.natural_height(width) - 2 * shadow
+        height = max(self.minimum_card_height(), min(wanted, int(bottom - top)))
+        target = QtCore.QRect(int(round(right)) - width - shadow, int(round(top)) - (shadow - 2),
+                              width + 2 * shadow, height + 2 * shadow)
         if self.geometry() != target:
             self.setGeometry(target)
-        if self.isHidden() and self.model is not None:
+        if self.isHidden():
             self.show()
         self.raise_()
+
+    def visible_rect(self):
+        """The card's rectangle in the canvas's px (inside its shadow), or None while it is closed."""
+        if not self.opened or self.isHidden():
+            return None
+        return self.card_rect().translated(QPointF(self.pos()))
 
 
 __all__ = ["LegendCard", "legend_model", "nodes_in_range", "nodes_of_colour", "nodes_of_row", "number"]

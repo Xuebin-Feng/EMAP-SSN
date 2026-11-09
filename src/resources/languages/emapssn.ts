@@ -10905,10 +10905,6 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Nodes:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10934,6 +10930,10 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
     </message>
     <message>
         <source>The list of commands is not installed: docs/list_of_commands.html is missing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10982,11 +10982,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Collapse the legend</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Expand the legend</source>
+        <source>No colours have been described yet.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

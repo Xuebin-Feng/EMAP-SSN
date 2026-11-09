@@ -333,16 +333,7 @@ class ControlsCard(QWidget):
         header.addStretch(1)
         self.commands_button = self._commands_link()
         header.addWidget(self.commands_button)
-        self.close_button = QPushButton()
-        self.close_button.setObjectName("controlsClose")
-        self.close_button.setIcon(studio_icon("x", TOKENS["text_muted"]))
-        self.close_button.setIconSize(QSize(14, 14))
-        self.close_button.setFixedSize(self.CLOSE_SIZE, self.CLOSE_SIZE)
-        self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_text = QtCore.QCoreApplication.translate("ViewerControls", "Close")
-        self.close_button.setToolTip(close_text)
-        self.close_button.setAccessibleName(close_text)
-        self.close_button.clicked.connect(self.close)
+        self.close_button = card_close_button(self.CLOSE_SIZE, self.close)
         header.addWidget(self.close_button)
         layout.addLayout(header)
 
@@ -375,7 +366,7 @@ class ControlsCard(QWidget):
 
         t = TOKENS
         self.setStyleSheet(f"""
-            QLabel#controlsHeading {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
+            {card_qss(t, self.CLOSE_SIZE)}
             QLabel#controlsLabel {{ color: {t['text_soft']}; }}
             QLabel#controlsValue {{ color: {t['text']}; }}
             QLabel#controlsDescription {{ color: {t['text_soft']}; }}
@@ -399,16 +390,6 @@ class ControlsCard(QWidget):
             QPushButton#controlsLink:hover {{ background: {t['tint_hover']}; }}
             QPushButton#controlsLink:pressed {{ background: {t['separator']}; }}
             QPushButton#controlsLink:disabled {{ color: {t['text_disabled']}; }}
-            QFrame#controlsSeparator {{ background: {t['separator']}; border: none; }}
-            QPushButton#controlsClose {{
-                background: transparent; border: none; border-radius: 6px; padding: 0px;
-                min-width: {self.CLOSE_SIZE}px; max-width: {self.CLOSE_SIZE}px;
-                min-height: {self.CLOSE_SIZE}px; max-height: {self.CLOSE_SIZE}px;
-            }}
-            QPushButton#controlsClose:hover {{ background: {t['tint_hover']}; }}
-            QPushButton#controlsClose:pressed {{ background: {t['separator']}; }}
-            QScrollArea#controlsScroll, QWidget#controlsBody {{ background: transparent; border: none; }}
-            QScrollArea#controlsScroll > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
         """ + section_qss(t))
         # Nothing here takes the keyboard: [ENTER] still opens the command line.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -426,10 +407,7 @@ class ControlsCard(QWidget):
 
     @staticmethod
     def _separator():
-        separator = QFrame()
-        separator.setObjectName("controlsSeparator")
-        separator.setFixedHeight(TOKENS["separator_thickness"])
-        return separator
+        return card_separator()
 
     def _jobs_resized(self):
         """The jobs section gained or lost rows: take the card's size again, and keep it above its button.
@@ -798,16 +776,7 @@ class ControlsCard(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        card = self.card_rect()
-        painter.setPen(Qt.PenStyle.NoPen)
-        for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
-            painter.setBrush(QColor(9, 9, 11, alpha))
-            painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2),
-                                    self.RADIUS + grow, self.RADIUS + grow)
-        painter.setPen(QPen(QColor(TOKENS["tint_hover"]), 1.0))
-        painter.setBrush(QColor(TOKENS["tint"]))
-        painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), self.RADIUS, self.RADIUS)
+        paint_card(painter, self.card_rect(), self.RADIUS, QColor(TOKENS["tint"]))
         painter.end()
 
     # The card sits over the canvas, a parent that turns the mouse into the
@@ -838,6 +807,63 @@ class ControlsCard(QWidget):
 
     def contextMenuEvent(self, event):
         self._take(event, QtCore.QPointF(event.pos()))
+
+
+def paint_card(painter, card, radius, fill):
+    """Paint a card over the canvas: its soft shadow, then its body ``fill`` and a hairline edge in the hover tint.
+
+    ``card`` is the card's rectangle (QRectF) inside the widget's shadow margin. The session card and the legend
+    card (desktop.Viewer_Legend) are painted by this, so they differ in the fill alone.
+    """
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
+        painter.setBrush(QColor(9, 9, 11, alpha))
+        painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2), radius + grow, radius + grow)
+    painter.setPen(QPen(QColor(TOKENS["tint_hover"]), 1.0))
+    painter.setBrush(fill)
+    painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+
+
+def card_qss(t, close_size):
+    """The rules the cards over the canvas share: the heading, the separator between sections, the × button and the
+    transparent scrolling body (the objects named controls*; the legend card gives its own the same names)."""
+    return f"""
+            QLabel#controlsHeading {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
+            QFrame#controlsSeparator {{ background: {t['separator']}; border: none; }}
+            QPushButton#controlsClose {{
+                background: transparent; border: none; border-radius: 6px; padding: 0px;
+                min-width: {close_size}px; max-width: {close_size}px;
+                min-height: {close_size}px; max-height: {close_size}px;
+            }}
+            QPushButton#controlsClose:hover {{ background: {t['tint_hover']}; }}
+            QPushButton#controlsClose:pressed {{ background: {t['separator']}; }}
+            QScrollArea#controlsScroll, QWidget#controlsBody {{ background: transparent; border: none; }}
+            QScrollArea#controlsScroll > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
+    """
+
+
+def card_separator():
+    """The line between a card's sections."""
+    separator = QFrame()
+    separator.setObjectName("controlsSeparator")
+    separator.setFixedHeight(TOKENS["separator_thickness"])
+    return separator
+
+
+def card_close_button(size, on_click):
+    """A card's × button (the session card's): muted icon, tooltip and accessible name "Close", calling on_click."""
+    button = QPushButton()
+    button.setObjectName("controlsClose")
+    button.setIcon(studio_icon("x", TOKENS["text_muted"]))
+    button.setIconSize(QSize(14, 14))
+    button.setFixedSize(size, size)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    text = QtCore.QCoreApplication.translate("ViewerControls", "Close")
+    button.setToolTip(text)
+    button.setAccessibleName(text)
+    button.clicked.connect(lambda _checked=False: on_click())
+    return button
 
 
 def _invalidate(item):

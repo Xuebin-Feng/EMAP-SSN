@@ -224,9 +224,14 @@ QMainWindow, QDialog {{ background: {t['window']}; }}
 QWidget {{ color: {t['text']}; }}
 QLabel {{ background: transparent; }}
 QLabel:disabled {{ color: {t['text_disabled']}; }}
+/* The space round a tooltip's text is its border, not padding. Qt sets a tip label's margin to
+   1 px plus the style sheet's left padding, then adds the padding itself: "padding: 5px 8px" gave
+   17 px at the sides and 14 px above and below (a box 36 px wider and 28 px taller than the text).
+   With no padding the margin stays at 1 px and the border, drawn in the background colour, is the
+   only room: 2 px makes 6 px at the sides and 5 px above and below. */
 QToolTip {{
-    background: {t['tooltip']}; color: {t['tooltip_text']}; border: none;
-    padding: 5px 8px; border-radius: 6px;
+    background: {t['tooltip']}; color: {t['tooltip_text']}; border: 2px solid {t['tooltip']};
+    padding: 0px; border-radius: 6px;
 }}
 
 /* Tabs: a segmented control, the selected tab a raised white pill in a grey track.

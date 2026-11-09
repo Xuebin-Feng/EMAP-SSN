@@ -16,6 +16,7 @@
 import os
 import sys
 import json
+import math
 
 
 def _configure_headless_platform(argv=None, environment=None):
@@ -342,6 +343,12 @@ SLIDER_MIN_WIDTH = 60
 # background-job status text under it.
 SESSION_CARD_MARGIN = 8
 SESSION_CARD_TOP = 96
+# With the legend card open too, the two cards keep this much (px) between them. The session card gives the
+# legend the room at its right when it can stay at least SESSION_CARD_MIN_WIDTH wide (its two columns of
+# controls and its path fields need about that to read); in a window too narrow for that the legend card
+# gives up height instead and ends above the session card (_place_legend).
+LEGEND_CARD_GAP = 6
+SESSION_CARD_MIN_WIDTH = 480
 # The window is kept at least this tall, in px: the command line and the
 # background-job text take the top SESSION_CARD_TOP, the slider row and the
 # Hidden Nodes line above it the bottom 85, and a strip of network is left
@@ -1481,7 +1488,7 @@ class MainViewer:
             command_line_open=lambda: getattr(self, 'console_mode', False),
             # The background jobs the card lists, and its buttons that arrange them.
             jobs=ViewerJobs(self),
-            # The legend card gives way while this card is open (_place_legend).
+            # The legend card, when open, shares the room with this card (_place_legend).
             card_changed=self._place_legend,
         )
         overlay_layout.addWidget(self.controls_button)
@@ -1572,9 +1579,24 @@ class MainViewer:
         room, a margin all round, and clear of the command line at the top."""
         width, height = self.canvas.size
         right = width - _sidebar_room(self) - SESSION_CARD_MARGIN
+        top = SESSION_CARD_TOP
+        legend = self._open_legend()
+        if legend is not None:
+            # Beside the legend card when this card can keep its readable width there; else full width, and
+            # below the legend's heading where the two would meet (_place_legend then ends the legend above it).
+            left = round(width - _sidebar_room(self))
+            legend_left = self._top_row_right(left) - legend.card_width(self._top_row_right(left) - SESSION_CARD_MARGIN)
+            beside = legend_left - LEGEND_CARD_GAP
+            if beside - SESSION_CARD_MARGIN >= SESSION_CARD_MIN_WIDTH:
+                right = min(right, beside)
+            else:
+                card = getattr(getattr(self, 'controls_button', None), 'card', None)
+                natural = card.natural_size().width() - 2 * card.SHADOW if card is not None else right
+                if SESSION_CARD_MARGIN + min(natural, right - SESSION_CARD_MARGIN) + LEGEND_CARD_GAP > legend_left:
+                    top = max(top, self._legend_top() + legend.minimum_card_height() + LEGEND_CARD_GAP)
         return QtCore.QRect(
-            SESSION_CARD_MARGIN, SESSION_CARD_TOP,
-            max(0, right - SESSION_CARD_MARGIN), max(0, height - SESSION_CARD_TOP - SESSION_CARD_MARGIN),
+            SESSION_CARD_MARGIN, top,
+            max(0, right - SESSION_CARD_MARGIN), max(0, height - top - SESSION_CARD_MARGIN),
         )
 
     def _refresh_session_card(self):
@@ -3878,11 +3900,13 @@ class MainViewer:
         """The Undo and Redo buttons (desktop.Viewer_History) at the canvas's top right, in every window mode as the
         other overlays are; nothing shows in a window that is not on screen. A click is Ctrl+Z or Ctrl+Y."""
         self.history_buttons = HistoryButtons(
-            self.canvas, lambda: self._click_history(self.undo_by_hand), lambda: self._click_history(self.redo_by_hand))
+            self.canvas, lambda: self._click_history(self.undo_by_hand), lambda: self._click_history(self.redo_by_hand),
+            legend=self._toggle_legend)
         queue = getattr(self, 'command_queue', None)
         if queue is not None:
             queue.changed.connect(self._refresh_history_buttons)
         self._refresh_history_buttons()
+        self._update_window_minimum_width()
         self.reposition_expand_btn()
 
     def _click_history(self, step):
@@ -3919,7 +3943,8 @@ class MainViewer:
         self.reposition_expand_btn()
 
     def _build_legend(self):
-        """The legend card (desktop.Viewer_Legend) at the canvas's top right, under the Undo and Redo buttons.
+        """The legend card (desktop.Viewer_Legend) at the canvas's top right, under the top-right row; the row's
+        Legend button (_build_history_buttons) opens and closes it.
 
         It follows what the nodes' colors mean: the node update listeners tell it the nodes were drawn again,
         and it refreshes once per turn of the event loop. A Viewer with no window (headless, or hidden and
@@ -3946,9 +3971,36 @@ class MainViewer:
             return None
         card = LegendCard(self, self.canvas.native)
         card.relayout = self._place_legend
+        card.toggled = self._legend_toggled
         self.legend_card = card
         card.refresh()
         return card
+
+    def _toggle_legend(self):
+        """The Legend button: open the legend card, or close it when it is open."""
+        card = self._ensure_legend()
+        if card is not None:
+            card.toggle()
+
+    def _legend_toggled(self, is_open):
+        """The legend card opened or closed (by the button or its x): the button shows it, and the cards are placed again."""
+        buttons = getattr(self, 'history_buttons', None)
+        if buttons is not None:
+            buttons.show_legend_open(is_open)
+        self._place_legend()
+
+    def _open_legend(self):
+        """The legend card while it is open, else None."""
+        card = getattr(self, 'legend_card', None)
+        return card if card is not None and card.is_open() else None
+
+    def _legend_top(self):
+        """The legend card's top, in canvas px: under the top-right row, or under the jobs badge while that shows."""
+        top = 25 + HISTORY_BUTTON_SIZE / 2 + BADGE_GAP
+        badge = getattr(self, 'jobs_badge', None)
+        if badge is not None and not badge.isHidden():
+            top += BADGE_HEIGHT + BADGE_GAP
+        return top
 
     def _legend_listener(self):
         """A node update listener: the legend refreshes once this turn (and exists, once windows are shown)."""
@@ -3957,11 +4009,14 @@ class MainViewer:
             card.schedule_refresh()
 
     def _place_legend(self):
-        """Put the legend card under the Undo and Redo buttons, right edges level, clear of the sidebar and the bottom rows.
+        """Put the legend card, when open, under the top-right row, right edges level, clear of the sidebar and the bottom rows.
 
         Its top is BADGE_GAP under the row, or under the jobs badge while that shows; it moves with the
         sidebar's slide as the row does (_top_row_right); and it stops short of the status lines above the
-        slider row (_status_hud_position), the card scrolling inside.
+        slider row (_status_hud_position), the card scrolling inside. With the session card (the info
+        button's) open too, the session card is placed first, narrowed to end left of the legend card where
+        it can stay SESSION_CARD_MIN_WIDTH wide (_session_card_area); where it cannot, the legend card's
+        height is cut to end LEGEND_CARD_GAP above the session card's top, so the two never overlap.
         """
         card = getattr(self, 'legend_card', None)
         if card is None or not hasattr(self, 'canvas'):
@@ -3969,17 +4024,17 @@ class MainViewer:
         width, height = self.canvas.size
         left = round(width - _sidebar_room(self))
         right = self._top_row_right(left)
-        top = 25 + HISTORY_BUTTON_SIZE / 2 + BADGE_GAP
-        badge = getattr(self, 'jobs_badge', None)
-        if badge is not None and not badge.isHidden():
-            top += BADGE_HEIGHT + BADGE_GAP
+        top = self._legend_top()
         spacing = getattr(self, 'hud_layout', {}).get("status_line_spacing", 34.0)
         bottom = _slider_row_centre(height) - 2 * spacing - spacing / 2 - BADGE_GAP / 2
-        # The session card (the info button's) opens over the canvas, wide and from the slider row up: the
-        # legend gives way while it is open, so the two never cover each other.
+        room = right - SESSION_CARD_MARGIN
         button = getattr(self, 'controls_button', None)
-        card.suppressed = button is not None and button.card_is_open()
-        card.place(right, top, bottom, right - SESSION_CARD_MARGIN)
+        if card.is_open() and button is not None and button.card_is_open():
+            button.place_card()
+            session = QtCore.QRectF(button.card.card_rect()).translated(QtCore.QPointF(button.card.pos()))
+            if session.right() + LEGEND_CARD_GAP > right - card.card_width(room):
+                bottom = min(bottom, session.top() - LEGEND_CARD_GAP)
+        card.place(right, top, bottom, room)
 
     def select_by_hand(self, nodes, *, announce=True):
         """Make ``nodes`` the selection as a box selection does, and return whether something was selected before.
@@ -4077,6 +4132,7 @@ class MainViewer:
         self.fps_overlay = FpsOverlay(self.canvas, edge_detail, picture_state=picture_state)
         self.fps_overlay.attach()
         self.fps_overlay.show()
+        self._update_window_minimum_width()
         self.reposition_expand_btn()
 
     def _command_line_right(self):
@@ -4356,15 +4412,38 @@ class MainViewer:
         return (SLIDER_ROW_LEFT + overlay.layout().minimumSize().width() + SLIDER_BOX_GAP
                 + box.sizeHint().width() + round(hud_layout["status_x_offset"]))
 
-    def _update_window_minimum_width(self):
-        """Keep the window wide enough for the sidebar's buttons, and for the slider row beside the sidebar.
+    def _top_row_width(self):
+        """The canvas width the top-right row needs for the command line to keep COMMAND_LINE_MIN_WIDTH beside it, the sidebar aside.
 
-        The row needs _slider_row_width and, while the sidebar can open and has buttons, the room it
-        takes when open, so that opening it never makes the row overlap: none while the sidebar is
-        off (SIDEBAR_ENABLED). A Viewer without the row keeps the sidebar's width alone.
+        From the left: the command line's offset and least width, then (FPS_GAP between each) the frame rate when
+        the Viewer has one (the rate alone, which is what shows when the room is short), the Legend, Undo and Redo
+        buttons, and the room right of them: 10 px, or the toggle's 40 and FPS_GAP while it shows
+        (_top_row_right). 0 while the buttons are not built.
+        """
+        buttons = getattr(self, 'history_buttons', None)
+        if buttons is None:
+            return 0
+        command_left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
+        need = command_left + COMMAND_LINE_MIN_WIDTH + FPS_GAP + buttons.width()
+        overlay = getattr(self, 'fps_overlay', None)
+        if overlay is not None:
+            need += FPS_GAP + overlay.widest_width(rate_only=True)
+        toggle = getattr(self, 'toggle_sidebar_btn', None)
+        need += 40 + FPS_GAP if toggle is not None and not toggle.isHidden() else 10
+        return math.ceil(need)
+
+    def _update_window_minimum_width(self):
+        """Keep the window wide enough for the sidebar's buttons, for the slider row, and for the top-right row.
+
+        The slider row needs _slider_row_width and the top-right row _top_row_width (the command line's
+        least width beside the frame rate, the Legend, Undo and Redo buttons); each, while the sidebar can
+        open and has buttons, with the room the sidebar takes when open, so that opening it never makes
+        either overlap: none while the sidebar is off (SIDEBAR_ENABLED). A Viewer without the rows keeps
+        the sidebar's width alone.
         """
         room = self._panel_w if SIDEBAR_ENABLED and getattr(self, 'sidebar_buttons', None) else 0
-        self.main_window.setMinimumWidth(max(self._panel_w, self._slider_row_width() + room))
+        self.main_window.setMinimumWidth(max(self._panel_w, self._slider_row_width() + room,
+                                             self._top_row_width() + room))
 
 
     def start_web_server(self):

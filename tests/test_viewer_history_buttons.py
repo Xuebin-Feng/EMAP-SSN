@@ -141,32 +141,35 @@ class ViewerCase(unittest.TestCase):
 
 
 class PlacementTests(ViewerCase):
-    """The row: the card, then Undo, then Redo, then the toggle; the badge under it; the command line short of all."""
+    """The row: the frame rate, then Legend, Undo and Redo, then the toggle; the badge under it; the command line short of all."""
 
     def row(self, viewer):
+        """The geometry of the row's first button (Legend: where the row starts) and of its last (Redo: where it ends)."""
         buttons = viewer.history_buttons
-        return buttons.undo.geometry(), buttons.redo.geometry()
+        return buttons.legend.geometry(), buttons.redo.geometry()
 
     def check(self, viewer, *, fps, toggle):
         width, height = viewer.canvas.size
-        undo, redo = self.row(viewer)
+        first, redo = self.row(viewer)
+        legend, undo = first, viewer.history_buttons.undo.geometry()
         toggle_button = viewer.toggle_sidebar_btn
         self.assertEqual(not toggle_button.isHidden(), toggle)
         # The pair keeps the row's right end: the corner, or FPS_GAP left of the toggle.
         row_right = toggle_button.x() - FPS_GAP if toggle else width - 10
         self.assertEqual(redo.x() + redo.width(), row_right)
-        self.assertEqual(redo.x() - (undo.x() + undo.width()), 4)       # a small gap between the two
-        for rectangle in (undo, redo):
+        self.assertEqual(redo.x() - (undo.x() + undo.width()), 4)       # a small gap between the buttons
+        self.assertEqual(undo.x() - (legend.x() + legend.width()), 4)
+        for rectangle in (legend, undo, redo):
             # As big as the sidebar's toggle, in the row it makes.
             self.assertEqual((rectangle.width(), rectangle.height()), (30, 30))
         # In the row of the toggle and the frame rate: the same top, the same height, the same middle.
-        self.assertEqual((undo.y(), redo.y()), (10, 10))
+        self.assertEqual((legend.y(), undo.y(), redo.y()), (10, 10, 10))
         self.assertEqual(undo.y() * 2 + undo.height(), 50)
-        occupied = {"undo": undo, "redo": redo}
-        card_left = undo.x()
+        occupied = {"legend": legend, "undo": undo, "redo": redo}
+        card_left = legend.x()
         if fps:
             card = viewer.fps_overlay.geometry()
-            self.assertEqual(card.x() + card.width() + FPS_GAP, undo.x())
+            self.assertEqual(card.x() + card.width() + FPS_GAP, legend.x())
             self.assertEqual(2 * card.y() + card.height(), 2 * undo.y() + undo.height())
             occupied["card"] = card
             card_left = card.x()
@@ -174,8 +177,8 @@ class PlacementTests(ViewerCase):
                                  card.x() + card.width() - viewer.fps_overlay.widest_width() - FPS_GAP)
         else:
             self.assertIsNone(viewer.fps_overlay)
-            # The command line stops FPS_GAP short of the pair.
-            self.assertEqual(viewer._command_line_right(), undo.x() - FPS_GAP)
+            # The command line stops FPS_GAP short of the row's buttons, the Legend button first.
+            self.assertEqual(viewer._command_line_right(), legend.x() - FPS_GAP)
         if toggle:
             occupied["toggle"] = toggle_button.geometry()
         badge = viewer.jobs_badge
@@ -199,7 +202,8 @@ class PlacementTests(ViewerCase):
                 for toggle in (False, True):
                     with self.subTest(size=(width, height), fps=fps, toggle=toggle):
                         viewer = self.build((width, height), fps=fps, toggle=toggle)
-                        self.assertEqual(viewer.canvas.size, (width, height))
+                        # A window is never narrower than its minimum, which the row's room raises (_top_row_width).
+                        self.assertEqual(viewer.canvas.size, (max(width, viewer.main_window.minimumWidth()), height))
                         self.check(viewer, fps=fps, toggle=toggle)
 
     def test_a_longer_frame_rate_text_keeps_clear_of_the_pair(self):
@@ -657,7 +661,7 @@ class NeverMovesTests(ViewerCase):
 
     def test_a_dimmed_button_keeps_its_size_and_icon_and_has_the_arrow_cursor(self):
         viewer = self.build()
-        for button in viewer.history_buttons.buttons():
+        for button in (viewer.history_buttons.undo, viewer.history_buttons.redo):   # Legend is never dimmed
             self.assertFalse(button.isEnabled())
             self.assertEqual(button.size().toTuple(), (HISTORY_BUTTON_SIZE, HISTORY_BUTTON_SIZE))
             self.assertFalse(button.icon().isNull())
@@ -670,8 +674,8 @@ class NeverMovesTests(ViewerCase):
 class LookTests(ViewerCase):
     def test_the_buttons_are_widgets_over_the_canvas_with_lucide_icons_and_a_dimmed_look(self):
         viewer = self.build()
-        undo, redo = viewer.history_buttons.buttons()
-        for button in (undo, redo):
+        undo, redo = viewer.history_buttons.undo, viewer.history_buttons.redo
+        for button in viewer.history_buttons.buttons():
             self.assertIs(button.parentWidget(), viewer.canvas.native)
             self.assertTrue(button.isVisible())
         self.assertEqual((undo.objectName(), redo.objectName()), ("viewerUndoButton", "viewerRedoButton"))
@@ -715,7 +719,7 @@ class TranslationTests(unittest.TestCase):
         install_translations(self.app, language)
         canvas = SimpleNamespace(native=QWidget())
         buttons = HistoryButtons(canvas, lambda: None, lambda: None)
-        undo, redo = buttons.buttons()
+        undo, redo = buttons.undo, buttons.redo
         self.assertEqual((undo.accessibleName(), redo.accessibleName()), (undo.toolTip(), redo.toolTip()))
         return undo.toolTip(), redo.toolTip()
 
