@@ -18,6 +18,10 @@ still change before version 1.0.0.
   `<set>_[E1_RA]_network.h5` built from the node FASTA's name, and no longer swap the
   `none_[E1_RA]` alignment and network placeholders for such names. Choose the network
   file in Config; a Viewer started without one reports the network as missing.
+- `color` refuses two forms it used to read silently. A second color, scale or shape for
+  one target now fails, where it started a new target on the selected nodes. And a target
+  with no expression only works as the command's one target: in a command with several
+  targets, write `$sele$` for the selected nodes (`color $sele$ red #noise# 20%`).
 
 ### Added
 
@@ -222,6 +226,9 @@ still change before version 1.0.0.
   - Every `color` run adds its rows to one "Colors" list, in the order run, and a row
     typed the same way with the same color is one row. A node keeps its row when only
     its alpha changes, as after `color #cluster_1# 50%`.
+  - Hovering a clade names what most of its leaves are by the legend, such as "Colour of
+    75% of its leaves: Clusters: Cluster 1", or a gradient's range among its leaves. It
+    used to give a hex code, and counted two clusters that share a color as one.
   - Colors no command described, such as a cache's own colors or nodes painted over since,
     are listed under "Unlabelled colours" by hex code. The 12-row cap is gone, and so are
     the "Cluster N" labels the legend used to guess, which could name a spectrum's colors
@@ -326,10 +333,18 @@ still change before version 1.0.0.
   headset connects, or the selection, so `distribution`, `spectrum`'s similarity mode and
   new commands get it too, as does a side effect such as `hide` dropping hidden nodes from
   the selection. VR's `help` reads the summary each of its own commands declares.
-- **`color` says when a bare number was meant as an alpha.** Matplotlib reads `0.5` as a
-  gray color, so `<green,0.5>` is two colors. The refusal now says that `0.5` was read as a
-  gray and that an alpha is written `50%`. The help adds that an attribute left out stays
-  as it is, and that symbols such as `*` and `+` are shapes, not wildcards.
+- **`color` takes one item of each kind per target, and every one of several targets
+  needs its expression.**
+  - Without a set, a second color, scale or shape for one target is refused as two items
+    of one kind, as in a set. It used to start a new target on the selected nodes, so
+    `color R98 green 0.5` painted the selection gray.
+  - Matplotlib reads a bare number such as `0.5` as a gray color, so `<green,0.5>` and
+    `green 0.5` are two colors. The refusal says so, and that an alpha is written `50%`.
+  - A target with no expression means the selected nodes only when it is the command's
+    one target. With several targets, each needs its expression: write `$sele$` for the
+    selected nodes (`color $sele$ red #noise# 20%`).
+  - The help adds that an attribute left out stays as it is, and that symbols such as `*`
+    and `+` are shapes, not wildcards.
 
 ### Fixed
 
