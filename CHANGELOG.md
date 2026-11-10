@@ -238,8 +238,8 @@ still change before version 1.0.0.
     its text is shown as plain text.
 - **The Viewer shows the same legend.** A Legend button, left of Undo in the top-right
   row, opens a white card in the session card's style that lists what the colors mean, as
-  Tree View does. The button or the card's × closes it, and it moves aside as the sidebar
-  slides open.
+  Tree View does, under a "Legend" title larger than its section titles. The button or the
+  card's × closes it, and it moves aside as the sidebar slides open.
   - Clicking a row selects its visible nodes, Ctrl-click adds them, and clicking the row
     that is the selection clears it. Pressing or dragging on a gradient bar selects the
     nodes in that range. Commands can then act on them as `$sele$`. The card stays open
