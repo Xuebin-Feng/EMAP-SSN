@@ -4850,7 +4850,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+71"/>
         <location filename="../../../commands/cluster.py" line="+391"/>
-        <location filename="../../../commands/color.py" line="+527"/>
+        <location filename="../../../commands/color.py" line="+574"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
         <location filename="../../../commands/embedding.py" line="+79"/>
@@ -5035,7 +5035,7 @@ Command-line usage:
         <translation type="obsolete">错误：color 命令至少需要一个属性（颜色、缩放倍数或形状）或表达式。</translation>
     </message>
     <message>
-        <location filename="../../../commands/color.py" line="-288"/>
+        <location filename="../../../commands/color.py" line="-329"/>
         <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
         <translation type="unfinished">错误：无效的缩放倍数“{scale}”。缩放倍数是一个有限的非负数，后接 x，例如 2x、0.5x 或 0x。</translation>
     </message>
@@ -5045,8 +5045,8 @@ Command-line usage:
         <translation type="unfinished">错误：缩放倍数“{scale}”过大，无法得到有效的节点大小。</translation>
     </message>
     <message>
-        <location line="-80"/>
-        <location line="+399"/>
+        <location line="-82"/>
+        <location line="+442"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -5055,23 +5055,23 @@ Command-line usage:
         <translation type="obsolete">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="-374"/>
+        <location line="-417"/>
         <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
         <translation type="unfinished">错误：“{first}”和“{second}”都为同一目标设置了不透明度。不透明度只能给出一次，要么写在 8 位十六进制颜色中，要么写成 N%。</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+76"/>
         <source>Error: Invalid alpha &apos;{alpha}&apos;. An alpha is a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%.</source>
         <translation type="unfinished">错误：无效的不透明度“{alpha}”。不透明度是 0 到 100 之间的数字，后接 %，例如 50%、12.5% 或 0%。</translation>
     </message>
     <message>
         <location line="+96"/>
-        <location line="+117"/>
+        <location line="+152"/>
         <source>Error: Malformed attribute set &apos;{set}&apos;. A set is &lt;ITEM,ITEM,...&gt; or &lt;ITEM ITEM ...&gt;: opened by &lt;, closed by &gt; and holding no empty item and no other &lt;.</source>
         <translation type="unfinished">错误：属性集“{set}”格式不正确。属性集写作 &lt;项,项,...&gt; 或 &lt;项 项 ...&gt;：以 &lt; 开头，以 &gt; 结尾，不含空项，其中也不含其他 &lt;。</translation>
     </message>
     <message>
-        <location line="-107"/>
+        <location line="-142"/>
         <source>Error: The attribute set &apos;{set}&apos; is empty. A set holds 1 to 4 attributes, e.g. &lt;red,50%,star&gt; or &lt;red 50% star&gt;.</source>
         <translation type="unfinished">错误：属性集“{set}”为空。属性集包含 1 到 4 个属性，例如 &lt;red,50%,star&gt; 或 &lt;red 50% star&gt;。</translation>
     </message>
@@ -5096,9 +5096,29 @@ Command-line usage:
         <translation type="unfinished">错误：属性集“{set}”中有两个同类项“{first}”和“{second}”。一个属性集最多包含一个颜色、一个不透明度、一个缩放倍数和一个形状。</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+36"/>
         <source>Error: &apos;{loose}&apos; and the attribute set &apos;{set}&apos; are given for one target. Give a target its attributes either all loose (red 50% star) or all in one set (&lt;red,50%,star&gt;).</source>
         <translation type="unfinished">错误：同一目标同时给出了“{loose}”和属性集“{set}”。请将目标的属性全部单独写出（red 50% star），或全部放在一个属性集中（&lt;red,50%,star&gt;）。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so &apos;{expression}&apos; gets two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so the selected nodes get two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Error: &apos;{expression}&apos; gets two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Error: The selected nodes get two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+11"/>
@@ -5106,12 +5126,17 @@ Command-line usage:
         <translation type="unfinished">错误：同一目标同时给出了属性集“{first}”和“{second}”。每个目标只给一个属性集，下一个目标请以表达式开头。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, alpha with trailing %, scale with trailing x, shape, or attribute set &lt;...&gt;.</source>
         <translation type="unfinished">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 % 结尾的不透明度、以 x 结尾的缩放倍数、形状或属性集 &lt;...&gt;。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+20"/>
+        <source>Error: With several targets, every target needs its own expression, but &apos;{words}&apos; has none. Write $sele$ for the selected nodes, e.g. color $sele$ red #noise# 20%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Error: Color command requires at least one property (color, alpha, scale, or shape) or expression.</source>
         <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、不透明度、缩放倍数或形状）或表达式。</translation>
     </message>

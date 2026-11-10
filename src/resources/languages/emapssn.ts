@@ -3530,11 +3530,31 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so &apos;{expression}&apos; gets two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so the selected nodes get two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{expression}&apos; gets two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected nodes get two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: The attribute sets &apos;{first}&apos; and &apos;{second}&apos; are given for one target. Give a target one set, and start the next target with an expression.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, alpha with trailing %, scale with trailing x, shape, or attribute set &lt;...&gt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: With several targets, every target needs its own expression, but &apos;{words}&apos; has none. Write $sele$ for the selected nodes, e.g. color $sele$ red #noise# 20%.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
