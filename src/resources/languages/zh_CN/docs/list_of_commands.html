@@ -842,7 +842,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-color" data-source-sha256="cd0f0d8d992edc3837ba9fc66bc0bd405cdd79a80134f8dc151bf9382e315e3b">
+            <section class="command-card" id="cmd-color" data-source-sha256="497d55c0d4deca9265c3f5fcdf1834f8fea9e47dd9d84601d8d4c58184bee161">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">color</span>
@@ -860,11 +860,11 @@
                 <ul>
                     <li><strong>形式：</strong><code>&lt;ITEM,ITEM,...&gt;</code> 或 <code>&lt;ITEM ITEM ...&gt;</code>，需连同尖括号一起输入（ITEM 是占位符）。一个属性集包含 1 到 4 项，顺序任意，每种类型至多一项：颜色、alpha、缩放倍数和形状。<code>&lt;red,50%,star&gt;</code> 与 <code>&lt;star 50% red&gt;</code> 是同一个属性集。</li>
                     <li><strong>分隔符：</strong>各项之间要么全部用逗号分隔，要么全部用空格分隔。逗号两侧和括号内侧的空格会被忽略，因此 <code>&lt;red, 50%, star&gt;</code> 和 <code>&lt; red 50% star &gt;</code> 都可以。两种分隔符混用的属性集，如 <code>&lt;red, 50% star&gt;</code> 或 <code>&lt;red 50%, star&gt;</code>，会被拒绝。</li>
-                    <li><strong>位置：</strong>属性集跟在其表达式之后，可以是独立的一个词（<code>#cluster_1# &lt;red,50%&gt;</code>），也可以紧贴表达式（<code>#cluster_1#&lt;red 50%&gt;</code>）。属性集属于它前面的表达式；没有表达式的属性集作用于当前选中的节点（<code>color &lt;80%,square&gt;</code>）。<code>&lt;</code> 如果位于 <code>{metadata}</code> 或 <code>&quot;header text&quot;</code> 内部，永远不会开启属性集，因此 <code>{Length&lt;500}&lt;red&gt;</code> 会把 Length 小于 500 的节点染成红色。</li>
+                    <li><strong>位置：</strong>属性集跟在其表达式之后，可以是独立的一个词（<code>#cluster_1# &lt;red,50%&gt;</code>），也可以紧贴表达式（<code>#cluster_1#&lt;red 50%&gt;</code>）。属性集属于它前面的表达式；没有表达式的属性集作用于当前选中的节点（<code>color &lt;80%,square&gt;</code>），但仅限于它是该命令唯一目标的情况。<code>&lt;</code> 如果位于 <code>{metadata}</code> 或 <code>&quot;header text&quot;</code> 内部，永远不会开启属性集，因此 <code>{Length&lt;500}&lt;red&gt;</code> 会把 Length 小于 500 的节点染成红色。</li>
                     <li><strong>省略的项：</strong>属性集没有给出的属性保持各节点原有的值，因此 <code>&lt;red&gt;</code> 保留各节点的 alpha、大小和形状。</li>
                     <li><strong>多个目标：</strong>每个目标各带自己的表达式和属性集：<code>color &quot;ATA&quot;&amp;#cluster_2# &lt;blue,1.5x&gt; #noise# &lt;20%&gt;</code>。</li>
                     <li><strong>属性集内部不会读取任何表达式，</strong>因此 <code>&lt;C53&gt;</code> 就是 Matplotlib 颜色 <code>C53</code>。形状 <code>&gt;</code> 和 <code>-&gt;</code> 会结束一个词，所以用空格分隔的属性集会在它们处闭合；请改写为 <code>arrow</code> 和 <code>tailed_arrow</code>。</li>
-                    <li><strong>会被拒绝且不做任何修改的情况：</strong>空属性集（<code>&lt;&gt;</code>）、空项（<code>&lt;red,,50%&gt;</code>）、同类型的两项（<code>&lt;red,blue&gt;</code>）、未知项（<code>&lt;red,blu&gt;</code>）、从未闭合或内部含有另一个 <code>&lt;</code> 的属性集、混用逗号和空格的属性集、同一目标的两个属性集、同一目标同时给出属性集和松散属性（<code>#cluster_1# red &lt;50%&gt;</code>），以及 8 位十六进制颜色与 alpha 同时出现。提示信息会指出该属性集或该项。</li>
+                    <li><strong>会被拒绝且不做任何修改的情况：</strong>空属性集（<code>&lt;&gt;</code>）、空项（<code>&lt;red,,50%&gt;</code>）、同类型的两项（<code>&lt;red,blue&gt;</code>）、未知项（<code>&lt;red,blu&gt;</code>）、从未闭合或内部含有另一个 <code>&lt;</code> 的属性集、混用逗号和空格的属性集、同一目标的两个属性集、同一目标同时给出属性集和松散属性（<code>#cluster_1# red &lt;50%&gt;</code>），8 位十六进制颜色与 alpha 同时出现、同一目标的第二个松散颜色、缩放倍数或形状（<code>#cluster_1# green 0.5</code>，其中单独的数字被读作第二个灰度颜色），以及在含有多个目标的命令中没有表达式的目标（<code>&lt;red&gt; #noise# &lt;20%&gt;</code>；请用 <code>$sele$</code> 表示所选节点）。提示信息会指出该属性集或该项。</li>
                 </ul>
 
                 <div class="subheading">属性</div>
@@ -879,12 +879,12 @@
                 <div class="subheading">松散简写</div>
                 <ul>
                     <li><strong>松散属性：</strong>不使用属性集时，目标的各项可以直接跟在其表达式之后，顺序任意：<code>color #cluster_1# red 50% 2x star</code>。在这种写法中，构成完整选择表达式的词元总是先被当作表达式读取，然后才会被当作颜色、alpha、缩放倍数或形状。<code>C53</code> 选中位置 53 处的半胱氨酸，而不是 Matplotlib 颜色 <code>C53</code>，<code>x2</code> 则选中位置 2 处的残基 X。</li>
-                    <li><strong>每个目标只用一种形式：</strong>一个目标要么使用属性集，要么使用松散属性，不能两者并用；同一目标的第二个 <code>N%</code>（或 <code>N%</code> 与 8 位十六进制颜色并用）会被拒绝。重复出现的颜色或形状仍像以前一样，针对所选节点开启一个新目标。</li>
+                    <li><strong>每个目标只用一种形式：</strong>一个目标要么使用属性集，要么使用松散属性，不能两者并用；同一目标的第二个 <code>N%</code>（或 <code>N%</code> 与 8 位十六进制颜色并用）会被拒绝。松散目标与属性集一样，最多接受一种颜色、一个 alpha、一个缩放倍数和一种形状：同类的第二项会被拒绝，不会再为所选节点开启新目标。请用表达式开启下一个目标。</li>
                 </ul>
 
                 <div class="subheading">用法机制</div>
                 <ul>
-                    <li><strong>隐式界面定位（快捷方式）：</strong>如果已在查看器中用鼠标选中了节点，则无需书写表达式，直接输入 <code>color &lt;red,2x&gt;</code>（或 <code>color red 2x</code>）即可把样式直接应用到所选节点。</li>
+                    <li><strong>隐式界面定位（快捷方式）：</strong>如果已在查看器中用鼠标选中了节点，则无需书写表达式，直接输入 <code>color &lt;red,2x&gt;</code>（或 <code>color red 2x</code>）即可把样式直接应用到所选节点。这仅适用于只有一个目标的命令：含有多个目标时，每个目标都需要自己的表达式，<code>$sele$</code> 表示所选节点（<code>color $sele$ red #noise# 20%</code>）。</li>
                     <li><strong>链式命令：</strong>可以在一条命令中快速为多个子集设置样式，例如 <code>color #cluster_1# &lt;red&gt; #cluster_2# &lt;blue,1.5x&gt;</code>。</li>
                     <li><strong>属性叠加：</strong>不必同时提供全部四个属性。如果只想缩放，只需传入缩放倍数，例如 <code>color &quot;Mutant&quot; &lt;3x&gt;</code>。</li>
                     <li><strong>渲染顺序：</strong>一次命令调用修改的所有节点会作为一组置于顶层，组内按稳定的节点索引排序。后一次 color 调用的节点会渲染在先前各组之上。</li>

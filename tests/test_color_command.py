@@ -375,10 +375,10 @@ class ColorAttributeSetTests(unittest.TestCase):
         self.assertEqual(list(viewer.current_shapes), ["disc", "square", "square", "disc", "disc"])
 
     def test_an_expression_after_a_set_starts_a_new_target(self):
-        # A set belongs to the expression before it, and with none, to the selection.
+        # A set belongs to the expression before it; here the first target has none.
         viewer = target_viewer(alphas=(1.0,) * 5)
         viewer.selected_indices = [4]
-        succeeded, failed = run_line(viewer, "<red> #cluster_1# <blue>")
+        succeeded, failed = run_line(viewer, "$sele$ <red> #cluster_1# <blue>")
 
         failed.assert_not_called()
         np.testing.assert_array_equal(viewer.current_colors[4], rgba("red"))
@@ -386,19 +386,16 @@ class ColorAttributeSetTests(unittest.TestCase):
         np.testing.assert_array_equal(viewer.current_colors[1, :3], [0.1, 0.2, 0.3])
 
     def test_a_set_before_an_expression_does_not_belong_to_it(self):
-        # Loose items may come before their expression; a set belongs to the one before it.
+        # A set belongs to the one before it, so it is the selection's, and the expression
+        # after it is a second target: refused, as the selection needs its expression then.
         viewer = target_viewer(alphas=(1.0,) * 5)
         viewer.selected_indices = [4]
         succeeded, failed = run_line(viewer, "<red> #cluster_1#")
 
-        failed.assert_not_called()
-        np.testing.assert_array_equal(viewer.current_colors[4], rgba("red"))
-        np.testing.assert_array_equal(viewer.current_colors[0, :3], [0.1, 0.2, 0.3])
-        self.assertEqual(
-            str(succeeded.call_args.args[1]),
-            "Applied: 1 node (red) "
-            "Skipped 1 expression with no color, alpha, scale or shape: #cluster_1#.",
-        )
+        failed.assert_called_once()
+        succeeded.assert_not_called()
+        self.assertIn("every target needs its own expression", str(failed.call_args.args[1]))
+        np.testing.assert_array_equal(viewer.current_colors[4, :3], [0.1, 0.2, 0.3])
 
     def test_several_targets_each_take_their_own_set(self):
         viewer = target_viewer()
@@ -899,6 +896,128 @@ class ColorSetRefusalTests(unittest.TestCase):
         ]:
             with self.subTest(line=line):
                 self.assert_refused(line)
+
+
+class ColorStrictTargetTests(unittest.TestCase):
+    """One item of each kind per loose target, and an expression for every target but a lone one."""
+
+    refuse = ColorSetRefusalTests.assert_refused
+
+    def test_a_second_loose_item_of_one_kind_is_refused_with_both_named(self):
+        for line, first, second in [
+            ("#cluster_1# red blue", "red", "blue"),
+            ("#cluster_1# star disc", "star", "disc"),
+            ("#cluster_1# 2x 3x", "2x", "3x"),
+            ("#cluster_1# red 2x blue", "red", "blue"),
+            ("#cluster_1# red #noise# blue green", "blue", "green"),
+        ]:
+            with self.subTest(line=line):
+                expression = "#noise#" if "#noise# blue" in line else "#cluster_1#"
+                self.assertEqual(
+                    self.refuse(line),
+                    f"Error: '{expression}' gets two items of one kind, '{first}' and '{second}'. "
+                    "A target takes at most one color, one alpha, one scale and one shape; "
+                    "start the next target with an expression.",
+                )
+
+    def test_a_second_loose_item_without_an_expression_names_the_selected_nodes(self):
+        self.assertEqual(
+            self.refuse("red blue"),
+            "Error: The selected nodes get two items of one kind, 'red' and 'blue'. "
+            "A target takes at most one color, one alpha, one scale and one shape; "
+            "start the next target with an expression.",
+        )
+
+    def test_a_bare_number_clashing_with_a_loose_color_says_it_is_a_gray_level(self):
+        self.assertEqual(
+            self.refuse("#cluster_1# green 0.5"),
+            "Error: '0.5' is read as a color (a gray level), so '#cluster_1#' gets two colors, "
+            "'green' and '0.5'. Write an alpha as a percent, e.g. 50%.",
+        )
+        self.assertEqual(
+            self.refuse("#cluster_1# 0.5 green"),
+            "Error: '0.5' is read as a color (a gray level), so '#cluster_1#' gets two colors, "
+            "'green' and '0.5'. Write an alpha as a percent, e.g. 50%.",
+        )
+        self.assertEqual(
+            self.refuse("green 0.5"),
+            "Error: '0.5' is read as a color (a gray level), so the selected nodes get two colors, "
+            "'green' and '0.5'. Write an alpha as a percent, e.g. 50%.",
+        )
+
+    def test_the_users_case_a_residue_then_green_then_a_bare_number_changes_nothing(self):
+        # It used to paint the residue's nodes green, then the selection gray.
+        viewer = add_alignment(Viewer('.'))
+        viewer.selected_indices = [1]
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+            color_command.run(viewer, ['C53', 'green', '0.5'])
+        failed.assert_called_once()
+        succeeded.assert_not_called()
+        self.assertIn("'C53' gets two colors, 'green' and '0.5'", str(failed.call_args.args[1]))
+        np.testing.assert_array_equal(viewer.current_colors, np.ones((3, 4)))
+        self.assertEqual(viewer.saved, 0)
+
+    def test_the_selected_nodes_take_attributes_only_as_the_commands_one_target(self):
+        for line in ("red 2x", "<red,2x>", "<80%,square>", "red", "2x star 50%"):
+            with self.subTest(line=line):
+                viewer = target_viewer()
+                viewer.selected_indices = [1, 2]
+                succeeded, failed = run_line(viewer, line)
+                failed.assert_not_called()
+                succeeded.assert_called_once()
+
+    def test_several_targets_need_an_expression_each(self):
+        for line, words in [
+            ("<red> #noise# <20%>", "<red>"),
+            ("#noise# <20%> <red>", None),
+            ("red #noise# 20% 2x blue", None),
+            ("<red> #cluster_1#", "<red>"),
+            ("#cluster_1# red <blue>", None),
+        ]:
+            with self.subTest(line=line):
+                message = self.refuse(line)
+                if words is not None:
+                    self.assertEqual(
+                        message,
+                        f"Error: With several targets, every target needs its own expression, but '{words}' "
+                        "has none. Write $sele$ for the selected nodes, e.g. color $sele$ red #noise# 20%.",
+                    )
+
+    def test_a_target_without_an_expression_after_a_targeted_one_is_refused(self):
+        # An expression, then loose items, then a second color that used to start a selection target.
+        message = self.refuse("#cluster_1# red blue")
+        self.assertIn("two items of one kind", message)
+        message = self.refuse("<red> #noise# <blue>")
+        self.assertIn("every target needs its own expression", message)
+        self.assertIn("$sele$", message)
+
+    def test_the_help_the_catalog_and_the_agent_prompt_state_the_rule(self):
+        with redirect_stdout(io.StringIO()) as printed:
+            color.print_help()
+        help_text = " ".join(printed.getvalue().split())
+        self.assertIn("with several targets, every target needs its expression", help_text)
+        self.assertIn("a second item of a kind is refused", help_text)
+        catalog = " ".join(str(item) for item in color.CATALOG_ENTRY.values()) if hasattr(color.CATALOG_ENTRY, "values") else str(color.CATALOG_ENTRY)
+        self.assertIn("with several targets every target needs its expression", catalog)
+        self.assertIn("with several targets every target needs its expression", color.AGENT_PROMPT)
+
+    def test_an_explicit_sele_is_an_expression_anywhere(self):
+        viewer = target_viewer(alphas=(1.0,) * 5)
+        viewer.selected_indices = [4]
+        succeeded, failed = run_line(viewer, "$sele$ red #noise# 20%")
+        failed.assert_not_called()
+        self.assertEqual(viewer.current_colors[4, 3], 0.2)
+        np.testing.assert_array_equal(viewer.current_colors[4, :3], rgba("red")[:3])
+
+    def test_an_expression_without_attributes_is_still_skipped_with_a_warning(self):
+        viewer = target_viewer(alphas=(1.0,) * 5)
+        succeeded, failed = run_line(viewer, "#cluster_1# red #noise#")
+        failed.assert_not_called()
+        self.assertIn("Skipped 1 expression with no color, alpha, scale or shape: #noise#.",
+                      str(succeeded.call_args.args[1]))
+        # Alone it still fails as before: there is nothing to apply.
+        succeeded, failed = run_line(target_viewer(), "#noise#")
+        self.assertEqual(str(failed.call_args.args[1]), "Error: No valid assignments found.")
 
 
 class ColorAlphaTests(unittest.TestCase):

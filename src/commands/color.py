@@ -30,8 +30,8 @@ AGENT_POLICY = 'run'
 
 CATALOG_ENTRY = entry('Apply color, alpha, scale, or shape assignments to visible nodes.',
     argument('action', 'reset restores configured node colors, alpha included.', choice('reset')),
-    argument('expression', EXPRESSION + ' Omission targets selected nodes; assignments may be chained.'),
-    argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. An attribute left out stays as each node has it. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes. Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
+    argument('expression', EXPRESSION + ' Omission targets the selected nodes, and is allowed only when the command has one target; with several targets every target needs its expression ($sele$ for the selected nodes).'),
+    argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. An attribute left out stays as each node has it. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes (only as the one target of a command). Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
     argument('color', 'Optional Matplotlib color name or hex color; at least one visual attribute is needed. A color alone keeps each node\'s alpha. An 8-digit hex such as #ff000080 sets the color and the alpha. Outside a set, a valid selection expression takes precedence, so C53 selects cysteine 53 and x2 selects residue X at position 2.'),
     argument('alpha', 'Optional opacity: a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%. An alpha alone keeps each node\'s color; 100% makes translucent nodes opaque again. A bare number such as 0.5 is not an alpha: it is read as a gray color. Not combinable with an 8-digit hex color for one target.'),
     argument('scale', 'Optional multiplier of the configured node size: a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.'),
@@ -45,9 +45,9 @@ CATALOG_ENTRY = entry('Apply color, alpha, scale, or shape assignments to visibl
 AGENT_PROMPT_ORDER = 10
 AGENT_PROMPT = """
 `color [EXPRESSION] <ATTRIBUTES> [EXPRESSION <ATTRIBUTES> ...]`
-- `<ATTRIBUTES>` is typed with its angle brackets: 1 to 4 items, at most one each of COLOR, ALPHA, SCALEx and SHAPE, in any order, all comma-separated (`<red,50%,star>`) or all space-separated (`<red 50% star>`), never mixed. It follows its expression, spaced or glued (`#cluster_1#<red,50%>`); alone it targets the current mouse selection. Several expression-and-set targets may be chained.
+- `<ATTRIBUTES>` is typed with its angle brackets: 1 to 4 items, at most one each of COLOR, ALPHA, SCALEx and SHAPE, in any order, all comma-separated (`<red,50%,star>`) or all space-separated (`<red 50% star>`), never mixed. It follows its expression, spaced or glued (`#cluster_1#<red,50%>`); alone it targets the current mouse selection, but only when it is the command's one target; with several targets every target needs its expression (`$sele$` for the selection).
 - COLOR is a color name or hexadecimal (8 digits also set alpha); ALPHA is `0%` to `100%`, and a color alone keeps each node's alpha; SCALEx sets node size to SCALE times the default node size (not cumulative); SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
-- Each target needs at least one attribute; add none unrequested. Loose attributes without a set (`#cluster_1# red 50% star`) also work, never beside a set for one target; there complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names (`C53` is a residue selection, `x2` residue X at position 2, never a scale).
+- Each target needs at least one attribute; add none unrequested. Loose attributes without a set (`#cluster_1# red 50% star`) also work (one item of each kind per target), never beside a set for one target; there complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names (`C53` is a residue selection, `x2` residue X at position 2, never a scale).
 - A scale must be finite and non-negative (`-2x`, `nanx`, `infx` fail). `0x` makes the targeted nodes zero-sized, visually absent but not hidden, and `reset sizes` restores them; use `hide` when the user asks to hide nodes.
 """
 
@@ -65,7 +65,9 @@ def print_help():
       target nodes using complex boolean expressions.
 
       * QUICK USE: If no expression is provided, the command automatically targets
-        the nodes currently selected in the viewer using your mouse.
+        the nodes currently selected in the viewer using your mouse. That works only
+        for a command with one target; with several targets, every target needs its
+        expression (write $sele$ for the selected nodes).
 
       * color reset restores every node's configured color, with full alpha.
 
@@ -89,14 +91,17 @@ def print_help():
            (VisPy markers), not wildcards.
       A set follows its expression as a word of its own (#cluster_1# <red,50%>)
       or glued to it (#cluster_1#<red 50%>). With no expression before it, a set
-      targets the selected nodes. Give a target one set, and start the next target
-      with an expression. Inside a set no expression is read, so C53 is a color.
+      targets the selected nodes, if it is the command's one target. Give a target
+      one set, and start the next target with an expression. Inside a set no
+      expression is read, so C53 is a color.
 
     Loose shorthand:
       Without a set, the items of a target may follow its expression directly
       (#cluster_1# red 50% 2x star). Valid selection expressions take precedence
-      over colors and other modifiers there. A target uses either a set or loose
-      items, never both.
+      over colors and other modifiers there. A target takes at most one color, one
+      alpha, one scale and one shape; a second item of a kind is refused, so
+      write 0.5 as 50% (a bare number is a gray color). A target uses either a set
+      or loose items, never both.
 
     Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap), or ([AA...])[Pos]
@@ -106,7 +111,7 @@ def print_help():
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@ (Regex extraction)
       5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#, #my_group#)
-      6. UI Selection: $sele$     (Explicitly targets selected nodes)
+      6. UI Selection: $sele$     (Explicitly targets selected nodes; fine in any target)
       7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*});
                        ranges use = (e.g., {Length=300-500}), and negative
                        range bounds require parentheses (e.g., {GRAVY=(-1)-0})
@@ -219,6 +224,8 @@ class _Target:
         self.expression = None
         self.attributes = _Attributes()
         self.set_text = None      # the attribute set that gave the attributes, if one did
+        self.words = []           # the attribute words as written, for messages
+        self.loose_words = {}     # the loose item written for each kind
 
 
 def _read_scale(text):
@@ -424,10 +431,12 @@ def _read_arguments(args):
     """The command's assignments, as [(expression, _Attributes)], and the expressions given no attributes.
 
     Raises _Refusal for an argument that cannot be read, before anything has
-    been changed. A target without an expression takes the selected nodes.
+    been changed. A target without an expression takes the selected nodes, and
+    is allowed only when it is the command's one target.
     """
     assignments = []
     skipped_expressions = []
+    unscoped = []             # the attribute words of each target written without an expression
     target = _Target()
 
     def push_assignment():
@@ -435,6 +444,7 @@ def _read_arguments(args):
         # A target with attributes but no expression takes the selected nodes.
         if target.attributes and not target.expression:
             target.expression = '$sele$'
+            unscoped.append(' '.join(target.words))
         if target.expression and target.attributes:
             assignments.append((target.expression, target.attributes))
         elif target.expression:
@@ -450,6 +460,37 @@ def _read_arguments(args):
             loose=loose, set=set_text,
         ))
 
+    def refuse_clash(target, held, arg, kind):
+        # A scale, shape or color already given: the second item has no target to start.
+        if kind == _COLOR:
+            bare = next((one for one in (held, arg) if _is_gray_level(one)), None)
+            if bare is not None:
+                other = arg if bare == held else held
+                if target.expression:
+                    raise _Refusal(Message(
+                        "Error: '{bare}' is read as a color (a gray level), so '{expression}' gets two colors, "
+                        "'{other}' and '{bare}'. Write an alpha as a percent, e.g. 50%.",
+                        bare=bare, expression=target.expression, other=other,
+                    ))
+                raise _Refusal(Message(
+                    "Error: '{bare}' is read as a color (a gray level), so the selected nodes get two colors, "
+                    "'{other}' and '{bare}'. Write an alpha as a percent, e.g. 50%.",
+                    bare=bare, other=other,
+                ))
+        if target.expression:
+            raise _Refusal(Message(
+                "Error: '{expression}' gets two items of one kind, '{first}' and '{second}'. "
+                "A target takes at most one color, one alpha, one scale and one shape; "
+                "start the next target with an expression.",
+                expression=target.expression, first=held, second=arg,
+            ))
+        raise _Refusal(Message(
+            "Error: The selected nodes get two items of one kind, '{first}' and '{second}'. "
+            "A target takes at most one color, one alpha, one scale and one shape; "
+            "start the next target with an expression.",
+            first=held, second=arg,
+        ))
+
     for arg in _join_sets(args):
         if arg.startswith('<'):
             attributes = _read_set(arg)
@@ -462,6 +503,7 @@ def _read_arguments(args):
             if target.attributes.loose is not None:
                 refuse_mixing(target.attributes.loose, arg)
             target.attributes, target.set_text = attributes, arg
+            target.words = [arg]
             continue
 
         # Classify a complete Boolean expression.
@@ -492,16 +534,22 @@ def _read_arguments(args):
         if target.set_text is not None:
             refuse_mixing(arg, target.set_text)
         kind, value = item
-        # A second color or shape starts a target of its own, for the selected nodes.
-        if (kind == _COLOR and target.attributes.color is not None) or (
-                kind == _SHAPE and target.attributes.shape is not None):
-            push_assignment()
+        if kind != _ALPHA and kind in target.loose_words:
+            refuse_clash(target, target.loose_words[kind], arg, kind)
+        target.loose_words[kind] = arg
         target.attributes.add(kind, arg, value)
+        target.words.append(arg)
         if target.attributes.loose is None:
             target.attributes.loose = arg
 
     if target.expression or target.attributes:
         push_assignment()
+    if unscoped and len(assignments) + len(skipped_expressions) > 1:
+        raise _Refusal(Message(
+            "Error: With several targets, every target needs its own expression, but '{words}' has none. "
+            "Write $sele$ for the selected nodes, e.g. color $sele$ red #noise# 20%.",
+            words=unscoped[0],
+        ))
     return assignments, skipped_expressions
 
 
