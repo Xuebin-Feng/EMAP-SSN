@@ -38,6 +38,7 @@ from desktop.Viewer_Fps import FPS_GAP  # noqa: E402
 from EMAPSSN_Viewer import SLIDER_ROW_BOTTOM, SLIDER_ROW_HEIGHT  # noqa: E402
 from matplotlib import colormaps  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, Qt  # noqa: E402
+from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QToolTip  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from tests.test_viewer_history_buttons import ViewerCase  # noqa: E402
@@ -336,6 +337,47 @@ class SelectionTests(LegendCase):
         epoch = getattr(viewer, "selection_epoch", 0)
         self.click_row(self.lists(viewer.legend_card)[1], 0)
         self.assertEqual(viewer.selection_epoch, epoch + 1)       # the commands hear of it (_note_hand_selection)
+
+
+class HeadingTests(LegendCase):
+    """The card's "Legend" title stands apart from the layers' titles (it was the same weight and size)."""
+
+    def title_label(self, card):
+        return next(label for label in card.body.findChildren(_ElidedLabel) if label.objectName() == "legendTitle")
+
+    def test_the_heading_is_larger_than_a_layer_title(self):
+        viewer = self.build_legend()
+        card = viewer.legend_card
+        card.ensurePolished()
+        title = self.title_label(card)
+        title.ensurePolished()
+        body = QApplication.font().pointSizeF()
+        self.assertGreater(card.heading.font().pointSizeF(), title.font().pointSizeF())
+        self.assertGreaterEqual(card.heading.font().pointSizeF(), body * 1.25)
+
+    def test_the_heading_is_bold(self):
+        card = self.build_legend().legend_card
+        card.heading.ensurePolished()
+        self.assertGreaterEqual(card.heading.font().weight(), QFont.Weight.Bold)
+
+    def test_the_session_cards_heading_is_unchanged(self):
+        from desktop.Viewer_Widgets import ControlsCard, card_qss
+        from desktop.Studio_Theme import TOKENS
+        self.assertIn("QLabel#controlsHeading { font-weight: 600;", card_qss(TOKENS, ControlsCard.CLOSE_SIZE))
+        self.assertNotIn("font-size", card_qss(TOKENS, ControlsCard.CLOSE_SIZE).split("controlsHeading")[1].split("}")[0])
+
+    def test_the_title_row_counts_the_whole_heading(self):
+        card = self.build_legend().legend_card
+        self.assertGreaterEqual(card._header_height(), card.heading.sizeHint().height())
+        self.assertGreaterEqual(card.natural_height(), card.minimum_card_height() + 2 * Viewer_Legend.ControlsCard.SHADOW)
+
+    def test_the_heading_fits_the_narrowest_card_in_pseudo_language(self):
+        viewer = self.build_legend()
+        card = viewer.legend_card
+        card.heading.setText("图例")
+        card.ensurePolished()
+        needed = card.heading.sizeHint().width() + Viewer_Legend.ControlsCard.CLOSE_SIZE + 4
+        self.assertLess(needed, Viewer_Legend.LEGEND_MIN_WIDTH)
 
 
 class PlacementTests(LegendCase):

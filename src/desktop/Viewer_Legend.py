@@ -41,6 +41,7 @@ from PySide6 import QtCore
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -56,6 +57,7 @@ from desktop.Studio_Theme import TOKENS
 from desktop.Viewer_Widgets import ControlsCard, card_close_button, card_qss, card_separator, paint_card
 
 LEGEND_WIDTH = 260        # the card's width (its body, not its shadow), in px, in a window with room for it
+HEADING_SCALE = 1.3       # the card's title is this times the body text's point size
 LEGEND_MIN_WIDTH = 140    # the least a card shrinks to in a narrow window
 WHITE = "#ffffff"         # the card's body: white, not the theme's tint
 SECTION_GAP = 10          # between the sections of the body, the session card's
@@ -434,11 +436,11 @@ class LegendCard(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(4)
         self.heading = QLabel()
-        self.heading.setObjectName("controlsHeading")
-        header.addWidget(self.heading)
+        self.heading.setObjectName("legendHeading")
+        header.addWidget(self.heading, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         self.close_button = card_close_button(ControlsCard.CLOSE_SIZE, self.close_card)
-        header.addWidget(self.close_button)
+        header.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(header)
         self.scroll = QScrollArea()
         self.scroll.setObjectName("controlsScroll")
@@ -465,7 +467,13 @@ class LegendCard(QWidget):
     def _style(self):
         t = TOKENS
         self._style_key = (t["surface"], t["text"], t["accent_text"])
+        # The card's title: larger than the body text (1.3x the application font's size, pt) and bold, so it
+        # stands apart from the layers' titles, which are body size and semi-bold.
+        body_pt = QApplication.font().pointSizeF()
+        title_pt = round(body_pt * HEADING_SCALE, 1) if body_pt > 0 else None
+        title_size = f" font-size: {title_pt}pt;" if title_pt else ""
         self.setStyleSheet(card_qss(t, ControlsCard.CLOSE_SIZE) + f"""
+            QLabel#legendHeading {{ font-weight: 700; color: {t['text']}; padding: 0px;{title_size} }}
             QLabel#legendTitle {{ color: {t['text']}; font-weight: 600; }}
             QLabel#legendScheme, QLabel#legendEnd {{ color: {t['text_muted']}; }}
             QLabel#legendRange {{ color: {t['text']}; }}
@@ -815,6 +823,10 @@ class LegendCard(QWidget):
 
     # --- where it sits ---
 
+    def _header_height(self):
+        """The title row's height: the × button's, or the title's if that is taller."""
+        return max(ControlsCard.CLOSE_SIZE, self.heading.sizeHint().height())
+
     def natural_height(self, width=None):
         """The height the card would like (its widget's, shadow included) at the card width ``width``: the heading's
         row and everything under it, a line that wraps taking its lines."""
@@ -824,12 +836,12 @@ class LegendCard(QWidget):
         if width is not None and self.body_layout.hasHeightForWidth():
             inner = width + 2 * ControlsCard.SHADOW - margins.left() - margins.right()
             body = max(body, self.body_layout.totalHeightForWidth(max(1, inner)))
-        return margins.top() + ControlsCard.CLOSE_SIZE + self.layout().spacing() + body + margins.bottom()
+        return margins.top() + self._header_height() + self.layout().spacing() + body + margins.bottom()
 
     def minimum_card_height(self):
         """The least height the card shrinks to, its heading's row alone (card, not widget)."""
         margins = self.layout().contentsMargins()
-        return margins.top() + ControlsCard.CLOSE_SIZE + margins.bottom() - 2 * ControlsCard.SHADOW
+        return margins.top() + self._header_height() + margins.bottom() - 2 * ControlsCard.SHADOW
 
     def card_width(self, room):
         """The card's width in a window that leaves it ``room`` px: LEGEND_WIDTH, or less down to LEGEND_MIN_WIDTH."""
