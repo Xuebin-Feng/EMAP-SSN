@@ -627,7 +627,7 @@ def run(viewer, args):
 
     def test_nothing_declared_is_nothing(self):
         declared = read('def run(viewer, args):\n    return None\n')
-        self.assertEqual(declared[1:], (None, None, None, None))
+        self.assertEqual(declared[1:5], (None, None, None, None))
         self.assertTrue(declared.has_run)
         self.assertFalse(read('VALUE = 1\n').has_run)
 
@@ -738,7 +738,7 @@ def run(viewer, args):
             path.write_text("AGENT_POLICY = 'refuse'\ndef run(v, a): pass\n", encoding='utf-8')
             self.assertEqual(declarations_of(path).agent_policy['default'], 'refuse')
             path.write_text("AGENT_POLICY = (\n", encoding='utf-8')
-            self.assertEqual(declarations_of(path)[1:], (None, None, None, None))
+            self.assertEqual(declarations_of(path)[1:5], (None, None, None, None))
             path.unlink()
             self.assertFalse(declarations_of(path).has_run)
 

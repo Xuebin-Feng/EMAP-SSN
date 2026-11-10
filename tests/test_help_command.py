@@ -63,7 +63,7 @@ def listed(text):
     """{command: its summary, wrapped lines joined} from the text of a listing."""
     found, current = {}, None
     for line in text.splitlines():
-        entry = re.match(r"^  (\S+) {2,}(\S.*)$", line)
+        entry = re.match(r"^  (\S+)(?: \([^)]*\))? {2,}(\S.*)$", line)
         more = re.match(r"^ {3,}(\S.*)$", line)
         if entry:
             current = entry.group(1)
@@ -350,7 +350,7 @@ class CatalogTests(unittest.TestCase):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 imported.add((node.module or "").split(".")[0])
-        self.assertTrue(imported <= {"re", "textwrap", "Command_Engine", "utilities", "desktop"}, imported)
+        self.assertTrue(imported <= {"re", "textwrap", "Command_Declarations", "Command_Engine", "utilities", "desktop"}, imported)
 
 
 if __name__ == "__main__":

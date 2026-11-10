@@ -852,12 +852,13 @@ def command_catalog_entry(path, detailed=False, aliases=()):
     metadata_declared = declared.catalog_entry is not None
     metadata = (catalog_entry(declared) if metadata_declared
                 else default_command_metadata(_module_summary(path.stem, tree, help_text), declared.agent_policy))
-    return {'command': path.stem, 'aliases': list(aliases), 'summary': metadata['summary'], 'arguments': metadata['arguments'],
+    return {'command': path.stem, 'summary': metadata['summary'], 'arguments': metadata['arguments'],
             'requires': metadata['requires'], 'agent_policy': metadata['agent_policy'],
             'writes_files': metadata['writes_files'], 'opens_interface': metadata['opens_interface'],
             'background_work': _starts_background_work(tree),
             'syntax': _command_syntax(help_text, path.stem),
             'help': help_text if detailed else None,
+            'aliases': list(aliases),
             **({} if metadata_declared else {'metadata_declared': False})}
 
 

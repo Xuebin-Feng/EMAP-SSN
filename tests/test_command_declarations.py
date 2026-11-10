@@ -619,7 +619,7 @@ def declared_aliases():
     return frozenset(alias_map([COMMANDS_DIR]).canonical)
 
 
-def command_words_in(source, names, strict=False, exempt=frozenset(), ambiguous=AMBIGUOUS_NAMES):
+def command_words_in(source, names, strict=False, exempt=frozenset(), ambiguous=AMBIGUOUS_NAMES, aliases=frozenset()):
     """Counter of (enclosing scope, 'string' | 'import' | 'table', word) for the code of a module's source.
 
     'string': a string constant that names a command (docstrings and the generic help words are not counted; a name
@@ -628,7 +628,8 @@ def command_words_in(source, names, strict=False, exempt=frozenset(), ambiguous=
     module path in a string, 'commands.x'). 'table': a dict, set, list or tuple literal that holds two or more
     command names, up to two levels deep, the names it holds then counted once, in it, and the word is those names.
     ``exempt`` names are not counted at all: the pair of a page and its command, in the page's own files.
-    ``ambiguous`` are the names that count only where a command is meant, unless ``strict``.
+    ``ambiguous`` are the names that count only where a command is meant, unless ``strict``. ``aliases`` are
+    the aliases among ``names``: ordinary words, so they never make a table (an HTML tag list holds "embed" and "meta").
     """
     names = set(names) - set(exempt)
     counted = names - {"help"}
@@ -654,7 +655,7 @@ def command_words_in(source, names, strict=False, exempt=frozenset(), ambiguous=
 
     def names_a_command(node):
         return (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
-                and node.value in counted)
+                and node.value in counted and node.value not in aliases)
 
     found = collections.Counter()
 
@@ -736,7 +737,7 @@ def central_findings(src_dir=SRC_DIR):
         exempt = {name for name, files in pairs.items() if relative in files}
         scanned.append(relative)
         findings[relative] = command_words_in(path.read_text(encoding="utf-8"), names, relative in DISPATCH_FILES, exempt,
-                                              ambiguous)
+                                              ambiguous, aliases)
     return findings, scanned
 
 
