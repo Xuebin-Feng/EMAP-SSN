@@ -248,6 +248,19 @@ still change before version 1.0.0.
     beside the legend, or in a small window the legend gets shorter above it. The legend
     is never in a `print` picture, and costs about 0.2 ms per redraw at 44,000 nodes when
     nothing it shows changed.
+- **Commands can have aliases.** `colour` runs `color`, `dist` runs `distribution`, `spec`
+  runs `spectrum`, `align` runs `alignment`, `embed` runs `embedding` and `ref` runs
+  `reference`, in the desktop and VR Viewers, `run` scripts, MCP and the Agent.
+  - `help` lists the aliases beside each command, as in `color (colour)`, and `help colour`
+    prints the help of `color`. The MCP command catalog gives each command an `aliases`
+    list; the Agent's instructions still teach only the real names.
+  - An alias is the command itself: it follows the same Agent permission and the same
+    queue rules, and a `run` script cannot call `run` through an alias. The history keeps
+    the line as typed.
+  - For plugin authors: a command declares its aliases in its own file,
+    `ALIASES = ('colour',)`, which is read from the source without importing it. A
+    command's own name always wins over an alias, and an alias two commands declare is
+    used by neither, with a note on stderr.
 
 ### Changed
 
