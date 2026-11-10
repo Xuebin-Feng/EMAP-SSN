@@ -9381,6 +9381,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Colour of {percent}% of its leaves: {layer}: {label}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{layer}: {low} to {high} across {percent}% of its leaves</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Colour of {percent}% of its leaves: {colour}</source>
         <translation type="unfinished"></translation>
     </message>

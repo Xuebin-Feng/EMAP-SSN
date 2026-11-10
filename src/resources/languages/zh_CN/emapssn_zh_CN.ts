@@ -13778,12 +13778,22 @@ Fedora / RHEL：
         <translation type="unfinished">与网络中已选节点相邻：{count}</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+6"/>
+        <source>Colour of {percent}% of its leaves: {layer}: {label}</source>
+        <translation type="unfinished">其 {percent}% 叶节点的颜色：{layer}：{label}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>{layer}: {low} to {high} across {percent}% of its leaves</source>
+        <translation type="unfinished">{layer}：其 {percent}% 叶节点的值为 {low} 至 {high}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Colour of {percent}% of its leaves: {colour}</source>
         <translation type="unfinished">其 {percent}% 叶节点的颜色：{colour}</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Folded up: click it to open it</source>
         <translation type="unfinished">已折叠：点击可展开</translation>
     </message>

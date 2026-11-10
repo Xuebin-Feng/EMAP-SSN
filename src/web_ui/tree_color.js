@@ -138,6 +138,10 @@ window.TreeView = window.TreeView || {};
             if (placed) covered[k] = 1; else unlabelledCounts[cls]++;
         }
         const shown = [];
+        // What a hover can say of a clade: each labelled row of a category layer, and each gradient bar, is one group of
+        // leaves (leafGroup, -1 for the leaves no layer covers); groups[g] names it.
+        const leafGroup = new Int32Array(model.leafCount).fill(-1);
+        const groups = [];
         for (let index = built.length - 1; index >= 0; index--) {
             const made = built[index];
             made.index = index;
@@ -145,15 +149,19 @@ window.TreeView = window.TreeView || {};
             for (const row of made.rows) {
                 row.count = row.leaves.length;
                 row.leaves = Int32Array.from(row.leaves);
+                for (let p = 0; p < row.leaves.length; p++) leafGroup[row.leaves[p]] = groups.length;
+                groups.push({ layer: made, row });
             }
             if (made.bar) {
+                for (let p = 0; p < made.bar.leaves.length; p++) leafGroup[made.bar.leaves[p]] = groups.length;
+                if (made.bar.leaves.length > 0) groups.push({ layer: made, row: null });
                 made.bar.count = made.bar.leaves.length;
                 made.bar.leaves = Int32Array.from(made.bar.leaves);
                 made.bar.values = Float32Array.from(made.bar.values);
             }
             if (made.rows.length > 0 || (made.bar && made.bar.count > 0)) shown.push(made);
         }
-        return { layers: shown, unlabelledCounts, covered };
+        return { layers: shown, unlabelledCounts, covered, leafGroup, groups };
     }
 
     // The leaf numbers (sorted) of class `cls` that no layer of the colour key covers: what "Unlabelled colours" counts.
@@ -273,6 +281,10 @@ window.TreeView = window.TreeView || {};
         const keyed = decodeKey(payload.key, colors, model, leafClass, count);
         colors.layers = keyed.layers;
         colors.covered = keyed.covered;
+        colors.leafGroup = keyed.leafGroup;
+        colors.groups = keyed.groups;
+        colors.tally = new Int32Array(keyed.groups.length + classCount);
+        colors.sayCache = new Map();
         const entries = [];
         for (let c = 1; c < classCount; c++) {
             const leaves = keyed.unlabelledCounts[c];
@@ -294,6 +306,60 @@ window.TreeView = window.TreeView || {};
     // The colour of class `cls` as #rrggbb.
     TV.classHex = function (colors, cls) {
         return hexOf(colors.rep[cls]);
+    };
+
+    // What most of the shown leaves of clade i have in common, as the hover says it, or null when no group has more than
+    // half of them. A group is a labelled row of a category layer, a gradient layer (its leaves of the bar), or a colour
+    // class of the leaves no layer covers (plain excepted). { share, group: { layer, row } } for a labelled group, with
+    // low and high (the least and the greatest value of that layer among the clade's leaves) for a gradient; { share,
+    // cls } for a colour. Kept for the colours in hand, so a hover on the same clade costs a lookup.
+    TV.cladeSays = function (colors, model, i) {
+        if (colors.sayCache.has(i)) return colors.sayCache.get(i);
+        const shown = colors.present[i];
+        let said = null;
+        if (shown > 0) {
+            const { leafGroup, leafClass, tally, groups } = colors;
+            const offset = groups.length;
+            let best = -1;
+            let most = 0;
+            const first = model.firstLeaf[i];
+            const last = model.lastLeaf[i];
+            for (let k = first; k <= last; k++) {
+                const cls = leafClass[k];
+                if (cls === TV.NO_CLASS) continue;
+                const g = leafGroup[k];
+                const slot = g >= 0 ? g : (cls === TV.PLAIN_CLASS ? -1 : offset + cls);
+                if (slot < 0) continue;
+                if (++tally[slot] > most) { most = tally[slot]; best = slot; }
+            }
+            for (let k = first; k <= last; k++) {
+                const cls = leafClass[k];
+                if (cls === TV.NO_CLASS) continue;
+                const g = leafGroup[k];
+                tally[g >= 0 ? g : offset + cls] = 0;
+            }
+            if (best >= 0 && most / shown > 0.5) {
+                if (best >= offset) said = { share: most / shown, cls: best - offset };
+                else {
+                    said = { share: most / shown, group: groups[best] };
+                    if (!groups[best].row) {
+                        const { leaves, values } = groups[best].layer.bar;
+                        let low = Infinity;
+                        let high = -Infinity;
+                        let p = lowerBound(leaves, 0, leaves.length, first);
+                        for (; p < leaves.length && leaves[p] <= last; p++) {
+                            if (values[p] < low) low = values[p];
+                            if (values[p] > high) high = values[p];
+                        }
+                        said.low = low;
+                        said.high = high;
+                    }
+                }
+            }
+        }
+        if (colors.sayCache.size > 20000) colors.sayCache.clear();
+        colors.sayCache.set(i, said);
+        return said;
     };
 
     // The leaves that have no room in the tree because the Viewer has hidden their nodes (1 for each), or null when

@@ -831,12 +831,19 @@ window.TreeView = window.TreeView || {};
             if (selected > 0) lines.push(t("Selected in the network: {count}", { count: selected.toLocaleString() }));
             const next = TV.matchesIn(state.selection.connected, model.firstLeaf[i], model.lastLeaf[i]);
             if (next > 0) lines.push(t("Next to a selected node of the network: {count}", { count: next.toLocaleString() }));
-            const colors = state.colors;
-            if (colors && colors.present[i] > 0 && colors.dominant[i] !== TV.NO_CLASS && colors.dominant[i] !== TV.PLAIN_CLASS
-                && colors.purity[i] > 0.5) {
-                lines.push(t("Colour of {percent}% of its leaves: {colour}", {
-                    percent: Math.round(colors.purity[i] * 100), colour: TV.classLabel(colors.dominant[i]),
-                }));
+            const said = state.colors ? TV.cladeSays(state.colors, model, i) : null;
+            if (said) {
+                const percent = Math.round(said.share * 100);
+                // A leaf the colour key labels is named by the key; any other colour by its #rrggbb.
+                if (said.group && said.group.row) {
+                    lines.push(t("Colour of {percent}% of its leaves: {layer}: {label}",
+                                 { percent, layer: said.group.layer.title, label: said.group.row.label }));
+                } else if (said.group) {
+                    lines.push(t("{layer}: {low} to {high} across {percent}% of its leaves",
+                                 { layer: said.group.layer.title, low: formatLength(said.low), high: formatLength(said.high), percent }));
+                } else {
+                    lines.push(t("Colour of {percent}% of its leaves: {colour}", { percent, colour: TV.classLabel(said.cls) }));
+                }
             }
             if (TV.foldedNow(state.layout, state.collapsed, i)) lines.push(t("Folded up: click it to open it"));
         }

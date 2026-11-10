@@ -3248,6 +3248,53 @@ class ColorHoverTests(ColorCase):
 
 
 
+    def says(self, node):
+        return [line for line in self.hover_text(node) if "its leaves" in line]
+
+    def categories(self, title, labels, slots, nodes):
+        from desktop import Node_Colors
+
+        def declare(viewer):
+            red = tuple(float(v) for v in viewer.current_colors[0])
+            Node_Colors.declare_categories(viewer, title, [(label, red) for label in labels], slots, nodes=nodes)
+
+        return declare
+
+    def test_two_clusters_that_share_one_colour_are_told_apart_by_the_clade_hover(self):
+        self.open_colored(key=self.categories("Clusters", ["Cluster 1", "Cluster 2"], [0, 0, 0, 1], range(4)))
+        self.choose("rectangular")
+        self.assertEqual(self.says(6), ["Colour of 75% of its leaves: Clusters: Cluster 1"])
+        self.assertEqual(self.says(2), ["Colour of 100% of its leaves: Clusters: Cluster 1"])
+
+    def test_a_layer_of_residues_names_the_layer_and_the_residue(self):
+        self.open_colored(key=self.categories("Residue at 120", ["K", "R"], [1, 1, 1, 0], range(4)))
+        self.choose("rectangular")
+        self.assertEqual(self.says(6), ["Colour of 75% of its leaves: Residue at 120: R"])
+
+    def test_a_gradient_clade_says_the_layer_and_the_range_of_its_values(self):
+        self.open_colored(key=gradient_key((0.42, 0.5, 0.61, 0.87, 4.0, 5.0)))
+        self.choose("rectangular")
+        self.assertEqual(self.says(6), ["Property length: 0.42 to 0.87 across 100% of its leaves"])
+
+    def test_an_unlabelled_colour_keeps_its_hex_beside_a_labelled_clade(self):
+        self.open_colored(key=cluster_key())
+        self.viewer.current_colors[6] = self.viewer.current_colors[4]
+        self.viewer.current_colors[7] = self.viewer.current_colors[4]
+        version = self.info()["version"]
+        for listener in list(self.viewer.node_update_listeners):
+            listener()
+        self.wait_for(f"TreeView.state.colors.version !== {version}")
+        self.choose("rectangular")
+        self.assertEqual(self.says(12), ["Colour of 100% of its leaves: #0000ff"])
+        self.assertEqual(self.says(9), ["Colour of 100% of its leaves: Clusters: Cluster 2"])
+
+    def test_a_clade_where_no_group_has_most_of_the_leaves_says_nothing(self):
+        self.open_colored(key=self.categories("Clusters", ["Cluster 1", "Cluster 2"], [0, 0, 1, 1], range(4)))
+        self.choose("rectangular")
+        self.assertEqual(self.says(6), [])
+
+
+
 class RootingNoteTests(TreePageMixin, unittest.TestCase):
     """An unrooted tree drawn from a root says so, in the banner and in Details; no other case says anything."""
 
