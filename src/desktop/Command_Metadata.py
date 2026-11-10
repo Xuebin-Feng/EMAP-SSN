@@ -6,7 +6,7 @@
 
 The program never names a command here. A command is a module of src/commands, and
 each module that wants to be described declares, as top-level assignments in one block
-after its imports, up to four things:
+after its imports, up to five things (the fifth, ALIASES, is described with alias_map below):
 
 * ``CATALOG_ENTRY``, the command's entry in the catalog the MCP server's
   get_command_catalog and the help command serve: a summary, its arguments (a
@@ -124,7 +124,10 @@ UNLISTED_POLICY = policy('approve')
 # --- Reading what a module declares ---------------------------------------------------------------------------------
 
 COMMANDS_DIR = Path(__file__).resolve().parents[1] / 'commands'
-DECLARATIONS = ('CATALOG_ENTRY', 'AGENT_POLICY', 'AGENT_PROMPT', 'AGENT_PROMPT_ORDER')
+DECLARATIONS = ('CATALOG_ENTRY', 'AGENT_POLICY', 'AGENT_PROMPT', 'AGENT_PROMPT_ORDER', 'ALIASES')
+
+# The words that ask a command for its help (the dispatch's own list): never a command's alias.
+HELP_WORDS = frozenset({'help', '-h', '--help', '-?'})
 
 _FUNCTIONS = {'entry': entry, 'argument': argument, 'choice': choice, 'plain_choices': plain_choices}
 _CONSTANTS = {'EXPRESSION': EXPRESSION, 'CLUSTER_MODE': CLUSTER_MODE, 'CLUSTER_PARAMETER': CLUSTER_PARAMETER,
@@ -279,9 +282,31 @@ class Declarations(NamedTuple):
     agent_policy: dict | None
     agent_prompt: str | None
     agent_prompt_order: int | float | None
+    # ALIASES as written, a tuple of names, or None when there is none or it cannot be used.
+    aliases: tuple | None = None
+    # True when the module assigns ALIASES but what it holds cannot be used (alias_map says so on stderr).
+    aliases_invalid: bool = False
 
 
 NO_DECLARATIONS = Declarations(False, None, None, None, None)
+
+
+def _valid_aliases(value):
+    """The names ``value`` (a tuple or list of strings) gives, or None when it is not a usable list of aliases.
+
+    Each must be a lower-case identifier that does not start with "_" and is not one of the help words, and no name
+    may appear twice, so that what is read is exactly what the dispatch, which lower-cases the word typed, can match.
+    """
+    if not isinstance(value, (tuple, list)):
+        return None
+    names = tuple(value)
+    for name in names:
+        if (not isinstance(name, str) or not name.isidentifier() or name != name.lower() or name.startswith('_')
+                or name in HELP_WORDS or not name.isascii()):
+            return None
+    if len(set(names)) != len(names):
+        return None
+    return names
 
 
 def read_declarations(tree):
@@ -298,8 +323,10 @@ def read_declarations(tree):
             return None
 
     has_run = any(isinstance(statement, ast.FunctionDef) and statement.name == 'run' for statement in tree.body)
+    aliases = read('ALIASES', _valid_aliases)
     return Declarations(has_run, read('CATALOG_ENTRY', _valid_entry), read('AGENT_POLICY', _valid_policy),
-                        read('AGENT_PROMPT', _valid_prompt), read('AGENT_PROMPT_ORDER', _valid_order))
+                        read('AGENT_PROMPT', _valid_prompt), read('AGENT_PROMPT_ORDER', _valid_order),
+                        aliases, aliases is None and 'ALIASES' in nodes)
 
 
 # What reading one file gave, by the file's path, valid while its modification time and size are the same: the Agent
@@ -359,7 +386,11 @@ def command_paths(directories=None):
 
 def declarations(name, directories=None):
     """The declarations of command ``name`` (the first module of that name in the folders), NO_DECLARATIONS if
-    there is none or it has no run(): what is not a command declares nothing."""
+    there is none or it has no run(): what is not a command declares nothing. With no ``directories``, ``name``
+    may be an alias of the command (Command_Declarations.canonical_command)."""
+    if directories is None:
+        from Command_Declarations import canonical_command
+        name = canonical_command(name)
     if not _valid_name(name):
         return NO_DECLARATIONS
     for directory in (command_directories() if directories is None else directories):
@@ -368,6 +399,85 @@ def declarations(name, directories=None):
             declared = declarations_of(path)
             return declared if declared.has_run else NO_DECLARATIONS
     return NO_DECLARATIONS
+
+
+# --- Aliases --------------------------------------------------------------------------------------------------------
+
+class AliasMap(NamedTuple):
+    """The aliases of the commands: ``canonical`` {alias: command name} and ``by_command`` {command name: (aliases)}."""
+    canonical: dict
+    by_command: dict
+
+
+_alias_cache = {}
+_ALIAS_CACHE_LIMIT = 8
+
+
+def _listing(directories):
+    """[(path, modification time, size)] of every module of the folders, which is when the aliases must be read again."""
+    listing = []
+    for directory in directories:
+        try:
+            paths = sorted(Path(directory).glob('*.py'))
+        except OSError:
+            continue
+        for path in paths:
+            if not _valid_name(path.stem):
+                continue
+            try:
+                status = path.stat()
+            except OSError:
+                continue
+            listing.append((str(path), status.st_mtime_ns, status.st_size))
+    return tuple(listing)
+
+
+def alias_map(directories=None):
+    """The aliases every module of the folders declares, read from their source (no module is imported).
+
+    A command declares ``ALIASES = ('name', ...)``, a literal; an alias is keyed by the command's file name, so a
+    folder that holds another file of the same name (the VR viewer's) needs no declaration of its own. A command's
+    own name always wins, so an alias never hides one; an alias that two commands declare is given to neither; and a
+    module whose ALIASES cannot be used has none. Each of these says so once on stderr. The result is kept until a
+    module of the folders changes.
+    """
+    folders = [Path(directory) for directory in (command_directories() if directories is None else directories)]
+    listing = _listing(folders)
+    cache_key = tuple(str(folder) for folder in folders)
+    cached = _alias_cache.get(cache_key)
+    if cached is not None and cached[0] == listing:
+        return cached[1]
+    stems = {Path(path).stem for path, _time, _size in listing}
+    claims = {}
+    for path, _time, _size in listing:
+        stem = Path(path).stem
+        declared = declarations_of(path)
+        if not declared.has_run:
+            continue
+        if declared.aliases_invalid:
+            print(f"The aliases of the command {stem} (ALIASES in {path}) cannot be used: they must be a tuple of "
+                  "different lower-case names that are not help words, so the command has none.", file=sys.stderr)
+        for alias in declared.aliases or ():
+            if alias != stem:
+                claims.setdefault(alias, set()).add(stem)
+    canonical = {}
+    for alias, owners in sorted(claims.items()):
+        if alias in stems:
+            print(f"The alias {alias!r} of {', '.join(sorted(owners))} is the name of a command, which an alias never "
+                  "hides, so it is not used.", file=sys.stderr)
+        elif len(owners) > 1:
+            print(f"The commands {', '.join(sorted(owners))} all declare the alias {alias!r}, so it names none.",
+                  file=sys.stderr)
+        else:
+            canonical[alias] = next(iter(owners))
+    by_command = {}
+    for alias, name in canonical.items():
+        by_command.setdefault(name, []).append(alias)
+    result = AliasMap(canonical, {name: tuple(sorted(found)) for name, found in by_command.items()})
+    if len(_alias_cache) >= _ALIAS_CACHE_LIMIT:
+        _alias_cache.clear()  # folders come and go (a test's scratch folder); only the latest are worth keeping
+    _alias_cache[cache_key] = (listing, result)
+    return result
 
 
 # --- The catalog -----------------------------------------------------------------------------------------------------

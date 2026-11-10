@@ -20,6 +20,7 @@ below), and it imports no Qt.
 import re
 import textwrap
 
+import Command_Declarations
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 from desktop.Command_Metadata import argument, entry
@@ -58,7 +59,8 @@ def print_help():
       prints that command's help, exactly as <command> help does, without
       running the command. The summaries are the ones the MCP server's command
       catalog gives. A command name is not case-sensitive, and a word that is no
-      command fails.
+      command fails. A command's aliases, which the listing shows beside its
+      name, work in its place: help colour is help color.
 
     Examples:
       help
@@ -92,12 +94,17 @@ def one_line(summary):
 
 def listing(commands):
     """The text that lists ``commands``, the entries of the command catalog, one name and summary each."""
-    width = max((len(entry['command']) for entry in commands), default=0)
+    def label(entry):
+        # A command's aliases follow its name: color (colour).
+        aliases = entry.get('aliases') or ()
+        return f"{entry['command']} ({', '.join(aliases)})" if aliases else entry['command']
+
+    width = max((len(label(entry)) for entry in commands), default=0)
     indent = ' ' * (2 + width + 2)
     lines = ['', 'EMAP-SSN Viewer commands', '', "  Type help <command>, or <command> help, for a command's usage and examples.", '']
     for entry in commands:
         wrapped = textwrap.wrap(one_line(entry['summary']), width=max(LISTING_WIDTH - len(indent), 30)) or ['']
-        lines.append(f"  {entry['command'].ljust(width)}  {wrapped[0]}")
+        lines.append(f"  {label(entry).ljust(width)}  {wrapped[0]}")
         lines.extend(indent + more for more in wrapped[1:])
     return '\n'.join(lines)
 
@@ -145,7 +152,7 @@ def run(viewer, args):
             Message("Usage: {syntax}", syntax="help [command]"),
         ], separator="\n"))
         return
-    name = args[0].lower()
+    name = Command_Declarations.canonical_command(args[0])
     if name in HELP_WORDS:
         print_help()
         _printed(viewer)

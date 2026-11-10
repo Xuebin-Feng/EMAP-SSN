@@ -100,7 +100,7 @@ class DeclaredCasesTests(unittest.TestCase):
 
     def test_commands_that_act_on_jobs(self):
         for name, args, expected in [
-                ("jobs", [], True), ("jobs", ["cancel"], True), ("JOBS", ["cancel", "all"], False),
+                ("jobs", [], True), ("jobs", ["cancel"], True), ("JOBS", ["cancel", "all"], True),
                 ("esmfold", ["stop"], True), ("esmfold", ["STOP"], True), ("esmfold", ["stop", "large"], False),
                 ("esmfold", [], False), ("run", ["stop"], True), ("run", [], False), ("run", ["stop", "x"], False),
                 ("select", ["stop"], False), ("undo", [], False), ("nosuchcommand", ["stop"], False)]:
@@ -454,7 +454,7 @@ AMBIGUOUS_NAMES = frozenset({"alignment", "embedding", "cluster", "group", "labe
 # The calls that take a command's line, and those that take a command's name, as their first argument.
 LINE_CALLS = frozenset({"process_command", "execute_command", "agent_policy"})
 NAME_CALLS = frozenset({"queue_kind", "command_module", "starts_model_request", "acts_on_jobs", "registers_console_button",
-                        "get_command_metadata", "import_module"})
+                        "get_command_metadata", "import_module", "canonical_command"})
 COMMAND_VARIABLE = re.compile(r"^(command|cmd)", re.IGNORECASE)
 COMMAND_MODULE_PATH = re.compile(r"^commands\.([A-Za-z_]\w*)")
 CONTAINERS = (ast.Dict, ast.List, ast.Tuple, ast.Set)
@@ -613,7 +613,13 @@ def _constants_of(node):
     return []
 
 
-def command_words_in(source, names, strict=False, exempt=frozenset()):
+def declared_aliases():
+    """The aliases the real commands declare (ALIASES), read as the program reads them."""
+    from desktop.Command_Metadata import alias_map
+    return frozenset(alias_map([COMMANDS_DIR]).canonical)
+
+
+def command_words_in(source, names, strict=False, exempt=frozenset(), ambiguous=AMBIGUOUS_NAMES):
     """Counter of (enclosing scope, 'string' | 'import' | 'table', word) for the code of a module's source.
 
     'string': a string constant that names a command (docstrings and the generic help words are not counted; a name
@@ -622,6 +628,7 @@ def command_words_in(source, names, strict=False, exempt=frozenset()):
     module path in a string, 'commands.x'). 'table': a dict, set, list or tuple literal that holds two or more
     command names, up to two levels deep, the names it holds then counted once, in it, and the word is those names.
     ``exempt`` names are not counted at all: the pair of a page and its command, in the page's own files.
+    ``ambiguous`` are the names that count only where a command is meant, unless ``strict``.
     """
     names = set(names) - set(exempt)
     counted = names - {"help"}
@@ -694,7 +701,7 @@ def command_words_in(source, names, strict=False, exempt=frozenset()):
             if module and module.group(1) not in exempt:
                 found[(scope(node), "import", module.group(1))] += 1
             word = meant.get(id(node))
-            if word is None and node.value in counted and (strict or node.value not in AMBIGUOUS_NAMES):
+            if word is None and node.value in counted and (strict or node.value not in ambiguous):
                 word = node.value
             if word is not None:
                 found[(scope(node), "string", word)] += 1
@@ -718,13 +725,18 @@ def command_words_in(source, names, strict=False, exempt=frozenset()):
 def central_findings(src_dir=SRC_DIR):
     """{relative path: the command_words_in of the file} for every central file, and the paths read, in order."""
     pairs = plugin_pairs()
-    names = set(COMMAND_NAMES)
+    # A command's aliases are its names too: central code may no more name "colour" than "color". They are ordinary
+    # words, so they count only where a command is meant (a line or a name handed to a call that takes one).
+    aliases = declared_aliases()
+    names = set(COMMAND_NAMES) | aliases
+    ambiguous = AMBIGUOUS_NAMES | aliases
     findings, scanned = {}, []
     for path in central_files(src_dir):
         relative = path.relative_to(Path(src_dir).parent).as_posix()
         exempt = {name for name, files in pairs.items() if relative in files}
         scanned.append(relative)
-        findings[relative] = command_words_in(path.read_text(encoding="utf-8"), names, relative in DISPATCH_FILES, exempt)
+        findings[relative] = command_words_in(path.read_text(encoding="utf-8"), names, relative in DISPATCH_FILES, exempt,
+                                              ambiguous)
     return findings, scanned
 
 
@@ -1028,6 +1040,250 @@ class SessionFilePickerTests(unittest.TestCase):
             imports = [key for key in command_words_in(source, names) if key[1] == "import"]
             with self.subTest(file=relative):
                 self.assertEqual(imports, [])
+
+
+# --- Aliases ------------------------------------------------------------------------------------------------------
+ALIAS_PLUGINS = {
+    "zzal_plain": "ALIASES = ('zzalp', 'zzalp2')\n" + RECORD,
+    "zzal_model": "ALIASES = ('zzalm',)\nSTARTS_MODEL_REQUEST = True\n" + RECORD,
+    "zzal_refused": "ALIASES = ('zzalr',)\nAGENT_POLICY = 'refuse'\n" + RECORD,
+    "zzal_runs": "ALIASES = ('zzalu',)\nAGENT_POLICY = 'run'\n" + RECORD,
+    "zzal_instant": "ALIASES = ('zzali',)\nQUEUE = 'instant'\n" + RECORD,
+    "zzal_jobs": "ALIASES = ('zzalj',)\nACTS_ON_JOBS = True\n" + RECORD,
+    "zzal_button": "ALIASES = ('zzalb',)\nCONSOLE_BUTTON = True\n" + RECORD,
+}
+INVALID_ALIASES = {
+    "zzbad_text": "ALIASES = 'zzbadt'\n" + RECORD,
+    "zzbad_upper": "ALIASES = ('ZzBadU',)\n" + RECORD,
+    "zzbad_private": "ALIASES = ('_zzbadp',)\n" + RECORD,
+    "zzbad_help": "ALIASES = ('help',)\n" + RECORD,
+    "zzbad_help_word": "ALIASES = ('-h',)\n" + RECORD,
+    "zzbad_twice": "ALIASES = ('zzbadw', 'zzbadw')\n" + RECORD,
+    "zzbad_not_a_name": "ALIASES = ('two words',)\n" + RECORD,
+    "zzbad_number": "ALIASES = (1,)\n" + RECORD,
+    "zzbad_dash": "ALIASES = ('zz-bad',)\n" + RECORD,
+    "zzbad_computed": "ALIASES = tuple(['zzbadc'])\n" + RECORD,
+    "zzbad_conditional": "if True:\n    ALIASES = ('zzbadq',)\n" + RECORD,
+}
+
+
+def alias_notes():
+    """The aliases now read over the commands package, and what that said on stderr (the map is kept until a folder changes)."""
+    import io
+    from contextlib import redirect_stderr
+    from desktop.Command_Metadata import alias_map
+    note = io.StringIO()
+    with redirect_stderr(note):
+        found = alias_map()
+    return found, note.getvalue()
+
+
+class AliasTests(PortalFixture, unittest.TestCase):
+    """A command declares ALIASES = ('name',) and the program treats the alias as the command (canonical_command)."""
+
+    def setUp(self):
+        super().setUp()
+        self.enterContext(scratch_commands(ALIAS_PLUGINS))
+        self.calls = []
+        self.enterContext(mock.patch.object(ce, "SCRATCH_CALLS", self.calls, create=True))
+        self.viewer.command_queue = self.queue = FakeQueue(self.viewer)
+
+    def test_a_plugin_that_declares_aliases_is_called_by_them_with_no_change_to_the_program(self):
+        found, note = alias_notes()
+        self.assertEqual(note, "")
+        self.assertEqual(found.canonical["zzalp"], "zzal_plain")
+        self.assertEqual(found.canonical["zzalp2"], "zzal_plain")
+        self.assertEqual(found.by_command["zzal_plain"], ("zzalp", "zzalp2"))
+        for typed in ("zzalp", "ZZALP", "zzal_plain", "Zzal_Plain"):
+            self.assertEqual(declarations.canonical_command(typed), "zzal_plain")
+        self.assertEqual(declarations.canonical_command("nosuchcommand"), "nosuchcommand")
+        self.assertEqual(declarations.canonical_command("Select"), "select")
+        self.assertIs(declarations.command_module("zzalp"), declarations.command_module("zzal_plain"))
+
+    def test_a_typed_alias_is_dispatched_as_the_command_and_the_history_keeps_what_was_typed(self):
+        self.viewer.process_command("ZzAlP one two")
+        self.assertEqual(self.queue.given, [("zzal_plain", ["one", "two"], "typed")])
+        self.assertEqual(self.viewer.command_history, ["ZzAlP one two"])
+        # The command's own name is not disturbed.
+        self.viewer.process_command("zzal_plain", record_history=False)
+        self.assertEqual(self.queue.given[-1][0], "zzal_plain")
+
+    def test_an_unknown_word_still_fails_as_typed(self):
+        failures = []
+        with mock.patch.object(ce, "command_failed", side_effect=lambda viewer, message=None: failures.append(str(message))):
+            self.viewer.process_command("zzunknownword now", record_history=False)
+        self.assertEqual(failures, ["Unknown command: zzunknownword"])
+
+    def test_an_alias_of_a_command_that_starts_a_model_request_is_refused_from_the_portal(self):
+        for line in ("zzalm hello", "ZZALM hello", "zzal_model hello"):
+            with self.subTest(command=line):
+                result = self.finish(self.portal.submit(line, line)["request_id"])
+                self.assertEqual(result["status"], "failed", result)
+                self.assertEqual(result["commands"][0]["messages"][-1]["text"], REFUSAL)
+        self.assertEqual((self.calls, self.queue.given), ([], []))
+        self.assertTrue(declarations.starts_model_request("zzalm", ["hello"]))
+
+    def test_an_alias_has_the_agent_policy_of_its_command(self):
+        submitted = self.portal.submit("policy", ["zzalr x", "ZZALR", "zzalu x", "zzalp x", "zzal_refused"], source="web_agent")
+        self.assertEqual([record["approval"] for record in submitted["commands"]],
+                         ["refused", "refused", None, "pending", "refused"])
+
+    def test_an_alias_keeps_the_queue_kind_and_the_job_acting_of_its_command(self):
+        for source in SOURCES:
+            with self.subTest(source=source):
+                self.assertEqual(ce.queue_kind("zzali", [], source), INSTANT)
+                self.assertEqual(ce.queue_kind("zzalp", [], source), ORDERED)
+        self.assertTrue(declarations.acts_on_jobs("zzalj", []))
+        self.assertTrue(declarations.acts_on_jobs("ZZALJ", []))
+        self.assertFalse(declarations.acts_on_jobs("zzalp", []))
+        self.assertTrue(ViewerCommandPortal._is_stop({"command": "zzalj"}))
+        self.viewer.process_command("zzali", record_history=False)
+        self.assertEqual((self.calls, self.queue.given), ([("zzal_instant", [])], []))
+
+    def test_a_console_button_is_registered_for_a_real_name_only(self):
+        self.assertTrue(declarations.registers_console_button("zzal_button"))
+        self.assertFalse(declarations.registers_console_button("zzalb"))
+
+    def test_an_alias_of_run_is_the_run_command(self):
+        from desktop.Command_Metadata import AliasMap
+        from commands import run
+        with mock.patch("desktop.Command_Metadata.alias_map", return_value=AliasMap({"zzalrun": "run"}, {"run": ("zzalrun",)})):
+            self.assertTrue(run.is_run_command("zzalrun script.txt"))
+            self.assertTrue(run.is_run_command("RUN script.txt"))
+            self.assertFalse(run.is_run_command("zzalp script.txt"))
+            # A script that holds one is refused as a run line is: the line is left out.
+            with mock.patch("builtins.print"):
+                self.assertEqual(run.script_commands(["zzalrun again.txt", "zzalp x", "Run again.txt"]), ["zzalp x"])
+
+    def test_the_help_listing_and_help_by_alias(self):
+        from commands import help as help_command
+        text = help_command.listing([{"command": "zzal_plain", "aliases": ["zzalp", "zzalp2"], "summary": "Does it"},
+                                     {"command": "zzother", "summary": "Does that"}])
+        self.assertIn("zzal_plain (zzalp, zzalp2)  Does it", text)
+        self.assertRegex(text, r"zzother\s+Does that")
+        with mock.patch.object(ce, "print_help"), mock.patch.object(ce, "command_succeeded"), \
+                mock.patch.object(ce, "load_command_module", side_effect=lambda viewer, name: declarations.command_module(name)):
+            help_command.run(self.viewer, ["ZZALP"])
+        self.assertEqual(self.calls, [("zzal_plain", ["help"])])
+
+    def test_the_catalog_lists_the_aliases_and_finds_a_command_by_one(self):
+        import shutil
+        folder = tempfile.mkdtemp(prefix="emapssn-scratch-catalog-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        for name, source in ALIAS_PLUGINS.items():
+            Path(folder, name + ".py").write_text(source, encoding="utf-8")
+        entries = {entry["command"]: entry for entry in command_catalog(commands_dir=folder)["commands"]}
+        self.assertEqual(entries["zzal_plain"]["aliases"], ["zzalp", "zzalp2"])
+        self.assertEqual(entries["zzal_model"]["aliases"], ["zzalm"])
+        only = command_catalog("ZZALP2", commands_dir=folder)["commands"]
+        self.assertEqual([entry["command"] for entry in only], ["zzal_plain"])
+        self.assertEqual(command_catalog("zzal_plain", commands_dir=folder)["commands"][0]["aliases"], ["zzalp", "zzalp2"])
+        with self.assertRaises(ValueError):
+            command_catalog("zzalpnone", commands_dir=folder)
+
+
+class AliasRulesTests(unittest.TestCase):
+    """What an alias may be, and what happens to one that is not allowed."""
+
+    def test_a_command_name_always_wins_over_an_alias(self):
+        plugins = {"zzcol_a": "ALIASES = ('zzcol_b', 'zzcol_a_alias')\n" + RECORD, "zzcol_b": RECORD}
+        with scratch_commands(plugins):
+            found, note = alias_notes()
+            self.assertNotIn("zzcol_b", found.canonical)
+            self.assertEqual(found.canonical["zzcol_a_alias"], "zzcol_a")
+            self.assertIn("zzcol_b", note)
+            self.assertEqual(declarations.canonical_command("zzcol_b"), "zzcol_b")
+
+    def test_an_alias_two_commands_declare_names_neither(self):
+        plugins = {"zzdup_a": "ALIASES = ('zzdup', 'zzdup_a_only')\n" + RECORD, "zzdup_b": "ALIASES = ('zzdup',)\n" + RECORD}
+        with scratch_commands(plugins):
+            found, note = alias_notes()
+            self.assertNotIn("zzdup", found.canonical)
+            self.assertEqual(found.canonical["zzdup_a_only"], "zzdup_a")
+            self.assertIn("zzdup_a, zzdup_b", note)
+            self.assertEqual(declarations.canonical_command("zzdup"), "zzdup")
+
+    def test_a_commands_own_name_among_its_aliases_is_no_conflict(self):
+        with scratch_commands({"zzself": "ALIASES = ('zzself', 'zzselfie')\n" + RECORD}):
+            found, note = alias_notes()
+            self.assertEqual((note, found.by_command["zzself"]), ("", ("zzselfie",)))
+
+    def test_an_alias_that_cannot_be_used_leaves_the_command_with_none_and_says_so(self):
+        for name, source in INVALID_ALIASES.items():
+            with self.subTest(command=name), scratch_commands({name: source}):
+                found, note = alias_notes()
+                self.assertNotIn(name, found.by_command)
+                self.assertNotIn(name, found.canonical.values())
+                self.assertIn(name, note)
+                self.assertEqual(declarations.canonical_command("help"), "help")
+
+    def test_a_good_list_is_not_spoiled_by_a_bad_one_beside_it(self):
+        plugins = dict(INVALID_ALIASES, zzgood="ALIASES = ['zzgoodie']\n" + RECORD)
+        with scratch_commands(plugins):
+            found, _note = alias_notes()
+            self.assertEqual(found.canonical["zzgoodie"], "zzgood")
+
+    def test_a_module_without_run_declares_no_alias(self):
+        with scratch_commands({"zzhelper": "ALIASES = ('zzhelperalias',)\n"}):
+            self.assertNotIn("zzhelperalias", alias_notes()[0].canonical)
+
+    def test_an_alias_is_keyed_by_the_file_name_in_every_folder(self):
+        # The VR viewer's folder holds forks of some commands: a declaration in either file is the command's.
+        import commands
+        import shutil
+        other = tempfile.mkdtemp(prefix="emapssn-scratch-fork-")
+        self.addCleanup(shutil.rmtree, other, True)
+        Path(other, "zzfork.py").write_text(RECORD, encoding="utf-8")
+        with scratch_commands({"zzfork": "ALIASES = ('zzforky',)\n" + RECORD}):
+            commands.__path__.insert(0, other)
+            try:
+                self.assertEqual(alias_notes()[0].canonical["zzforky"], "zzfork")
+            finally:
+                commands.__path__.remove(other)
+
+    def test_the_map_is_read_again_when_a_module_changes(self):
+        import commands
+        with scratch_commands({"zzchange": "ALIASES = ('zzchanged',)\n" + RECORD}):
+            self.assertEqual(alias_notes()[0].canonical["zzchanged"], "zzchange")
+            path = Path(commands.__path__[-1], "zzchange.py")
+            path.write_text("ALIASES = ('zzchanged2', 'zzchanged3')\n" + RECORD + "# changed\n", encoding="utf-8")
+            found, _note = alias_notes()
+            self.assertEqual(found.by_command["zzchange"], ("zzchanged2", "zzchanged3"))
+            self.assertNotIn("zzchanged", found.canonical)
+
+    def test_the_aliases_of_the_real_commands_are_valid_and_collide_with_nothing(self):
+        import io
+        from contextlib import redirect_stderr
+        from desktop.Command_Metadata import alias_map, declarations_of
+        names = set(COMMAND_NAMES)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            found = alias_map([COMMANDS_DIR])
+        self.assertEqual(stderr.getvalue(), "")
+        declared = collections.Counter()
+        for name in COMMAND_NAMES:
+            read = declarations_of(COMMANDS_DIR / f"{name}.py")
+            self.assertFalse(read.aliases_invalid, name)
+            declared.update(read.aliases or ())
+        self.assertEqual(set(found.canonical), set(declared))
+        self.assertEqual([alias for alias, count in declared.items() if count > 1], [])
+        self.assertEqual(set(found.canonical) & names, set())
+        self.assertEqual(set(found.canonical) & {"help", "exit", "quit"}, set())
+        for alias, name in found.canonical.items():
+            self.assertTrue(alias.isidentifier() and alias == alias.lower() and not alias.startswith("_"), alias)
+            self.assertIn(name, names)
+
+    def test_central_code_naming_an_alias_where_a_command_is_meant_is_found(self):
+        names = set(COMMAND_NAMES) | {"zzalias"}
+        ambiguous = AMBIGUOUS_NAMES | {"zzalias"}
+        for source in ("def f(viewer):\n    viewer.process_command('zzalias now')\n",
+                       "def f(name):\n    return canonical_command('zzalias')\n",
+                       "def f(command):\n    return command == 'zzalias'\n"):
+            with self.subTest(source=source):
+                found = command_words_in(source, names, ambiguous=ambiguous)
+                self.assertEqual(sum(found.values()), 1, found)
+        # As an ordinary word elsewhere it is not a command's name.
+        self.assertEqual(command_words_in("x = 'zzalias'\n", names, ambiguous=ambiguous), collections.Counter())
 
 
 if __name__ == "__main__":

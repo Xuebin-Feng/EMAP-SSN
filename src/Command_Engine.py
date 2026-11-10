@@ -1796,7 +1796,10 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     parts = cmd_str.split()
     if not parts: return
 
-    command_name = parts[0].lower()
+    # An alias a command declares is the command (Command_Declarations.canonical_command); the history above kept
+    # what was typed, the queue, the status line and the module are the command's.
+    import Command_Declarations
+    command_name = Command_Declarations.canonical_command(parts[0])
     args = parts[1:]
 
     # --- 6. DYNAMIC EXTERNAL COMMANDS ---

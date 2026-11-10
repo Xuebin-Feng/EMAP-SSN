@@ -82,6 +82,10 @@ script typed there (run), 'portal' for MCP and the Agent page.
   ``RESET_HELP = {'clusters': (40, 'what it restores')}``, are not read here: commands/reset.py
   imports the modules that mention RESET_TARGETS, and its docstring says what each means.
 
+* Other names for the command, ALIASES = ('colour',): a literal tuple that is read from the module's source by
+  desktop.Command_Metadata.alias_map and resolved in one place, canonical_command(name), which each function below
+  and every other reader of a command's name calls first. A name that is no alias is returned as it is.
+
 A function wins over the constant of the same declaration. A value that is not
 what the declaration asks for, or a function that raises, counts as undeclared
 (ordered; not acting on jobs; no Console button; picking no file), except for STARTS_MODEL_REQUEST:
@@ -110,13 +114,36 @@ _UNDECLARED = object()
 _UNUSABLE = object()
 
 
-def command_module(name):
+def canonical_command(name):
+    """The name of the command that ``name`` stands for, in lower case: the command itself, or the one that declares it as an alias.
+
+    A command declares aliases with ``ALIASES = ('colour',)`` (read from the source of the commands folders by
+    desktop.Command_Metadata.alias_map, never by importing a module), and its own name always wins over an alias.
+    This is the one place a typed name is turned into the command's, and everything that goes by a command's name
+    (its module, its declarations, its policy in an Agent reply, its queue kind, a script's `run` line) asks here
+    first: a declaration read for the alias instead would find none, and a command that must be refused or must run
+    at once would be treated like a plugin that declares nothing. A name that is no alias is returned as it is.
+    """
+    if not isinstance(name, str):
+        return name
+    name = name.lower()
+    try:
+        from desktop.Command_Metadata import alias_map
+        return alias_map().canonical.get(name, name)
+    except Exception:
+        return name
+
+
+def command_module(name, resolve=True):
     """The module of command ``name`` (commands.<name>) as it is loaded now, or None.
 
     None when there is no such command or its module cannot be imported. The
     module is imported if need be and never reloaded: the dispatch reloads the
-    module of the command it runs, and this only reads declarations.
+    module of the command it runs, and this only reads declarations. ``name``
+    may be an alias of the command unless ``resolve`` is False.
     """
+    if resolve:
+        name = canonical_command(name)
     if not isinstance(name, str) or not name.isidentifier():
         return None
     try:
@@ -170,12 +197,12 @@ def acts_on_jobs(name, args, module=None):
 def registers_console_button(name):
     """Whether the command ``name`` declares a Console button that comes back when a session loads.
 
-    False for anything that is not a bare command name (a string that is an identifier and does not start with
+    ``name`` is the command's own name, never an alias: what a cache lists is not resolved. False for anything that is not a bare command name (a string that is an identifier and does not start with
     "_", which no command does), for a module that cannot be imported, and for a value that is not exactly True.
     """
     if not isinstance(name, str) or not name.isidentifier() or name.startswith('_'):
         return False
-    return getattr(command_module(name), 'CONSOLE_BUTTON', False) is True
+    return getattr(command_module(name, resolve=False), 'CONSOLE_BUTTON', False) is True
 
 
 def _commands_that_mention(word):

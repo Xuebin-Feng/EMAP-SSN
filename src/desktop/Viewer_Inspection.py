@@ -825,7 +825,7 @@ def _module_summary(name, tree, help_text):
     return f"The {name} command; its module declares no description."
 
 
-def command_catalog_entry(path, detailed=False):
+def command_catalog_entry(path, detailed=False, aliases=()):
     """The catalog entry of the command module at ``path``, read from its source without running it; None if it has no run().
 
     What the module declares about itself (desktop.Command_Metadata: CATALOG_ENTRY, AGENT_POLICY) is read from its
@@ -852,7 +852,7 @@ def command_catalog_entry(path, detailed=False):
     metadata_declared = declared.catalog_entry is not None
     metadata = (catalog_entry(declared) if metadata_declared
                 else default_command_metadata(_module_summary(path.stem, tree, help_text), declared.agent_policy))
-    return {'command': path.stem, 'summary': metadata['summary'], 'arguments': metadata['arguments'],
+    return {'command': path.stem, 'aliases': list(aliases), 'summary': metadata['summary'], 'arguments': metadata['arguments'],
             'requires': metadata['requires'], 'agent_policy': metadata['agent_policy'],
             'writes_files': metadata['writes_files'], 'opens_interface': metadata['opens_interface'],
             'background_work': _starts_background_work(tree),
@@ -869,12 +869,17 @@ def command_catalog(command=None, commands_dir=None):
     cautious defaults and is marked metadata_declared=False.
     """
     from pathlib import Path
+    from desktop.Command_Metadata import alias_map
     root = Path(commands_dir) if commands_dir is not None else Path(__file__).resolve().parents[1] / 'commands'
+    aliases = alias_map([root])
+    # The command asked for may be named by one of its aliases, which a command declares (ALIASES).
+    if command is not None:
+        command = aliases.canonical.get(command.lower(), command)
     entries = []
     for path in sorted(root.glob('*.py')):
         if path.stem.startswith('_') or (command is not None and path.stem != command):
             continue
-        found = command_catalog_entry(path, detailed=command is not None)
+        found = command_catalog_entry(path, detailed=command is not None, aliases=aliases.by_command.get(path.stem, ()))
         if found is not None:
             entries.append(found)
     if command is not None and not entries:

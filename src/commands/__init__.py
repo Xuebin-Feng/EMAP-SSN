@@ -41,6 +41,15 @@ How its work is split for the command queue (Command_Queue):
     plan(viewer, args), start(viewer, plan), compute(inputs, progress), apply(viewer, plan, result)
         all optional; a module without plan() runs whole, at its turn.
 
+What it is also called (desktop.Command_Metadata.alias_map, which reads the literal from the source, without importing):
+    ALIASES = ('colour',)
+        other names that run this command: a tuple of different lower-case names (identifiers that do not start with "_"
+        and are not help words). The program resolves a typed alias to the command's own name in one place
+        (Command_Declarations.canonical_command), so everything declared here, and the Agent policy, applies to it. A
+        command's own name always wins over an alias; an alias two commands declare names neither, and one that cannot
+        be used is left out, each with a note on stderr. The history keeps what was typed; the catalog lists the aliases
+        of each command, `help` shows them beside it, and the Agent's instructions teach only the real names.
+
 What it resets (commands/reset.py, which imports the modules that mention RESET_TARGETS):
     RESET_TARGETS = ('cluster',), reset(viewer, target), reset_changes_state(viewer, target)
         the reset targets it owns, how it restores each, and when that changes nothing.

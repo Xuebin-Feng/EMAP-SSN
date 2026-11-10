@@ -17,6 +17,7 @@ import codecs
 import io
 import locale
 import os
+import Command_Declarations
 import Command_Engine
 from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
@@ -56,7 +57,7 @@ def acts_on_jobs(args):
 
 def is_run_command(command_line):
     """Whether a script line is itself a run command, which a script's commands may not hold."""
-    return command_line.split()[0].lower() == 'run'
+    return Command_Declarations.canonical_command(command_line.split()[0]) == 'run'
 
 # A byte-order mark names a .txt file's encoding. UTF-32 LE's mark begins with
 # UTF-16 LE's, so the UTF-32 marks are checked first.
