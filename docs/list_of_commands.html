@@ -156,6 +156,9 @@
                     <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference. <code>help COMMAND</code> prints the same help, and <code>help</code> alone lists every command with a one-line summary.
                 </p>
                 <p>
+                    A command may have aliases, other names that run it: <code>help</code> lists them beside the command, as in <code>color (colour)</code>, and its card below names them. An alias is typed as the command is, in any letter case, and the Viewer treats it as the command itself: <code>colour red</code> is <code>color red</code>, and <code>help colour</code> prints the help of <code>color</code>. What you typed stays in the command history. A command's own name always wins over an alias. The aliases are <code>colour</code> for <code>color</code>, <code>dist</code> for <code>distribution</code>, <code>spec</code> for <code>spectrum</code>, <code>align</code> for <code>alignment</code>, <code>embed</code> for <code>embedding</code> and <code>ref</code> for <code>reference</code>.
+                </p>
+                <p>
                     A command can go on over several lines. End a line with a space and a backslash (<code>\</code>) and the next line carries on: the backslash and the line break become one space, and the next line may start with a <code>#label#</code>. This is the command of a figure, written over two lines and typed or pasted as it stands:
                 </p>
                 <ul class="example-list">
@@ -530,6 +533,7 @@
                     <div class="syntax-content">reference [target]</div>
                     <button class="copy-btn" onclick="copyText('reference', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>ref</code> runs this command, with the same arguments.</p>
                 <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a full header, a leading identifier such as <code>WP_0123.1</code> (a leading part of the header that ends at <code>_</code> or <code>|</code>), a case-insensitive substring, or a wildcard pattern such as <code>WP_01*</code> or <code>*.1</code> matching a network FASTA header or its identifier. An exact header or identifier takes priority, so <code>WP_0123.1</code> selects <code>WP_0123.1_protein_A</code> rather than <code>WP_0123.10_protein_B</code>; otherwise, if several headers match, the first one that has a sequence in the loaded MSA is used and a warning names it. The resolved full header anchors the alignment numbering, so the reported reference is always the sequence actually used. A target whose sequence is absent from the loaded MSA is refused: the command fails and the previous reference and offset stay as they were. A configured reference that does not resolve, such as one left by loading another alignment, stays configured but inactive, and the MSA is used in reference-free occupancy mode with positions numbered sequentially. Calling <code>reference</code> without an argument displays the active reference, or marks the configured reference as inactive when it does not resolve. Only one target is accepted: a further argument is refused, and the reference and offset stay as they were.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -581,6 +585,7 @@
                     <div class="syntax-content">alignment [filepath]</div>
                     <button class="copy-btn" onclick="copyText('alignment', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>align</code> runs this command, with the same arguments.</p>
                 <p><strong>Function:</strong> Dynamically changes the active Multiple Sequence Alignment file (<code>.fasta</code> or <code>.h5</code>) used by the viewer and reloads the MSA mapping.</p>
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -612,6 +617,7 @@
                     <div class="syntax-content">embedding [filepath]</div>
                     <button class="copy-btn" onclick="copyText('embedding', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>embed</code> runs this command, with the same arguments.</p>
                 <p><strong>Function:</strong> Dynamically changes the active protein language model embedding file (<code>.h5</code>) used by the viewer and matches it to the plotted nodes. Only the file's manifest is read; a command that needs per-residue embeddings reads them when it runs. Like <code>alignment</code>, the switch changes the running viewer only, is not an undo step, and leaves the saved Embedding Input setting as it was: configure Embedding Input in EMAP-SSN Configuration to set the file for future sessions.</p>
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -695,6 +701,7 @@
                     <div class="syntax-content">distribution [expression] &lt;position&gt;</div>
                     <button class="copy-btn" onclick="copyText('distribution', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>dist</code> runs this command, with the same arguments.</p>
                 <p><strong>Overview:</strong> Colors nodes by the amino acid each has at one alignment position, and prints a table of the residues found there with their counts and percentages.</p>
 
                 <div class="callout callout-note">
@@ -853,6 +860,7 @@
                     <div class="syntax-content">color [EXPR] &lt;ATTRIBUTES&gt; [EXPR &lt;ATTRIBUTES&gt; ...]</div>
                     <button class="copy-btn" onclick="copyText('color', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>colour</code> runs this command, with the same arguments.</p>
                 <p><strong>Overview:</strong> The color command alters the color, alpha (opacity), size, and shape of visible network nodes selected through the Expression Interpreter or the current mouse selection. Hidden nodes are never changed by this command. A target&rsquo;s attributes go in an attribute set written with literal angle brackets, <code>&lt;red,50%,star&gt;</code> or <code>&lt;red 50% star&gt;</code>; the older loose form, <code>color #cluster_1# red 2x star</code>, still works as a shorthand.</p>
 
                 <div class="subheading">Attribute Sets</div>
@@ -1228,6 +1236,7 @@
                     <div class="syntax-content">spectrum [expression] {&lt;property_name&gt;} [&lt;color_scheme&gt;]</div>
                     <button class="copy-btn" onclick="copyText('spectrum', this)">Copy</button>
                 </div>
+                <p><strong>Alias:</strong> <code>spec</code> runs this command, with the same arguments.</p>
                 <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property and brings all nodes colored by that invocation to the top in stable node-index order. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked; a viewer that has no metadata HUD, such as the VR viewer, skips this step.</p>
                 
                 <div class="subheading">Arguments</div>

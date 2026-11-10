@@ -27,6 +27,9 @@ from desktop.Command_Metadata import argument, entry
 # Loads a file, or opens a file dialog.
 AGENT_POLICY = 'approve'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('align',)
+
 CATALOG_ENTRY = entry('Load another alignment and report coverage; restore the previous alignment on loader failure.',
     argument('filename', 'Optional FASTA/HDF5 MSA filename or path; omission opens a file dialog requiring a visible Viewer. Partial and zero node overlap are accepted.'), opens_interface=True)
 

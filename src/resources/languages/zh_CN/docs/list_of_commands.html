@@ -147,7 +147,7 @@
 
     <main>
         <div class="content-wrapper">
-            <header class="page-header" id="docs-intro" data-source-sha256="a2cc128bba42f5ca191ebaac5c37fe33e9574f5b142d04d0bc3d0fc3b0c770a9">
+            <header class="page-header" id="docs-intro" data-source-sha256="ec2daaf019ce8a69ddd022d9fe1d42783ffc64d4f404152a0520eea4f5680827">
                 <h1>EMAP-SSN 查看器</h1>
                 <div class="subtitle">命令行界面（CLI）手册与参考指南</div>
                 <p>
@@ -155,6 +155,9 @@
                 </p>
                 <p>
                     <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。<code>help COMMAND</code> 会打印同样的帮助，单独输入 <code>help</code> 则列出每个命令及其一行摘要。
+                </p>
+                <p>
+                    命令可以有别名，即运行该命令的其他名称：<code>help</code> 在命令旁列出别名，如 <code>color (colour)</code>，下方对应的命令卡片也会写明。别名的输入方式与命令相同，不区分大小写，Viewer 将其视为命令本身：<code>colour red</code> 即 <code>color red</code>，<code>help colour</code> 打印 <code>color</code> 的帮助。命令历史保留您输入的原文。命令自身的名称始终优先于别名。别名有：<code>colour</code>（<code>color</code>）、<code>dist</code>（<code>distribution</code>）、<code>spec</code>（<code>spectrum</code>）、<code>align</code>（<code>alignment</code>）、<code>embed</code>（<code>embedding</code>）和 <code>ref</code>（<code>reference</code>）。
                 </p>
                 <p>
                     一个命令可以写成多行。在一行末尾加上一个空格和一个反斜杠（<code>\</code>），下一行就接着写：反斜杠和换行合并为一个空格，下一行还可以以 <code>#label#</code> 开头。下面是论文插图中的那条命令，分两行书写，可以原样输入或粘贴：
@@ -519,7 +522,7 @@
 
 <div class="section-divider" id="sec-alignment" data-source-sha256="1caec69619a437827e92e2a641ed6b1de9ee4bccc55d82e31c8985bfa18f91e5">比对</div>
 
-            <section class="command-card" id="cmd-reference" data-source-sha256="6b09767490de0284455a16fbc5508de2055dd5eb5f2768f05ae9925d0a5c5d09">
+            <section class="command-card" id="cmd-reference" data-source-sha256="1c754f16e46b875bc3016faf257e5ba626cea306834b314c99a7326fad2e6726">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">reference</span>
@@ -531,6 +534,7 @@
                     <div class="syntax-content">reference [target]</div>
                     <button class="copy-btn" onclick="copyText('reference', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>ref</code> 与本命令等效，参数相同。</p>
                 <p><strong>功能：</strong>动态更改用于比对编号的参考序列，并重新加载多序列比对。&lt;target&gt; 可以是完整序列标题、开头的标识符（如 <code>WP_0123.1</code>，即序列标题中以 <code>_</code> 或 <code>|</code> 结尾的开头部分）、不区分大小写的子串，或匹配网络 FASTA 序列标题或其标识符的通配符模式（如 <code>WP_01*</code> 或 <code>*.1</code>）。完全匹配的序列标题或标识符优先，因此 <code>WP_0123.1</code> 选中的是 <code>WP_0123.1_protein_A</code>，而不是 <code>WP_0123.10_protein_B</code>；否则，如果有多个序列标题匹配，则使用第一个在已加载 MSA 中有序列的序列标题，并在警告中指明是哪一个。解析得到的完整序列标题是比对编号的锚点，因此报告的参考序列始终是实际使用的序列。其序列不在已加载 MSA 中的目标会被拒绝：命令失败，之前的参考序列和偏移量保持不变。已配置但无法解析的参考序列（例如加载另一个比对后遗留的参考序列）会保持配置但处于未启用状态，此时 MSA 以无参考的占有率模式使用，位置按顺序编号。不带参数调用 <code>reference</code> 会显示当前生效的参考序列，或在已配置的参考序列无法解析时将其标记为未启用。只接受一个目标：多出的参数会被拒绝，参考序列和偏移量保持不变。</p>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
@@ -570,7 +574,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-alignment" data-source-sha256="74c5e56d991a9fea0d371b38f7dcb14ba6dbbbcc17ed3152e28308517831ab45">
+            <section class="command-card" id="cmd-alignment" data-source-sha256="bf10576cf820b89a8e90e9ed604e2d200c5895633957f8eaf623d131ca9dee30">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">alignment</span>
@@ -582,6 +586,7 @@
                     <div class="syntax-content">alignment [filepath]</div>
                     <button class="copy-btn" onclick="copyText('alignment', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>align</code> 与本命令等效，参数相同。</p>
                 <p><strong>功能：</strong>动态更改查看器使用的当前多序列比对文件（<code>.fasta</code> 或 <code>.h5</code>），并重新加载 MSA 映射。</p>
                 <div class="subheading">参数</div>
                 <ul>
@@ -601,7 +606,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-embedding" data-source-sha256="d2c618037cee2e1c02ddc59b232c6f869f7645e0d89c0198fd7122704d5fe06a">
+            <section class="command-card" id="cmd-embedding" data-source-sha256="c3f66288a0bb0831280ea16a356a17bd08c29d3d40947919b3fb9bea3dfbcee8">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">embedding</span>
@@ -613,6 +618,7 @@
                     <div class="syntax-content">embedding [filepath]</div>
                     <button class="copy-btn" onclick="copyText('embedding', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>embed</code> 与本命令等效，参数相同。</p>
                 <p><strong>功能：</strong>动态更改查看器使用的当前蛋白质语言模型 embedding 文件（<code>.h5</code>），并将其与已绘制的节点匹配。只读取文件的清单；需要逐残基 embedding 的命令会在运行时读取这些数据。与 <code>alignment</code> 一样，该切换只改变正在运行的查看器，不是撤销步骤，也不会更改已保存的 Embedding 输入设置：要为以后的会话设置该文件，请在 EMAP-SSN 配置中设置“Embedding 输入”。</p>
                 <div class="subheading">参数</div>
                 <ul>
@@ -684,7 +690,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-distribution" data-source-sha256="d199044b23ec7aff9e9798104783e750615932500c9b8aae535afc0e9cadc8b5">
+            <section class="command-card" id="cmd-distribution" data-source-sha256="89b655a74df3e2bcf57db83afe0ee7bbfea255e4a1dbc0ab956819063174ee76">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">distribution</span>
@@ -696,6 +702,7 @@
                     <div class="syntax-content">distribution [expression] &lt;position&gt;</div>
                     <button class="copy-btn" onclick="copyText('distribution', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>dist</code> 与本命令等效，参数相同。</p>
                 <p><strong>概述：</strong>按每个节点在某一个比对位置上的氨基酸给节点着色，并打印该位置上出现的各残基及其数量和百分比的表格。</p>
 
                 <div class="callout callout-note">
@@ -842,7 +849,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-color" data-source-sha256="497d55c0d4deca9265c3f5fcdf1834f8fea9e47dd9d84601d8d4c58184bee161">
+            <section class="command-card" id="cmd-color" data-source-sha256="fb39637f3daef763b3b39fa9f689cbdd182b8889c33f10dbeccb1625e0cf4e03">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">color</span>
@@ -854,6 +861,7 @@
                     <div class="syntax-content">color [EXPR] &lt;ATTRIBUTES&gt; [EXPR &lt;ATTRIBUTES&gt; ...]</div>
                     <button class="copy-btn" onclick="copyText('color', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>colour</code> 与本命令等效，参数相同。</p>
                 <p><strong>概述：</strong>color 命令用于改变通过表达式解释器或当前鼠标选择选定的可见网络节点的颜色、alpha（不透明度）、大小和形状。此命令永远不会改变被隐藏的节点。目标的属性写在属性集中，属性集使用字面的尖括号，如 <code>&lt;red,50%,star&gt;</code> 或 <code>&lt;red 50% star&gt;</code>；较早的松散写法 <code>color #cluster_1# red 2x star</code> 仍可作为简写使用。</p>
 
                 <div class="subheading">属性集</div>
@@ -1215,7 +1223,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-spectrum" data-source-sha256="2c451d312c741389e75ba715ea57f49378a3cdf3ffd070ce0124746a96fc3c45">
+            <section class="command-card" id="cmd-spectrum" data-source-sha256="a9bda163c2d42c5291fcb24b86f9ba6dabddfc7c8a8a43b9e0fc57e766655fd0">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">spectrum</span>
@@ -1227,6 +1235,7 @@
                     <div class="syntax-content">spectrum [expression] {&lt;property_name&gt;} [&lt;color_scheme&gt;]</div>
                     <button class="copy-btn" onclick="copyText('spectrum', this)">复制</button>
                 </div>
+                <p><strong>别名：</strong><code>spec</code> 与本命令等效，参数相同。</p>
                 <p><strong>概述：</strong>根据数值属性的值，沿渐变色为可见节点着色，并把该次调用着色的所有节点按稳定的节点索引顺序置于顶层。点击节点时，会自动调用 <code>meta display</code> 命令在 HUD 中显示所选属性；没有元数据 HUD 的查看器（如 VR 查看器）会跳过这一步。</p>
                 
                 <div class="subheading">参数</div>

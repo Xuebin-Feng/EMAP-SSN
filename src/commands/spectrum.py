@@ -33,6 +33,9 @@ from desktop.Command_Metadata import argument, entry, EXPRESSION
 # Changes only the view.
 AGENT_POLICY = 'run'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('spec',)
+
 CATALOG_ENTRY = entry('Color visible nodes by a numerical metadata property.',
     argument('property', 'Bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order. Omit it with exactly one node selected to color the nodes by their similarity score to that node instead.'),
     argument('expression', EXPRESSION + ' Defaults to the selected nodes, otherwise all visible nodes.'),

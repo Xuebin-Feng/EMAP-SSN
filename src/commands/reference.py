@@ -22,6 +22,9 @@ from desktop.Command_Metadata import argument, entry
 # Changes only the session's reference sequence.
 AGENT_POLICY = 'run'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('ref',)
+
 CATALOG_ENTRY = entry('Inspect or change the reference sequence used for alignment mapping.',
     argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard pattern; an exact header or identifier takes priority, and the resolved full header anchors numbering. The target must have a sequence in the loaded MSA: when several headers match, the first with a sequence in the MSA is used, and a target with none in the MSA fails without changing the reference or offset. A configured reference absent from the current MSA, such as one left by loading another alignment, remains inactive in occupancy mode. Only one target is accepted: a further argument is refused and nothing changes.'))
 

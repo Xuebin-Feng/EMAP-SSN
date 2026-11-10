@@ -28,6 +28,9 @@ from desktop.Command_Metadata import argument, choice, entry, plain_choices, EXP
 # Changes only the view.
 AGENT_POLICY = 'run'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('colour',)
+
 CATALOG_ENTRY = entry('Apply color, alpha, scale, or shape assignments to visible nodes.',
     argument('action', 'reset restores configured node colors, alpha included.', choice('reset')),
     argument('expression', EXPRESSION + ' Omission targets the selected nodes, and is allowed only when the command has one target; with several targets every target needs its expression ($sele$ for the selected nodes).'),

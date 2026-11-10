@@ -27,6 +27,9 @@ from desktop.Command_Metadata import argument, entry, EXPRESSION
 # Changes only the view.
 AGENT_POLICY = 'run'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('dist',)
+
 CATALOG_ENTRY = entry('Color visible nodes by the amino acid each has at one alignment position; requires a nonempty MSA.',
     argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all visible nodes. Hidden nodes are skipped and keep their colors, as do nodes that are not in the alignment. An expression that matches no visible node succeeds with a note; nodes that match but are not in the alignment make the command fail.'),
     argument('position', 'Required brackets holding exactly one displayed alignment position, numbered as in query: [120], [(-1)], [15.1], or E or END for the last displayed position. A list, a range or a frequency comparison is refused and nothing changes. Each residue has one fixed color (the same in every run); gaps and every other symbol (X, B, Z, U, O, *) are grey. A table of the residues, their counts and percentages prints to the Console.'),

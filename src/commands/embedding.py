@@ -26,6 +26,9 @@ from desktop.Command_Metadata import argument, entry
 # Loads a file, or opens a file dialog.
 AGENT_POLICY = 'approve'
 
+# Other names that run this command (Command_Declarations.canonical_command).
+ALIASES = ('embed',)
+
 CATALOG_ENTRY = entry('Load another embedding file and report coverage, model and width; restore the previous embedding on loader failure. The switch lasts for the session and is not an undo step.',
     argument('filename', 'Optional HDF5 embedding filename or path (.h5, which may be omitted), as given, relative to the working directory or inside the Embedding Directory; omission opens a file dialog requiring a visible Viewer. The file must be a complete embedding database as the pipeline writes it; partial and zero node coverage are accepted.'), opens_interface=True)
 
