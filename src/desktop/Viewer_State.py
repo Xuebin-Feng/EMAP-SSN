@@ -452,7 +452,7 @@ def resolve_cache_settings(path, *, allow_3d=False):
     # ValueError, which that block would re-wrap as a provenance failure.
     compatibility = (metadata.get("folder_manifest") or {}).get("compatibility") or {}
     layout_mode = compatibility.get("layout_mode")
-    if not allow_3d and isinstance(layout_mode, str) and layout_mode.endswith("_3d"):
+    if not allow_3d and cache_manifest.is_3d_layout_mode(layout_mode):
         raise ViewerSettingsError(
             f"{os.path.basename(str(path))} is a 3D layout cache (layout_mode "
             f"'{layout_mode}'). The desktop Viewer opens 2D caches only; 3D caches "

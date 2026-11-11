@@ -349,6 +349,35 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         self.assertEqual(export_config_settings("viewer", self.root)["cache_path"], first)
         self.assertEqual(values["SIMILARITY_THRESHOLD"], 0.1)
 
+    def _generate_3d(self, threshold=0.1):
+        layout = export_config_settings("layout", self.root)["settings_document"]
+        layout["inputs"]["NODE_FASTA_FILE"] = str(self.root / "set.fasta")
+        layout["network"]["SIMILARITY_THRESHOLD"] = threshold
+        layout["layout"]["LAYOUT_DIMENSIONS"] = 3
+        import numpy as np
+        from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
+        from tests.layout_fixtures import preload_network_preparation
+        preload_network_preparation()
+        engine = SimpleNamespace(calculate_layout=lambda *a: (np.array([[0, 0, 0], [1, 1, 1]], dtype=np.float32), 12.0))
+        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine}):
+            return generate_layout_cache(LayoutGenerationSettings.from_document(layout, project_root=self.root)).cache_path
+
+    def test_mcp_viewer_export_skips_a_newer_3d_cache_the_desktop_viewer_cannot_open(self):
+        self.saved_config()
+        flat = self._generate_with(threshold=0.1)
+        solid = self._generate_3d(threshold=0.2)
+        os.utime(flat, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(solid, ns=(2_000_000_000, 2_000_000_000))
+        self._no_saved_filter()
+        self.assertEqual(export_config_settings("viewer", self.root, newest_for_inputs=True)["cache_path"], flat)
+
+    def test_mcp_viewer_export_with_only_3d_caches_finds_no_cache_for_its_inputs(self):
+        self.saved_config()
+        self._generate_3d()
+        self._no_saved_filter()
+        with self.assertRaisesRegex(ValueError, "No saved layout cache was built from set.fasta and network.h5"):
+            export_config_settings("viewer", self.root, newest_for_inputs=True)
+
     def test_mcp_viewer_export_with_no_cache_for_its_inputs_says_how_to_go_on(self):
         self.saved_config()
         (self.root / "other.fasta").write_text(">Alpha?? Beta\nAA\n>Gamma##Delta\nCCC\n", encoding="utf-8")

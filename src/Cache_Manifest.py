@@ -450,6 +450,11 @@ def build_compatibility(
     }
 
 
+def is_3d_layout_mode(layout_mode):
+    """Whether a manifest's layout_mode names a 3D layout (physics_3d, umap_3d or pacmap_3d)."""
+    return isinstance(layout_mode, str) and layout_mode.endswith("_3d")
+
+
 def calculate_manifest_id(compatibility):
     """Hash canonical compatibility JSON to bind cache files to a folder manifest."""
     canonical = json.dumps(

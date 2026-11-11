@@ -176,10 +176,11 @@ def newest_cache_for_inputs(values):
 
     Used when there is no saved edge filter to judge compatibility by. A folder counts
     only when its manifest is valid and records the SHA-256 of this FASTA file and of
-    this network file, so a cache for other inputs is never chosen; its generation
-    settings then come from the cache's own verified provenance.
+    this network file, so a cache for other inputs is never chosen. A 3D layout cache is
+    skipped, because the desktop Viewer opens 2D caches only. The chosen cache's generation
+    settings then come from its own verified provenance.
     """
-    from Cache_Manifest import fingerprint_file, read_manifest
+    from Cache_Manifest import fingerprint_file, is_3d_layout_mode, read_manifest
     fasta, network_file = values["NODE_FASTA_FILE"], values["INPUT_HDF5"]
     sequence = fingerprint_file(fasta)["sha256"]
     network = fingerprint_file(network_file)["sha256"]
@@ -191,6 +192,8 @@ def newest_cache_for_inputs(values):
             compatibility = read_manifest(str(folder))["compatibility"]
         except (OSError, ValueError, TypeError):
             continue
+        if is_3d_layout_mode(compatibility.get("layout_mode")):
+            continue  # The desktop Viewer opens 2D caches only (resolve_cache_settings).
         if compatibility["sequence_sha256"] == sequence and compatibility["network_sha256"] == network:
             candidates += [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".h5"]
         else:
