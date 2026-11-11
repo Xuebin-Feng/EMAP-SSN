@@ -1265,6 +1265,9 @@ def run_workflow():
         "sequence_count": len(headers),
         "matrix": str(MATRIX),
         "num_threads": int(NUM_THREADS),
+        "e_value_cutoff": float(E_VALUE_CUTOFF),
+        "max_target_seqs": int(MAX_TARGET_SEQS),
+        "comp_based_stats": int(COMP_BASED_STATS),
         "blastp_version": blastp_version,
         # Only for the EFI alignment score: see SCORE_METRIC_ATTRIBUTE.
         **({SCORE_METRIC_ATTRIBUTE: SCORE_METRIC} if SCORE_METRIC != SCORE_METRIC_EVALUE else {}),

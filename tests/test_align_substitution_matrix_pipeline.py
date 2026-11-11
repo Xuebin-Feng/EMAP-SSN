@@ -73,6 +73,9 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             "sequence_count": 4,
             "matrix": "BLOSUM62",
             "num_threads": 2,
+            "e_value_cutoff": 1e300,
+            "max_target_seqs": 1000000,
+            "comp_based_stats": 2,
             "blastp_version": "blastp: 2.17.0+",
         }
         metadata.update(overrides)
@@ -912,6 +915,10 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
         "input_fasta", "input_fasta_sha256", "sanitized_manifest_sha256",
         "sequence_count", "matrix", "num_threads", "blastp_version",
     }
+    # The BLAST settings a workspace also records, so a changed one is not resumed.
+    RUN_METADATA = OLD_RUN_METADATA | {
+        "e_value_cutoff", "max_target_seqs", "comp_based_stats",
+    }
 
     def _workspace_patches(self, temp_dir):
         workspace = os.path.join(temp_dir, "networks", "run_temp")
@@ -1006,7 +1013,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 with h5py.File(again["path"], "r") as batch:
                     np.testing.assert_allclose(batch["score"][:], [25.3248], atol=5e-5)
 
-    def test_an_old_evalue_workspace_resumes_and_the_other_score_never_does(self):
+    def test_a_workspace_from_before_the_blast_settings_was_recorded_is_set_aside(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             patches = self._workspace_patches(temp_dir)
             workspace = patches["SAFE_TEMP_DIR"]
@@ -1016,26 +1023,36 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 if key in self.OLD_RUN_METADATA
             }
             self.assertEqual(set(old_config), self.OLD_RUN_METADATA)
-            self.assertEqual(set(self._metadata()), self.OLD_RUN_METADATA)
+            self.assertEqual(set(self._metadata()), self.RUN_METADATA)
             # A job_config.json as the version before the EFI alignment score wrote it.
             pathlib.Path(workspace, "job_config.json").write_text(
                 json.dumps(old_config, indent=4, sort_keys=True) + "\n", encoding="utf-8"
             )
             pathlib.Path(workspace, "marker.txt").write_text("keep", encoding="utf-8")
             with mock.patch.multiple(substitution_matrix, **patches):
-                # The E-value run resumes it ...
+                # Its BLAST settings are unknown, so the E-value run sets it aside ...
+                self.assertFalse(
+                    substitution_matrix.check_and_initialize_workspace(self._metadata())
+                )
+                self.assertFalse(os.path.exists(os.path.join(workspace, "marker.txt")))
+                old_reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp"
+                              / "resume_mismatch.txt").read_text(encoding="utf-8")
+                self.assertIn(
+                    "configuration mismatch for comp_based_stats, e_value_cutoff, max_target_seqs",
+                    old_reason,
+                )
+                # ... and resumes only the workspace it wrote itself.
+                pathlib.Path(workspace, "marker.txt").write_text("keep", encoding="utf-8")
                 self.assertTrue(
                     substitution_matrix.check_and_initialize_workspace(self._metadata())
                 )
                 self.assertTrue(os.path.exists(os.path.join(workspace, "marker.txt")))
-                saved = json.loads(pathlib.Path(workspace, "job_config.json").read_text(encoding="utf-8"))
-                self.assertEqual(saved, old_config)
-                # ... the EFI run does not: the E-value workspace is set aside.
+                # The EFI run does not resume it: the E-value workspace is set aside.
                 self.assertFalse(
                     substitution_matrix.check_and_initialize_workspace(self._efi_metadata())
                 )
                 self.assertFalse(os.path.exists(os.path.join(workspace, "marker.txt")))
-                reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp"
+                reason = (pathlib.Path(patches["NETWORK_DIR"]) / "run_temp_BackUp_1"
                           / "resume_mismatch.txt").read_text(encoding="utf-8")
                 self.assertIn("configuration mismatch for score_metric", reason)
 
@@ -1049,7 +1066,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 )
                 self.assertFalse(os.path.exists(os.path.join(workspace, "marker.txt")))
                 self.assertEqual(
-                    len(list(pathlib.Path(patches["NETWORK_DIR"]).glob("run_temp_BackUp*"))), 2
+                    len(list(pathlib.Path(patches["NETWORK_DIR"]).glob("run_temp_BackUp*"))), 3
                 )
 
     def test_names_follow_the_score_metric(self):
@@ -1153,7 +1170,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             },
         )
 
-    def test_mocked_evalue_workflow_writes_the_job_config_it_always_has(self):
+    def test_mocked_evalue_workflow_records_the_blast_settings_in_the_job_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             fasta_dir = os.path.join(temp_dir, "fastas")
             network_dir = os.path.join(temp_dir, "networks")
@@ -1180,11 +1197,58 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             saved = json.loads(
                 pathlib.Path(workspace, "job_config.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(set(saved), self.OLD_RUN_METADATA)
+            self.assertEqual(set(saved), self.RUN_METADATA)
             batches = glob.glob(os.path.join(glob.escape(workspace), "batches", "batch_*.h5"))
             self.assertEqual(len(batches), 1)
             with h5py.File(batches[0], "r") as batch:
                 self.assertEqual(set(batch.attrs), self.OLD_BATCH_ATTRIBUTES)
+
+    def test_an_interrupted_workspace_resumes_only_with_the_same_blast_settings(self):
+        changes = (
+            ("E_VALUE_CUTOFF", 1e-5),
+            ("MAX_TARGET_SEQS", 5),
+            ("COMP_BASED_STATS", 0),
+        )
+        for name, value in (None, None), *changes:
+            with self.subTest(changed=name), tempfile.TemporaryDirectory() as temp_dir:
+                fasta_dir = os.path.join(temp_dir, "fastas")
+                network_dir = os.path.join(temp_dir, "networks")
+                os.makedirs(fasta_dir)
+                input_path = os.path.join(fasta_dir, "input.fasta")
+                pathlib.Path(input_path).write_text(
+                    ">a\nACDE\n>b\nACDF\n", encoding="utf-8"
+                )
+                blastp_runs = []
+
+                def fake_subprocess_run(command, **kwargs):
+                    if os.path.basename(command[0]).startswith("makeblastdb"):
+                        return mock.Mock(returncode=0, stdout="", stderr="")
+                    blastp_runs.append(command)
+                    pathlib.Path(command[command.index("-out") + 1]).write_text(
+                        self._blast_line(0, 1, "1e-25"), encoding="utf-8"
+                    )
+                    return mock.Mock(returncode=0, stdout="", stderr="")
+
+                # Keeping the workspace stands in for an interrupted run's.
+                with mock.patch.object(substitution_matrix, "cleanup_workspace"):
+                    self.assertEqual(
+                        self._run_mocked_workflow(input_path, network_dir, fake_subprocess_run)[0], 0
+                    )
+                    self.assertEqual(len(blastp_runs), 1)
+                    patches = {name: value} if name else {}
+                    self.assertEqual(
+                        self._run_mocked_workflow(
+                            input_path, network_dir, fake_subprocess_run, **patches
+                        )[0],
+                        0,
+                    )
+                backups = glob.glob(os.path.join(glob.escape(network_dir), "*_BackUp*"))
+                if name is None:
+                    self.assertEqual(len(blastp_runs), 1, "finished chunks are reused")
+                    self.assertEqual(backups, [])
+                else:
+                    self.assertEqual(len(blastp_runs), 2, "the chunk is aligned again")
+                    self.assertEqual(len(backups), 1)
 
     def test_mocked_efi_workflow_scores_sanitized_lengths_and_keeps_them_out_of_the_resume_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
