@@ -1312,10 +1312,12 @@ def scan_existing_batches(
         try:
             with h5py.File(bf, "r") as hf:
                 if "i" in hf and "j" in hf:
-                    arr_i = hf["i"][:]
-                    arr_j = hf["j"][:]
-                    for i_val, j_val in zip(arr_i, arr_j):
-                        computed_pairs.add(min(i_val, j_val) * new_N + max(i_val, j_val))
+                    # The stored indices are uint32: widen them before the
+                    # multiplication, or a pair above 65,535 nodes wraps.
+                    arr_i = hf["i"][:].astype(np.int64)
+                    arr_j = hf["j"][:].astype(np.int64)
+                    pair_ids = np.minimum(arr_i, arr_j) * new_N + np.maximum(arr_i, arr_j)
+                    computed_pairs.update(pair_ids.tolist())
         except Exception as e:
             print(f"Warning: Could not read batch file {bf}: {e}")
     return computed_pairs
@@ -1386,16 +1388,16 @@ def compile_final_output(
     for bf in tqdm(batch_files, desc="Filtering computed batches"):
         try:
             with h5py.File(bf, "r") as hf:
-                arr_i = hf["i"][:]
-                arr_j = hf["j"][:]
+                arr_i = hf["i"][:].astype(np.int64)
+                arr_j = hf["j"][:].astype(np.int64)
                 arr_l_score = hf["l_score"][:]
                 arr_l_len = hf["l_len"][:]
                 arr_g_score = hf["g_score"][:]
                 arr_g_len = hf["g_len"][:]
                     
                 for k in range(len(arr_i)):
-                    i_val = arr_i[k]
-                    j_val = arr_j[k]
+                    i_val = int(arr_i[k])
+                    j_val = int(arr_j[k])
                     pair_id = min(i_val, j_val) * new_N + max(i_val, j_val)
                     if pair_id in pair_id_to_final_idx and pair_id not in cached_old_pairs:
                         idx = pair_id_to_final_idx[pair_id]

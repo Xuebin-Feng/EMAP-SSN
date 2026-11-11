@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
@@ -599,6 +600,77 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 np.testing.assert_array_equal(hf["j"][:], [p[1] for p in pairs])
                 np.testing.assert_array_equal(hf["l_score"][:], expected_l_score)
                 np.testing.assert_array_equal(hf["g_len"][:], expected_g_len)
+
+    def test_pair_ids_above_65535_nodes_do_not_wrap_in_32_bits(self):
+        # uint32 indices times new_N wrapped modulo 2**32 for a network over 65,536 nodes.
+        new_n = 100000
+        pairs = [(70000, 70001), (3, 99999)]
+        wrong_id = (70000 * new_n + 70001) % 2**32
+        with tempfile.TemporaryDirectory() as temp_dir:
+            results_dir = os.path.join(temp_dir, "batches")
+            os.makedirs(results_dir)
+            arr_i = np.array([pair[0] for pair in pairs], dtype=np.uint32)
+            arr_j = np.array([pair[1] for pair in pairs], dtype=np.uint32)
+            with h5py.File(os.path.join(results_dir, "batch_00000.h5"), "w") as hf:
+                for key, value in {
+                    "embedding_checksum": "checksum",
+                    "model_name": "model",
+                    "saving_mode": "float32",
+                    "gap_penalties": np.array([-2.0, 0.0], np.float32),
+                    "matmul_precision": "ieee_fp32",
+                }.items():
+                    hf.attrs[key] = value
+                hf.create_dataset("i", data=arr_i)
+                hf.create_dataset("j", data=arr_j)
+                hf.create_dataset("l_score", data=np.array([1.5, 2.5], np.float32))
+                hf.create_dataset("l_len", data=np.array([11, 12], np.uint16))
+                hf.create_dataset("g_score", data=np.array([3.5, 4.5], np.float32))
+                hf.create_dataset("g_len", data=np.array([13, 14], np.uint16))
+            output = os.path.join(temp_dir, "network", "set_[model]_network.h5")
+            true_ids = {i * new_n + j for i, j in pairs}
+            self.assertNotIn(wrong_id, true_ids)
+            with mock.patch.object(
+                network_injection, "RESULTS_DIR", results_dir
+            ), mock.patch.object(
+                network_injection, "FINAL_OUTPUT_NET", output
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), warnings.catch_warnings():
+                warnings.simplefilter("error")
+                computed = network_injection.scan_existing_batches(
+                    new_n, "checksum", "model", "float32", [-2.0, 0.0], "ieee_fp32"
+                )
+                self.assertEqual(computed, true_ids)
+                # A required pair that the wrapped id would have hit instead.
+                decoy = (wrong_id // new_n, wrong_id % new_n)
+                required = true_ids | {decoy[0] * new_n + decoy[1]}
+                network_injection.compile_final_output(
+                    new_headers=[f"s{index}" for index in range(new_n)],
+                    seq_lens=[5] * new_n,
+                    required_pairs=required,
+                    cached_old_pairs=set(),
+                    new_N=new_n,
+                    old_header_to_idx={},
+                    old_l_score=np.zeros(0, np.float32),
+                    old_l_len=np.zeros(0, np.uint16),
+                    old_g_score=np.zeros(0, np.float32),
+                    old_g_len=np.zeros(0, np.uint16),
+                    actual_idx_map=np.zeros(0, np.int64),
+                    current_checksum="checksum",
+                    model_name="model",
+                    saving_mode="float32",
+                    gap_penalties=[-2.0, 0.0],
+                )
+            with h5py.File(output, "r") as hf:
+                rows = {
+                    (int(i), int(j)): (float(l), float(g))
+                    for i, j, l, g in zip(
+                        hf["i"][:], hf["j"][:], hf["l_score"][:], hf["g_score"][:]
+                    )
+                }
+        self.assertEqual(rows[(70000, 70001)], (1.5, 3.5))
+        self.assertEqual(rows[(3, 99999)], (2.5, 4.5))
+        # The pair the wrapped id pointed at was not computed, so it stays at zero.
+        self.assertEqual(rows[decoy], (0.0, 0.0))
+        self.assertEqual(len(rows), 3)
 
     def test_corrupt_batch_fails_compilation_without_a_network_file(self):
         # Unreadable batches, and batches missing a score column, used to be
