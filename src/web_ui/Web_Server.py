@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import base64
+import collections
 import http.server
 import errno
 import hashlib
@@ -65,6 +66,8 @@ LOOPBACK_HOST_NAMES = ("127.0.0.1", "localhost")
 MAX_ACTION_BYTES = 300 * 1024 * 1024
 # How long show_session waits before reading whether the window got the foreground.
 WINDOW_SETTLE_SECONDS = 0.4
+# How often an action that arrived during a mouse gesture looks again whether the gesture has ended.
+GESTURE_RETRY_MS = 20
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -88,13 +91,35 @@ class QtCommunicator(QtCore.QObject):
     def __init__(self, viewer):
         super().__init__()
         self.viewer = viewer
+        self._held = collections.deque()
         self.action_signal.connect(self.dispatch_action)
-        
+
     def handle_action(self, data):
         # Called from HTTP thread to safely execute on the main thread via Qt Signal
         self.action_signal.emit(data)
-        
+
+    def _gesture_open(self):
+        from Command_Queue import CommandQueue
+        return CommandQueue.gesture_open(self.viewer)
+
     def dispatch_action(self, data):
+        # An action can change the selection or the nodes, so, like a command, it waits while a drag, a box
+        # or a Ctrl + wheel turn is open (Command_Queue.gesture_open), and those that waited keep their order.
+        if self._held or self._gesture_open():
+            self._held.append(data)
+            if len(self._held) == 1:
+                QtCore.QTimer.singleShot(GESTURE_RETRY_MS, self._release_held)
+            return
+        self._deliver(data)
+
+    def _release_held(self):
+        while self._held:
+            if self._gesture_open():
+                QtCore.QTimer.singleShot(GESTURE_RETRY_MS, self._release_held)
+                return
+            self._deliver(self._held.popleft())
+
+    def _deliver(self, data):
         # Delegate all web action execution to the viewer's registered action handlers
         if hasattr(self.viewer, "handle_web_action"):
             self.viewer.handle_web_action(data)

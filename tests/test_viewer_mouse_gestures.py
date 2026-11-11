@@ -2618,6 +2618,97 @@ class CopyOnClickTests(GestureTestCase):
         self.assertIn("self.canvas.events.key_release.connect(self.on_key_release)", source)
 
 
+class PageSelectionDuringGestureTests(GestureTestCase):
+    """A web page's action (Tree View's tree_select) that arrives in the middle of a mouse gesture waits for it to end.
+
+    Replacing the selection under a drag moved the new nodes by the old ones' offsets, left the old ones where the
+    drag had put them, or raised in every mouse move when the counts differed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from PySide6 import QtCore
+        from web_ui import tree_backend
+        from web_ui.Web_Server import QtCommunicator
+        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        self.QtCore = QtCore
+        self.tree_backend = tree_backend
+        self.viewer = self.make_viewer(selected=[1, 2])
+        self.viewer.command_queue = CommandQueue(self.viewer)
+        self.addCleanup(self.viewer.command_queue.shutdown)
+        self.viewer.handle_web_action = lambda data: tree_backend.handle_tree_select(self.viewer, data)
+        self.communicator = QtCommunicator(self.viewer)
+
+    def page_selects(self, indices):
+        """The page's POST, as the web server hands it to the GUI thread."""
+        self.communicator.handle_action({"action": "tree_select", "indices": indices, "mode": "replace"})
+        self.app.processEvents()
+
+    def settle(self, milliseconds=100):
+        deadline = self.QtCore.QDeadlineTimer(milliseconds)
+        while not deadline.hasExpired():
+            self.app.processEvents()
+
+    def test_a_selection_from_a_page_waits_for_a_node_drag_to_end(self):
+        viewer = self.viewer
+        self.press(viewer, *NODE[1])
+        self.move(viewer, 70, 20)
+        self.page_selects([4, 5])
+        self.move(viewer, 90, 30)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assert_places(viewer, [1, 2], [(90, 30), (130, 30)])
+        self.assert_places(viewer, [4, 5], [NODE[4], NODE[5]])      # the nodes that were dragged moved, no others
+        self.release(viewer, 90, 30)
+        self.settle()
+        self.assertEqual(viewer.selected_indices, [4, 5])
+        self.assert_places(viewer, [4, 5], [NODE[4], NODE[5]])
+
+    def test_a_selection_of_another_size_from_a_page_does_not_break_the_drag(self):
+        viewer = self.viewer
+        self.press(viewer, *NODE[1])
+        self.move(viewer, 70, 20)
+        self.page_selects([4])
+        self.move(viewer, 90, 30)                                    # raised ValueError when the sizes differed
+        self.assertTrue(viewer.is_multi_dragging)
+        self.release(viewer, 90, 30)
+        self.settle()
+        self.assertEqual(viewer.selected_indices, [4])
+
+    def test_a_selection_from_a_page_waits_for_a_box_to_end(self):
+        viewer = self.viewer
+        self.press(viewer, 300, 300)
+        self.move(viewer, 330, 330)
+        self.page_selects([4, 5])
+        self.assertTrue(viewer.is_box_selecting)
+        self.assertEqual(viewer.selected_indices, [])
+        self.release(viewer, 330, 330)
+        self.settle()
+        self.assertEqual(viewer.selected_indices, [4, 5])
+
+    def test_a_selection_from_a_page_waits_for_a_ctrl_wheel_turn_to_end(self):
+        viewer = self.viewer
+        self.wheel(viewer, (0.0, 1.0), 60.0, 30.0, buttons=(), modifiers=CTRL)
+        self.assertIsNotNone(viewer._wheel_turn)
+        self.page_selects([4, 5])
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        viewer._wheel_turn_timer.fire()
+        self.settle()
+        self.assertEqual(viewer.selected_indices, [4, 5])
+
+    def test_with_no_gesture_open_the_selection_applies_at_once(self):
+        self.page_selects([4, 5])
+        self.assertEqual(self.viewer.selected_indices, [4, 5])
+
+    def test_actions_that_waited_run_in_the_order_they_came(self):
+        viewer = self.viewer
+        self.press(viewer, *NODE[1])
+        self.page_selects([3])
+        self.page_selects([4, 5])
+        self.release(viewer, *NODE[1])
+        self.settle()
+        self.assertEqual(viewer.selected_indices, [4, 5])
+
+
 class QtDoubleClickTests(unittest.TestCase):
     SCRIPT = """
 import json, os, sys
