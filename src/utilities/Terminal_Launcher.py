@@ -381,6 +381,12 @@ def _build_macos_argv(
 ) -> list[str]:
     terminal_command = [*_mac_environment_prefix(env), *command]
     shell_command = f"cd {shlex.quote(cwd)} && {shlex.join(terminal_command)}"
+    if close_on_exit:
+        # Terminal's `do script` is asynchronous and `busy` can still be false
+        # just after it returns, which closed the new window before the command
+        # started. Keep the tab busy long enough to see it (as
+        # src/bin/EMAPSSN_Terminal_Launcher.sh does) and wait for that first.
+        shell_command = f"/bin/sleep 1; {shell_command}"
     escaped = _apple_script_escape(shell_command)
     argv = [
         "osascript",
@@ -399,9 +405,27 @@ def _build_macos_argv(
                 "-e",
                 f'do script "{escaped}" in launchTab',
                 "-e",
+                "set launchStarted to false",
+                "-e",
+                "repeat with launchAttempt from 1 to 100",
+                "-e",
+                "if busy of launchTab then",
+                "-e",
+                "set launchStarted to true",
+                "-e",
+                "exit repeat",
+                "-e",
+                "end if",
+                "-e",
+                "delay 0.05",
+                "-e",
+                "end repeat",
+                "-e",
+                'if not launchStarted then error "Terminal did not start the SSN command." number 1',
+                "-e",
                 "repeat while busy of launchTab",
                 "-e",
-                "delay 0.2",
+                "delay 0.05",
                 "-e",
                 "end repeat",
                 "-e",

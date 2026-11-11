@@ -160,6 +160,34 @@ class TerminalPolicyTests(unittest.TestCase):
         self.assertIn("project path", script)
         self.assertIn("echo unsafe", script)
 
+    def test_macos_waits_for_the_tab_to_become_busy_before_waiting_for_it_to_end(self):
+        # Checked on the generated script only: macOS is not available to run it.
+        argv = launcher._build_macos_argv(
+            ["/tmp/program"], cwd="/tmp/project", env=None, close_on_exit=True
+        )
+        lines = [argv[i + 1] for i, item in enumerate(argv[:-1]) if item == "-e"]
+        script = "\n".join(lines)
+        self.assertIn("do script \"/bin/sleep 1; cd /tmp/project && /tmp/program\" in launchTab", script)
+        started = script.index("if busy of launchTab then")
+        waiting = script.index("repeat while busy of launchTab")
+        closing = script.index("close launchWindow")
+        self.assertLess(script.index("do script \"/bin/sleep"), started)
+        self.assertLess(started, waiting)
+        self.assertLess(waiting, closing)
+        self.assertIn("repeat with launchAttempt from 1 to 100", script)
+        self.assertIn("set launchStarted to true", script)
+        self.assertIn('if not launchStarted then error "Terminal did not start the SSN command." number 1', script)
+        self.assertLess(script.index("if not launchStarted"), waiting)
+
+    def test_macos_hold_always_keeps_the_window_and_starts_without_a_wait(self):
+        argv = launcher._build_macos_argv(
+            ["/tmp/program"], cwd="/tmp/project", env=None, close_on_exit=False
+        )
+        script = "\n".join(argv)
+        self.assertNotIn("sleep", script)
+        self.assertNotIn("busy", script)
+        self.assertNotIn("close launchWindow", script)
+
     def test_launch_missing_terminal_does_not_spawn_background_process(self):
         with mock.patch.object(launcher.shutil, "which", return_value=None), mock.patch.object(
             launcher.subprocess, "Popen"
