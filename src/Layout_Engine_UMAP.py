@@ -166,6 +166,10 @@ def calculate_layout(connectivity, n_nodes, params):
         ).astype(np.float32)
         return pos, final_box_limit
 
+    # A self-loop is no edge: drop it before the best score is taken, or a loop that scores
+    # above every real edge would shift all the distances.
+    connectivity = connectivity[connectivity[:, 0] != connectivity[:, 1]]
+
     # Extract connectivity data
     sources = connectivity[:, 0].astype(np.int32)
     targets = connectivity[:, 1].astype(np.int32)

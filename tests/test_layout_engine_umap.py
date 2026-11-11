@@ -103,7 +103,7 @@ class TestLayoutEngineUMAP(unittest.TestCase):
     @unittest.skipUnless(Layout_Engine_UMAP.UMAP_AVAILABLE, 'umap-learn is required')
     def test_calibration_includes_all_real_neighbors(self):
         from umap.umap_ import smooth_knn_dist, compute_membership_strengths
-        args = self.capture_layout([(0, 0, 100), (0, 1, 99), (0, 2, 98), (0, 3, 97), (0, 4, 96)], 5, 4)[0]
+        args = self.capture_layout([(5, 6, 100), (0, 1, 99), (0, 2, 98), (0, 3, 97), (0, 4, 96)], 7, 4)[0]
         indices, distances, _ = args['precomputed_knn']
         sigma, rho = smooth_knn_dist(distances[:1].copy(), 5.0)
         _, _, weights, _ = compute_membership_strengths(indices[:1].copy(), distances[:1].copy(), sigma, rho)
@@ -235,6 +235,60 @@ class UMAPIsolatedNodeTests(unittest.TestCase):
                 )
             self.assertEqual(pos.shape, (n, 2))
             self.assertTrue(np.all(np.abs(pos) <= box / 2.0))
+
+
+class UMAPSelfLoopTests(unittest.TestCase):
+    """A self-loop has no meaning as an edge, so its score cannot move the distances of the real ones."""
+
+    N = 120
+    _RNG = np.random.default_rng(1)
+    _U = _RNG.integers(0, N, 900)
+    _V = _RNG.integers(0, N, 900)
+    _KEEP = _U != _V
+    EDGES = [(int(u), int(v), float(w)) for u, v, w in
+             zip(_U[_KEEP], _V[_KEEP], _RNG.uniform(20, 200, int(_KEEP.sum())))]
+    LOOP = [(4, 4, 500.0)]
+
+    def lay_out(self, edges, **extra):
+        params = {'UMAP_NEIGHBORS': 4}
+        params.update(extra)
+        with contextlib.redirect_stdout(io.StringIO()):
+            return Layout_Engine_UMAP.calculate_layout(np.array(edges, dtype=np.float32), self.N, params)
+
+    def test_a_self_loop_above_every_edge_leaves_the_distances_and_the_layout_unchanged(self):
+        seen = []
+        real = Layout_Engine_UMAP.umap.UMAP
+
+        def spy(**kwargs):
+            seen.append(kwargs['precomputed_knn'])
+            return real(**kwargs)
+
+        with mock.patch.object(Layout_Engine_UMAP.umap, 'UMAP', side_effect=spy):
+            plain, box = self.lay_out(self.EDGES)
+            looped, box_looped = self.lay_out(self.EDGES + self.LOOP)
+            first = self.lay_out(self.LOOP + self.EDGES)[0]
+        np.testing.assert_array_equal(seen[0][1], seen[1][1])
+        np.testing.assert_array_equal(plain, looped)
+        np.testing.assert_array_equal(plain, first)
+        self.assertEqual(box, box_looped)
+
+    def test_a_network_without_self_loops_keeps_its_distances(self):
+        seen = []
+        real = Layout_Engine_UMAP.umap.UMAP
+
+        def spy(**kwargs):
+            seen.append(kwargs['precomputed_knn'][1])
+            return real(**kwargs)
+
+        with mock.patch.object(Layout_Engine_UMAP.umap, 'UMAP', side_effect=spy):
+            self.lay_out(self.EDGES)
+        edges = np.array(self.EDGES, dtype=np.float32)
+        top = np.float32(edges[:, 2].max())
+        # The strongest edge sits at distance 0 and every other distance is max score - score.
+        finite = np.unique(seen[0][np.isfinite(seen[0])])
+        expected = np.unique(np.concatenate([[0.0], top - edges[:, 2]]).astype(np.float32))
+        self.assertTrue(np.isin(finite, expected).all())
+        self.assertEqual(float(finite.min()), 0.0)
 
 
 class UMAPSeedTests(unittest.TestCase):
