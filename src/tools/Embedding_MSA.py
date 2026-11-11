@@ -2083,6 +2083,13 @@ def run_msa_builder():
     num_seqs = len(valid_headers)
     header_to_new_idx = {h: i for i, h in enumerate(valid_headers)}
 
+    if num_seqs < 2:
+        sys.exit(
+            f"❌ Error: Only {num_seqs} sequence was kept after matching the inputs, and an "
+            "alignment needs at least two. Use a network, embeddings and (if filtering) a FASTA "
+            "file that share more sequences."
+        )
+
     # Validate sequence string & length match if sequence filter is active
     if use_filter:
         try:

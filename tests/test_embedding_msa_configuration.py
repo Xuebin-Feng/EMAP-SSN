@@ -240,6 +240,28 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
         self.assertIn("share no edge", str(raised.exception.code))
         self.assertIn("6 sequences", str(raised.exception.code))
 
+    def test_a_single_kept_sequence_is_refused_with_a_message(self):
+        from tests.msa_fixtures import builder_settings
+
+        # Three network sequences and three embedded ones, but only seq0000 is in both.
+        for kwargs in (dict(sequences=1, missing=(), ghosts=0),
+                       dict(sequences=3, missing=(1, 2), ghosts=2)):
+            with self.subTest(**kwargs), tempfile.TemporaryDirectory() as directory:
+                fixture = NetworkFixture(directory, duplicates=0, out_of_range=False, **kwargs)
+                values = builder_settings(fixture)
+                with mock.patch.multiple(Embedding_MSA, **values), mock.patch.object(
+                    Embedding_MSA.mp, "set_start_method"
+                ), mock.patch.object(
+                    Embedding_MSA, "benchmark_msa_devices", side_effect=AssertionError("tree built")
+                ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        Embedding_MSA.run_msa_builder()
+                gc.collect()
+
+                self.assertIn("Only 1 sequence was kept", str(raised.exception.code))
+                self.assertIn("at least two", str(raised.exception.code))
+                self.assertEqual(list(fixture.msa_dir.iterdir()), [])
+
     def test_unknown_normalization_mode_is_rejected_before_opening_files(self):
         # Direct CLI runs read hand-written settings unchecked. An unknown mode
         # was caught only after the network had loaded, and never for a BLAST
