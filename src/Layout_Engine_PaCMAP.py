@@ -287,24 +287,25 @@ def calculate_layout(connectivity, n_nodes, params):
     nan_mask[ids] = False
     final_pos[ids] = embedding
 
-    # --- Handle Disconnected Vertices (no edge to any node) ---
-    # The rule of the UMAP engine: a seeded random place in the unit box around the middle
-    # of the layout, and no part in the scaling below.
+    # --- Scale and Center the Connected Vertices ---
+    # The centre and the scale come from the connected vertices alone (as in the UMAP engine),
+    # so the others cannot move or stretch the layout.
+    connected_mask = ~nan_mask
+    connected = final_pos[connected_mask]
+    center = (np.max(connected, axis=0) + np.min(connected, axis=0)) / 2.0
+    connected -= center
+    spread = float(np.max(np.ptp(connected, axis=0))) + 1e-9  # avoid division by zero
+    # Two connected vertices, or vertices that coincide, have no spread to scale by.
+    scale_factor = (final_box_limit * 1.6) / spread if spread > 1e-6 else 1.0
+    final_pos[connected_mask] = connected * scale_factor
+
+    # --- Place the Disconnected Vertices (no edge to any node) ---
+    # The rule of the UMAP engine: a seeded random clump in the unit box, centred on the middle
+    # of the layout, at the scale of the connected vertices but never wider than a fifth of the box.
     if np.any(nan_mask):
         rng = np.random.RandomState(layout_seed)
-        final_pos[nan_mask] = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), dimensions)).astype(np.float32)
-
-    # --- Scale and Center Output ---
-    connected_mask = ~nan_mask
-    global_min = np.min(final_pos[connected_mask], axis=0)
-    global_max = np.max(final_pos[connected_mask], axis=0)
-    center = (global_max + global_min) / 2.0
-    final_pos -= center
-    ptp = np.ptp(final_pos[connected_mask], axis=0)
-    spread = float(np.max(ptp)) + 1e-9  # avoid division by zero
-
-    scale_factor = (final_box_limit * 1.6) / spread
-    final_pos *= scale_factor
+        clump = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), dimensions)).astype(np.float32)
+        final_pos[nan_mask] = clump * min(scale_factor, 0.2 * final_box_limit)
 
     print("PaCMAP layout calculation complete.")
     return final_pos, final_box_limit

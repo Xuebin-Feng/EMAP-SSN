@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from io import StringIO
 
@@ -461,9 +462,10 @@ class SmallAndOddNetworkTests(unittest.TestCase):
         pos, box = layout(u, v, scores, count)
         connected, isolated = pos[:COUNT], pos[COUNT:]
         self.assertAlmostEqual(float(np.ptp(connected, axis=0).max()), box * 1.6, delta=box * 1.6 * 1e-5)
-        # The rule: a seeded uniform draw in the unit box around the middle, centred and scaled with the rest.
+        # The rule: a seeded uniform draw in the unit box, scaled like the connected nodes (at most a fifth of the
+        # box), around the middle (0, 0) of the layout whatever the embedding's own centre.
         draw = np.random.RandomState(42).uniform(-0.5, 0.5, (6, 2)).astype(np.float32)
-        scale = (isolated[1:] - isolated[0]) / (draw[1:] - draw[0])
+        scale = isolated / draw
         np.testing.assert_allclose(scale, scale[0, 0], rtol=1e-3)
         self.assertGreater(scale[0, 0], 0)
         self.assertLess(np.abs(isolated).max(), 0.1 * box)
@@ -472,6 +474,33 @@ class SmallAndOddNetworkTests(unittest.TestCase):
         np.testing.assert_array_equal(pos, again)
         other, _ = layout(u, v, scores, count, {"LAYOUT_SEED": 43})
         self.assertFalse(np.array_equal(pos[COUNT:], other[COUNT:]))
+
+    def test_the_centre_and_scale_come_from_the_connected_nodes_alone(self):
+        # The embedding is centred far from (0, 0); the isolated nodes still end around (0, 0), inside the box,
+        # and without isolated nodes the positions are the embedding centred and scaled as before.
+        raw = np.array([[100, 200], [104, 201], [102, 209], [107, 205], [101, 204]], dtype=np.float32)
+        u, v, scores = np.array([0, 1, 2, 3]), np.array([1, 2, 3, 4]), np.array([4.0, 3.0, 2.0, 1.0])
+        for count in (5, 8):
+            with self.subTest(count=count), mock.patch.object(engine, "optimise", return_value=raw):
+                pos, box = layout(u, v, scores, count)
+            centred = raw - (raw.max(axis=0) + raw.min(axis=0)) / 2.0
+            expected = centred * ((box * 1.6) / (float(np.ptp(centred, axis=0).max()) + 1e-9))
+            np.testing.assert_array_equal(pos[:5], expected.astype(np.float32))
+            if count > 5:
+                self.assertLess(np.abs(pos[5:]).max(), 0.1 * box)
+                self.assertGreater(np.abs(pos[5:]).max(), 0.01 * box)
+
+    def test_two_connected_nodes_or_coincident_ones_keep_the_isolated_nodes_in_the_box(self):
+        for count in (7, 12):
+            with self.subTest(count=count):
+                pos, box = layout(np.array([0]), np.array([1]), np.array([3.0]), count)
+                self.assertTrue(np.isfinite(pos).all())
+                self.assertLess(np.abs(pos).max(), box)
+        raw = np.zeros((2, 2), dtype=np.float32)
+        with mock.patch.object(engine, "optimise", return_value=raw):
+            pos, box = layout(np.array([0]), np.array([1]), np.array([3.0]), 6)
+        self.assertTrue(np.isfinite(pos).all())
+        self.assertLess(np.abs(pos).max(), box)
 
     def test_isolated_nodes_do_not_enter_the_pair_sets(self):
         connectivity = connectivity_of(np.array([0, 1, 2, 3]), np.array([1, 2, 3, 4]), np.ones(4))

@@ -183,6 +183,51 @@ class TestLayoutEngineUMAP(unittest.TestCase):
         self.assertGreater(box_limit, 0.0)
 
 
+class UMAPIsolatedNodeTests(unittest.TestCase):
+    """Nodes with no edge sit in a clump at the middle of the layout, whatever the embedding's centre."""
+
+    EDGES = [(0, 1, 90.0), (1, 2, 80.0), (2, 3, 70.0), (0, 3, 60.0), (3, 4, 50.0)]
+
+    def laid_out(self, raw, edges, n, extra=None):
+        """calculate_layout with UMAP replaced by one that returns RAW (NaN rows for the isolated nodes)."""
+        raw = np.asarray(raw, dtype=np.float32)
+        reducer = mock.Mock(fit_transform=lambda x: raw.copy())
+        params = {'UMAP_NEIGHBORS': 3}
+        params.update(extra or {})
+        with mock.patch.object(Layout_Engine_UMAP.umap, 'UMAP', return_value=reducer),                 contextlib.redirect_stdout(io.StringIO()):
+            return Layout_Engine_UMAP.calculate_layout(np.array(edges, dtype=np.float32), n, params)
+
+    def test_without_isolated_nodes_the_positions_are_centred_and_scaled_as_they_always_were(self):
+        raw = np.array([[10, 20], [14, 21], [12, 29], [17, 25], [11, 24]], dtype=np.float32)
+        pos, box = self.laid_out(raw, self.EDGES, 5)
+        centred = raw - (raw.max(axis=0) + raw.min(axis=0)) / 2.0
+        expected = centred * ((box * 1.6) / (float(np.ptp(centred, axis=0).max()) + 1e-9))
+        np.testing.assert_array_equal(pos, expected.astype(np.float32))
+
+    def test_isolated_nodes_form_a_clump_at_the_centre_inside_the_box(self):
+        raw = np.array([[100, 200], [104, 201], [102, 209], [107, 205], [101, 204],
+                        [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]], dtype=np.float32)
+        pos, box = self.laid_out(raw, self.EDGES, 8)
+        connected, isolated = pos[:5], pos[5:]
+        # The connected nodes are centred and scaled as if the others were not there.
+        self.assertAlmostEqual(float(np.ptp(connected, axis=0).max()), box * 1.6, delta=1e-3)
+        np.testing.assert_allclose(connected.max(axis=0) + connected.min(axis=0), 0, atol=1e-3)
+        # The clump is seeded, around (0, 0), and well inside the box, but not a dot.
+        draw = np.random.RandomState(42).uniform(-0.5, 0.5, (3, 2)).astype(np.float32)
+        ratio = isolated / draw
+        np.testing.assert_allclose(ratio, ratio[0, 0], rtol=1e-3)
+        self.assertGreater(ratio[0, 0], 0.5)
+        self.assertLess(np.abs(isolated).max(), 0.1 * box)
+
+    def test_two_connected_nodes_or_coincident_ones_do_not_blow_the_isolated_nodes_up(self):
+        nan = [np.nan, np.nan]
+        for raw in ([[3, 4], [3, 4]] + [nan] * 4, [[3, 4], [3.5, 4]] + [nan] * 4):
+            with self.subTest(raw=raw):
+                pos, box = self.laid_out(raw, [(0, 1, 100.0)], 6, {'UMAP_NEIGHBORS': 2})
+                self.assertTrue(np.isfinite(pos).all())
+                self.assertLess(np.abs(pos).max(), box)
+
+
 class UMAPSeedTests(unittest.TestCase):
     """LAYOUT_SEED must drive the UMAP engine, replacing its hardcoded 42."""
 

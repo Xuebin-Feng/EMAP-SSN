@@ -221,26 +221,29 @@ def calculate_layout(connectivity, n_nodes, params):
         )
         final_pos = reducer.fit_transform(X_dummy).astype(np.float32)
 
-    # --- 4. Handle Disconnected Vertices (NaN coordinates) ---
-    nan_mask = ~np.isfinite(final_pos).all(axis=1)
-    if np.any(nan_mask):
-        rng = np.random.RandomState(layout_seed)
-        final_pos[nan_mask] = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), dimensions)).astype(np.float32)
-
-    # --- 5. Scale and Center Output ---
-    connected_mask = ~nan_mask
+    # --- 4. Scale and Center the Connected Vertices ---
+    # A vertex with no edge has no coordinates (NaN). The centre and the scale come from the
+    # connected vertices alone, so the others cannot move or stretch the layout.
+    isolated = ~np.isfinite(final_pos).all(axis=1)
+    connected_mask = ~isolated
     if np.any(connected_mask):
-        global_min = np.min(final_pos[connected_mask], axis=0)
-        global_max = np.max(final_pos[connected_mask], axis=0)
-        center = (global_max + global_min) / 2.0
-        final_pos -= center
-        ptp = np.ptp(final_pos[connected_mask], axis=0)
-        umap_max_spread = float(np.max(ptp)) + 1e-9  # avoid division by zero
+        connected = final_pos[connected_mask]
+        center = (np.max(connected, axis=0) + np.min(connected, axis=0)) / 2.0
+        connected -= center
+        umap_max_spread = float(np.max(np.ptp(connected, axis=0))) + 1e-9  # avoid division by zero
+        # Two connected vertices, or vertices that coincide, have no spread to scale by.
+        scale_factor = (final_box_limit * 1.6) / umap_max_spread if umap_max_spread > 1e-6 else 1.0
+        final_pos[connected_mask] = connected * scale_factor
     else:
-        umap_max_spread = 1.0
+        scale_factor = final_box_limit * 1.6
 
-    scale_factor = (final_box_limit * 1.6) / umap_max_spread 
-    final_pos *= scale_factor
+    # --- 5. Place the Disconnected Vertices ---
+    # A seeded random clump in the unit box, centred on the middle of the layout, at the scale
+    # of the connected vertices but never wider than a fifth of the box.
+    if np.any(isolated):
+        rng = np.random.RandomState(layout_seed)
+        clump = rng.uniform(-0.5, 0.5, (np.sum(isolated), dimensions)).astype(np.float32)
+        final_pos[isolated] = clump * min(scale_factor, 0.2 * final_box_limit)
 
     print("UMAP layout calculation complete.")
     return final_pos, final_box_limit
