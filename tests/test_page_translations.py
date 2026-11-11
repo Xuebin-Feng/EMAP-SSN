@@ -837,6 +837,13 @@ class MetadataPageTests(WebPageTestCase):
         kept = {"inputs": ["", "", "8", ""], "filters": [["2", "8"]], "shown": [1],
                 "sorters": [["1", "desc"]], "arrows": ["none", "none", "descending", "none", "none"]}
         self.assertEqual(update(["Node ID", "1", "2", "3"], rows), kept)
+        # The input still works after the update: typing in it changes the filter.
+        self.js("""(() => { const input = table.getColumn('2').getElement().querySelector('input');
+            input.value = '5'; input.dispatchEvent(new KeyboardEvent('keyup', {key: '5', bubbles: true})); })()""")
+        self.wait_for("table.getHeaderFilters()[0].value === '5'")
+        self.assertEqual(self.js("table.getRows('active').map(r => r.getData().id).join()"), "0")
+        self.js("table.setHeaderFilterValue('2', '8')")
+        self.wait_for("table.getRows('active').length === 1")
         # A longer value in the filtered column still widens it.
         width = self.js("table.getColumn('2').getWidth()")
         longer = [rows[0], {**rows[1], "2": "8" * 60}]

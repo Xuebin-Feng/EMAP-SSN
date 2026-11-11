@@ -938,19 +938,37 @@
                     focused = {field: field, start: input.selectionStart, end: input.selectionEnd};
                 }
             });
-            return {typed: typed, focused: focused, sorters: table.getSorters()};
+            const applied = {};
+            table.getHeaderFilters().forEach(filter => { applied[filter.field] = filter.value; });
+            return {typed: typed, applied: applied, focused: focused, sorters: table.getSorters()};
         }
 
         function rebuildColumns(definitions, saved) {
-            const {typed, focused, sorters} = saved;
+            const {typed, applied, focused, sorters} = saved;
             table.setColumns(definitions);
             const present = new Set(definitions.map(column => column.field).filter(field => field !== undefined));
-            table.clearHeaderFilter();
-            Object.keys(typed).forEach(field => {
-                if (present.has(field)) table.setHeaderFilterValue(field, typed[field]);
+            // The table keeps the filters it applied; only the new inputs
+            // are empty. Each filter on a column that stays gets its text
+            // back in the input, and runs again only if it changes: a
+            // filter run is costly on a table of tens of thousands of rows.
+            // Nothing runs when the user has set no filter and no sort.
+            const cleared = Object.keys(applied).some(field => !present.has(field));
+            if (cleared) table.clearHeaderFilter();
+            new Set([...Object.keys(typed), ...Object.keys(applied)]).forEach(field => {
+                if (!present.has(field)) return;
+                const text = typed[field] === undefined ? "" : typed[field];
+                if (!cleared && applied[field] === text) {
+                    table.getColumn(field).getElement().querySelector(".tabulator-header-filter input").value = text;
+                } else if (!cleared || text !== "") {
+                    table.setHeaderFilterValue(field, text);
+                }
             });
-            table.setSort(sorters.filter(sorter => present.has(sorter.field))
-                .map(sorter => ({column: sorter.field, dir: sorter.dir})));
+            const kept = sorters.filter(sorter => present.has(sorter.field));
+            if (sorters.length > 0) {
+                // Sorting puts the arrows back in the header: Tabulator
+                // sets them only as it sorts.
+                table.setSort(kept.map(sorter => ({column: sorter.field, dir: sorter.dir})));
+            }
             // The caller puts the focus back once the table has settled: the
             // range selection takes it to the table when the filters are set.
             return () => {
