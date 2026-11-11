@@ -1455,6 +1455,9 @@ def _extend_initial_web_state(viewer, state):
     state['agent_request_id'] = getattr(viewer, '_agent_request_id', None)
     # A page opened during a turn, one started from the terminal say, can still stop it.
     state['agent_busy'] = bool(getattr(viewer, '_agent_busy', False))
+    # The turn's id, when a page started it, so a page opened now follows the turn to its end.
+    turn = getattr(viewer, '_agent_turn', None) if state['agent_busy'] else None
+    state['agent_submission_id'] = (turn or {}).get('submission_id')
     state.update(_data_use_state(viewer))
     from Viewer_Command_Portal import get_portal
     if state['agent_request_id']:

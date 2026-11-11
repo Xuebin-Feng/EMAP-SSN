@@ -1906,6 +1906,7 @@
                             ? t("Agent active: {model}", {model: event.data.llm_model_name})
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
+                    followRunningTurn(event.data);
                     reconcileSubmission(event.data.llm_history || []);
                     if (event.data.history_problem) appendErrorMsg(event.data.history_problem, true);
                     if (event.data.data_use) showDataUseNotice(event.data.data_use);

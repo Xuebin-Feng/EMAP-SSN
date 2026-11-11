@@ -255,11 +255,26 @@ function acceptSubmission(event) {
     renderAttachments();
 }
 
+// A page opened while a turn another page started is running (a reload, a second tab) follows
+// it: the turn's events carry its id, and the page drops those that are not its own turn's.
+// The draft stands for that turn alone, with no message of its own to give back.
+function followRunningTurn(state) {
+    const draft = pendingSubmission;
+    if (draft && !draft.following) return;
+    if (draft && (!state.agent_busy || draft.submission_id !== state.agent_submission_id)) pendingSubmission = null;
+    if (state.agent_busy && state.agent_submission_id && !pendingSubmission) {
+        pendingSubmission = {submission_id: state.agent_submission_id, query: '', attachments: [], accepted: true, following: true};
+    }
+    refreshComposer();
+}
+
 function finishSubmission(event, failed = false) {
     const draft = pendingSubmission;
     if (event.submission_id && (!draft || event.submission_id !== draft.submission_id)) return false;
     if (draft) {
-        if (failed) {
+        if (failed && draft.following) {
+            // Nothing of this page's to give back.
+        } else if (failed) {
             if (draft.bubble) draft.bubble.remove();
             document.getElementById('chat-input-field').value = draft.query;
             pendingAttachments = draft.attachments.map(item => ({...item, processing: false}));
@@ -274,7 +289,7 @@ function finishSubmission(event, failed = false) {
 
 function reconcileSubmission(history) {
     const draft = pendingSubmission;
-    if (!draft) return;
+    if (!draft || draft.following) return;
     if (history.some(message => message.submission_id === draft.submission_id)) {
         pendingSubmission = null;
         pendingAttachments = [];

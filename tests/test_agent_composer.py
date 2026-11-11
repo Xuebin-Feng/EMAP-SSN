@@ -827,6 +827,56 @@ class ModelCardPageTests(unittest.TestCase):
                 self.js(f'handleServerEvent({ending})')
                 self.assertFalse(self.stop_button()['shown'])
 
+    def following_init(self, submission, busy=True):
+        return ("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], "
+                f"agent_busy:{json.dumps(busy)}, agent_submission_id:{json.dumps(submission)}}}}})")
+
+    def test_a_page_opened_during_a_turn_follows_it_to_its_end(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        for ending, shows in (("{type:'agent_response', submission_id:'s1', explanation:'Done'}", 'Done'),
+                              ("{type:'agent_error', submission_id:'s1', error:'The server refused.'}", None),
+                              ("{type:'agent_stopped', submission_id:'s1'}", None)):
+            with self.subTest(ending=ending):
+                self.js(self.following_init('s1'))
+                self.assertTrue(self.stop_button()['shown'])
+                # Another turn's event is still not this page's.
+                self.js("handleServerEvent({type:'agent_response', submission_id:'other', explanation:'No'})")
+                self.assertTrue(self.stop_button()['shown'])
+                self.js("document.getElementById('chat-input-field').value = 'typed here'")
+                self.js(f'handleServerEvent({ending})')
+                gone = self.stop_button()
+                self.assertEqual((gone['shown'], gone['send'], gone['input']), (False, False, False))
+                self.assertTrue(self.js('pendingSubmission === null'))
+                # What the user typed in this page meanwhile stays.
+                self.assertEqual(self.js("document.getElementById('chat-input-field').value"), 'typed here')
+                if shows:
+                    self.assertIn(shows, self.js("document.getElementById('chat-log').textContent"))
+
+    def test_a_page_that_follows_a_turn_that_ended_while_it_was_away_unlocks(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js(self.following_init('s1'))
+        self.assertTrue(self.stop_button()['shown'])
+        # The connection came back after the turn was stopped: init says nothing is running.
+        self.js(self.following_init(None, busy=False))
+        idle = self.stop_button()
+        self.assertEqual((idle['shown'], idle['send'], idle['input']), (False, False, False))
+        self.assertTrue(self.js('pendingSubmission === null'))
+        # A reconnect during the same turn asks the Viewer nothing.
+        self.js(self.following_init('s2'))
+        before = len(self.state()['actions'])
+        self.js(self.following_init('s2'))
+        self.assertEqual(len(self.state()['actions']), before)
+        self.assertTrue(self.stop_button()['shown'])
+
+    def test_a_page_opened_during_a_turn_from_the_terminal_does_not_wait_for_an_id(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js(self.following_init(None))
+        self.assertTrue(self.js('pendingSubmission === null'))
+        self.assertTrue(self.stop_button()['shown'])
+        self.js("handleServerEvent({type:'agent_response', explanation:'Done'})")
+        gone = self.stop_button()
+        self.assertEqual((gone['shown'], gone['send'], gone['input']), (False, False, False))
+
     def test_a_page_opened_during_a_turn_shows_stop(self):
         self.open_page(json.dumps(self.CARD).encode())
         self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], agent_busy:true}})")

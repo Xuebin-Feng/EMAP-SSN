@@ -548,6 +548,20 @@ class DroppedTurnTests(unittest.TestCase):
         viewer.broadcast_event = viewer.events.append
         return viewer
 
+    def initial_state(self, viewer):
+        with mock.patch.object(agent, 'load_agent_history', return_value=[]):
+            return agent._extend_initial_web_state(viewer, {})
+
+    def test_a_page_opened_during_a_turn_is_told_the_turn_it_follows(self):
+        state = self.initial_state(self.running_viewer('s1'))
+        self.assertEqual((state['agent_busy'], state['agent_submission_id']), (True, 's1'))
+        # A turn started in the terminal has no id, and an idle Viewer has no turn to name.
+        viewer = self.running_viewer(None)
+        self.assertIsNone(self.initial_state(viewer)['agent_submission_id'])
+        viewer._agent_busy = False
+        state = self.initial_state(viewer)
+        self.assertEqual((state['agent_busy'], state['agent_submission_id']), (False, None))
+
     def test_deactivating_during_a_turn_ends_it_on_the_page(self):
         viewer = self.running_viewer()
         self.assertTrue(agent.deactivate_agent(viewer, quiet=True))
