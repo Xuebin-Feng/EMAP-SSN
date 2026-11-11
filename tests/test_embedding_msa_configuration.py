@@ -205,6 +205,41 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
         self.assertIn("alignment_length is unavailable for local", str(raised.exception.code))
         open_file.assert_not_called()
 
+    def test_kept_sequences_without_a_shared_edge_are_refused_with_a_message(self):
+        import h5py
+        from tests.msa_fixtures import builder_settings
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = NetworkFixture(directory, sequences=6, missing=(), ghosts=2, duplicates=0,
+                                     out_of_range=False)
+            # The only stored pair joins the two ghost nodes, which have no embedding.
+            with h5py.File(fixture.network_dir / NETWORK_NAME, "r+") as network:
+                ghosts = [index for index, header in enumerate(fixture.net_headers)
+                          if header.startswith("ghost")]
+                for name, value in (("i", [ghosts[0]]), ("j", [ghosts[1]]), ("g_score", [5.0]),
+                                    ("g_len", [10])):
+                    old = network[name]
+                    dtype = old.dtype
+                    del network[name]
+                    network.create_dataset(name, data=np.asarray(value, dtype=dtype))
+                for name in ("l_score", "l_len"):
+                    old = network[name]
+                    dtype = old.dtype
+                    del network[name]
+                    network.create_dataset(name, data=np.asarray([5], dtype=dtype))
+            values = builder_settings(fixture)
+            with mock.patch.multiple(Embedding_MSA, **values), mock.patch.object(
+                Embedding_MSA.mp, "set_start_method"
+            ), mock.patch.object(
+                Embedding_MSA, "benchmark_msa_devices", side_effect=AssertionError("tree built")
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    Embedding_MSA.run_msa_builder()
+            gc.collect()
+
+        self.assertIn("share no edge", str(raised.exception.code))
+        self.assertIn("6 sequences", str(raised.exception.code))
+
     def test_unknown_normalization_mode_is_rejected_before_opening_files(self):
         # Direct CLI runs read hand-written settings unchecked. An unknown mode
         # was caught only after the network had loaded, and never for a BLAST

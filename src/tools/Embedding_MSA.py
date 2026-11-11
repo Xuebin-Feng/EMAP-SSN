@@ -2128,6 +2128,12 @@ def run_msa_builder():
     num_edges = len(edge_i)
 
     print(f"Retained {num_edges} edges valid for the intersection.")
+    if num_edges == 0 and num_seqs >= 2:
+        sys.exit(
+            f"❌ Error: The {num_seqs} sequences kept share no edge in the network, so there "
+            "are no scores to build a guide tree from. Use sequences that have alignments "
+            "against each other in the network, or a network that stores them."
+        )
 
     import scipy.sparse as sp
 
