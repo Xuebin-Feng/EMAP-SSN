@@ -305,7 +305,12 @@ def _read_newick(tokens, max_leaves):
 def _read_tree_command(tokens, max_leaves):
     """The tree of ``TREE name = [&R] (...);``, after the word TREE: (name, parent, length, support, labels, rooted, has_lengths)."""
     name = []
+    flag = None  # a [&R] or [&U] written before the "="
     for kind, value in tokens:
+        if kind == "c":
+            word = value.replace(" ", "").upper()
+            flag = True if word == "&R" else False if word == "&U" else flag
+            continue
         if kind == "p" and value == "=":
             break
         if kind == "p":
@@ -314,7 +319,9 @@ def _read_tree_command(tokens, max_leaves):
             name.append(value)
     else:
         raise GuideTreeError("A TREE command has no tree.")
-    return (" ".join(name), *_read_newick(tokens, max_leaves))
+    parent, length, support, labels, rooted, has_lengths = _read_newick(tokens, max_leaves)
+    # A flag after the "=" is the one nearest the tree and wins.
+    return " ".join(name), parent, length, support, labels, flag if rooted is None else rooted, has_lengths
 
 
 def parse_guide_tree(text, *, max_leaves=MAX_LEAVES):
@@ -329,8 +336,8 @@ def parse_guide_tree(text, *, max_leaves=MAX_LEAVES):
         raise GuideTreeError("The file is not NEXUS: it does not begin with #NEXUS.")
     notes, block, tree = {}, None, None
     for kind, value in tokens:
-        if kind == "p" and value == ";":
-            continue
+        if kind == "c" or (kind == "p" and value == ";"):
+            continue  # a metacomment between commands belongs to none of them
         word = value.upper() if kind == "w" else ""
         if word == "BEGIN":
             named = _read_command(tokens, 2)

@@ -307,6 +307,27 @@ class ParserTests(unittest.TestCase):
         self.assertIs(parse_guide_tree(nexus_text("(a[&R]:1,b:2);", flag="[&U]")).rooted, False)
         self.assertIsNone(parse_guide_tree(nexus_text("(a[&R]:1,b:2);", flag="")).rooted)
 
+    def test_a_metacomment_between_commands_swallows_no_command(self):
+        for text in (
+            "#NEXUS\n[&x]\nBEGIN TREES;\n TREE t = [&R] (a:1,b:2);\nEND;\n",
+            "#NEXUS\nBEGIN TREES;\n [&x] TREE t = [&R] (a:1,b:2);\nEND;\n",
+            "#NEXUS\nBEGIN TREES;\n TREE t = [&R] (a:1,b:2);\n [&x] END;\n",
+        ):
+            with self.subTest(text=text):
+                tree = parse_guide_tree(text)
+                self.assertEqual(tree.labels, ["a", "b"])
+                self.assertIs(tree.rooted, True)
+
+    def test_a_rooting_flag_before_the_equals_sign_counts_like_one_after_it(self):
+        def rooted(flags, tree="(a,b)"):
+            return parse_guide_tree(f"#NEXUS\nBEGIN TREES;\n TREE t {flags[0]} = {flags[1]} {tree};\nEND;\n").rooted
+
+        self.assertIs(rooted(("[&U]", "")), False)
+        self.assertIs(rooted(("[&R]", "")), True)
+        # The flag nearest the tree wins.
+        self.assertIs(rooted(("[&R]", "[&U]")), False)
+        self.assertIsNone(rooted(("[&W 1]", "")))
+
     def test_keywords_are_read_in_any_case_and_a_block_may_end_with_endblock(self):
         text = "#nexus\nbegin trees;\n  tree t = (a,b);\nendblock;\n"
         self.assertEqual(parse_guide_tree(text).labels, ["a", "b"])
