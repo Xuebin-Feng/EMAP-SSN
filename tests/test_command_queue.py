@@ -92,6 +92,9 @@ class QueueViewer:
     def _refresh_after_history(self):
         pass
 
+    def _end_wheel_turn(self):
+        pass
+
     def update_nodes(self):
         pass
 

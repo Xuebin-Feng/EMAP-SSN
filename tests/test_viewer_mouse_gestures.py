@@ -2618,6 +2618,72 @@ class CopyOnClickTests(GestureTestCase):
         self.assertIn("self.canvas.events.key_release.connect(self.on_key_release)", source)
 
 
+class UndoDuringWheelTurnTests(GestureTestCase):
+    """Ctrl+Z or Ctrl+Y while a Ctrl + wheel turn is open ends the turn first, so the turn is its own step.
+
+    Undo used to take the turn's own step while the turn stayed open: the next notch turned the nodes again from
+    where the turn began, with no step of its own, and the undone turn's state stayed on the redo stack.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.viewer = self.make_viewer(selected=[1, 2])
+        self.start = self.places(self.viewer, [1, 2])
+        patcher = mock.patch.object(Command_Engine, "show_status")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.viewer._refresh_after_history = mock.Mock()
+        self.viewer._save_state()                  # an earlier step, as a command leaves one
+        self.earlier_steps = len(self.viewer.position_history)
+
+    def notch(self):
+        return self.wheel(self.viewer, (0.0, 1.0), 60.0, 30.0, buttons=(), modifiers=CTRL)
+
+    def turned(self, degrees):
+        return self.rotated(self.start, (60.0, 30.0), degrees)
+
+    def timer(self):
+        return self.viewer._wheel_turn_timer
+
+    def test_undo_during_a_turn_ends_it_and_takes_the_turn_back(self):
+        viewer = self.viewer
+        self.notch()
+        self.notch()
+        self.assertTrue(viewer.undo_by_hand())
+        self.assertIsNone(viewer._wheel_turn)
+        self.assert_places(viewer, [1, 2], self.start)
+        self.assertEqual(len(viewer.position_history), self.earlier_steps)
+        self.assertEqual(len(viewer.redo_stack), 1)
+
+    def test_a_notch_after_that_undo_is_a_new_turn_with_a_step_of_its_own(self):
+        viewer = self.viewer
+        self.notch()
+        self.notch()
+        viewer.undo_by_hand()
+        self.notch()
+        self.assert_places(viewer, [1, 2], self.turned(5.0))        # from where the nodes are, not from the old turn
+        self.assertEqual(len(viewer.position_history), self.earlier_steps + 1)
+        self.assertEqual(viewer.redo_stack, [])
+        self.timer().fire()
+        self.assertEqual(len(viewer.position_history), self.earlier_steps + 1)
+
+    def test_redo_after_that_undo_brings_the_whole_turn_back(self):
+        viewer = self.viewer
+        self.notch()
+        self.notch()
+        viewer.undo_by_hand()
+        self.assertTrue(viewer.redo_by_hand())
+        self.assert_places(viewer, [1, 2], self.turned(10.0))
+
+    def test_redo_during_a_turn_ends_it_and_keeps_its_step(self):
+        viewer = self.viewer
+        self.notch()
+        viewer.redo_by_hand()
+        self.assertIsNone(viewer._wheel_turn)
+        self.assert_places(viewer, [1, 2], self.turned(5.0))
+        self.assertEqual(len(viewer.position_history), self.earlier_steps + 1)
+
+
 class PageSelectionDuringGestureTests(GestureTestCase):
     """A web page's action (Tree View's tree_select) that arrives in the middle of a mouse gesture waits for it to end.
 

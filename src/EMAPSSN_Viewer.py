@@ -4088,8 +4088,10 @@ class MainViewer:
         """Ctrl+Z, the Undo button and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
 
         A command that has not finished has not happened yet: undoing it is not
-        doing it. Returns whether anything was taken back.
+        doing it. Returns whether anything was taken back. A Ctrl + wheel turn still open ends first, so that it is
+        a step of its own, which this takes back, and its next notch starts a new turn.
         """
+        self._end_wheel_turn()
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
             _cancelled, message = queue.take_back(1)
@@ -4099,6 +4101,7 @@ class MainViewer:
 
     def redo_by_hand(self):
         """Ctrl+Y, the Redo button and the sheet's redo: nothing to redo while commands wait (they come after the undone steps)."""
+        self._end_wheel_turn()  # a turn still open ends first, as for undo_by_hand
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
             message = Message("Nothing to redo: the undone steps were followed by %n waiting command(s).",
