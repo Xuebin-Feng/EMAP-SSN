@@ -24,6 +24,10 @@ still change before version 1.0.0.
   targets, write `$sele$` for the selected nodes (`color $sele$ red #noise# 20%`).
 - A BLAST all-vs-all run that was interrupted before updating does not resume. Its
   workspace is set aside as a backup folder, and the run starts again from scratch.
+- A network of more than 65,536 sequences that Network Injection made with an earlier
+  version can hold wrong scores for some of the pairs that run computed (see Fixed). Run
+  Network Injection again to rebuild it. Smaller networks are not affected, and neither
+  are the edges that were copied from the old network.
 
 ### Added
 
@@ -438,6 +442,58 @@ still change before version 1.0.0.
 - **MCP `export_settings` failed when the newest layout cache for the inputs was 3D.**
   With no saved edge filter it picked the newest cache, and a 3D cache made for VR was
   then refused although a 2D one existed. 3D caches are now skipped.
+- **Network Injection gave wrong scores in networks of more than 65,536 sequences.** The
+  number that names a pair of sequences overflowed 32 bits for pairs far down such a
+  network (at 70,000 sequences, the pairs among about the last 8,600 sequences). The
+  scores the run had computed for such a pair were not found, so its edge was written
+  with zero scores, or they were written to another pair's edge. A resumed run also
+  computed those pairs again. The pair numbers are now 64-bit. See the Upgrade Notes.
+- **A console log rotation could stop the capture of standard output or standard
+  error.** When the session's console log reached its size limit while both streams were
+  writing, one reader could write to the file the other had just closed. It then
+  stopped, and every later write to that stream failed ("Invalid argument" on Windows,
+  a broken pipe elsewhere). In other runs the log file simply stopped being written.
+  Rotating and writing are now one locked step, and a log that cannot be written is
+  dropped without ending the capture.
+- **A `zoom` in a script could change the view before an earlier `print` took its
+  picture.** `zoom` ran at once from every source. In a `run` script, a batch, or
+  commands from an agent or MCP, a zoom written after a print that was still waiting
+  behind another job was therefore applied first. Such a zoom now keeps its place in the
+  order. A zoom typed by hand still runs at once.
+- **Selecting in Tree View while nodes were dragged in the Viewer could move the wrong
+  nodes.** A selection made in the page during a node drag replaced the selection under
+  the drag: the newly selected nodes jumped to the dragged nodes' places, or the drag
+  stopped following the mouse. During a selection box the page's selection was lost. A
+  web page's action that arrives during a drag, a selection box or a Ctrl+wheel turn now
+  waits until the gesture ends.
+- **Ctrl+Z during a Ctrl+wheel turn did not stay undone.** The turn stays open for a
+  moment after the last notch. Undo in that moment put the nodes back, but the next
+  notch brought the whole turn back, with no undo step of its own. Undo and redo now end
+  the turn first, so the turn is one undo step and the next notch starts a new turn.
+- **The Agent page lost a reply after a refused model switch.** Switching to a model
+  card that was refused (one that needs the data-use answer, or has an invalid
+  temperature or no URL) while a reply was being written unlocked the message box, and
+  the reply never appeared until the page was reloaded. The page now keeps following the
+  running turn and unlocks when it ends. The box also stays locked while a turn typed on
+  the Viewer's command line is running.
+- **An Agent page opened during a turn did not show the question.** A page opened or
+  reloaded while a reply was being written now shows the question being answered as soon
+  as it joins the turn.
+- **The Meta Data table emptied its filter boxes on every Viewer update.** Each
+  selection change or command in the Viewer blanked the text typed in the column filter
+  boxes and removed the sort arrow, although the table went on filtering and sorting by
+  them. A filter on a column that was then deleted stayed on with no box to clear it.
+  The filters and the sort now stay shown across updates, the box being typed in keeps
+  its text and cursor, and a filter or sort on a deleted column ends.
+- **A self-loop in a network file could change the whole UMAP layout.** A self-loop
+  that scored above every real edge shifted all the distances the layout is built from.
+  EMAP-SSN's own tools never write self-loops, so this only affected network files made
+  elsewhere. Self-loops are now ignored before the layout is calculated.
+- **Embedding MSA ended in a traceback when only one sequence was kept.** When the
+  network, the embeddings and the optional FASTA filter shared a single sequence, the
+  run failed while building the guide tree ("The number of observations cannot be
+  determined on an empty distance matrix"). It now stops at the start and says that an
+  alignment needs at least two sequences.
 
 ## [0.5.0] - 2026-10-30
 
