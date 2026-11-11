@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import matplotlib.colors as mcolors
 import numpy as np
 
 SRC_DIR = str(Path(__file__).resolve().parents[1] / "src")
@@ -734,6 +735,46 @@ class TurnTests(QueueTestCase):
         viewer.queue.resume()
         self.settle()
         self.assertIsNotNone(viewer.cluster_labels)
+
+    def test_a_command_given_during_a_gesture_waits_for_its_end_and_keeps_its_order(self):
+        for gesture, begin, end in [
+                ("a node drag", lambda v: setattr(v, 'is_multi_dragging', True),
+                 lambda v: setattr(v, 'is_multi_dragging', False)),
+                ("a selection box", lambda v: setattr(v, 'is_box_selecting', True),
+                 lambda v: setattr(v, 'is_box_selecting', False)),
+                ("a turn by the wheel", lambda v: setattr(v, '_wheel_turn', object()),
+                 lambda v: setattr(v, '_wheel_turn', None))]:
+            with self.subTest(gesture=gesture):
+                viewer = QueueViewer()
+                self.addCleanup(viewer.close)
+                self.addCleanup(viewer.command_queue.shutdown)
+                viewer.select_by_hand([0, 1])
+                begin(viewer)
+                viewer.type("color red")
+                viewer.type("color green")
+                for _ in range(10):
+                    self.app.processEvents()
+                self.assertEqual([job.status for job in viewer.queue.pending()], ['queued', 'queued'])
+                self.assertEqual(viewer.saved, 0)
+                self.assertEqual([i for i in range(viewer.n_nodes) if tuple(viewer.current_colors[i][:3]) == RED[:3]], [])
+                end(viewer)
+                viewer.queue.resume()
+                deadline = time.monotonic() + 10
+                while viewer.queue.pending() and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.002)
+                self.assertEqual(viewer.queue.pending(), [])
+                self.assertEqual(viewer.saved, 2)
+                green = tuple(mcolors.to_rgba("green")[:3])
+                self.assertEqual([tuple(viewer.current_colors[i][:3]) for i in (0, 1)], [green, green])
+
+    def test_a_command_given_with_no_gesture_runs_at_once(self):
+        viewer = self.viewer
+        viewer.select_by_hand([0, 1])
+        viewer.type("color red")
+        self.assertEqual(viewer.queue.pending(), [])
+        self.assertEqual(self.red_nodes(), [0, 1])
+        self.assertEqual(viewer.saved, 1)
 
     def test_feedback_of_a_later_command_does_not_replace_a_command_being_typed(self):
         viewer = self.viewer

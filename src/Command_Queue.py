@@ -343,8 +343,8 @@ class CommandQueue(QtCore.QObject):
             return None
         heavy = plan is not LEGACY and bool(getattr(plan, 'heavy', False))
         cooperative = plan is not LEGACY and bool(getattr(plan, 'cooperative', False))
-        if not self.jobs and not heavy and not cooperative:
-            # Nothing waits: it runs now, as it always did.
+        if not self.jobs and not heavy and not cooperative and not self._busy(viewer, from_dispatch=True):
+            # Nothing waits and no drag, box or turn is under way: it runs now, as it always did.
             if plan is LEGACY:
                 Command_Engine._run_module(viewer, module, name, list(args), silent)
             else:
