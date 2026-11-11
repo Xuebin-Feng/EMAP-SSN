@@ -60,10 +60,10 @@ class DeclaredCasesTests(unittest.TestCase):
         cases = [
             # (command, args, sources it runs at once from, the others wait)
             ("jobs", [], SOURCES), ("jobs", ["cancel", "all"], SOURCES),
-            ("zoom", ["200"], SOURCES), ("run", [], SOURCES), ("run", ["stop"], SOURCES),
+            ("run", [], SOURCES), ("run", ["stop"], SOURCES),
             ("esmfold", ["stop"], SOURCES), ("esmfold", ["STOP", "large"], SOURCES),
             ("esmfold", [], ()), ("esmfold", ["large"], ()), ("esmfold", ["multi"], ()),
-            ("undo", [], ("typed",)), ("undo", ["3"], ("typed",)), ("redo", [], ("typed",)),
+            ("zoom", ["200"], ("typed",)), ("undo", [], ("typed",)), ("undo", ["3"], ("typed",)), ("redo", [], ("typed",)),
             ("meta", [], SOURCES), ("meta", ["upload", "a.csv"], ()),
             ("agent", [], SOURCES), ("agent", ["off"], SOURCES), ("agent", ["Deactivate"], SOURCES),
             ("agent", ["<My", "Model>"], SOURCES), ("agent", ["hello", "there"], ()),

@@ -900,12 +900,12 @@ class ZoomCommandModuleTests(unittest.TestCase):
         with open(zoom_command.__file__, encoding="utf-8") as source:
             tree = ast.parse(source.read())
         defined = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
-        self.assertEqual(defined, {"run", "_report_error"})
+        self.assertEqual(defined, {"run", "queue_kind", "_report_error"})
         self.assertFalse(set(self.MOVED) & defined)
         assigned = {target.id for node in tree.body if isinstance(node, ast.Assign) for target in node.targets
                     if isinstance(target, ast.Name)}
         # QUEUE says how the Viewer dispatches it; the rest is what it declares for the catalog and the Agent.
-        self.assertEqual(assigned, {"QUEUE", "CATALOG_ENTRY", "AGENT_POLICY", "AGENT_PROMPT_ORDER", "AGENT_PROMPT"})
+        self.assertEqual(assigned, {"CATALOG_ENTRY", "AGENT_POLICY", "AGENT_PROMPT_ORDER", "AGENT_PROMPT"})
 
     def test_nothing_else_takes_the_view_maths_from_the_command(self):
         # The Viewer, its widgets and the print command import desktop.Viewer_Zoom, so renaming or removing

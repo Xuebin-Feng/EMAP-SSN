@@ -48,9 +48,14 @@ from desktop.Viewer_Zoom import (  # noqa: F401  (the names this module does not
 from utilities.Localization import JoinedMessage, Message
 from desktop.Command_Metadata import argument, entry
 
-# How the Viewer dispatches this command (Command_Declarations): the camera reads nothing a waiting
-# command would change, so zoom runs at once.
-QUEUE = 'instant'
+def queue_kind(args, source):
+    """How the Viewer dispatches this command (Command_Declarations).
+
+    Zoom typed by hand runs at once, so the user can zoom while a long job runs. From a script, a batch or the
+    command portal it keeps its place in the order: a print waiting ahead of it takes its picture of the view
+    as it was before the zoom.
+    """
+    return 'instant' if source == 'typed' else 'ordered'
 
 # --- What this command declares about itself ---
 # Changes only the camera.

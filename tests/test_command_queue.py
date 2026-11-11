@@ -7,6 +7,7 @@ generator, which the queue steps in slices between the runs of the event loop.
 The last class runs a real Leiden clustering on the queue's worker thread and
 measures the GUI thread's timer meanwhile.
 """
+import importlib
 import io
 import sys
 import tempfile
@@ -1255,6 +1256,68 @@ def synthetic_network(n_nodes=10000, edges_per_cluster_node=90, seed=42):
     edges = np.column_stack((key // n_nodes, key % n_nodes)).astype(np.int32)
     scores = rng.uniform(30, 90, len(edges)).astype(np.float32)
     return edges, scores
+
+
+SNAP_COMMAND = '''
+import Command_Engine
+
+
+def run(viewer, args):
+    viewer.camera_log.append("snap")
+    Command_Engine.command_succeeded(viewer, "snapped")
+'''
+
+
+class ZoomOrderTests(QueueTestCase):
+    """zoom keeps its place in the order when a script, a batch or the portal gives it, and runs at once when typed."""
+
+    def setUp(self):
+        super().setUp()
+        stack = scratch_commands({"snap": SNAP_COMMAND})
+        stack.__enter__()
+        self.addCleanup(stack.__exit__, None, None, None)
+        self.viewer.camera_log = []
+        patch = mock.patch("desktop.Viewer_Zoom.set_zoom",
+                           side_effect=lambda viewer, text: viewer.camera_log.append("zoom") or 200.0)
+        patch.start()
+        # The command module takes the patched name when it loads: load it again once the patch is gone.
+        # (the module object itself, which other tests hold).
+        self.addCleanup(lambda: importlib.reload(sys.modules["commands.zoom"]))
+        self.addCleanup(patch.stop)
+
+    def test_a_zoom_from_a_script_waits_behind_the_command_ahead_of_it(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)  # a compute holds the queue, as a print waiting its turn does
+        with ce.typed_script():
+            viewer.type("snap")
+            viewer.type("zoom 200")
+        self.assertEqual(viewer.camera_log, [])
+        self.finish_compute()
+        self.settle()
+        self.assertEqual(viewer.camera_log, ["snap", "zoom"])
+
+    def test_a_zoom_from_the_portal_waits_behind_the_command_ahead_of_it(self):
+        from Viewer_Command_Portal import CURRENT
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        context = mock.MagicMock()
+        token = CURRENT.set(context)
+        try:
+            ce.execute_command(viewer, "snap", record_history=False)
+            ce.execute_command(viewer, "zoom 200", record_history=False)
+        finally:
+            CURRENT.reset(token)
+        self.assertEqual(viewer.camera_log, [])
+        self.finish_compute()
+        self.settle()
+        self.assertEqual(viewer.camera_log, ["snap", "zoom"])
+
+    def test_a_typed_zoom_runs_at_once_while_a_command_computes(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("zoom 200")
+        self.assertEqual(viewer.camera_log, ["zoom"])
+        self.finish_compute()
 
 
 class GuiResponsivenessTests(QueueTestCase):
