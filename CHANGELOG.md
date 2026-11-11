@@ -386,8 +386,8 @@ still change before version 1.0.0.
 - **Config's network statistics rejected a filter FASTA that the Viewer accepts.** A file
   with a byte-order mark was rejected, non-ASCII headers could fail to match on Windows,
   and a file with its original headers (spaces, brackets, `/`, `#`) was refused as "NOT a
-  strict subset". The statistics now read the FASTA as the Viewer's sequence filter does
-  and count the same nodes.
+  strict subset". The statistics now accept such a file, and find its nodes by each
+  header sanitized as the network stores it.
 - **A resumed BLAST all-vs-all run could mix results from two settings.** An interrupted
   run restarted with a different E-value cutoff, maximum target sequences or composition
   setting reused the chunks it had finished. Such a workspace is now set aside with a
