@@ -873,6 +873,36 @@ def is_nice(step):
     return any(abs(digit - wanted) < 1e-6 for wanted in (1.0, 2.0, 5.0))
 
 
+class FastaFilterMatchesTheViewer(unittest.TestCase):
+    """Config's statistics keep the nodes the Viewer's sequence filter keeps, for the FASTA as the user wrote it."""
+
+    NETWORK = ["alpha_one", "sp|P1|X_(Homo_sapiens)_a_b", "café_three", "delta"]
+
+    def mask(self, raw_bytes):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "nodes.fasta"
+            path.write_bytes(raw_bytes)
+            ids, names = stats.read_fasta_names(str(path))
+        return stats.kept_node_mask(self.NETWORK, ids, names)
+
+    def test_a_byte_order_mark_is_not_part_of_the_first_header(self):
+        mask, missing = self.mask("﻿>alpha_one\nACDE\n>delta\nCDEF\n".encode("utf-8"))
+        self.assertEqual((mask.tolist(), missing), ([True, False, False, True], 0))
+
+    def test_headers_as_the_user_wrote_them_name_the_nodes_the_network_stores_sanitized(self):
+        raw = (">alpha one\nACDE\n>sp|P1|X [Homo sapiens] a/b\nCDEF\n").encode("utf-8")
+        mask, missing = self.mask(raw)
+        self.assertEqual((mask.tolist(), missing), ([True, True, False, False], 0))
+
+    def test_non_ascii_utf_8_headers_match(self):
+        mask, missing = self.mask(">café three\nACDE\n".encode("utf-8"))
+        self.assertEqual((mask.tolist(), missing), ([False, False, True, False], 0))
+
+    def test_a_fasta_naming_a_sequence_the_network_lacks_is_still_counted_missing(self):
+        mask, missing = self.mask(b">alpha_one\nACDE\n>nowhere else\nCDEF\n>also_absent\nDEFG\n")
+        self.assertEqual((mask.tolist(), missing), ([True, False, False, False], 2))
+
+
 class ThresholdTableTests(unittest.TestCase):
     """The report's threshold table has at most MAX_REPORT_ROWS rows, and its usual rows when that is enough."""
 
@@ -998,7 +1028,7 @@ class MemoryBudgets(unittest.TestCase):
         first, second = np.triu_indices(cls.NODES, 1)
         cls.edges = len(first)
         lengths = rng.integers(30, 1500, size=cls.edges)
-        headers = [f"n{index} description" for index in range(cls.NODES)]
+        headers = [f"n{index}_description" for index in range(cls.NODES)]
         cls.path = folder / "big.h5"
         write_network(
             cls.path, headers, (first, second),

@@ -110,16 +110,16 @@ def count_at_least(sorted_scores, cutoffs):
 
 
 def read_fasta_names(fasta_path):
-    """The ids and the full headers of a FASTA file's records, as Bio.SeqIO reads them."""
-    from Bio import SeqIO
+    """The ids and the full headers of a FASTA file's records, as the Viewer's sequence filter reads them.
 
-    ids, headers = set(), set()
-    # The default encoding, as SeqIO.parse(path) opens the file, but closed when done.
-    with open(fasta_path) as handle:
-        for record in SeqIO.parse(handle, "fasta"):
-            ids.add(record.id)
-            headers.add(record.description)
-    return ids, headers
+    The file is read and its headers sanitized as ``load_sanitized_fasta`` does for the Viewer (a
+    byte-order mark and non-ASCII UTF-8 are fine), because a network stores sanitized headers: a
+    FASTA as the user wrote it then names the same nodes.
+    """
+    from utilities.Sequence_Utils import load_sanitized_fasta
+
+    headers, _sequences, _stats = load_sanitized_fasta(fasta_path, report=False)
+    return {header.split()[0] for header in headers if header.split()}, set(headers)
 
 
 def kept_node_mask(network_headers, fasta_ids, fasta_headers):
