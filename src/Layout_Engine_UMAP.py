@@ -156,7 +156,9 @@ def calculate_layout(connectivity, n_nodes, params):
     target_box = (np.sqrt(n_nodes) * 2.5 + 5.0)
     final_box_limit = target_box * params.get('BOX_SCALE', 1.0)
 
-    if connectivity.shape[0] == 0:
+    connectivity = np.asarray(connectivity).reshape(-1, 3)
+    # An edge needs two different nodes: a network of self-loops only has none.
+    if not np.any(connectivity[:, 0] != connectivity[:, 1]):
         # Edge case: No edges at all
         print("Warning: Network has no edges. Generating random layout.")
         pos = np.random.default_rng(layout_seed).uniform(

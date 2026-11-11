@@ -227,6 +227,15 @@ class UMAPIsolatedNodeTests(unittest.TestCase):
                 self.assertTrue(np.isfinite(pos).all())
                 self.assertLess(np.abs(pos).max(), box)
 
+    def test_a_network_of_self_loops_only_gets_the_random_layout(self):
+        for edges, n in (([(0, 0, 5.0)], 3), ([(0, 0, 5.0)], 1)):
+            with self.subTest(n=n), contextlib.redirect_stdout(io.StringIO()):
+                pos, box = Layout_Engine_UMAP.calculate_layout(
+                    np.array(edges, dtype=np.float32), n, {'UMAP_NEIGHBORS': 3}
+                )
+            self.assertEqual(pos.shape, (n, 2))
+            self.assertTrue(np.all(np.abs(pos) <= box / 2.0))
+
 
 class UMAPSeedTests(unittest.TestCase):
     """LAYOUT_SEED must drive the UMAP engine, replacing its hardcoded 42."""
