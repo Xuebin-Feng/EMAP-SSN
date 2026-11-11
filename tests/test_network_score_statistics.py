@@ -873,8 +873,8 @@ def is_nice(step):
     return any(abs(digit - wanted) < 1e-6 for wanted in (1.0, 2.0, 5.0))
 
 
-class FastaFilterMatchesTheViewer(unittest.TestCase):
-    """Config's statistics keep the nodes the Viewer's sequence filter keeps, for the FASTA as the user wrote it."""
+class FastaFilterNamesNodes(unittest.TestCase):
+    """Config's statistics name nodes by the sanitized headers of the FASTA as the user wrote it."""
 
     NETWORK = ["alpha_one", "sp|P1|X_(Homo_sapiens)_a_b", "café_three", "delta"]
 
@@ -897,6 +897,10 @@ class FastaFilterMatchesTheViewer(unittest.TestCase):
     def test_non_ascii_utf_8_headers_match(self):
         mask, missing = self.mask(">café three\nACDE\n".encode("utf-8"))
         self.assertEqual((mask.tolist(), missing), ([False, False, True, False], 0))
+
+    def test_records_sharing_one_sequence_or_none_still_name_every_node(self):
+        mask, missing = self.mask(b">alpha_one\nACDE\n>delta\nACDE\n>caf\xc3\xa9_three\n>sp|P1|X [Homo sapiens] a/b\nACDE\n")
+        self.assertEqual((mask.tolist(), missing), ([True, True, True, True], 0))
 
     def test_a_fasta_naming_a_sequence_the_network_lacks_is_still_counted_missing(self):
         mask, missing = self.mask(b">alpha_one\nACDE\n>nowhere else\nCDEF\n>also_absent\nDEFG\n")
