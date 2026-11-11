@@ -2765,6 +2765,44 @@ class PageSelectionDuringGestureTests(GestureTestCase):
         self.page_selects([4, 5])
         self.assertEqual(self.viewer.selected_indices, [4, 5])
 
+    def test_a_handler_that_raises_costs_only_its_own_action(self):
+        viewer = self.viewer
+        delivered = []
+
+        def handle(data):
+            if data["name"] == "bad":
+                raise RuntimeError("handler broke")
+            delivered.append(data["name"])
+
+        viewer.handle_web_action = handle
+        reported = []
+        with mock.patch.object(sys, "excepthook", lambda *info: reported.append(info[1])):
+            self.press(viewer, *NODE[1])                  # a gesture is open: both actions are held
+            for name in ("bad", "second"):
+                self.communicator.handle_action({"name": name})
+            self.app.processEvents()
+            self.assertEqual(delivered, [])
+            self.release(viewer, *NODE[1])
+            self.settle()
+            self.assertEqual(delivered, ["second"])
+            self.assertEqual([str(error) for error in reported], ["handler broke"])   # still reported
+            self.communicator.handle_action({"name": "third"})   # no gesture, nothing held: at once
+            self.app.processEvents()
+            self.assertEqual(delivered, ["second", "third"])
+
+    def test_a_handler_that_raises_with_no_gesture_open_is_reported_as_before(self):
+        reported = []
+
+        def handle(data):
+            raise RuntimeError("direct")
+
+        self.viewer.handle_web_action = handle
+        with mock.patch.object(sys, "excepthook", lambda *info: reported.append(info[1])):
+            self.communicator.handle_action({"name": "x"})
+            self.app.processEvents()
+        self.assertEqual([str(error) for error in reported], ["direct"])
+        self.assertEqual(len(self.communicator._held), 0)
+
     def test_actions_that_waited_run_in_the_order_they_came(self):
         viewer = self.viewer
         self.press(viewer, *NODE[1])

@@ -113,11 +113,14 @@ class QtCommunicator(QtCore.QObject):
         self._deliver(data)
 
     def _release_held(self):
-        while self._held:
-            if self._gesture_open():
+        try:
+            while self._held and not self._gesture_open():
+                self._deliver(self._held.popleft())
+        finally:
+            # Whatever is still held, a gesture or a handler that raised, gets another look: a raise
+            # costs its own action only, and is reported as a raising slot was.
+            if self._held:
                 QtCore.QTimer.singleShot(GESTURE_RETRY_MS, self._release_held)
-                return
-            self._deliver(self._held.popleft())
 
     def _deliver(self, data):
         # Delegate all web action execution to the viewer's registered action handlers
