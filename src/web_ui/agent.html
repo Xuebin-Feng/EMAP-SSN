@@ -1965,6 +1965,8 @@
                     followRunningTurn(event);
                     if (!event.llm_loaded) setTurnActive(false);
                     updateLLMState(event, false);
+                    // A turn running, whoever started it, keeps the message box locked until it ends.
+                    if (event.agent_busy && agentActive) { composerEnabled = false; refreshComposer(); }
                     if (event.error) appendErrorMsg(event.error);
                     if (event.data_use) showDataUseNotice(event.data_use); else removeDataUseNotice();
                     if (event.warning) appendWarningMsg(event.warning);

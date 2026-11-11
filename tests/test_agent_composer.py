@@ -843,6 +843,22 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertEqual((done['shown'], done['send'], done['input']), (False, False, False))
         self.assertIn('The reply', self.js("document.getElementById('chat-log').textContent"))
 
+    def test_a_model_state_during_a_terminal_turn_keeps_the_box_locked_until_it_ends(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        for ending in ("{type:'agent_response', explanation:'Done'}", "{type:'agent_error', error:'The server refused.'}",
+                       "{type:'agent_stopped'}"):
+            with self.subTest(ending=ending):
+                self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}});"
+                        "handleServerEvent({type:'agent_thinking', model_name:'m'})")
+                # A refused switch is answered while the turn, which has no id, runs on.
+                self.js("handleServerEvent({type:'backend_state', llm_loaded:true, llm_model_name:'m', agent_busy:true, "
+                        "agent_submission_id:null, error:'Refused.'})")
+                running = self.stop_button()
+                self.assertEqual((running['shown'], running['send'], running['input']), (True, True, True))
+                self.js(f'handleServerEvent({ending})')
+                gone = self.stop_button()
+                self.assertEqual((gone['shown'], gone['send'], gone['input']), (False, False, False))
+
     def test_a_model_state_that_ends_the_turn_still_unlocks_the_page(self):
         self.open_page(json.dumps(self.CARD).encode())
         for state in ({'agent_busy': False, 'agent_submission_id': None},
