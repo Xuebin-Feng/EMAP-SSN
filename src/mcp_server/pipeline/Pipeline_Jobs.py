@@ -25,6 +25,7 @@ import uuid
 import psutil
 
 from mcp_server.pipeline.Pipeline_Guide import watched_directories
+from utilities.Utf8_Pages import read_utf8_page
 from tools.tool_helpers.Tool_Pipeline import (
     ToolInvocation,
     prepare_headless_invocation,
@@ -628,6 +629,7 @@ class PipelineJobManager:
         async with self._lock:
             job = self._require_job_locked(job_id)
             path = job.stdout_path if stream == "stdout" else job.stderr_path
+            growing = job.status not in TERMINAL_JOB_STATUSES
         return await asyncio.to_thread(
             self._read_log_page,
             job_id,
@@ -635,6 +637,7 @@ class PipelineJobManager:
             path,
             offset,
             limit,
+            growing,
         )
 
     async def cancel(self, job_id):
@@ -934,12 +937,11 @@ class PipelineJobManager:
         return evicted
 
     @staticmethod
-    def _read_log_page(job_id, stream, path, offset, limit):
+    def _read_log_page(job_id, stream, path, offset, limit, growing=False):
         try:
             size = os.path.getsize(path)
             with open(path, "rb") as handle:
-                handle.seek(min(offset, size))
-                data = handle.read(limit)
+                data, held_back = read_utf8_page(handle, min(offset, size), limit, size, growing)
         except OSError as error:
             raise PipelineJobError(f"Could not read the {stream} log: {error}") from error
         next_offset = min(offset, size) + len(data)
@@ -949,7 +951,7 @@ class PipelineJobManager:
             "offset": min(offset, size),
             "next_offset": next_offset,
             "size": size,
-            "eof": next_offset >= size,
+            "eof": held_back or next_offset >= size,
             "text": data.decode("utf-8", errors="replace"),
         }
 

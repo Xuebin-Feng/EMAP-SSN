@@ -79,6 +79,7 @@ modules = [
     "test_viewer_caret",
     "test_viewer_command_portal",
     "test_viewer_connection_output",
+    "test_viewer_worker_tracking",
     "test_viewer_edges",
     "test_viewer_hidden_window",
     "test_viewer_history_buttons",
@@ -383,6 +384,7 @@ modules = [
     "test_terminal_colors",
     "test_terminal_launcher",
     "test_terminal_shell_launcher",
+    "test_utf8_pages",
 ]
 
 [sections.opt_vr]

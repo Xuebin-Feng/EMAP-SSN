@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 import psutil
+from utilities.Utf8_Pages import read_utf8_page
 from utilities.Viewer_Sessions import (
     SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, VIEWER_REQUEST_SECONDS, session_directory,
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
@@ -691,16 +692,16 @@ class MCPViewerClient:
             except (LookupError, ValueError) as error:
                 raise MCPViewerError(str(error)) from error
         def read():
+            growing = _window_alive(directory)  # the Viewer may still print
             try:
                 with (directory / f"{stream}.log").open("rb") as handle:
                     size = os.fstat(handle.fileno()).st_size
-                    handle.seek(min(offset, size))
-                    data = handle.read(limit)
-                    next_offset = handle.tell()
+                    data, held_back = read_utf8_page(handle, min(offset, size), limit, size, growing)
+                    next_offset = min(offset, size) + len(data)
             except OSError as error:
                 raise MCPViewerError(f"Could not read Viewer output: {error}") from error
             return {"session_id": target, "stream": stream, "offset": min(offset, size),
-                    "next_offset": next_offset, "size": size, "eof": next_offset >= size,
+                    "next_offset": next_offset, "size": size, "eof": held_back or next_offset >= size,
                     "text": data.decode("utf-8", errors="replace")}
         return await asyncio.to_thread(read)
 

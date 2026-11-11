@@ -1,6 +1,7 @@
 # Copyright 2026 Xuebin Feng
 # SPDX-License-Identifier: Apache-2.0
 """Correlate detached command workers without owning their terminal lifetime."""
+import codecs
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,8 @@ class WorkerTracker(QtCore.QObject):
         # The StartedWorker that runs this job, once track_worker has it.
         self.worker = None
         self.log_offsets = {'stdout': 0, 'stderr': 0}
+        # A character a read cuts in two is finished by the next read, not shown as U+FFFD twice.
+        self.log_decoders = {stream: codecs.getincrementaldecoder('utf-8')('replace') for stream in self.log_offsets}
         if add_job:
             context.add_job(self.job_id)
         self.timer = QtCore.QTimer(self)
@@ -78,7 +81,7 @@ class WorkerTracker(QtCore.QObject):
                     handle.seek(self.log_offsets[stream])
                     data = handle.read(32768)
                     self.log_offsets[stream] = handle.tell()
-                self.context.portal.append_output(self.context.request_id, stream, data.decode('utf-8', errors='replace'))
+                self.context.portal.append_output(self.context.request_id, stream, self.log_decoders[stream].decode(data))
             except OSError:
                 pass
         try:

@@ -54,6 +54,56 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(MCPViewerError):
                 await client.read_log("test", stream="../settings")
 
+    async def test_log_pages_end_on_character_boundaries(self):
+        text = "é" * 10 + "名😀x"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "stdout.log").write_bytes(text.encode())
+            client = MCPViewerClient()
+            client.connected_session_id = "test"
+            client._log_directories["test"] = root
+            offset, pages = 0, []
+            while True:
+                page = await client.read_log("test", offset=offset, limit=5)
+                pages.append(page["text"])
+                offset = page["next_offset"]
+                if page["eof"]:
+                    break
+            self.assertEqual("".join(pages), text)
+            self.assertNotIn("�", "".join(pages))
+
+    async def test_a_log_that_ends_mid_character_gives_it_whole_once_it_grows(self):
+        character = "😀".encode()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "stdout.log"
+            log.write_bytes(b"ab" + character[:2])
+            client = MCPViewerClient()
+            client.connected_session_id = "test"
+            client._log_directories["test"] = root
+            with mock.patch("mcp_server.viewer.Viewer_Client._window_alive", return_value=True):
+                first = await client.read_log("test", limit=100)
+                held = await client.read_log("test", offset=first["next_offset"], limit=100)
+                with log.open("ab") as handle:
+                    handle.write(character[2:] + b"c")
+                grown = await client.read_log("test", offset=held["next_offset"], limit=100)
+            self.assertEqual((first["text"], first["next_offset"], first["eof"]), ("ab", 2, True))
+            self.assertEqual((held["text"], held["next_offset"], held["eof"]), ("", 2, True))
+            self.assertEqual((grown["text"], grown["next_offset"], grown["eof"]), ("😀c", 7, True))
+
+    async def test_a_finished_log_that_ends_mid_character_still_reaches_its_end(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "stdout.log").write_bytes(b"ab" + "😀".encode()[:2])
+            client = MCPViewerClient()
+            client.connected_session_id = "test"
+            client._log_directories["test"] = root
+            with mock.patch("mcp_server.viewer.Viewer_Client._window_alive", return_value=False):
+                first = await client.read_log("test", limit=100)
+                second = await client.read_log("test", offset=first["next_offset"], limit=100)
+            self.assertEqual((first["text"], first["eof"]), ("ab", False))
+            self.assertEqual((second["text"], second["next_offset"], second["eof"]), ("�", 4, True))
+
 
 class OutputTests(unittest.TestCase):
     def test_viewer_prints_any_text_whatever_the_pipe_encoding(self):

@@ -283,5 +283,51 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], [_describe(process) for process in processes if _alive(process)])
 
 
+class LogPageTests(unittest.TestCase):
+    def test_pages_end_on_character_boundaries(self):
+        text = "é" * 10 + "名😀x"
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "stdout.log")
+            pathlib.Path(path).write_bytes(text.encode())
+            offset, pages = 0, []
+            while True:
+                page = PipelineJobManager._read_log_page("job", "stdout", path, offset, 5)
+                pages.append(page["text"])
+                offset = page["next_offset"]
+                if page["eof"]:
+                    break
+            self.assertEqual("".join(pages), text)
+            self.assertNotIn("�", "".join(pages))
+
+    def test_a_log_that_ends_mid_character_gives_it_whole_once_it_grows(self):
+        character = "😀".encode()
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "stdout.log")
+            pathlib.Path(path).write_bytes(b"ab" + character[:2])
+            running = PipelineJobManager._read_log_page("job", "stdout", path, 0, 100, True)
+            self.assertEqual((running["text"], running["next_offset"], running["eof"]), ("ab", 2, True))
+            held = PipelineJobManager._read_log_page("job", "stdout", path, 2, 100, True)
+            self.assertEqual((held["text"], held["next_offset"], held["eof"]), ("", 2, True))
+            with open(path, "ab") as handle:
+                handle.write(character[2:] + b"c")
+            grown = PipelineJobManager._read_log_page("job", "stdout", path, 2, 100, True)
+            self.assertEqual((grown["text"], grown["next_offset"], grown["eof"]), ("😀c", 7, True))
+
+    def test_a_finished_log_that_ends_mid_character_still_reaches_its_end(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "stdout.log")
+            pathlib.Path(path).write_bytes(b"ab" + "😀".encode()[:2])
+            first = PipelineJobManager._read_log_page("job", "stdout", path, 0, 100, False)
+            second = PipelineJobManager._read_log_page("job", "stdout", path, first["next_offset"], 100, False)
+            self.assertEqual((first["text"], first["eof"]), ("ab", False))
+            self.assertEqual((second["text"], second["next_offset"], second["eof"]), ("�", 4, True))
+
+    def test_invalid_bytes_are_still_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "stdout.log")
+            pathlib.Path(path).write_bytes(b"a\xffb")
+            page = PipelineJobManager._read_log_page("job", "stdout", path, 0, 2)
+            self.assertEqual(page["text"] + PipelineJobManager._read_log_page("job", "stdout", path, 2, 2)["text"], "a�b")
+
 if __name__ == "__main__":
     unittest.main()
