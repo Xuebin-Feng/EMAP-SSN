@@ -831,6 +831,11 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(error)[:1000]})
             return
 
+        # No route took it. Without a reply the client sees an empty response;
+        # the body is drained when small (else Connection: close) so Windows
+        # does not reset the connection before the 404 lands.
+        self._send_json(404, {"error": "Not found."}, headers=self._discard_request_body())
+
 def _address_unavailable(error):
     return (
         error.errno in {errno.EADDRINUSE, errno.EACCES}

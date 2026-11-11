@@ -122,6 +122,22 @@ class WebOriginTests(unittest.TestCase):
         self.settle()
         self.assertEqual(self.dispatched, [])
 
+    def test_a_post_no_route_takes_is_answered_404_even_with_a_body(self):
+        # A query string does not match /api/action: routes match the exact path.
+        # The body is sent after a pause, as a client that has not read the reply
+        # yet does: an unread body would make Windows reset the connection.
+        for path in ('/api/action?v=1', '/api/nowhere', '/api/mcp/v1/commands?x=1'):
+            with self.subTest(path=path):
+                status, _, payload = self.exchange('POST', path, page_headers(self.port), ACTION, pause=0.2)
+                self.assertEqual((status, payload), (404, {'error': 'Not found.'}))
+        # A body over the drain limit is not read: the reply says the connection closes.
+        status, headers, payload = self.exchange(
+            'POST', '/api/nowhere', page_headers(self.port), b'x' * 70000)
+        self.assertEqual((status, payload), (404, {'error': 'Not found.'}))
+        self.assertEqual(headers.get('Connection'), 'close')
+        self.settle()
+        self.assertEqual(self.dispatched, [])
+
     def test_cross_site_embeds_carry_no_origin_to_check(self):
         # A cross-site <img>, <script> or <iframe> is a plain GET: the browser
         # sends Sec-Fetch-Site but no Origin, so only that header distinguishes
