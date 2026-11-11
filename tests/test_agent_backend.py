@@ -562,6 +562,26 @@ class DroppedTurnTests(unittest.TestCase):
         state = self.initial_state(viewer)
         self.assertEqual((state['agent_busy'], state['agent_submission_id']), (False, None))
 
+    def test_the_model_state_says_what_turn_is_running_and_its_question(self):
+        viewer = self.running_viewer('s1')
+        viewer._agent_turn['query'] = 'why?'
+        state = agent._model_state(viewer)
+        self.assertEqual((state['agent_busy'], state['agent_submission_id'], state['agent_query']), (True, 's1', 'why?'))
+        viewer._agent_busy = False
+        state = agent._model_state(viewer)
+        self.assertEqual((state['agent_busy'], state['agent_submission_id'], state['agent_query']), (False, None, None))
+
+    def test_a_refused_card_during_a_turn_tells_the_page_the_turn_runs_on(self):
+        viewer = self.running_viewer('s1')
+        viewer._agent_turn['query'] = 'why?'
+        viewer.llm_pending_data_use = None
+        card = {'id': 'c', 'name': 'Remote', 'url': 'https://example.invalid/v1', 'model': 'x'}
+        with mock.patch.object(agent, 'load_model_cards', return_value=[card]):
+            agent.handle_set_backend(viewer, {'card_id': 'c'})
+        self.assertTrue(viewer._agent_busy)
+        states = [e for e in viewer.events if e['type'] == 'backend_state']
+        self.assertEqual([(e['agent_busy'], e['agent_submission_id'], e['agent_query']) for e in states], [(True, 's1', 'why?')])
+
     def test_deactivating_during_a_turn_ends_it_on_the_page(self):
         viewer = self.running_viewer()
         self.assertTrue(agent.deactivate_agent(viewer, quiet=True))

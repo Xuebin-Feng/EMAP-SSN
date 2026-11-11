@@ -1958,7 +1958,11 @@
                     }
                     break;
                 case "backend_state":
-                    if (pendingSubmission) finishSubmission({submission_id: pendingSubmission.submission_id}, true);
+                    // A refused model switch leaves the turn running: the page's own turn stays pending then.
+                    if (pendingSubmission && !(event.agent_busy && event.agent_submission_id === pendingSubmission.submission_id)) {
+                        finishSubmission({submission_id: pendingSubmission.submission_id}, true);
+                    }
+                    followRunningTurn(event);
                     if (!event.llm_loaded) setTurnActive(false);
                     updateLLMState(event, false);
                     if (event.error) appendErrorMsg(event.error);

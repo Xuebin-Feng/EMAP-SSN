@@ -261,10 +261,16 @@ function acceptSubmission(event) {
 function followRunningTurn(state) {
     const draft = pendingSubmission;
     if (draft && !draft.following) return;
-    if (draft && (!state.agent_busy || draft.submission_id !== state.agent_submission_id)) pendingSubmission = null;
+    if (draft && (!state.agent_busy || draft.submission_id !== state.agent_submission_id)) {
+        if (draft.bubble) draft.bubble.remove();
+        pendingSubmission = null;
+    }
     if (state.agent_busy && state.agent_submission_id && !pendingSubmission) {
         pendingSubmission = {submission_id: state.agent_submission_id, query: '', attachments: [], accepted: true, following: true};
     }
+    // The question this page did not send is drawn as one it had (again, after init cleared the log).
+    const joined = pendingSubmission;
+    if (joined && state.agent_query && !(joined.bubble && joined.bubble.isConnected)) joined.bubble = appendUserMsg(state.agent_query);
     refreshComposer();
 }
 
@@ -273,7 +279,8 @@ function finishSubmission(event, failed = false) {
     if (event.submission_id && (!draft || event.submission_id !== draft.submission_id)) return false;
     if (draft) {
         if (failed && draft.following) {
-            // Nothing of this page's to give back.
+            // Nothing of this page's to give back, but the question of a turn that did not answer.
+            if (draft.bubble) draft.bubble.remove();
         } else if (failed) {
             if (draft.bubble) draft.bubble.remove();
             document.getElementById('chat-input-field').value = draft.query;

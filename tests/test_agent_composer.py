@@ -827,6 +827,36 @@ class ModelCardPageTests(unittest.TestCase):
                 self.js(f'handleServerEvent({ending})')
                 self.assertFalse(self.stop_button()['shown'])
 
+    def test_a_refused_model_switch_during_a_turn_leaves_the_turn_running(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.start_turn()
+        submission = self.js('pendingSubmission.submission_id')
+        # The Viewer refused the switch (the card needs the data-use answer, say) and the turn runs on.
+        refused = {'type': 'backend_state', 'llm_loaded': True, 'llm_model_name': 'm', 'agent_busy': True,
+                   'agent_submission_id': submission, 'agent_query': 'hello', 'error': 'Refused.'}
+        self.js(f'handleServerEvent({json.dumps(refused)})')
+        running = self.stop_button()
+        self.assertEqual((running['shown'], running['send'], running['input']), (True, True, True))
+        self.assertEqual(self.js('pendingSubmission && pendingSubmission.submission_id'), submission)
+        self.js(f"handleServerEvent({{type:'agent_response', submission_id:{json.dumps(submission)}, explanation:'The reply'}})")
+        done = self.stop_button()
+        self.assertEqual((done['shown'], done['send'], done['input']), (False, False, False))
+        self.assertIn('The reply', self.js("document.getElementById('chat-log').textContent"))
+
+    def test_a_model_state_that_ends_the_turn_still_unlocks_the_page(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        for state in ({'agent_busy': False, 'agent_submission_id': None},
+                      {'agent_busy': True, 'agent_submission_id': 'another'}):
+            with self.subTest(state=state):
+                self.start_turn('again')
+                event = {'type': 'backend_state', 'llm_loaded': True, 'llm_model_name': 'other', **state}
+                self.js(f'handleServerEvent({json.dumps(event)})')
+                # What the page sent is given back to it; another page's turn it joins is followed, not its own.
+                self.assertEqual(self.js('!!(pendingSubmission && pendingSubmission.following)'), bool(state['agent_busy']))
+                self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 0)
+                self.assertEqual(self.js("document.getElementById('chat-input-field').value"), 'again')
+                self.js("pendingSubmission = null; setTurnActive(false); refreshComposer()")
+
     def following_init(self, submission, busy=True):
         return ("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], "
                 f"agent_busy:{json.dumps(busy)}, agent_submission_id:{json.dumps(submission)}}}}})")
@@ -851,6 +881,22 @@ class ModelCardPageTests(unittest.TestCase):
                 self.assertEqual(self.js("document.getElementById('chat-input-field').value"), 'typed here')
                 if shows:
                     self.assertIn(shows, self.js("document.getElementById('chat-log').textContent"))
+
+    def test_a_page_that_joins_a_turn_draws_its_question_as_text(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        question = '<img src=x onerror=window.pwned=1> why?'
+        init = ("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], agent_busy:true, "
+                f"agent_submission_id:'s1', agent_query:{json.dumps(question)}}}}})")
+        self.js(init)
+        bubbles = json.loads(self.js("JSON.stringify([...document.querySelectorAll('#chat-log .msg-user')].map(b => b.textContent))"))
+        self.assertEqual(bubbles, [question])
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user img').length"), 0)
+        # Joined again by a reconnect, the question is not drawn twice.
+        self.js(init)
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 1)
+        # A turn that does not answer takes its question away, as it does on the page that sent it.
+        self.js("handleServerEvent({type:'agent_error', submission_id:'s1', error:'Refused.'})")
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 0)
 
     def test_a_page_that_follows_a_turn_that_ended_while_it_was_away_unlocks(self):
         self.open_page(json.dumps(self.CARD).encode())

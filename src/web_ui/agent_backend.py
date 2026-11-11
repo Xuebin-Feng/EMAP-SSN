@@ -1019,7 +1019,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
     if previous:
         viewer.broadcast_event(previous)
         return previous.get('type') not in ('agent_error', 'agent_stopped')
-    turn = {'submission_id': submission_id, 'attachments': []}
+    turn = {'submission_id': submission_id, 'attachments': [], 'query': query if isinstance(query, str) else None}
     if getattr(viewer, '_agent_busy', False):
         return _reject_turn(viewer, Message('This Viewer already has an active agent turn.'), turn, on_rejected)
 
@@ -1307,10 +1307,17 @@ def _model_state(viewer):
     The page is sent it with its initial state (_extend_initial_web_state) and
     whenever the model changes (broadcast_backend_state).
     """
+    busy = bool(getattr(viewer, '_agent_busy', False))
+    turn = getattr(viewer, '_agent_turn', None) if busy else None
     return {
         "llm_loaded": getattr(viewer, 'llm_loaded', False),
         "llm_backend": getattr(viewer, 'llm_backend', None),
         "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown"),
+        # A turn running now, one page started or one from the terminal: a refused model switch
+        # leaves it running, and a page that joins draws its question.
+        "agent_busy": busy,
+        "agent_submission_id": (turn or {}).get('submission_id'),
+        "agent_query": (turn or {}).get('query'),
     }
 
 
@@ -1453,11 +1460,8 @@ def _extend_initial_web_state(viewer, state):
     if problem is not None:
         state["history_problem"] = display_text(problem)
     state['agent_request_id'] = getattr(viewer, '_agent_request_id', None)
-    # A page opened during a turn, one started from the terminal say, can still stop it.
-    state['agent_busy'] = bool(getattr(viewer, '_agent_busy', False))
-    # The turn's id, when a page started it, so a page opened now follows the turn to its end.
-    turn = getattr(viewer, '_agent_turn', None) if state['agent_busy'] else None
-    state['agent_submission_id'] = (turn or {}).get('submission_id')
+    # A page opened during a turn (agent_busy, from _model_state), one started from the terminal
+    # say, can still stop it, and follows it to its end by the turn's id.
     state.update(_data_use_state(viewer))
     from Viewer_Command_Portal import get_portal
     if state['agent_request_id']:
