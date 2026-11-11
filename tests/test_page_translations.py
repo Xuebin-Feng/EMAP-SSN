@@ -807,6 +807,79 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(updated["1"], dragged["1"])
         self.assertEqual(updated["Node ID"], dragged["Node ID"])
 
+    def test_a_header_filter_and_a_sort_survive_a_viewer_update(self):
+        """A Viewer update rebuilds the columns, which empties the header's filter
+        inputs and sort arrow while the table still filtered and sorted by them. A
+        filter and a sort the user set stay for each column that remains, and a
+        column new values lengthen still widens. A filter on a column that is
+        gone ends."""
+        types = {"1": "number", "2": "text", "3": "text"}
+        self.open({**self.TABLE, "columns": ["Node ID", "1", "2", "3"], "types": types})
+        state = """JSON.stringify({
+            inputs: Array.from(document.querySelectorAll('.tabulator-header-filter input'), i => i.value),
+            filters: table.getHeaderFilters().map(f => [f.field, f.value]),
+            shown: table.getRows('active').map(r => r.getData().id),
+            sorters: table.getSorters().map(s => [s.field, s.dir]),
+            arrows: Array.from(document.querySelectorAll('.tabulator-col'), c => c.getAttribute('aria-sort')),
+        })"""
+
+        def update(columns, rows):
+            self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(rows)},"
+                    f" columns: {json.dumps(columns)}, types: {json.dumps(types)},"
+                    " selected_indices: [], visible_mask: [true, true]})")
+            self.wait_for("!isEditingFromVispy")
+            return json.loads(self.js(state))
+
+        rows = [{**row, "3": "x"} for row in self.TABLE["rows"]]
+        self.js("table.setHeaderFilterValue('2', '8'); table.setSort('1', 'desc')")
+        self.wait_for("table.getRows('active').length === 1")
+        # Row numbers, Node ID, then 1, 2 and 3.
+        kept = {"inputs": ["", "", "8", ""], "filters": [["2", "8"]], "shown": [1],
+                "sorters": [["1", "desc"]], "arrows": ["none", "none", "descending", "none", "none"]}
+        self.assertEqual(update(["Node ID", "1", "2", "3"], rows), kept)
+        # A longer value in the filtered column still widens it.
+        width = self.js("table.getColumn('2').getWidth()")
+        longer = [rows[0], {**rows[1], "2": "8" * 60}]
+        self.assertEqual(update(["Node ID", "1", "2", "3"], longer), kept)
+        self.assertGreater(self.js("table.getColumn('2').getWidth()"), width)
+        # A column removed: the sort on it ends, the filter on another stays.
+        self.assertEqual(update(["Node ID", "2", "3"], rows), {
+            "inputs": ["", "8", ""], "filters": [["2", "8"]], "shown": [1],
+            "sorters": [], "arrows": ["none"] * 4})
+        # The filtered column removed: its filter ends and every row shows.
+        self.assertEqual(update(["Node ID", "3"], rows), {
+            "inputs": ["", ""], "filters": [], "shown": [0, 1], "sorters": [], "arrows": ["none"] * 3})
+
+    def test_text_being_typed_in_a_header_filter_survives_a_viewer_update(self):
+        self.open(self.TABLE)
+        self.js("""(() => {
+            const input = table.getColumn('2').getElement().querySelector('input');
+            input.focus();
+            input.value = '88';  // Typed less than the filter's delay ago: not yet a filter.
+            input.setSelectionRange(1, 1);
+        })()""")
+        self.assertEqual(self.js("table.getHeaderFilters().length"), 0)
+        self.assertTrue(self.js("document.activeElement === table.getColumn('2').getElement().querySelector('input')"))
+        self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(self.TABLE['rows'])},"
+                f" columns: {json.dumps(self.TABLE['columns'])}, types: {json.dumps(self.TABLE['types'])},"
+                " selected_indices: [], visible_mask: [true, true]})")
+        self.wait_for("!isEditingFromVispy")
+        self.assertEqual(json.loads(self.js("""JSON.stringify((() => {
+            const input = table.getColumn('2').getElement().querySelector('input');
+            return [input.value, document.activeElement === input, input.selectionStart, input.selectionEnd];
+        })())""")), ["88", True, 1, 1])
+
+    def test_a_header_filter_and_a_sort_survive_a_column_dropped_before_the_row_numbers(self):
+        self.open(self.TABLE)
+        self.js("table.setHeaderFilterValue('2', '8'); table.setSort('1', 'desc')")
+        self.js("table.moveColumn('2', table.getColumns()[0], false)")
+        self.wait_for("table.getColumns().map(c => c.getField() || '#').join() === '#,Node ID,2,1'")
+        self.assertEqual(json.loads(self.js("""JSON.stringify({
+            inputs: Array.from(document.querySelectorAll('.tabulator-header-filter input'), i => i.value),
+            shown: table.getRows('active').length,
+            arrows: Array.from(document.querySelectorAll('.tabulator-col'), c => c.getAttribute('aria-sort')),
+        })""")), {"inputs": ["", "8", ""], "shown": 1, "arrows": ["none", "none", "none", "descending"]})
+
     def test_a_moved_column_keeps_its_place(self):
         """A Viewer update rebuilds the columns, once in the Viewer's order each
         time, putting back a column the user moved. A moved column keeps its

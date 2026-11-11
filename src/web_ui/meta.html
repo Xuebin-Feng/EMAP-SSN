@@ -919,6 +919,50 @@
         // take their widths from here.
         const resizedColumnWidths = new Map();
 
+        // setColumns builds the header again, which empties the header
+        // filter inputs and the sort arrow, though the table still filters
+        // and sorts by them. A header filter the user typed, the sort, and
+        // the input being typed in are put back for each column that stays;
+        // one for a column no longer there is dropped. headerState reads
+        // them before the table is changed at all: a new set of data takes
+        // the focus off the input.
+        function headerState() {
+            const typed = {};
+            let focused = null;
+            table.getColumns().forEach(column => {
+                const field = column.getField();
+                const input = column.getElement().querySelector(".tabulator-header-filter input");
+                if (field === undefined || !input) return;
+                if (input.value !== "") typed[field] = input.value;
+                if (input === document.activeElement) {
+                    focused = {field: field, start: input.selectionStart, end: input.selectionEnd};
+                }
+            });
+            return {typed: typed, focused: focused, sorters: table.getSorters()};
+        }
+
+        function rebuildColumns(definitions, saved) {
+            const {typed, focused, sorters} = saved;
+            table.setColumns(definitions);
+            const present = new Set(definitions.map(column => column.field).filter(field => field !== undefined));
+            table.clearHeaderFilter();
+            Object.keys(typed).forEach(field => {
+                if (present.has(field)) table.setHeaderFilterValue(field, typed[field]);
+            });
+            table.setSort(sorters.filter(sorter => present.has(sorter.field))
+                .map(sorter => ({column: sorter.field, dir: sorter.dir})));
+            // The caller puts the focus back once the table has settled: the
+            // range selection takes it to the table when the filters are set.
+            return () => {
+                if (!focused || !present.has(focused.field)) return;
+                const input = table.getColumn(focused.field).getElement().querySelector(".tabulator-header-filter input");
+                if (input) {
+                    input.focus();
+                    input.setSelectionRange(focused.start, focused.end);
+                }
+            };
+        }
+
         function keepResizedWidths(columns) {
             return columns.map(column => resizedColumnWidths.has(column.field)
                 ? {...column, width: resizedColumnWidths.get(column.field)}
@@ -1220,14 +1264,16 @@
             // The data first: the fitData layout fits a column to what it
             // holds as the column is made, so the columns rebuilt after it
             // fit the new values, apart from those the user resized.
+            const saved = headerState();
             table.setData(rows).then(() => {
-                if (state.columns) {
-                    table.setColumns(buildTableColumns(state.columns, state.types));
-                }
+                const restoreFocus = state.columns
+                    ? rebuildColumns(buildTableColumns(state.columns, state.types), saved)
+                    : () => {};
                 currentSelectionIndices = state.selected_indices;
                 currentSelectionIndicesSet = state.selected_indices ? new Set(state.selected_indices) : null;
                 currentVisibleMask = state.visible_mask;
                 applyCombinedFilter();
+                restoreFocus();
                 isEditingFromVispy = false;
             });
         }
@@ -1344,7 +1390,7 @@
                 }
                 
                 if (changed) {
-                    table.setColumns(keepResizedWidths(targetDefs));
+                    rebuildColumns(keepResizedWidths(targetDefs), headerState())();
                 }
             });
 
