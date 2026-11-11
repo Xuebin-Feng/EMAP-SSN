@@ -718,6 +718,7 @@
       },
       "OUTPUT_NAME": {
         "type": "string",
+        "pattern": "^(?!\\s*\\.{1,2}\\s*$)[^/\\\\<>:\"|?*\\u0000-\\u001f]*$",
         "default": "",
         "description": "Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).\nIf left blank, defaults to the sanitized query header."
       },

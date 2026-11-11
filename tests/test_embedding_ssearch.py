@@ -791,5 +791,48 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
         self.assertEqual(hits_text, f">query_β\n{'A' * 100}\n>{header}\nMKV\n")
 
 
+class OutputNameTests(unittest.TestCase):
+    """OUTPUT_NAME becomes part of three file names in REPORT_DIR, so only a plain base name is accepted."""
+
+    class Reached(Exception):
+        """Raised by the database step, which a valid name must get as far as."""
+
+    def run_main(self, name):
+        with mock.patch.object(Embedding_SSEARCH, "load_tool_settings"), mock.patch.multiple(
+            Embedding_SSEARCH, OUTPUT_NAME=name, ALIGNMENT_MODE="global", NORM_MODE="alignment_length",
+        ), mock.patch.object(Embedding_SSEARCH, "validate_score_normalization"), mock.patch.object(
+            Embedding_SSEARCH, "validate_similarity_matrix"
+        ), mock.patch.object(
+            Embedding_SSEARCH, "prepare_database_embeddings", side_effect=self.Reached
+        ), redirect_stdout(io.StringIO()):
+            Embedding_SSEARCH.main([])
+
+    def test_a_name_that_climbs_out_of_the_report_folder_is_refused_up_front(self):
+        for name in ("x/../../name", "../name", "..\\name", "sub/name", "C:name", "..", "a|b"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "OUTPUT_NAME"):
+                    self.run_main(name)
+
+    def test_a_plain_name_and_a_blank_name_still_work(self):
+        for name in ("my_hits", " padded ", "", None, "   ", "v1.2"):
+            with self.subTest(name=name):
+                with self.assertRaises(self.Reached):
+                    self.run_main(name)
+
+    def test_the_mcp_contract_reports_the_same_names_as_a_field_error(self):
+        from mcp_server.pipeline.Pipeline_Operations import validate_pipeline_settings
+
+        def errors(name):
+            result = validate_pipeline_settings("embedding_ssearch", parameters={"OUTPUT_NAME": name})
+            return [error["field"] for error in result.get("errors", [])]
+
+        for name in ("x/../../name", "sub/name", "..\\name", "..", "a:b"):
+            with self.subTest(name=name):
+                self.assertTrue(any(field.endswith("OUTPUT_NAME") for field in errors(name)))
+        for name in ("my_hits", "", "v1.2"):
+            with self.subTest(name=name):
+                self.assertEqual(errors(name), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -96,6 +96,7 @@ from utilities.Similarity_Matrices import (
     similar_pair_table,
     validate_similarity_matrix,
 )
+from utilities.Output_Names import validate_output_basename
 from utilities.HDF5_Storage import (
     dtype_for_saving_mode,
     read_embedding_manifest,
@@ -1747,6 +1748,13 @@ def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     validate_score_normalization(ALIGNMENT_MODE, NORM_MODE)
     validate_similarity_matrix(SIMILARITY_MATRIX)
+    output_name = None
+    if OUTPUT_NAME and str(OUTPUT_NAME).strip():
+        # The name goes into three file names in REPORT_DIR, so it must be a plain base name.
+        try:
+            output_name = validate_output_basename(OUTPUT_NAME)
+        except ValueError as error:
+            raise ValueError(f"OUTPUT_NAME is not a plain file name: {error}") from error
     FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
     database = prepare_database_embeddings()
     db_headers = database.headers
@@ -1849,8 +1857,8 @@ def main(argv=None):
     df = pd.concat([q_row, df], ignore_index=True)
     
     # Use custom name if provided, otherwise fallback to sanitized query name
-    if OUTPUT_NAME and str(OUTPUT_NAME).strip():
-        base_filename = str(OUTPUT_NAME).strip()
+    if output_name is not None:
+        base_filename = output_name
     else:
         base_filename = re.sub(r'[^a-zA-Z0-9]', '_', query_name)[:20]
         
