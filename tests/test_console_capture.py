@@ -246,6 +246,97 @@ class LogFileTests(unittest.TestCase):
         self.assertLessEqual(len(rolled.encode()), 200)
         self.assertNotIn("line 000", rolled + current)  # only the last rolled file is kept
 
+    def _rolled_lines_collector(self):
+        """An os.replace that keeps each rolled file's lines (only one .1 survives), then does the roll."""
+        rolled = []
+        real_replace = os.replace
+
+        def replace(source, destination, *arguments):
+            if str(destination).endswith(".log.1"):
+                rolled.extend(Path(source).read_text(encoding="utf-8").splitlines())
+            return real_replace(source, destination, *arguments)
+
+        return rolled, replace
+
+    def test_a_write_that_meets_a_rotation_waits_for_it(self):
+        # One reader rotates the log and stops inside the roll; the other, whose short line would not rotate
+        # it, must wait for the roll, not write to the file the roll closed (ValueError ended its reader).
+        recorder = Recorder("viewer", self.log_dir, log_bytes=150)
+        self.addCleanup(recorder.close_log)
+        recorder.add("stdout", "first " + "x" * 40)
+        rolling, release = threading.Event(), threading.Event()
+        real_replace = os.replace
+
+        def slow_replace(source, destination, *arguments):
+            if str(destination).endswith(".log.1"):
+                rolling.set()
+                self.assertTrue(release.wait(10))
+            return real_replace(source, destination, *arguments)
+
+        failures = []
+
+        def writer(stream, text):
+            try:
+                recorder.add(stream, text)
+            except BaseException as error:  # the reader thread would have ended here
+                failures.append(error)
+
+        with mock.patch.object(os, "replace", slow_replace):
+            long_writer = threading.Thread(target=writer, args=("stdout", "second " + "y" * 80))
+            long_writer.start()
+            self.assertTrue(rolling.wait(10))
+            short_writer = threading.Thread(target=writer, args=("stderr", "s"))
+            short_writer.start()
+            short_writer.join(0.5)  # blocked behind the roll; without the lock it is done by now
+            release.set()
+            long_writer.join(10)
+            short_writer.join(10)
+        self.assertFalse(long_writer.is_alive() or short_writer.is_alive())
+        self.assertEqual(failures, [])
+        self.assertIsNone(recorder.log_error)
+        recorder.close_log()
+        text = Path(recorder.log_path).read_text(encoding="utf-8")
+        self.assertIn("second", text)
+        self.assertIn(" E s", text)
+
+    def test_two_readers_with_lines_of_different_lengths_lose_no_line_over_many_rotations(self):
+        rolled, replace = self._rolled_lines_collector()
+        recorder = Recorder("viewer", self.log_dir, log_bytes=600)
+        failures = []
+        count = 400
+
+        def writer(stream, width):
+            try:
+                for number in range(count):
+                    recorder.add(stream, f"{stream} {number:04d} " + "z" * width)
+            except BaseException as error:
+                failures.append(error)
+
+        with mock.patch.object(os, "replace", replace):
+            threads = [threading.Thread(target=writer, args=("stdout", 50)),
+                       threading.Thread(target=writer, args=("stderr", 2))]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(60)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        recorder.close_log()
+        self.assertEqual(failures, [])
+        self.assertIsNone(recorder.log_error)
+        lines = rolled + Path(recorder.log_path).read_text(encoding="utf-8").splitlines()
+        for stream in ("stdout", "stderr"):
+            numbers = sorted(int(line.split()[3]) for line in lines if line.split()[2:3] == [stream])
+            self.assertEqual(numbers, list(range(count)), stream)
+
+    def test_a_log_that_fails_is_dropped_and_the_reader_goes_on(self):
+        recorder = Recorder("viewer", self.log_dir)
+        recorder._log = mock.Mock(write=mock.Mock(side_effect=ValueError("I/O operation on closed file")))
+        recorder.add("stdout", "kept in the ring")
+        self.assertIn("closed file", recorder.log_error)
+        self.assertIsNone(recorder._log)
+        recorder.add("stdout", "and the next one")
+        self.assertEqual([line.text for line in recorder.snapshot()], ["kept in the ring", "and the next one"])
+
     def test_the_newest_ten_logs_of_each_app_stay(self):
         for number in range(13):
             for app in ("viewer", "tools"):
@@ -632,6 +723,29 @@ class EntryPointTests(unittest.TestCase):
                               env=child_environment(), timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "False")
+
+    def test_both_readers_survive_log_rotations_and_a_later_write_works(self):
+        program = (
+            "import os, sys, time; sys.path.insert(0, sys.argv[1]); "
+            "from utilities import Console_Capture as C; "
+            "cap = C.install('t', sys.argv[2], forward=False); cap._log_bytes = 600; "
+            "failed = None\n"
+            "try:\n"
+            "    for i in range(2000):\n"
+            "        os.write(1, b'x' * 50 + b'\\n'); os.write(2, b'y' * 5 + b'\\n')\n"
+            "    os.write(2, b'later\\n')\n"
+            "except OSError as error:\n"
+            "    failed = repr(error)\n"
+            "time.sleep(1)\n"
+            "report = (failed, [t.is_alive() for t in cap._threads if t.name in ('console-stdout', 'console-stderr')], cap.log_error)\n"
+            "open(os.path.join(sys.argv[2], 'report.txt'), 'w').write(repr(report))\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            done = subprocess.run([sys.executable, "-c", program, str(SRC_DIR), directory], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, env=child_environment(), timeout=120)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            report = Path(directory, "report.txt").read_text(encoding="utf-8")
+        self.assertEqual(report, "(None, [True, True], None)", done.stderr)
 
 
 class _FullStream:

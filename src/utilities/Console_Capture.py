@@ -319,18 +319,26 @@ class Recorder:
             return
         stamp = time.strftime("%H:%M:%S", time.localtime(when))
         data = f"{stamp} {'E' if stream == 'stderr' else 'O'} {strip_ansi(text)}\n".encode("utf-8", "replace")
-        try:
-            if self._log_size + len(data) > self._log_bytes and self._log_size:
-                self._log.close()
-                os.replace(self.log_path, self.log_path + ".1")
-                descriptor = os.open(self.log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-                self._log = os.fdopen(descriptor, "ab", buffering=0)
-                self._log_size = 0
-            self._log.write(data)
-            self._log_size += len(data)
-        except OSError as error:
-            self.log_error = str(error)
-            self._log = None
+        # Both readers (stdout and stderr) and close_log() come here. The check, the rotation and the write
+        # are one step under _log_lock: a rotation closes the file, and a write that met it closed raised
+        # ValueError, which ended the reader and with it the stream. _log_lock is taken after _lock has been
+        # let go (add() writes the log outside it) and nothing is called while it is held, so the two never
+        # wait on each other.
+        with self._log_lock:
+            if self._log is None:
+                return
+            try:
+                if self._log_size + len(data) > self._log_bytes and self._log_size:
+                    self._log.close()
+                    os.replace(self.log_path, self.log_path + ".1")
+                    descriptor = os.open(self.log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                    self._log = os.fdopen(descriptor, "ab", buffering=0)
+                    self._log_size = 0
+                self._log.write(data)
+                self._log_size += len(data)
+            except (OSError, ValueError) as error:  # a log that fails is dropped; the reader goes on
+                self.log_error = str(error)
+                self._log = None
 
     # --- recording
     def add(self, stream: str, text: str, partial: bool = False) -> Line:
@@ -392,7 +400,8 @@ class Recorder:
                 pass
 
     def close_log(self):
-        log, self._log = self._log, None
+        with self._log_lock:
+            log, self._log = self._log, None
         if log is not None:
             try:
                 log.close()
