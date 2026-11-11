@@ -22,6 +22,8 @@ still change before version 1.0.0.
   one target now fails, where it started a new target on the selected nodes. And a target
   with no expression only works as the command's one target: in a command with several
   targets, write `$sele$` for the selected nodes (`color $sele$ red #noise# 20%`).
+- A BLAST all-vs-all run that was interrupted before updating does not resume. Its
+  workspace is set aside as a backup folder, and the run starts again from scratch.
 
 ### Added
 
@@ -381,6 +383,61 @@ still change before version 1.0.0.
 - **A right click in the Viewer left the clicked node marked in the other pages.** It took
   the left-click highlight off in the network, but the Meta Data sheet kept the node's row
   highlighted and Tree View kept the ring on its leaf. Both now clear as well.
+- **Config's network statistics rejected a filter FASTA that the Viewer accepts.** A file
+  with a byte-order mark was rejected, non-ASCII headers could fail to match on Windows,
+  and a file with its original headers (spaces, brackets, `/`, `#`) was refused as "NOT a
+  strict subset". The statistics now read the FASTA as the Viewer's sequence filter does
+  and count the same nodes.
+- **A resumed BLAST all-vs-all run could mix results from two settings.** An interrupted
+  run restarted with a different E-value cutoff, maximum target sequences or composition
+  setting reused the chunks it had finished. Such a workspace is now set aside with a
+  warning, as it already was for a changed matrix or BLAST+ version, and the run starts
+  again.
+- **Embedding MSA failed inside the guide-tree fit when the kept sequences shared no
+  edge.** A sparse network, such as a BLAST one, filtered to sequences with no hits
+  between them ended in scikit-learn's "Found array with 0 sample(s)" error. The tool now
+  stops before the fit and says that the sequences share no edge.
+- **Embedding SSEARCH could write its reports outside the report folder.** An Output Name
+  such as `x/../../name` went into the file paths as given. A name that is not a plain
+  file name is now refused before any work starts, and MCP's `validate_settings` reports
+  it as an error on `OUTPUT_NAME`.
+- **UMAP and PaCMAP layouts could put unconnected nodes far outside the layout.** Nodes
+  with no edge were placed before the layout was centred and scaled. A UMAP layout then
+  moved them away from the middle, and a PaCMAP layout of exactly two connected nodes put
+  them several billion units away. Both engines now centre and scale the connected nodes
+  alone and put the others in a small clump at the middle. A layout of a network that
+  has no unconnected node is unchanged.
+- **A UMAP layout failed on a network with no edge between two different nodes.** A
+  network of self-loops only, or of a single node, raised an error. It now gets the
+  random layout, as a network without edges does.
+- **A NEXUS guide tree file with a `[&...]` comment between commands loaded as "no
+  tree".** The comment swallowed the command after it, such as `BEGIN TREES;`. It is now
+  skipped, and a `[&R]` or `[&U]` written before the `=` of a TREE command sets the
+  rooting.
+- **A command could run in the middle of a mouse gesture.** A command from an agent, MCP
+  or the command line that arrived while nodes were being dragged, a selection box was
+  being drawn or a Ctrl+wheel turn was open ran at once, and could change the selection
+  under the drag. It now waits and runs, in order, when the gesture ends. A typed `undo`
+  or `redo` is an instant command and still acts at once.
+- **A POST to a Viewer web address that no route takes got an empty reply.** It now gets
+  a 404. Routes still match the exact path, so a query string on `/api/action` gets the
+  404 too.
+- **The Agent page stayed locked when it was opened or reloaded during a turn.** It
+  dropped the turn's reply and kept its message box locked until it was reloaded after
+  the turn ended. It now follows the running turn and unlocks when the turn completes,
+  fails or is stopped.
+- **macOS: a Terminal window could close before its program started.** When Config
+  started the Viewer or the layout generator in Terminal, the window was closed as soon
+  as Terminal reported the tab idle, which could be before the command began. The launch
+  now waits for the command to start. This is checked on the generated script only, not
+  yet on a Mac.
+- **Log text could show "�" where a non-ASCII character fell on a page edge.** The
+  Viewer's worker output and the MCP job and Viewer log pages decoded each chunk on its
+  own. A page now ends before a character it cannot finish, and a character still being
+  written at the end of a running log is held back until it is complete.
+- **MCP `export_settings` failed when the newest layout cache for the inputs was 3D.**
+  With no saved edge filter it picked the newest cache, and a 3D cache made for VR was
+  then refused although a 2D one existed. 3D caches are now skipped.
 
 ## [0.5.0] - 2026-10-30
 
