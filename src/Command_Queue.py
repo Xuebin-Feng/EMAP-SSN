@@ -283,6 +283,15 @@ class ManualExecutor:
         self.tasks.clear()
 
 
+def gesture_open(viewer):
+    """Whether a mouse gesture is open: nodes are being dragged or turned, or a box drawn.
+
+    What a command, and a web page's action, waits for before it changes the nodes or the selection.
+    """
+    return bool(getattr(viewer, 'is_multi_dragging', False) or getattr(viewer, 'is_box_selecting', False)
+                or getattr(viewer, '_wheel_turn', None) is not None)
+
+
 class CommandQueue(QtCore.QObject):
     """The Viewer's command queue (see the module docstring). Lives on the GUI thread."""
 
@@ -383,18 +392,9 @@ class CommandQueue(QtCore.QObject):
 
     # --- turns -------------------------------------------------------------
 
-    @staticmethod
-    def gesture_open(viewer):
-        """Whether a mouse gesture is open: nodes are being dragged or turned, or a box drawn.
-
-        What a command, and a web page's action, waits for before it changes the nodes or the selection.
-        """
-        return bool(getattr(viewer, 'is_multi_dragging', False) or getattr(viewer, 'is_box_selecting', False)
-                    or getattr(viewer, '_wheel_turn', None) is not None)
-
     def _busy(self, viewer, from_dispatch=False):
         """Whether a turn must wait: nodes are being dragged or turned, a box drawn, or another command dispatched."""
-        return (self.gesture_open(viewer)
+        return (gesture_open(viewer)
                 or (not from_dispatch and getattr(viewer, '_command_dispatch_active', False)))
 
     def _schedule(self, milliseconds=0):

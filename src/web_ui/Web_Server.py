@@ -99,8 +99,8 @@ class QtCommunicator(QtCore.QObject):
         self.action_signal.emit(data)
 
     def _gesture_open(self):
-        from Command_Queue import CommandQueue
-        return CommandQueue.gesture_open(self.viewer)
+        from Command_Queue import gesture_open
+        return gesture_open(self.viewer)
 
     def dispatch_action(self, data):
         # An action can change the selection or the nodes, so, like a command, it waits while a drag, a box
