@@ -4087,11 +4087,16 @@ class MainViewer:
     def undo_by_hand(self):
         """Ctrl+Z, the Undo button and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
 
-        A command that has not finished has not happened yet: undoing it is not
-        doing it. Returns whether anything was taken back. A Ctrl + wheel turn still open ends first, so that it is
-        a step of its own, which this takes back, and its next notch starts a new turn.
+        A drag of nodes or a selection box that is open comes first: this cancels it exactly as Esc does
+        (_cancel_drag) and does nothing else, so no earlier step is undone and no waiting command is taken
+        back; the command that waited for the drag goes on. Otherwise: a command that has not finished has not
+        happened yet, and undoing it is not doing it. Returns whether anything was taken back. A Ctrl + wheel
+        turn still open ends first, so that it is a step of its own, which this takes back, and its next notch
+        starts a new turn.
         """
         self._end_wheel_turn()
+        if getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False):
+            return self._cancel_drag()
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
             _cancelled, message = queue.take_back(1)
@@ -4814,7 +4819,7 @@ class MainViewer:
             queue.resume()
 
     def _cancel_drag(self):
-        """Esc during a right-button drag, or a turn by Ctrl + wheel: put everything back as it was at the start.
+        """Esc, or Ctrl+Z, during a right-button drag, or Esc during a turn by Ctrl + wheel: put everything back as it was at the start.
 
         A drag of selected nodes puts each node back where it was, a turn of the wheel or of
         Ctrl + right-drag undone too, and leaves the selection as the press made it. The snapshot

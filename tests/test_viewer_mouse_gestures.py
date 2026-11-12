@@ -2684,6 +2684,208 @@ class UndoDuringWheelTurnTests(GestureTestCase):
         self.assertEqual(len(viewer.position_history), self.earlier_steps + 1)
 
 
+class UndoDuringDragTests(GestureTestCase):
+    """Ctrl+Z while a right-button drag is open cancels the drag exactly as Esc does, and does nothing else.
+
+    It used to pop the snapshot the press took and leave the drag open, so the next move carried the nodes on from
+    the press positions (a node drag), or the box went on with its selection while the step before it was undone.
+    """
+
+    CASES = ("drag", "turn", "box")
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(Command_Engine, "show_status")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def setup_gesture(self, case, redo=False):
+        """A Viewer with an earlier step in its history and a gesture of `case` open (the button down)."""
+        viewer = self.make_viewer(selected=[1, 2])
+        viewer.console_mode = False
+        viewer._refresh_after_history = mock.Mock()
+        viewer._save_state()                          # an earlier step: node 3 was here
+        viewer.pos[3, 0] = 400.0                      # ... and has moved since, which only that step undoes
+        if redo:
+            viewer._save_state()
+            viewer.pos[3, 0] = 500.0
+            viewer.undo_by_hand()                     # a real step to redo, and node 3 back at 400
+        self.earlier = list(viewer.position_history)
+        if case == "drag":
+            self.press(viewer, *NODE[1])
+            self.move(viewer, 70, 20)
+        elif case == "turn":                          # Ctrl + right-drag: turns the selection about the press
+            self.press(viewer, 42.5, 1.5, modifiers=CTRL)
+            self.move(viewer, 2.5, 1.5)
+            self.move(viewer, 42.5, 41.5)
+            self.assertFalse(np.array_equal(viewer.pos[1, :2], NODE[1]))
+        else:
+            self.press(viewer, 30, -10)
+            self.move(viewer, 90, 10)
+        self.assertEqual(case == "box", viewer.is_box_selecting)
+        self.assertEqual(case != "box", viewer.is_multi_dragging)
+        return viewer
+
+    @staticmethod
+    def ctrl_key(name, modifiers=CTRL):
+        return SimpleNamespace(key=SimpleNamespace(name=name), text="", modifiers=list(modifiers), handled=False)
+
+    def ctrl_z(self, viewer):
+        ev = self.ctrl_key("Z")
+        viewer.on_key_press(ev)
+        return ev
+
+    @staticmethod
+    def state(viewer):
+        return {"pos": viewer.pos.copy(), "selection": list(viewer.selected_indices),
+                "epoch": viewer.selection_epoch, "dragging": viewer.is_multi_dragging,
+                "box": viewer.is_box_selecting, "box_visible": viewer.selection_box.visible,
+                "cancelled": getattr(viewer, "_drag_cancelled", False),
+                "history": [id(step) for step in viewer.position_history],
+                "redo": [id(step) for step in viewer.redo_stack]}
+
+    def assert_same_state(self, one, other):
+        for name in one:
+            if name == "pos":
+                np.testing.assert_array_equal(one[name], other[name])
+            else:
+                self.assertEqual(one[name], other[name], name)
+
+    def cancelled_by(self, case, how):
+        """The Viewer, and its state after the cancel, after a later move, and after the release."""
+        viewer = self.setup_gesture(case)
+        # Compare history by what it holds, not by identity, across two Viewers.
+        if how == "esc":
+            handled = self.esc(viewer)
+        else:
+            handled = self.ctrl_z(viewer)
+        self.assertTrue(handled.handled)
+        states = [self.state(viewer)]
+        self.move(viewer, 120, 50)
+        states.append(self.state(viewer))
+        self.release(viewer, 120, 50)
+        states.append(self.state(viewer))
+        return viewer, states
+
+    @staticmethod
+    def shape(states, viewer):
+        """A state with the history as lengths, so that two Viewers' steps compare."""
+        out = []
+        for state in states:
+            state = dict(state)
+            state["history"], state["redo"] = len(state["history"]), len(state["redo"])
+            out.append(state)
+        return out
+
+    def test_ctrl_z_leaves_the_state_esc_leaves_and_the_rest_of_the_drag_does_nothing(self):
+        for case in self.CASES:
+            with self.subTest(case=case):
+                _, by_esc = self.cancelled_by(case, "esc")
+                viewer, by_undo = self.cancelled_by(case, "undo")
+                for after_esc, after_undo in zip(self.shape(by_esc, None), self.shape(by_undo, None)):
+                    self.assert_same_state(after_esc, after_undo)
+                cancelled, moved, released = by_undo
+                self.assertFalse(cancelled["dragging"] or cancelled["box"])
+                self.assertEqual(cancelled["selection"], [1, 2])
+                self.assertEqual(len(cancelled["history"]), 1)       # the earlier step, none of the press's
+                self.assertEqual(len(cancelled["redo"]), 0)          # and nothing was undone
+                np.testing.assert_array_equal(moved["pos"], cancelled["pos"])    # a later move moves no node
+                self.assertEqual(released["history"], cancelled["history"])      # the release adds no step
+                self.assertEqual(released["selection"], [1, 2])
+
+    def test_ctrl_z_puts_the_nodes_back(self):
+        for case in ("drag", "turn"):
+            with self.subTest(case=case):
+                viewer = self.setup_gesture(case)
+                self.ctrl_z(viewer)
+                self.assert_places(viewer, [1, 2], [NODE[1], NODE[2]], atol=0)
+                self.assertEqual(viewer.pos[3, 0], 400.0)
+
+    def test_the_step_before_is_undone_by_the_next_ctrl_z_while_the_button_is_down_or_after_the_release(self):
+        for case in self.CASES:
+            for released in (False, True):
+                with self.subTest(case=case, released=released):
+                    viewer = self.setup_gesture(case)
+                    self.ctrl_z(viewer)
+                    if released:
+                        self.release(viewer, 90, 10)
+                    self.ctrl_z(viewer)
+                    self.assertEqual(viewer.pos[3, 0], 120.0)         # the earlier step is undone
+                    self.assertEqual(viewer.position_history, [])
+                    self.assertEqual(len(viewer.redo_stack), 1)
+                    self.assertFalse(viewer.is_multi_dragging or viewer.is_box_selecting)
+
+    def test_the_undo_button_and_undo_by_hand_cancel_the_drag_too(self):
+        for case in self.CASES:
+            with self.subTest(case=case):
+                viewer = self.setup_gesture(case)
+                self.assertTrue(viewer.undo_by_hand())
+                self.assertFalse(viewer.is_multi_dragging or viewer.is_box_selecting)
+                self.assertEqual(len(viewer.position_history), 1)
+                self.assertEqual(viewer.redo_stack, [])
+
+    def test_a_command_that_waited_for_the_drag_goes_on_and_is_not_taken_back(self):
+        for case in self.CASES:
+            with self.subTest(case=case):
+                viewer = self.setup_gesture(case)
+                queue = mock.Mock()
+                queue.pending.return_value = ["a waiting command"]
+                viewer.command_queue = queue
+                self.assertTrue(viewer.undo_by_hand())
+                queue.resume.assert_called_once_with()
+                queue.take_back.assert_not_called()
+
+    def test_ctrl_z_with_no_drag_still_takes_back_a_waiting_command_or_undoes(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        viewer.console_mode = False
+        viewer._refresh_after_history = mock.Mock()
+        viewer._save_state()
+        queue = mock.Mock()
+        queue.pending.return_value = ["a waiting command"]
+        queue.take_back.return_value = (1, "taken back")
+        viewer.command_queue = queue
+        self.assertTrue(self.ctrl_z(viewer).handled)
+        queue.take_back.assert_called_once_with(1)
+        self.assertEqual(len(viewer.position_history), 1)
+        queue.pending.return_value = []
+        self.ctrl_z(viewer)
+        self.assertEqual(viewer.position_history, [])
+
+    def test_a_wheel_turn_is_still_its_own_step_that_ctrl_z_takes_back(self):
+        viewer = self.make_viewer(selected=[1, 2])
+        viewer.console_mode = False
+        viewer._refresh_after_history = mock.Mock()
+        viewer._save_state()
+        self.wheel(viewer, (0.0, 1.0), 60.0, 30.0, buttons=(), modifiers=CTRL)
+        self.assertIsNotNone(viewer._wheel_turn)
+        self.ctrl_z(viewer)
+        self.assertIsNone(viewer._wheel_turn)
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertEqual(len(viewer.redo_stack), 1)
+        self.assert_places(viewer, [1, 2], [NODE[1], NODE[2]])
+
+    def test_a_wheel_turn_cannot_be_open_with_a_drag(self):
+        # A button press ends the turn, and a Ctrl + wheel notch with a button held turns nothing,
+        # so the drag branch of undo_by_hand never has a turn to deal with.
+        viewer = self.setup_gesture("drag")
+        self.assertIsNone(viewer._wheel_turn)
+        self.wheel(viewer, (0.0, 1.0), 60.0, 30.0, buttons=(2,), modifiers=CTRL)
+        self.assertIsNone(viewer._wheel_turn)
+
+    def test_ctrl_y_during_a_node_drag_changes_nothing(self):
+        # The press emptied the redo steps, so there is nothing for Ctrl+Y to bring back.
+        for case in ("drag", "turn"):
+            with self.subTest(case=case):
+                viewer = self.setup_gesture(case, redo=True)
+                self.assertEqual(viewer.redo_stack, [])
+                before = self.state(viewer)
+                viewer.on_key_press(self.ctrl_key("Y"))
+                after = self.state(viewer)
+                self.assertTrue(after["dragging"])
+                self.assert_same_state(before, after)
+                self.assertEqual(len(after["history"]), 2)
+
+
 class PageSelectionDuringGestureTests(GestureTestCase):
     """A web page's action (Tree View's tree_select) that arrives in the middle of a mouse gesture waits for it to end.
 
