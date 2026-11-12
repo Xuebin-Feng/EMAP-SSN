@@ -4105,8 +4105,14 @@ class MainViewer:
         return self._do_undo()
 
     def redo_by_hand(self):
-        """Ctrl+Y, the Redo button and the sheet's redo: nothing to redo while commands wait (they come after the undone steps)."""
+        """Ctrl+Y, the Redo button and the sheet's redo: nothing to redo while commands wait (they come after the undone steps).
+
+        While a drag of nodes or a selection box is open it does nothing and the gesture goes on (a box press
+        leaves the redo steps in place, and redoing one would change the nodes under the box).
+        """
         self._end_wheel_turn()  # a turn still open ends first, as for undo_by_hand
+        if getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False):
+            return False
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
             message = Message("Nothing to redo: the undone steps were followed by %n waiting command(s).",

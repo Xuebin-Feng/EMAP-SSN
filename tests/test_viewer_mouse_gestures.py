@@ -2886,6 +2886,26 @@ class UndoDuringDragTests(GestureTestCase):
                 self.assertEqual(len(after["history"]), 2)
 
 
+    def test_ctrl_y_during_a_box_does_nothing_and_the_box_goes_on(self):
+        # A box press leaves the redo steps in place; redoing one under the box used to change the nodes and the
+        # history while the gesture was open.
+        viewer = self.setup_gesture("box", redo=True)
+        self.assertEqual(len(viewer.redo_stack), 1)
+        before = self.state(viewer)
+        ev = self.ctrl_key("Y")
+        viewer.on_key_press(ev)
+        self.assertTrue(ev.handled)
+        self.assertFalse(viewer.redo_by_hand())
+        self.assert_same_state(before, self.state(viewer))
+        self.assertTrue(viewer.is_box_selecting)
+        self.move(viewer, 120, 10)                             # the box goes on
+        self.assertTrue(viewer.is_box_selecting and viewer.selection_box.visible)
+        self.release(viewer, 120, 10)
+        self.assertEqual(len(viewer.redo_stack), 1)            # and Ctrl+Y works again once it is over
+        self.assertTrue(viewer.redo_by_hand())
+        self.assertEqual(viewer.redo_stack, [])
+
+
 class PageSelectionDuringGestureTests(GestureTestCase):
     """A web page's action (Tree View's tree_select) that arrives in the middle of a mouse gesture waits for it to end.
 
