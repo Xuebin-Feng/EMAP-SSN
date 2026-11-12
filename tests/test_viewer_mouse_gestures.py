@@ -1145,7 +1145,7 @@ class PressStepButtonTests(GestureTestCase):
         viewer._refresh_history_buttons()
         self.assertEqual(set(self.shown), {(True, False)})
 
-    def test_ctrl_z_during_a_press_cancels_it_and_ctrl_y_waits_for_the_release(self):
+    def test_ctrl_z_during_a_press_cancels_it_and_ctrl_y_does_nothing(self):
         viewer = self.make_viewer(selected=[1, 2], earlier=1, undone=1)
         self.press(viewer, *NODE[1])
         self.assertEqual(len(viewer.position_history), 2)
@@ -2753,7 +2753,6 @@ class UndoDuringDragTests(GestureTestCase):
     def cancelled_by(self, case, how):
         """The Viewer, and its state after the cancel, after a later move, and after the release."""
         viewer = self.setup_gesture(case)
-        # Compare history by what it holds, not by identity, across two Viewers.
         if how == "esc":
             handled = self.esc(viewer)
         else:
@@ -2767,7 +2766,7 @@ class UndoDuringDragTests(GestureTestCase):
         return viewer, states
 
     @staticmethod
-    def shape(states, viewer):
+    def shape(states):
         """A state with the history as lengths, so that two Viewers' steps compare."""
         out = []
         for state in states:
@@ -2781,7 +2780,7 @@ class UndoDuringDragTests(GestureTestCase):
             with self.subTest(case=case):
                 _, by_esc = self.cancelled_by(case, "esc")
                 viewer, by_undo = self.cancelled_by(case, "undo")
-                for after_esc, after_undo in zip(self.shape(by_esc, None), self.shape(by_undo, None)):
+                for after_esc, after_undo in zip(self.shape(by_esc), self.shape(by_undo)):
                     self.assert_same_state(after_esc, after_undo)
                 cancelled, moved, released = by_undo
                 self.assertFalse(cancelled["dragging"] or cancelled["box"])
@@ -2883,7 +2882,6 @@ class UndoDuringDragTests(GestureTestCase):
                 self.assertTrue(after["dragging"])
                 self.assert_same_state(before, after)
                 self.assertEqual(len(after["history"]), 2)
-
 
     def test_ctrl_y_during_a_box_does_nothing_and_the_box_goes_on(self):
         # A box press leaves the redo steps in place; redoing one under the box used to change the nodes and the
