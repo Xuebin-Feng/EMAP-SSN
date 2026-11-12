@@ -1145,19 +1145,18 @@ class PressStepButtonTests(GestureTestCase):
         viewer._refresh_history_buttons()
         self.assertEqual(set(self.shown), {(True, False)})
 
-    def test_the_keys_act_during_a_press_as_before(self):
+    def test_ctrl_z_during_a_press_cancels_it_and_ctrl_y_waits_for_the_release(self):
         viewer = self.make_viewer(selected=[1, 2], earlier=1, undone=1)
         self.press(viewer, *NODE[1])
         self.assertEqual(len(viewer.position_history), 2)
+        self.assertEqual(viewer.redo_stack, [])
         with mock.patch.object(Command_Engine, "show_status"), mock.patch.object(viewer, "_refresh_after_history"):
-            self.assertTrue(viewer.undo_by_hand())               # the press's snapshot is the step it takes
-        self.assertEqual(len(viewer.position_history), 1)
-        self.assertEqual(len(viewer.redo_stack), 1)
-        self.assertEqual(self.shown[-1], (True, True))           # the press's snapshot went to redo, which shows it
-        with mock.patch.object(Command_Engine, "show_status"), mock.patch.object(viewer, "_refresh_after_history"):
-            self.assertTrue(viewer.redo_by_hand())
-        self.assertEqual(len(viewer.position_history), 2)
-        self.assertEqual(self.shown[-1], (True, False))
+            self.assertFalse(viewer.redo_by_hand())              # nothing while the press is open
+            self.assertEqual(len(viewer.position_history), 2)
+            self.assertTrue(viewer.undo_by_hand())               # cancels the press, as Esc does
+        self.assertEqual(len(viewer.position_history), 1)        # the press's snapshot is off, the earlier step stays
+        self.assertEqual(len(viewer.redo_stack), 1)              # and the step it cleared from redo is given back
+        self.assertEqual(self.shown[-1], (True, True))
 
     def test_the_first_notch_of_a_ctrl_wheel_turn_turns_the_nodes_and_lights_undo_at_once(self):
         # The turn's snapshot is no pending one: its first notch has turned the nodes by the time it is back.
