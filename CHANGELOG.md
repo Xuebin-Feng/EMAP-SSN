@@ -470,6 +470,13 @@ still change before version 1.0.0.
   moment after the last notch. Undo in that moment put the nodes back, but the next
   notch brought the whole turn back, with no undo step of its own. Undo and redo now end
   the turn first, so the turn is one undo step and the next notch starts a new turn.
+- **Ctrl+Z during a drag left the drag half undone.** Pressing Ctrl+Z, or the Undo
+  button, while nodes were being moved or turned with the right button put them back,
+  but the next mouse move carried them on, and the move then had no undo step. During a
+  selection box it undid the step before the box, and the box went on. Ctrl+Z now
+  cancels a drag or a selection box in progress exactly as Esc does and undoes nothing
+  else. Ctrl+Y, which could redo a step in the middle of a selection box, does nothing
+  until the drag or the box ends.
 - **The Agent page lost a reply after a refused model switch.** Switching to a model
   card that was refused (one that needs the data-use answer, or has an invalid
   temperature or no URL) while a reply was being written unlocked the message box, and
