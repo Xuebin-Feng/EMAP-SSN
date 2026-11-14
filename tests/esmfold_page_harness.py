@@ -351,14 +351,14 @@ window.fit = function (index) {
 // The Color by card as a person sees it: its buttons, the legend of the chosen coloring, the notes.
 window.card = function () {
     const body = document.getElementById('color-body');
-    const chips = [...body.querySelectorAll('[role="radio"]')];
+    const chips = [...body.querySelectorAll('.seg-btn')];
     const legend = body.querySelector('#color-legend');
     const compact = document.getElementById('canvas-legend');
     const text = node => (node ? node.textContent : null);
-    const chosen = chips.find(chip => chip.getAttribute('aria-checked') === 'true');
+    const chosen = chips.find(chip => chip.querySelector('input').checked);
     return {
         title: text(document.getElementById('h-color')),
-        chips: chips.map(chip => [chip.dataset.coloring, chip.firstChild.textContent, text(chip.querySelector('.cov')) || '']),
+        chips: chips.map(chip => [chip.dataset.coloring, chip.querySelector('.seg-label').textContent, text(chip.querySelector('.cov')) || '']),
         selected: chosen ? chosen.dataset.coloring : null,
         legendTitle: legend ? legend.querySelector('.t').firstChild.textContent : null,
         legendUnit: legend ? text(legend.querySelector('.t small')) : null,

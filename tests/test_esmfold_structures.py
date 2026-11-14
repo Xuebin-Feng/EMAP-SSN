@@ -386,6 +386,24 @@ class SessionMenuTests(StructuresTestCase):
         self.script("setConnection('connected'); return 1")
         self.assertFalse(self.script("return document.getElementById('mi-save').disabled"))
 
+    def test_a_mouse_click_leaves_the_focus_on_the_button_and_the_arrow_keys_open_it_at_the_first_or_last_item(self):
+        self.open_with(2)
+        # A click of the mouse (detail 1) opens the menu and leaves the focus on the button; the keyboard's (detail 0) goes into it.
+        self.js("""const button = document.getElementById('session-btn'); button.focus();
+                   button.dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 1}))""")
+        self.assertEqual(self.menu(), {"open": True, "expanded": "true", "focus": "session-btn"})
+        self.js("document.getElementById('session-btn').dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 1}))")
+        self.assertFalse(self.menu()["open"])
+        # ArrowDown and ArrowUp on the button open it at the first and the last item (the last that is not disabled: Clear scene is on).
+        for key, focus in (("ArrowDown", "mi-save"), ("ArrowUp", "mi-clear")):
+            self.js("document.getElementById('session-btn').focus()")
+            self.js("document.getElementById('session-btn').dispatchEvent(new KeyboardEvent('keydown', {key: %s, bubbles: true, cancelable: true}))" % json.dumps(key))
+            self.assertEqual(self.menu(), {"open": True, "expanded": "true", "focus": focus}, key)
+            self.js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        # The dividers are real separators (<hr>), not divs with a role.
+        self.assertEqual(self.script("return [...document.querySelectorAll('#session-menu > .menu-sep')].map(n => n.tagName)"), ["HR", "HR"])
+        self.assertEqual(self.script("return document.querySelectorAll('#session-menu [role=separator]').length"), 0)
+
     def test_save_now_posts_the_session_and_the_header_says_when(self):
         self.open_with(2)
         self.settle(1800)

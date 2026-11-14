@@ -45,43 +45,44 @@ byId('t-zoom').addEventListener('click', () => {
 });
 
 // ---- The toolbar: one Tab stop, the arrow keys move along it ------------------------------------------
-// The buttons that are shown (the view's tools come and go with the view, Label and full screen go on a phone, Clear with the
-// annotations). The Tab stop is the one the focus was last on, else the first shown; Left and Right move (round the ends), Home and End jump.
+// The browser does it where it has focusgroup (the attribute on the toolbar in esmfold.html); elsewhere this does the same: the buttons
+// that are shown (the view's tools come and go with the view, Label and full screen go on a phone, Clear with the annotations). The Tab
+// stop is the one the focus was last on, else the first shown; Left and Right move (round the ends), Home and End jump.
 const viewToolbar = document.querySelector('.view-toolbar');
 let toolbarStop = null;      // the button the focus was last on, or null
+let syncToolbarStop = () => {};
+if (!('focusGroup' in HTMLElement.prototype)) {
+    const toolbarItems = () => [...viewToolbar.querySelectorAll('button')].filter(button => button.getClientRects().length > 0);
 
-function toolbarItems() {
-    return [...viewToolbar.querySelectorAll('button')].filter(button => button.getClientRects().length > 0);
-}
+    syncToolbarStop = () => {
+        const items = toolbarItems();
+        const stop = items.includes(toolbarStop) ? toolbarStop : items[0];
+        for (const button of viewToolbar.querySelectorAll('button')) button.tabIndex = button === stop ? 0 : -1;
+    };
 
-function syncToolbarStop() {
-    const items = toolbarItems();
-    const stop = items.includes(toolbarStop) ? toolbarStop : items[0];
-    for (const button of viewToolbar.querySelectorAll('button')) button.tabIndex = button === stop ? 0 : -1;
-}
-
-viewToolbar.addEventListener('focusin', event => {
-    if (event.target.tagName !== 'BUTTON') return;
-    toolbarStop = event.target;
+    viewToolbar.addEventListener('focusin', event => {
+        if (event.target.tagName !== 'BUTTON') return;
+        toolbarStop = event.target;
+        syncToolbarStop();
+    });
+    viewToolbar.addEventListener('keydown', event => {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const items = toolbarItems();
+        const at = items.indexOf(document.activeElement);
+        if (at < 0) return;
+        let to;
+        if (event.key === 'ArrowRight') to = (at + 1) % items.length;
+        else if (event.key === 'ArrowLeft') to = (at - 1 + items.length) % items.length;
+        else if (event.key === 'Home') to = 0;
+        else if (event.key === 'End') to = items.length - 1;
+        else return;
+        event.preventDefault();
+        items[to].focus();
+    });
+    // What is shown changes the buttons' sizes (the view, the window's width, Clear), so a resize says when the stop must be chosen again.
+    new ResizeObserver(syncToolbarStop).observe(viewToolbar);
     syncToolbarStop();
-});
-viewToolbar.addEventListener('keydown', event => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const items = toolbarItems();
-    const at = items.indexOf(document.activeElement);
-    if (at < 0) return;
-    let to;
-    if (event.key === 'ArrowRight') to = (at + 1) % items.length;
-    else if (event.key === 'ArrowLeft') to = (at - 1 + items.length) % items.length;
-    else if (event.key === 'Home') to = 0;
-    else if (event.key === 'End') to = items.length - 1;
-    else return;
-    event.preventDefault();
-    items[to].focus();
-});
-// What is shown changes the buttons' sizes (the view, the window's width, Clear), so a resize says when the stop must be chosen again.
-new ResizeObserver(syncToolbarStop).observe(viewToolbar);
-syncToolbarStop();
+}
 
 // ---- Measuring and labeling -----------------------------------------------------------------------
 // The CA atom of a residue, as Mol* loci: what the distance is drawn between.

@@ -24,7 +24,6 @@ window.TreeView = window.TreeView || {};
     let pending = null;
     // How many openings were begun, so that a slow one an newer one has overtaken is dropped.
     let openings = 0;
-    let copiedTimer = null;
     // The most names the box of unmatched leaves lists (the copy has them all).
     const LISTED = 5000;
     // How long the last opening took, in milliseconds: reading the text, the Viewer's answer, and the first frame.
@@ -92,18 +91,6 @@ window.TreeView = window.TreeView || {};
         return names;
     }
 
-    function copyText(text, button) {
-        const label = button.querySelector("span");
-        const original = label.dataset.label || label.textContent;
-        label.dataset.label = original;
-        const done = () => {
-            label.textContent = t("Copied");
-            clearTimeout(copiedTimer);
-            copiedTimer = setTimeout(() => { label.textContent = original; }, 1500);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => {});
-    }
-
     // A list of short texts (a name each) in a column, in the page's monospace.
     function listOf(items) {
         const list = document.createElement("ul");
@@ -164,7 +151,7 @@ window.TreeView = window.TreeView || {};
             const label = document.createElement("span");
             label.textContent = t("Copy the list");
             copy.appendChild(label);
-            copy.addEventListener("click", () => copyText(names.join("\n"), copy));
+            copy.addEventListener("click", () => TV.copyText(names.join("\n"), copy));
             panel.append(subtitle, box, copy);
         }
     }
@@ -205,7 +192,7 @@ window.TreeView = window.TreeView || {};
         const label = document.createElement("span");
         label.textContent = t("Copy the list");
         copy.appendChild(label);
-        copy.addEventListener("click", () => copyText(names.join("\n"), copy));
+        copy.addEventListener("click", () => TV.copyText(names.join("\n"), copy));
         panel.append(subtitle, box, copy);
     }
 

@@ -325,7 +325,8 @@ class ShellTests(PageTestCase):
         found = self.script("""
             return {main: document.querySelectorAll('main').length, stage: !!document.querySelector('main #stage'), seq: !!document.querySelector('main #seqbar'),
                     header: !!document.querySelector('main header'), side: !!document.querySelector('main #side'),
-                    sections: [...document.querySelectorAll('#side section')].map(node => node.hasAttribute('aria-labelledby') || node.hasAttribute('aria-label')),
+                    // (A tab panel, named by its tab, is no landmark: a region is a section with a name and no role of its own.)
+                    sections: [...document.querySelectorAll('#side section')].map(node => (node.hasAttribute('aria-labelledby') || node.hasAttribute('aria-label')) && node.getAttribute('role') !== 'tabpanel'),
                     headings: ['h-structures', 'h-color', 'h-residue'].map(id => !!document.getElementById(id)),
                     sep: [...document.querySelectorAll('.view-toolbar [role=separator]')].map(node => node.getAttribute('aria-orientation'))};
             """)
@@ -551,6 +552,26 @@ class MessageTests(PageTestCase):
         self.assertEqual(found, {"live": "Removed 22. Undo is available.", "focused": True, "leftFocus": True, "afterFocus": False,
                                  "hovered": True, "leftPointer": True, "afterPointer": False, "plain": "Session saved.", "plainAfter": False})
 
+    def test_what_is_under_way_is_shown_and_not_said_and_its_outcome_is_both(self):
+        self.open_page()
+        found = self.script("""
+            const live = () => document.getElementById('live').textContent, toast = () => document.querySelector('#toast span').textContent;
+            showStatus('Done before.');
+            const first = [toast(), live()];
+            showStatus('Loading structure 22...', 0, {quiet: true});
+            const loading = [toast(), live()];
+            showStatus('Loaded 22.');
+            return {first, loading, loaded: [toast(), live()]};
+            """)
+        # The toast shows the message in progress, the live region keeps what it last said; the outcome is shown and said.
+        self.assertEqual(found, {"first": ["Done before.", "Done before."], "loading": ["Loading structure 22...", "Done before."],
+                                 "loaded": ["Loaded 22.", "Loaded 22."]})
+        # The page's own messages of a load under way are quiet ones.
+        source = (ROOT / "src" / "web_ui" / "esmfold_shell.js").read_text(encoding="utf-8")
+        for text in ("Loading structure {name}...", "Aligning {name} to the pivot structure...", "Processing queued structure: {name}...",
+                     "New structure received: {name}. Loading..."):
+            self.assertRegex(source, r't\("%s"[^)]*\)[^;]*\{quiet: true\}' % re.escape(text))
+
     def test_a_message_that_comes_while_a_dialog_is_open_waits_for_it_to_close(self):
         # The page under a dialog is inert, the toast and the live region with it: a fold that ends while the help is open, say.
         self.open_page()
@@ -601,6 +622,66 @@ class MessageTests(PageTestCase):
         self.assertGreaterEqual(found["contrast"], 4.5, found)
         # The text is the theme's own red, which the page does not change.
         self.assertEqual(found["danger"], "rgb(248, 113, 113)")
+
+
+class MarkupTests(PageTestCase):
+    """What the page's head and markup say to the browser: how the scripts load, what moves under reduced motion, the toolbar's keys."""
+
+    def test_the_scripts_are_deferred_in_order_and_the_theme_script_stays_in_the_head(self):
+        self.open_page()
+        found = self.script("""
+            const scripts = [...document.querySelectorAll('script')];
+            return {external: scripts.filter(s => s.src).map(s => [new URL(s.src).pathname, s.defer]),
+                    inline: scripts.filter(s => !s.src).map(s => s.parentElement.tagName), theme: document.documentElement.dataset.theme,
+                    started: document.body.dataset.view !== 'starting'};
+            """)
+        paths = [path for path, _ in found["external"]]
+        self.assertEqual(paths[:2], ["/page_text.js", "/esmfold/molstar.js"])
+        self.assertEqual(paths[2:4], ["/esmfold_superposition.js", "/esmfold_layers.js"])
+        self.assertEqual(paths.index("/esmfold_shell.js") < paths.index("/esmfold_structures.js") < paths.index("/esmfold_jobs.js"), True)
+        self.assertTrue(all(deferred for _, deferred in found["external"]), found["external"])
+        # Both inline scripts are in the head, ahead of the first drawing, and the theme is set.
+        self.assertEqual(found["inline"], ["HEAD", "HEAD"])
+        self.assertIn(found["theme"], ("light", "dark"))
+        self.assertTrue(found["started"])
+
+    def test_reduced_motion_stops_what_moves_slows_the_spinner_and_keeps_the_fades_of_colour(self):
+        self.open_page()
+        found = self.script("""
+            const rules = [];
+            for (const sheet of document.styleSheets) {
+                let list;
+                try { list = sheet.cssRules; } catch (error) { continue; }
+                for (const rule of list) {
+                    if (rule.media && rule.media.mediaText.includes('prefers-reduced-motion: reduce')) rules.push(...[...rule.cssRules].map(r => r.cssText));
+                }
+            }
+            return rules;
+            """)
+        text = chr(10).join(found)
+        self.assertTrue(found)
+        self.assertNotIn("* {", text)
+        self.assertIn("animation-duration: 4s", text)
+        self.assertNotIn("animation: none", text)
+        for selector in (".more-toggle .icon", ".legend .src .chev", ".srow .exp-btn .icon", ".seq-head .btn .icon", ".side"):
+            self.assertIn(selector, text)
+        # The colour fades (the buttons', the resizer's) are not in it.
+        self.assertNotIn(".btn", text.replace(".seq-head .btn .icon", ""))
+
+    def test_the_view_toolbar_is_a_focusgroup_and_its_script_is_the_fallback_only(self):
+        self.open_page()
+        found = self.script("""
+            const bar = document.querySelector('.view-toolbar');
+            return {focusgroup: bar.getAttribute('focusgroup'), role: bar.getAttribute('role'), native: 'focusGroup' in HTMLElement.prototype,
+                    stops: [...bar.querySelectorAll('button')].filter(b => b.getAttribute('tabindex') === '0').length,
+                    scripted: [...bar.querySelectorAll('button')].filter(b => b.hasAttribute('tabindex')).length};
+            """)
+        self.assertEqual((found["focusgroup"], found["role"]), ("toolbar wrap", "toolbar"))
+        # Where the browser has focusgroup nothing is scripted; elsewhere exactly one button is the Tab stop.
+        if found["native"]:
+            self.assertEqual(found["scripted"], 0)
+        else:
+            self.assertEqual(found["stops"], 1)
 
 
 class StartFailureChecks:

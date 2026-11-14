@@ -772,6 +772,34 @@ class TooltipAndPinTests(TreeCase):
         self.assertEqual(tooltip["lines"][0], "A node of this network")
         self.assertRegex(tooltip["lines"][1], r"^Branch length: \d")
 
+    def test_escape_puts_the_tooltip_away_and_it_stays_away_until_the_pointer_moves_again(self):
+        x, y = self.name_point(100)
+        self.hover(x, y)
+        self.script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})); return 1")
+        self.assertEqual(self.state("document.getElementById('tooltip').style.display"), "none")
+        self.pump(0.4)
+        self.assertEqual(self.state("document.getElementById('tooltip').style.display"), "none")
+        self.script(f"fire.move({x + 1}, {y}); return 1")
+        self.wait_for("document.getElementById('tooltip').style.display === 'block'")
+
+    def test_a_page_that_is_hidden_is_not_drawn_and_is_drawn_once_when_it_is_seen_again(self):
+        found = self.script("""
+            let hidden = true;
+            Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
+            const real = TreeView.drawNow; let frames = 0;
+            TreeView.drawNow = function () { frames++; return real.apply(this, arguments); };
+            const raf = window.requestAnimationFrame; window.requestAnimationFrame = () => 0;
+            TreeView.requestDraw();
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const whileHidden = frames;
+            hidden = false;
+            document.dispatchEvent(new Event('visibilitychange'));
+            const afterShown = frames;
+            document.dispatchEvent(new Event('visibilitychange'));
+            window.requestAnimationFrame = raf; TreeView.drawNow = real; delete document.hidden;
+            return {whileHidden, afterShown, again: frames};""")
+        self.assertEqual((found["whileHidden"], found["afterShown"], found["again"]), (0, 1, 1))
+
     @staticmethod
     def below(tree, node):
         """A boolean array over nodes: which are in the subtree of ``node`` (post-order: its block of nodes)."""

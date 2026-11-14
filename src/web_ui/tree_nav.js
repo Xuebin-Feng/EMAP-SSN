@@ -675,8 +675,13 @@ window.TreeView = window.TreeView || {};
         if (drawQueued) return;
         drawQueued = true;
         requestAnimationFrame(() => { if (drawQueued) TV.drawNow(); });
-        setTimeout(() => { if (drawQueued) TV.drawNow(); }, 100);
+        setTimeout(() => { if (drawQueued && !document.hidden) TV.drawNow(); }, 100);
     };
+
+    // A page behind others draws nothing; what changed meanwhile is drawn once when it is seen again.
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && drawQueued) TV.drawNow();
+    });
 
     // Tell the overview that what it draws of the tree changed (the layout, the folds, the matches, the theme).
     TV.minimapChanged = function () {
@@ -1058,13 +1063,21 @@ window.TreeView = window.TreeView || {};
         };
         const inRuler = (px) => state.layout && state.layout.kind === "rectangular" && px >= canvas.clientWidth - TV.RULER_WIDTH;
 
+        // Esc puts the hover tooltip away, and it stays away until the pointer moves again.
+        let tooltipDismissed = false;
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            tooltipDismissed = true;
+            TV.hideTooltip(ui.tooltip);
+        });
+
         function updateHover() {
             hoverQueued = false;
             if (!hoverPoint || drag || boxDrag) return;
             const hit = TV.hitTest(hoverPoint[0], hoverPoint[1]);
             const node = hit ? hit.node : -1;
             canvas.classList.toggle("pointing", !!hit);
-            if (hit) TV.showTooltip(ui.tooltip, hoverPoint[0], hoverPoint[1], node, hit.part); else TV.hideTooltip(ui.tooltip);
+            if (hit && !tooltipDismissed) TV.showTooltip(ui.tooltip, hoverPoint[0], hoverPoint[1], node, hit.part); else TV.hideTooltip(ui.tooltip);
             if (node !== state.hover) {
                 state.hover = node;
                 TV.requestDraw();
@@ -1122,10 +1135,11 @@ window.TreeView = window.TreeView || {};
                 return;
             }
             hoverPoint = [px, py];
+            tooltipDismissed = false;
             if (!hoverQueued) {
                 hoverQueued = true;
                 requestAnimationFrame(updateHover);
-                setTimeout(() => { if (hoverQueued) updateHover(); }, 100);
+                setTimeout(() => { if (hoverQueued && !document.hidden) updateHover(); }, 100);
             }
         });
 

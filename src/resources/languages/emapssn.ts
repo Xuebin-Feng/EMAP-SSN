@@ -140,6 +140,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>queued</source>
         <translation type="unfinished"></translation>
     </message>
@@ -296,10 +304,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Chat history and context memory cleared.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -369,10 +373,6 @@
     </message>
     <message>
         <source>Continue</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2222,6 +2222,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{letter}, {name} {number}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{name} · chain {chain}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2238,7 +2242,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>3D structure view. Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
+        <source>3D structure view</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2651,6 +2655,10 @@ Command-line usage:
     </message>
     <message>
         <source>Scene</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6988,6 +6996,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Metadata table</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>This column takes numbers only. Type a number, or leave the cell empty to clear it; Esc cancels the edit.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9633,10 +9645,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Copied</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>How the tree matched the network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10137,6 +10145,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{name} ({reason})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10194,6 +10206,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Drawn from the midpoint root; the tree itself is unrooted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} warnings: {warnings}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10489,7 +10505,11 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Copy the path</source>
+        <source>Could not copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10694,6 +10714,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Check again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy the path</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

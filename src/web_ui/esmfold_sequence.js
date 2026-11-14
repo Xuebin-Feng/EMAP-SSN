@@ -80,7 +80,8 @@ function sequenceResidueButton(item, structure, trace) {
     letter.dataset.k = String(item.index);
     letter.style.setProperty('--rc', item.color);
     const name = AMINO_ACIDS[item.code];
-    letter.setAttribute('aria-label', name.charAt(0) + name.slice(1).toLowerCase() + ' ' + item.number);
+    // The name starts with the letter that is shown (a name that leaves it out is not the button's label).
+    letter.setAttribute('aria-label', t("{letter}, {name} {number}", {letter: letter.textContent, name: name.charAt(0) + name.slice(1).toLowerCase(), number: item.number}));
     return letter;
 }
 
@@ -276,7 +277,9 @@ function stepResidue(to) {
     const view = byId('viewer');
     view.tabIndex = 0;
     view.setAttribute('role', 'application');
-    view.setAttribute('aria-label', t("3D structure view. Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it."));
+    view.setAttribute('aria-label', t("3D structure view"));
+    // The keys are said once, by the element in esmfold.html, as the view's description.
+    view.setAttribute('aria-describedby', 'viewer-help');
     view.addEventListener('keydown', event => {
         if (event.target !== view || event.altKey || event.ctrlKey || event.metaKey) return;
         const keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: 'first', End: 'last' };

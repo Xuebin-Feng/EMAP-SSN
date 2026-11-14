@@ -26,6 +26,9 @@ const POSITION_COLORING = 'builtin:residue-position';
 // What a structure shows when it has no values for the chosen layer: not a choice, a state.
 const NO_DATA = 'nodata';
 const OTHER_COLORING = 'other';
+// The names of the two radio groups of colorings (the card's own chips, and those under More colorings).
+const MODEL_CHIPS = 'coloring';
+const MORE_CHIPS = 'coloring-more';
 // The most layers shown as buttons before the card adds a filter and a scroll area.
 const MAX_PLAIN_LAYERS = 8;
 let colorMode = PLDDT_LAYER;
@@ -304,24 +307,28 @@ async function colorModel() {
     return model;
 }
 
-function colorChip(id, label, model, extra) {
-    const chip = make('button', 'seg-btn');
-    chip.type = 'button';
+// A coloring's choice: a native radio in a label that looks like a chip (esmfold.html), so that the browser does the keys: the chips
+// with one `name` are one Tab stop (the chosen one), and the arrow keys move along them and choose.
+function colorChip(id, label, model, extra, name) {
+    const chip = make('label', 'seg-btn');
     chip.title = label;
+    chip.dataset.coloring = id;
+    const input = make('input');
+    input.type = 'radio';
+    input.name = name;
+    input.value = id;
+    input.checked = model.mode === id;
+    input.dataset.focusKey = 'color:' + id;
     const text = make('span', 'seg-label', label);
     // The same text, bold and unseen, keeps the chip as wide as it is when chosen (esmfold.html).
     text.dataset.text = label;
-    chip.append(text);
-    chip.setAttribute('role', 'radio');
-    chip.setAttribute('aria-checked', model.mode === id ? 'true' : 'false');
-    chip.dataset.coloring = id;
-    chip.dataset.focusKey = 'color:' + id;
+    chip.append(input, text);
     if (extra) {
         const badge = make('span', 'cov', extra);
         chip.append(badge);
     }
-    chip.addEventListener('click', () => {
-        if (colorMode !== id) setColorMode(id);
+    input.addEventListener('change', () => {
+        if (input.checked && colorMode !== id) setColorMode(id);
     });
     return chip;
 }
@@ -449,11 +456,17 @@ let openedNote = null;
 
 function legendNote(text) {
     const box = make('div', 'src');
-    const row = make('div', 'note-row clamp');
-    const line = make('span', 'note-text', text);
     const info = icon("info");
+    const line = make('span', 'note-text', text);
     const chevron = icon("chevron-down", 'chev');
-    row.append(info, line, chevron);
+    // A plain row while the text fits; a <button> when there is more to show, so that it is a control only then.
+    const rowAs = tag => {
+        const made = make(tag, 'note-row clamp');
+        if (tag === 'button') made.type = 'button';
+        made.append(info, line, chevron);
+        return made;
+    };
+    let row = rowAs('div');
     const watch = make('span', 'note-watch');
     watch.setAttribute('aria-hidden', 'true');
     box.append(row, watch);
@@ -465,26 +478,20 @@ function legendNote(text) {
         const opened = longer && openedNote === text;
         row.classList.remove('measuring');
         row.classList.toggle('clamp', !opened);
-        if (!longer) {
-            row.removeAttribute('role');
-            row.removeAttribute('tabindex');
-            row.removeAttribute('aria-expanded');
-            return;
+        const tag = longer ? 'BUTTON' : 'DIV';
+        if (row.tagName !== tag) {
+            const next = rowAs(tag.toLowerCase());
+            next.classList.toggle('clamp', !opened);
+            row.replaceWith(next);
+            row = next;
         }
-        row.setAttribute('role', 'button');
-        row.tabIndex = 0;
-        row.setAttribute('aria-expanded', opened ? 'true' : 'false');
+        if (longer) row.setAttribute('aria-expanded', opened ? 'true' : 'false');
+        else row.removeAttribute('aria-expanded');
     };
-    const toggle = () => {
-        if (row.getAttribute('role') !== 'button') return;
+    box.addEventListener('click', event => {
+        if (!event.target.closest('button.note-row')) return;
         openedNote = openedNote === text ? null : text;
         fit();
-    };
-    row.addEventListener('click', toggle);
-    row.addEventListener('keydown', event => {
-        if (row.getAttribute('role') !== 'button' || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        toggle();
     });
     const watcher = new ResizeObserver(() => {
         if (row.isConnected) fit();
@@ -552,7 +559,6 @@ function filterLayers() {
     const body = byId('color-body');
     const choices = layerChoices(drawnColorModel);
     if (choices) body.querySelector('.layer-choices')?.replaceWith(choices);
-    rovingChips(body);
 }
 
 // The layer buttons the filter lets through (with eight layers or fewer there is no filter: all of them), or what says none does.
@@ -563,17 +569,10 @@ function layerChoices(model) {
     if (shown.length) {
         const layerChips = make('div', (many ? 'seg scroll' : 'seg') + ' layer-choices');
         layerChips.append(...shown.map(layer => colorChip(layer.id, layer.label, model,
-            layer.lack.length ? t("{n} of {total}", {n: layer.have.length, total: model.count}) : '')));
+            layer.lack.length ? t("{n} of {total}", {n: layer.have.length, total: model.count}) : '', MODEL_CHIPS)));
         return layerChips;
     }
     return many ? make('div', 'hint layer-choices', t("No layer matches.")) : null;
-}
-
-// One tab stop for the group: the chosen chip, or the first.
-function rovingChips(body) {
-    const chips = [...body.querySelectorAll('[role="radio"]')];
-    const current = chips.find(chip => chip.getAttribute('aria-checked') === 'true') || chips[0];
-    for (const chip of chips) chip.tabIndex = chip === current ? 0 : -1;
 }
 
 // Puts `before`, `keep` and `after` in `parent`, in that order, in place of what it held. A `keep` that is in `parent` already stays where
@@ -607,8 +606,8 @@ function renderColorBody(model) {
 
     const modelLabel = groupLabel(t("Model"));
     const modelChips = make('div', 'seg');
-    modelChips.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model),
-                      colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model));
+    modelChips.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model, '', MODEL_CHIPS),
+                      colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS));
     const layersLabel = groupLabel(t("Layers"));
     const choices = layerChoices(model);
     if (filter) replaceAround(group, filter, [modelLabel, modelChips, layersLabel], choices ? [choices] : []);
@@ -645,13 +644,12 @@ function renderColorBody(model) {
         const more = make('div', 'seg more-colorings');
         more.setAttribute('role', 'radiogroup');
         more.setAttribute('aria-label', t("More colorings"));
-        more.append(colorChip(SECONDARY_COLORING, coloringLabel(SECONDARY_COLORING), model),
-                    colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model));
+        more.append(colorChip(SECONDARY_COLORING, coloringLabel(SECONDARY_COLORING), model, '', MORE_CHIPS),
+                    colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model, '', MORE_CHIPS));
         nodes.push(more);
     }
     if (model.legend) nodes.push(cardLegend(model));
     replaceAround(body, group, [], nodes);
-    rovingChips(body);
     // (The filter, which stayed, keeps the focus by itself.)
     if (focused && !body.contains(document.activeElement)) keyedControl(body, focused)?.focus();
 }
@@ -675,19 +673,6 @@ async function renderColorCard(force = false) {
     renderColorBody(model);
     compactLegend(model);
 }
-
-// Arrow keys move through the colorings and choose them, as radio buttons do.
-byId('color-body').addEventListener('keydown', event => {
-    if (!event.target.matches?.('[role="radio"]')) return;
-    const chips = [...byId('color-body').querySelectorAll('[role="radio"]')];
-    const at = chips.indexOf(event.target);
-    const target = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: chips.length - 1 }[event.key];
-    if (target === undefined) return;
-    event.preventDefault();
-    const next = chips[(target + chips.length) % chips.length];
-    next.focus();
-    next.click();
-});
 
 // ---- What a row offers ------------------------------------------------------------------------
 // The colorings a structure can be given on its own: pLDDT, its own color, and the layers it has.

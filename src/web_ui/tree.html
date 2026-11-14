@@ -206,7 +206,7 @@
         .btn:hover { background-color: var(--bg-muted); }
         .btn:active { background-color: var(--border-color); }
         .btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        .btn:disabled { color: var(--text-disabled); cursor: default; background-color: var(--bg-card); }
+        .btn:disabled, .btn[aria-disabled="true"] { color: var(--text-disabled); cursor: default; background-color: var(--bg-card); }
         .btn-primary { background-color: var(--primary); border-color: var(--primary); color: var(--primary-text); font-weight: 600; }
         .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
         .btn-primary:active { background-color: var(--primary-pressed); }
@@ -243,8 +243,8 @@
         .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         /* A placeholder is text to read, so it is drawn in the subtle text colour (4.5:1), not the disabled one. */
         .search input::placeholder { color: var(--text-subtle); }
-        .search input:disabled { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
-        .search input:disabled:hover { border-color: var(--field-border); }
+        .search input:disabled, .search input[aria-disabled="true"] { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
+        .search input:disabled:hover, .search input[aria-disabled="true"]:hover { border-color: var(--field-border); }
         .search .clear { position: absolute; right: 2px; width: 26px; height: 26px; border: none; background: transparent; color: var(--text-subtle); border-radius: 6px; cursor: pointer; display: none; align-items: center; justify-content: center; }
         .search .clear:hover { background-color: var(--bg-muted); color: var(--text-primary); }
         .search.has-text .clear { display: inline-flex; }
@@ -266,16 +266,19 @@
             outline: 2px solid transparent;
             cursor: pointer;
         }
+        /* A select is as wide as its longest option, and an unavailable tree's option says why: the list,
+           open, shows it whole, so the closed box keeps about its old width. */
+        #source-select { max-width: 16rem; }
         .field select:hover { border-color: var(--field-border-hover); }
         .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        .field select:disabled { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
+        .field select:disabled, .field select[aria-disabled="true"] { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
 
         /* Two buttons that are one choice, and a button that is on or off */
         .segmented { display: inline-flex; }
         .segmented .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
         .segmented .btn + .btn { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
         .btn[aria-pressed="true"] { background-color: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); position: relative; }
-        .btn[aria-pressed="true"]:disabled { color: var(--text-disabled); background-color: var(--bg-muted); border-color: var(--field-border); }
+        .btn[aria-pressed="true"]:disabled, .btn[aria-pressed="true"][aria-disabled="true"] { color: var(--text-disabled); background-color: var(--bg-muted); border-color: var(--field-border); }
 
         /* A warning about how the tree fits the alignment and the network: shown, never hidden, never an error. The
            banner is one line tall whatever it holds: its sentences stand side by side in one line that is clipped at
@@ -610,7 +613,7 @@
         @media (forced-colors: active) {
             /* Not adjusted, or the browser draws a Canvas backplate behind the HighlightText label and hides it. */
             .btn[aria-pressed="true"], .legend-row[aria-pressed="true"] { forced-color-adjust: none; background-color: Highlight; border-color: Highlight; color: HighlightText; }
-            .btn[aria-pressed="true"]:disabled { background-color: Canvas; border-color: GrayText; color: GrayText; }
+            .btn[aria-pressed="true"]:disabled, .btn[aria-pressed="true"][aria-disabled="true"] { background-color: Canvas; border-color: GrayText; color: GrayText; }
             .legend-row[aria-pressed="true"] .count { color: HighlightText; }
             .support-legend .head[aria-pressed="true"]::before { background: Highlight; border-color: Highlight; }
             .legend-band { background-color: Highlight; border-color: ButtonText; opacity: 0.4; }
@@ -697,7 +700,10 @@
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" aria-expanded="false" aria-controls="details" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
 
-    <div class="banner" id="banner" role="status">
+    <!-- The one place that announces: a short message when the warnings change or a copy ends (tree_session.js, TV.say). -->
+    <div class="sr-only" id="announcer" role="status" aria-live="polite"></div>
+
+    <div class="banner" id="banner">
         <div class="banner-line" id="banner-line" tabindex="0" role="group" aria-label="Warnings about the tree"><ul id="warning-list"></ul></div>
         <button class="btn" id="mismatch-btn" title="List the leaves and the nodes these warnings count" aria-expanded="false" aria-controls="mismatch-card" hidden><span data-i18n>Show Details</span></button>
     </div>
@@ -722,8 +728,8 @@
         </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details" tabindex="-1" role="region" aria-labelledby="details-title"></div>
-        <div class="details report" id="match-report" tabindex="-1" role="status" aria-label="How the opened tree matched the network"></div>
-        <div class="details report" id="mismatch-card" tabindex="-1" role="status" aria-label="The leaves and nodes the warnings count"></div>
+        <div class="details report" id="match-report" tabindex="-1" role="region" aria-label="How the opened tree matched the network"></div>
+        <div class="details report" id="mismatch-card" tabindex="-1" role="region" aria-label="The leaves and nodes the warnings count"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
         <div class="empty" id="empty">
             <div class="empty-card">

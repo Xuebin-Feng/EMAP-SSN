@@ -132,6 +132,16 @@ function hideTip() {
     byId('tip').classList.remove('show');
 }
 
+// Escape hides the tooltip, and it stays hidden until the pointer moves again (it covers part of the structure, and what is under it
+// must be readable without moving the pointer away). Says whether a tooltip was shown.
+let tipDismissed = false;
+function dismissTip() {
+    if (!byId('tip').classList.contains('show')) return false;
+    tipDismissed = true;
+    hideTip();
+    return true;
+}
+
 function tipRow(label, value, color) {
     const row = make('tr');
     const name = make('td', undefined, label);
@@ -147,6 +157,7 @@ function tipRow(label, value, color) {
 }
 
 async function showTip(residue) {
+    if (tipDismissed) return;
     const renderId = ++tipRenderId;
     const structure = structureByRef(residue.ref);
     if (!structure) return hideTip();
@@ -427,6 +438,10 @@ function setupResidueEvents() {
     byId('viewer').addEventListener('pointermove', event => {
         const stage = byId('stage').getBoundingClientRect();
         pointerAt = { x: event.clientX - stage.left, y: event.clientY - stage.top };
+        if (tipDismissed) {
+            tipDismissed = false;
+            if (hoveredResidue) showTip(hoveredResidue);
+        }
         if (byId('tip').classList.contains('show')) placeTip();
     });
     byId('viewer').addEventListener('pointerleave', () => {

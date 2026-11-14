@@ -21,7 +21,6 @@ window.TreeView = window.TreeView || {};
     let loading = false;
     let reconnecting = false;
     let searchTimer = null;
-    let copiedTimer = null;
     // Whether the overview map is wanted (it is shown only with a tree).
     let overviewOn = true;
     // The node of the network this page last asked the Viewer to focus on (-1 for none), so that it asks again only
@@ -60,6 +59,40 @@ window.TreeView = window.TreeView || {};
     }
     TV.icon = icon;
 
+    // ---- Saying things to a screen reader, and controls that go off ----------------------------------------------
+
+    // One polite status line for what happens outside the focus: the warnings that changed, the result of a copy. The
+    // same words twice in a row get a trailing no-break space, or the second would not be announced.
+    let lastSaid = "";
+    TV.say = function (text) {
+        const line = $("announcer");
+        if (!line) return;
+        line.textContent = text === lastSaid ? text + "\u00a0" : text;
+        lastSaid = line.textContent;
+    };
+
+    // A control that has the focus must not lose it when the page switches the control off (the Viewer pushes a new tree
+    // while the user is on one): it stays focusable and says aria-disabled, and what would activate it is ignored below.
+    function setDisabled(id, off) {
+        const control = typeof id === "string" ? $(id) : id;
+        const keep = off && control === document.activeElement;
+        control.disabled = off && !keep;
+        if (keep) control.setAttribute("aria-disabled", "true"); else control.removeAttribute("aria-disabled");
+        if (control.tagName === "INPUT") control.readOnly = keep;
+    }
+    function isOff(control) {
+        return control.disabled || control.getAttribute("aria-disabled") === "true";
+    }
+    for (const type of ["click", "mousedown", "keydown", "beforeinput"]) {
+        document.addEventListener(type, (event) => {
+            const target = event.target;
+            if (!target || !target.closest || !target.closest('[aria-disabled="true"]')) return;
+            if (type === "keydown" && (event.key === "Tab" || event.key === "Shift" || event.key === "Escape" || event.ctrlKey || event.metaKey || event.altKey)) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }, true);
+    }
+
     // ---- What the page shows ---------------------------------------------------------------------------------
 
     // Show one of the page's three states: "loading", "empty" (the card that says why there is no tree) or
@@ -68,11 +101,11 @@ window.TreeView = window.TreeView || {};
         $("loading").classList.toggle("shown", which === "loading");
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
-        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn", "report-btn"]) $(id).disabled = !hasTree;
+        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn", "report-btn"]) setDisabled(id, !hasTree);
         showSupportControl(hasTree);
         $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
-            for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) $(id).disabled = true;
+            for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) setDisabled(id, true);
             // Nothing is drawn, so nothing is matched: the button of the match's card waits for a tree the user opened.
             $("report-btn").hidden = true;
             $("search-count").textContent = "";
@@ -225,12 +258,17 @@ window.TreeView = window.TreeView || {};
         for (const option of select.options) {
             const entry = state.sources.find((item) => item.id === option.value);
             option.disabled = !!entry && !entry.available;
+            // The page's own words for the option, kept: the reason is written after them and replaced when it changes.
+            if (option.dataset.label === undefined || option.value === "uploaded") option.dataset.label = option.textContent;
             if (option.value !== "uploaded") {
-                option.title = entry && !entry.available && entry.reason ? emptyCard({ status: entry.reason, alignment: payload.alignment }).title : "";
+                const why = entry && !entry.available && entry.reason ? emptyCard({ status: entry.reason, alignment: payload.alignment }).title : "";
+                // The reason is in the text too, not only the tooltip, which a keyboard or a screen reader never gets.
+                option.title = why;
+                option.textContent = why ? t("{name} ({reason})", { name: option.dataset.label, reason: why }) : option.dataset.label;
             }
         }
         select.value = state.source;
-        select.disabled = !state.sources.length;
+        setDisabled(select, !state.sources.length);
     }
 
     // Choose another tree: the Viewer keeps the choice for the session. What is folded and where the view is start over,
@@ -335,15 +373,15 @@ window.TreeView = window.TreeView || {};
         const lengths = state.mode === "lengths";
         $("phylogram-btn").setAttribute("aria-pressed", String(lengths));
         $("cladogram-btn").setAttribute("aria-pressed", String(!lengths));
-        $("phylogram-btn").disabled = !model.hasLengths;
-        $("cladogram-btn").disabled = !model.hasLengths && !lengths;
-        $("unfold-btn").disabled = !state.collapsedCount;
+        setDisabled("phylogram-btn", !model.hasLengths);
+        setDisabled("cladogram-btn", !model.hasLengths && !lengths);
+        setDisabled("unfold-btn", !state.collapsedCount);
         showHints();
     }
 
     // What the page does when something is folded up or opened.
     TV.onFoldsChanged = function () {
-        $("unfold-btn").disabled = !state.collapsedCount;
+        setDisabled("unfold-btn", !state.collapsedCount);
     };
 
     function chooseLayout(kind, mode) {
@@ -403,6 +441,17 @@ window.TreeView = window.TreeView || {};
     // The warnings that name particular leaves or nodes, which the button at the right end of the banner lists.
     const LISTED_WARNINGS = ["leaves_not_in_network", "network_nodes_not_in_tree", "leaves_not_in_alignment", "ambiguous_names"];
 
+    // Said when the set of warnings changes, not each time the banner is laid out again: the warning's own words, or the
+    // count with all of them. Nothing is said when the warnings are gone.
+    let warningsSaid = "";
+    function announceWarnings(texts) {
+        const key = JSON.stringify(texts);
+        if (key === warningsSaid) return;
+        warningsSaid = key;
+        if (!texts.length) return;
+        TV.say(texts.length === 1 ? texts[0] : t("{count} warnings: {warnings}", { count: texts.length, warnings: texts.join(" ") }));
+    }
+
     // The banner under the controls: a sentence for each warning the Viewer found, and the note on the rooting when
     // the layout in use calls for it, which the Details panel repeats. They stand in one line, so that the banner is
     // as tall with one sentence as with five; a line longer than its room rolls while the pointer is over it.
@@ -441,6 +490,7 @@ window.TreeView = window.TreeView || {};
             list.lastChild.appendChild(close);
         }
         $("banner").classList.toggle("shown", list.children.length > 0);
+        announceWarnings(state.model.warnings.map(warningText));
         $("banner-line").title = [...list.children].map((item) => item.firstElementChild.nextElementSibling.textContent).join("  \u00b7  ");
         const listed = $("mismatch-btn");
         listed.hidden = !state.model.warnings.some((warning) => LISTED_WARNINGS.includes(warning.code));
@@ -760,7 +810,7 @@ window.TreeView = window.TreeView || {};
         const opener = openers[id];
         openers[id] = null;
         if (!restoreFocus || !held) return;
-        const back = opener && opener.isConnected && !opener.disabled && opener.offsetParent !== null ? opener : TV.canvas;
+        const back = opener && opener.isConnected && !isOff(opener) && opener.offsetParent !== null ? opener : TV.canvas;
         if (back) back.focus({ preventScroll: true });
     };
 
@@ -1031,7 +1081,7 @@ window.TreeView = window.TreeView || {};
     function showSearch(count) {
         const input = $("search-input");
         $("search-box").classList.toggle("has-text", input.value.length > 0);
-        for (const id of ["search-prev", "search-next"]) $(id).disabled = count < 1;
+        for (const id of ["search-prev", "search-next"]) setDisabled(id, count < 1);
         const label = $("search-count");
         if (!input.value.trim()) label.textContent = "";
         else if (!count) label.textContent = t("No match");
@@ -1142,15 +1192,29 @@ window.TreeView = window.TreeView || {};
 
     // ---- Start -----------------------------------------------------------------------------------------------
 
-    function copyPath() {
-        const path = $("empty-path").textContent;
-        const done = () => {
-            const label = $("empty-copy").querySelector("span");
-            label.textContent = t("Copied");
-            clearTimeout(copiedTimer);
-            copiedTimer = setTimeout(() => { label.textContent = t("Copy the path"); }, 1500);
+    // Copy text to the clipboard from a button whose label is a span: the result is said through the status line and shown in
+    // the label for a moment, which then goes back to the words it had (kept in data-label; each button has its own timer).
+    const copyTimers = new WeakMap();
+    TV.copyText = function (text, button) {
+        const label = button.querySelector("span");
+        if (label.dataset.label === undefined) label.dataset.label = label.textContent;
+        const show = (words) => {
+            label.textContent = words;
+            TV.say(words);
+            clearTimeout(copyTimers.get(button));
+            copyTimers.set(button, setTimeout(() => { label.textContent = label.dataset.label; }, 1500));
         };
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(path).then(done, () => {});
+        const failed = () => show(t("Could not copy"));
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            failed();
+            return;
+        }
+        // writeText can also throw at once (a page without the permission).
+        try { navigator.clipboard.writeText(text).then(() => show(t("Copied")), failed); } catch (error) { failed(); }
+    };
+
+    function copyPath() {
+        TV.copyText($("empty-path").textContent, $("empty-copy"));
     }
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -1251,7 +1315,7 @@ window.TreeView = window.TreeView || {};
             TV.closeCard(id, true);
         });
         document.addEventListener("keydown", (event) => {
-            if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !$("search-input").disabled
+            if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !isOff($("search-input"))
                 && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
                 event.preventDefault();
                 $("search-input").focus();

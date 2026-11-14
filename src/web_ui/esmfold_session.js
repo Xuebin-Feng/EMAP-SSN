@@ -53,14 +53,18 @@ function menuItems() {
     return [...sessionMenu.querySelectorAll('.menu-item:not([disabled])')];
 }
 
-function setMenu(open) {
+// `focus` says which item takes the focus as it opens ('first', 'last'), or none.
+function setMenu(open, focus = null) {
     if (open) {
         byId('mi-clear').disabled = !(plugin && loadedStructures().length);
         updateSessionNote();
     }
     sessionMenu.classList.toggle('open', open);
     sessionButton.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) menuItems()[0]?.focus();
+    if (open && focus) {
+        const items = menuItems();
+        (focus === 'last' ? items[items.length - 1] : items[0])?.focus();
+    }
 }
 
 // Closes the menu if it is open, and says whether it was; Escape then gives the focus back to its button.
@@ -71,7 +75,13 @@ function closeSessionMenu() {
     return true;
 }
 
-sessionButton.addEventListener('click', () => setMenu(!sessionMenu.classList.contains('open')));
+// A click of the mouse (detail 1 or more) leaves the focus on the button; the keyboard's (detail 0) takes it into the menu.
+sessionButton.addEventListener('click', event => setMenu(!sessionMenu.classList.contains('open'), event.detail === 0 ? 'first' : null));
+sessionButton.addEventListener('keydown', event => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    setMenu(true, event.key === 'ArrowDown' ? 'first' : 'last');
+});
 document.addEventListener('click', event => {
     if (!event.target.closest('.menu-wrap') && sessionMenu.classList.contains('open')) setMenu(false);
 });

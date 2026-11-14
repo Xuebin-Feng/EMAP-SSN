@@ -7,6 +7,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 import time
@@ -14,8 +15,10 @@ from types import SimpleNamespace
 import unittest
 
 # tests/__init__ already selects the offscreen platform; this must be set
-# before Qt WebEngine starts Chromium.
-os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
+# before Qt WebEngine starts Chromium. Its Chromium (140) has the Sanitizer API
+# that browsers ship from Chrome 146 and Firefox 148 behind a flag, switched on
+# so the page's setHTML path is tested beside its own sanitiser.
+os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu --enable-blink-features=SanitizerAPI')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtWidgets import QApplication
@@ -37,7 +40,11 @@ AGENT_RESOURCES = {
 
 
 class FixtureHandler(WebServerHandler):
+    # Every path the page asked for, so a test can tell that something was never requested.
+    requested = []
+
     def do_GET(self):
+        self.requested.append(self.path)
         path = self.path.split('?')[0]
         name = path.rsplit('/', 1)[-1]
         if name == 'model_card.json':
@@ -184,11 +191,13 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 0)
         self.js("renderHistory([{role:'user',content:'old text'},{role:'user',content:'',attachments:pendingAttachments}])")
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 1)
-        self.js("window.confirm = message => { window.clearWarning = message; return false; }; document.getElementById('clear-chat-btn').click()")
+        self.js("document.getElementById('clear-chat-btn').click()")
+        self.assertIn('will be lost', self.js("document.getElementById('clear-chat-dialog').open && document.getElementById('clear-chat-text').textContent"))
+        self.js("document.querySelector('#clear-chat-dialog button[value=cancel]').click()")
+        QTest.qWait(100)  # The dialog's close event comes in a task of its own.
         self.assertEqual(self.js('pendingAttachments.length'), 1)
-        self.assertIn('will be lost', self.js('window.clearWarning'))
-        self.js("window.confirm = () => true; document.getElementById('clear-chat-btn').click()")
-        self.assertEqual(self.js('pendingAttachments.length'), 0)
+        self.js("document.getElementById('clear-chat-btn').click(); document.querySelector('#clear-chat-dialog button[value=clear]').click()")
+        self.wait_for('pendingAttachments.length === 0')
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 0)
 
     def test_a_turn_dropped_with_its_model_stops_the_spinner_and_returns_the_draft(self):
@@ -264,6 +273,19 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(capture['names'], ['Capture Viewer', 'Capture Viewer'])
             self.assertGreater(capture['input'], 600 if width == 1000 else 180)
 
+    def sanitizer_paths(self):
+        """The page's two ways of cleaning a reply, each a wrapper for a JavaScript expression: the
+        Sanitizer API's setHTML where the browser has it, and the page's own sanitiser where it does not."""
+        paths = {'own': lambda source: (
+            "(() => { const saved = Object.getOwnPropertyDescriptor(Element.prototype, 'setHTML');"
+            " delete Element.prototype.setHTML;"
+            f" try {{ return {source}; }} finally {{ if (saved) Object.defineProperty(Element.prototype, 'setHTML', saved); }} }})()")}
+        if self.js("'setHTML' in Element.prototype"):
+            paths['setHTML'] = lambda source: source
+        else:
+            print('\nThis Qt WebEngine has no Sanitizer API: only the page\'s own sanitiser is tested.', file=sys.stderr)
+        return paths
+
     def test_explanation_markup_is_inert(self):
         explanation = '\n\n'.join([
             'Raw <img src="missing.png" onerror="window.pwned = 1"> stays text.',
@@ -271,7 +293,7 @@ class ComposerTests(unittest.TestCase):
             '[script](javascript:window.pwned=3) [entity](javascript&#58;window.pwned=4) '
             '[case](JaVaScRiPt:window.pwned=5) <javascript:window.pwned=6> '
             '[data](data:text/html,hi) [vb](vbscript:msgbox(1))',
-            '![bad image](javascript:window.pwned=7) ![svg image](data:image/svg+xml,%3Csvg/%3E)',
+            '![bad image](javascript:window.pwned=7) ![svg image](data:image/svg+xml,%3Csvg/%3E) ![relative](chart.png)',
             '[docs](https://example.org/docs) [local](help/page.html)',
             '```python\nprint("<b>")\n```',
             '| a | b |\n|---|:-:|\n| 1 | 2 |',
@@ -285,7 +307,7 @@ class ComposerTests(unittest.TestCase):
                 schemes: elements.flatMap(el => ['href', 'src'].filter(name => el.hasAttribute(name))
                     .map(name => new URL(el.getAttribute(name), document.baseURI).protocol)),
                 links: Array.from(message.querySelectorAll('a')).map(a => a.getAttribute('href')),
-                images: message.querySelectorAll('img').length,
+                images: Array.from(message.querySelectorAll('img')).map(img => img.getAttribute('src')),
                 code: message.querySelector('pre code.language-python')?.textContent,
                 centered: Array.from(message.querySelectorAll('[align=center]')).map(cell => cell.textContent),
                 text: message.textContent,
@@ -297,24 +319,141 @@ class ComposerTests(unittest.TestCase):
             'history': "handleServerEvent({type:'init',data:{llm_loaded:true,llm_model_name:'Test vision model',"
                        "llm_history:[{role:'assistant',explanation:%s}]}})",
         }
-        for path, event in deliveries.items():
-            with self.subTest(path=path):
+        for sanitizer, run in self.sanitizer_paths().items():
+            for path, event in deliveries.items():
+                with self.subTest(sanitizer=sanitizer, path=path):
+                    self.js("document.getElementById('chat-log').replaceChildren(); window.pwned = undefined")
+                    FixtureHandler.requested.clear()
+                    self.js(run((event % json.dumps(explanation)) + ', true'))
+                    QTest.qWait(300)  # A rendered <img onerror> would fire once its load fails.
+                    result = json.loads(self.js(report))
+                    self.assertEqual(result['handlers'], [])
+                    self.assertLessEqual(set(result['schemes']), {'http:', 'https:', 'data:'})
+                    self.assertEqual(result['links'], ['https://example.org/docs', 'help/page.html'])
+                    # An image the reply carries is shown; one it would fetch is shown as its text, and never fetched.
+                    self.assertEqual(result['images'], ['data:image/svg+xml,%3Csvg/%3E'])
+                    self.assertFalse([path for path in FixtureHandler.requested if 'png' in path], FixtureHandler.requested)
+                    self.assertIsNone(result['pwned'])
+                    for shown in ('<img src="missing.png" onerror="window.pwned = 1">',
+                                  '<div onmouseover="window.pwned = 2">Block HTML</div>',
+                                  'script entity case javascript:window.pwned=6 data vb',
+                                  'bad image  relative'):
+                        self.assertIn(shown, result['text'])
+                    self.assertEqual(result['code'], 'print("<b>")\n')
+                    self.assertEqual(result['centered'], ['b', '2'])
+
+    def test_both_sanitisers_leave_the_pages_markdown_as_marked_wrote_it(self):
+        # Everything marked writes for a reply; a 1x1 PNG stands for an image the reply carries.
+        markdown = '\n\n'.join([
+            '# One', '## Two', '### Three', '#### Four', '##### Five', '###### Six',
+            'Some **bold**, *em*, ~~gone~~ and `code`,\nbroken there, a [link](https://example.org/docs "The docs"), '
+            '[mail](mailto:help@example.org), [a section](#section) and [a page](help/page.html).',
+            '- one\n- two\n  - nested', '3. three\n4. four', '- [x] done\n- [ ] to do', '> quoted',
+            '```python\nprint("<b>")\n```', '| a | b | c |\n|---|:-:|--:|\n| 1 | 2 | 3 |', '---',
+            '![dot](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII= "A dot")',
+        ])
+        rendered = {}
+        for sanitizer, run in self.sanitizer_paths().items():
+            rendered[sanitizer] = self.js(run(f"(() => {{ const box = document.createElement('div');"
+                                              f" box.appendChild(renderExplanation({json.dumps(markdown)})); return box.innerHTML; }})()"))
+        # marked's own markup, read by the browser, with nothing taken out.
+        written = self.js(f"(() => {{ const raw = document.createElement('template'); raw.innerHTML = marked.parse({json.dumps(markdown)});"
+                          " return raw.innerHTML; })()")
+        for sanitizer, html in rendered.items():
+            with self.subTest(sanitizer=sanitizer):
+                self.assertEqual(html, written)
+        for element in ('<h1>', '<h6>', '<strong>', '<em>', '<del>', '<code>', '<br>', '<ol start="3">', '<ul>', '<li>',
+                        '<input checked="" disabled="" type="checkbox">', '<blockquote>', '<pre><code class="language-python">',
+                        '<th align="center">', '<td align="right">', '<hr>', 'href="mailto:help@example.org"',
+                        'href="#section"', 'href="help/page.html"', 'title="The docs"', '<img src="data:image/png;base64,'):
+            self.assertIn(element, written)
+
+    def test_markup_that_is_not_markdown_is_taken_out_of_a_reply(self):
+        # marked writes no such markup (its html renderer shows raw HTML as text), so it is handed
+        # to the sanitisers directly, as a renderer that let it through would.
+        port = self.server.server_port
+        markup = (
+            '<p id="kept" class="note" style="color: red" data-x="1" onclick="window.pwned = 1">kept <b>bold</b> <span>plain</span></p>'
+            '<script>window.pwned = 2</script><style>body { display: none }</style>'
+            '<iframe src="frame.html"></iframe><object data="object.bin"></object><embed src="embed.bin">'
+            '<template><img src="template.png"></template><svg><a href="javascript:window.pwned = 3"><text>in svg</text></a></svg>'
+            '<math><mi>in math</mi></math><!-- a comment -->'
+            '<img src="relative.png" onerror="window.pwned = 4" alt="relative image">'
+            '<img src="/rooted.png" alt="rooted image">'
+            f'<img src="http://127.0.0.1:{port}/absolute.png" alt="absolute image">'
+            '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="inline image">'
+            '<input type="image" src="input.png" alt="input">'
+            '<a href="javascript:window.pwned = 5" onclick="window.pwned = 6">script link</a> '
+            '<a href=" JaVa&#x09;sCrIpT:window.pwned = 7">spaced link</a> '
+            '<a href="mailto:help@example.org">mail</a> <a href="#here">here</a>'
+        )
+        report = """JSON.stringify((() => {
+            const box = document.createElement('div');
+            const renderer = window.marked;
+            window.marked = {parse: () => %s};
+            try { box.appendChild(renderExplanation('ignored')); } finally { window.marked = renderer; }
+            document.getElementById('chat-log').appendChild(box);
+            const elements = Array.from(box.querySelectorAll('*'));
+            return {
+                names: [...new Set(elements.map(element => element.localName))].sort(),
+                attributes: [...new Set(elements.flatMap(element => element.getAttributeNames()))].sort(),
+                images: Array.from(box.querySelectorAll('img'), img => img.alt),
+                links: Array.from(box.querySelectorAll('a'), a => a.getAttribute('href')),
+                comments: document.createTreeWalker(box, NodeFilter.SHOW_COMMENT).nextNode() !== null,
+                text: box.textContent,
+            };
+        })())""" % json.dumps(markup)
+        unfetched = ('frame.html', 'object.bin', 'embed.bin', 'template.png', 'relative.png', 'rooted.png', 'absolute.png', 'input.png')
+        for sanitizer, run in self.sanitizer_paths().items():
+            with self.subTest(sanitizer=sanitizer):
                 self.js("document.getElementById('chat-log').replaceChildren(); window.pwned = undefined")
-                self.js(event % json.dumps(explanation))
+                FixtureHandler.requested.clear()
+                result = json.loads(self.js(run(report)))
                 QTest.qWait(300)  # A rendered <img onerror> would fire once its load fails.
-                result = json.loads(self.js(report))
-                self.assertEqual(result['handlers'], [])
-                self.assertLessEqual(set(result['schemes']), {'http:', 'https:'})
-                self.assertEqual(result['links'], ['https://example.org/docs', 'help/page.html'])
-                self.assertEqual(result['images'], 0)
-                self.assertIsNone(result['pwned'])
-                for shown in ('<img src="missing.png" onerror="window.pwned = 1">',
-                              '<div onmouseover="window.pwned = 2">Block HTML</div>',
-                              'script entity case javascript:window.pwned=6 data vb',
-                              'bad image svg image'):
+                self.assertTrue(self.js('window.pwned === undefined'))
+                self.assertFalse([path for path in FixtureHandler.requested if path.lstrip('/').startswith(unfetched)],
+                                 FixtureHandler.requested)
+                self.assertLessEqual(set(result['names']), {'p', 'img', 'a'})
+                # A class other than a code block's language goes too: the page's own would dress a reply up.
+                self.assertLessEqual(set(result['attributes']), {'src', 'alt', 'href'})
+                self.assertEqual(result['images'], ['inline image'])
+                self.assertEqual(result['links'], ['mailto:help@example.org', '#here'])
+                self.assertFalse(result['comments'])
+                for gone in ('window.pwned', 'display: none', 'in svg', 'in math'):
+                    self.assertNotIn(gone, result['text'])
+                for shown in ('kept', 'relative image', 'rooted image', 'absolute image', 'script link', 'spaced link', 'mail', 'here'):
                     self.assertIn(shown, result['text'])
-                self.assertEqual(result['code'], 'print("<b>")\n')
-                self.assertEqual(result['centered'], ['b', '2'])
+                if sanitizer == 'own':
+                    # The page's own sanitiser gives way to the text of an element it does not know...
+                    self.assertIn('kept bold plain', result['text'])
+                else:
+                    # ...where the Sanitizer API drops it with its text.
+                    self.assertNotIn('bold', result['text'])
+        # Without marked, the reply is its text, line breaks kept.
+        plain = json.loads(self.js("""JSON.stringify((() => {
+            const renderer = window.marked;
+            window.marked = undefined;
+            const box = document.createElement('div');
+            try { box.appendChild(renderExplanation('<b>one</b>\\ntwo')); } finally { window.marked = renderer; }
+            return {html: box.innerHTML, text: box.textContent};
+        })())"""))
+        self.assertEqual(plain, {'html': '&lt;b&gt;one&lt;/b&gt;<br>two', 'text': '<b>one</b>two'})
+
+    def test_the_pages_own_messages_hold_text_as_text(self):
+        hostile = '<img src="x.png" onerror="window.pwned = 1"> & <b>bold</b>'
+        self.js(f"appendSystemMsg({json.dumps(hostile)}); appendErrorMsg({json.dumps(hostile)}); setAgentThinking({json.dumps(hostile)})")
+        QTest.qWait(300)
+        report = json.loads(self.js("""JSON.stringify({
+            system: document.querySelector('#chat-log .msg-system').textContent,
+            error: document.querySelector('#chat-log .msg-error').textContent,
+            bold: Array.from(document.querySelectorAll('#chat-log .msg-error b'), b => b.textContent),
+            thinking: document.querySelector('#thinking-bubble .thinking-text').textContent,
+            spinner: document.querySelectorAll('#thinking-bubble svg.icon-spin').length,
+            images: document.querySelectorAll('#chat-log img').length,
+            pwned: window.pwned ?? null,
+        })"""))
+        self.assertEqual(report, {'system': hostile, 'error': 'Error: ' + hostile, 'bold': ['Error:'],
+                                  'thinking': f'Thinking ({hostile})...', 'spinner': 1, 'images': 0, 'pwned': None})
 
     def test_content_security_policy_blocks_injected_markup(self):
         # Markup that bypassed the renderer still cannot run script: the page's
@@ -479,11 +618,12 @@ class ComposerTests(unittest.TestCase):
         panel = """JSON.stringify((() => {
             const panel = document.getElementById('models-panel'), button = document.getElementById('models-panel-btn');
             return {inert: panel.inert, expanded: button.getAttribute('aria-expanded'), controls: button.getAttribute('aria-controls'),
-                    role: panel.getAttribute('role'), name: document.getElementById(panel.getAttribute('aria-labelledby')).textContent.trim(),
+                    tag: panel.localName, name: document.getElementById(panel.getAttribute('aria-labelledby')).textContent.trim(),
                     active: document.activeElement.id};
         })())"""
         closed = json.loads(self.js(panel))
-        self.assertEqual(closed, {'inert': True, 'expanded': 'false', 'controls': 'models-panel', 'role': 'region',
+        # An <aside> named by its heading: a complementary landmark.
+        self.assertEqual(closed, {'inert': True, 'expanded': 'false', 'controls': 'models-panel', 'tag': 'aside',
                                   'name': 'Model Cards', 'active': ''})
         # Its controls take no focus, so Tab passes them by.
         self.assertFalse(self.js("document.getElementById('add-card-btn').focus(); document.activeElement.id === 'add-card-btn'"))
@@ -507,6 +647,115 @@ class ComposerTests(unittest.TestCase):
                 "document.getElementById('close-panel-btn').click()")
         self.assertTrue(json.loads(self.js(panel))['inert'])
         self.assertEqual(self.active(), 'chat-input-field')
+
+    def test_the_panel_titles_are_headings_drawn_as_the_titles_were(self):
+        report = json.loads(self.js("""JSON.stringify({
+            outline: Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'), heading => [heading.localName, heading.textContent.trim()]),
+            landmarks: Array.from(document.querySelectorAll('header, main, aside'), element => element.localName),
+            panelInMain: document.querySelector('main').contains(document.getElementById('models-panel')),
+            looks: Array.from(document.querySelectorAll('.pane-title, .panel-title'), heading => {
+                const style = getComputedStyle(heading);
+                return [style.fontSize, style.fontWeight, style.lineHeight, style.margin];
+            }),
+        })"""))
+        # One page heading, a heading for each panel, and the dialog's own (shown only when it opens).
+        self.assertEqual(report['outline'], [['h1', 'EMAP-SSN Agent (Beta)'], ['h2', 'Agent Control Panel'],
+                                             ['h2', 'Model Cards'], ['h2', 'Clear Chat']])
+        self.assertEqual(report['landmarks'], ['header', 'main', 'aside'])
+        self.assertTrue(report['panelInMain'])
+        # The size and weight the title text had, and no margin of a heading's own.
+        self.assertEqual(report['looks'], [['14px', '600', 'normal', '0px']] * 2)
+
+    def stylesheet_rules(self):
+        """The page's style rules: those that always apply, and those for each motion preference, as CSS text."""
+        return json.loads(self.js("""JSON.stringify((() => {
+            const rules = Array.from(document.styleSheets).flatMap(sheet => Array.from(sheet.cssRules));
+            const inside = condition => rules.filter(rule => rule instanceof CSSMediaRule && rule.conditionText === condition)
+                .flatMap(rule => Array.from(rule.cssRules, inner => inner.cssText));
+            return {always: rules.filter(rule => rule instanceof CSSStyleRule).map(rule => rule.cssText),
+                    motion: inside('(prefers-reduced-motion: no-preference)'), reduced: inside('(prefers-reduced-motion: reduce)')};
+        })())"""))
+
+    def test_movement_waits_for_no_motion_preference_and_the_spinner_only_slows(self):
+        # Qt WebEngine cannot switch the preference, so the stylesheet is read.
+        rules = self.stylesheet_rules()
+        # Nothing moves for a user who asked for reduced motion: no animation but the spinner's,
+        # no transition of a place, size or turn...
+        moving = [rule for rule in rules['always']
+                  if ('animation' in rule and 'spin' not in rule) or re.search(r'transition:[^;]*\b(transform|width|min-width)\b', rule)]
+        self.assertEqual(moving, [])
+        # ...which move only for a user who said nothing about it.
+        motion = ' '.join(rules['motion'])
+        for selector, movement in (('.msg-wrapper', 'fadeInUp'), ('.models-panel', 'width 0.25s'), ('.ios-toggle-thumb', 'transform'),
+                                   ('.thought-box-toggle', 'transform'), ('.card-expand-btn .icon', 'transform')):
+            with self.subTest(selector=selector):
+                self.assertTrue(any(rule.startswith(selector + ' {') and movement in rule for rule in rules['motion']), motion)
+        # The spinner turns slower instead of stopping, so it still says that the agent is at work.
+        self.assertEqual(rules['reduced'], ['.icon-spin { animation-duration: 6s; }'])
+        self.assertTrue(any(rule.startswith('.icon-spin {') and re.search(r'animation: .*\b1s\b.*\binfinite\b', rule) for rule in rules['always']))
+
+    def test_a_new_card_scrolls_into_view_smoothly_only_without_reduced_motion(self):
+        self.js("window.scrolls = []; Element.prototype.scrollIntoView = function (options) { scrolls.push(options.behavior); };"
+                "window.reduced = false; window.matchMedia = (real => query => query === '(prefers-reduced-motion: reduce)'"
+                " ? {matches: window.reduced} : real(query))(window.matchMedia.bind(window)); setModelsPanelOpen(true)")
+        self.js("window.reduced = true; document.getElementById('add-card-btn').click()")
+        self.js("window.reduced = false; document.getElementById('add-card-btn').click()")
+        self.assertEqual(json.loads(self.js('JSON.stringify(scrolls)')), ['auto', 'smooth'])
+
+    def test_clear_chat_asks_in_a_dialog_first(self):
+        self.js("window.confirmed = 0; window.confirm = () => { window.confirmed++; return true; }; appendUserMsg('Keep this')")
+        dialog = "document.getElementById('clear-chat-dialog')"
+        state = f"""JSON.stringify({{open: {dialog}.open, modal: {dialog}.matches(':modal'),
+            active: document.activeElement.id || document.activeElement.textContent,
+            kept: document.querySelectorAll('#chat-log .msg-user').length}})"""
+        clear = "document.getElementById('clear-chat-btn')"
+
+        def open_dialog():
+            self.js(f"{clear}.focus()")
+            self.press(Qt.Key_Return)
+            opened = json.loads(self.js(state))
+            # Modal, with the safe choice focused first.
+            self.assertEqual(opened, {'open': True, 'modal': True, 'active': 'Cancel', 'kept': 1})
+
+        open_dialog()
+        report = json.loads(self.js(f"""JSON.stringify({{
+            role: {dialog}.getAttribute('role'),
+            name: document.getElementById({dialog}.getAttribute('aria-labelledby')).textContent,
+            description: document.getElementById({dialog}.getAttribute('aria-describedby')).textContent,
+            buttons: Array.from({dialog}.querySelectorAll('button'), button => button.textContent),
+            card: [getComputedStyle({dialog}).backgroundColor, getComputedStyle({dialog}).borderRadius],
+            backdrop: getComputedStyle({dialog}, '::backdrop').backgroundColor,
+        }})"""))
+        self.assertEqual(report, {
+            'role': 'alertdialog', 'name': 'Clear Chat',
+            'description': 'Clear chat? All chat history, including saved images, will be lost. '
+                           'Pending attachments will also be removed. This cannot be undone.',
+            'buttons': ['Cancel', 'Clear Chat'], 'card': ['rgb(255, 255, 255)', '12px'], 'backdrop': 'rgba(9, 9, 11, 0.45)',
+        })
+        # Esc and Cancel leave the chat as it is, and give the keyboard back to Clear Chat.
+        self.press(Qt.Key_Escape)
+        self.assertEqual(json.loads(self.js(state)), {'open': False, 'modal': False, 'active': 'clear-chat-btn', 'kept': 1})
+        open_dialog()
+        self.press(Qt.Key_Return)
+        QTest.qWait(100)  # The dialog's close event comes in a task of its own.
+        self.assertEqual(json.loads(self.js(state)), {'open': False, 'modal': False, 'active': 'clear-chat-btn', 'kept': 1})
+        self.assertNotIn('clear_history', [action['action'] for action in self.actions])
+        # Its own Clear Chat clears.
+        open_dialog()
+        self.press(Qt.Key_Tab)
+        self.assertEqual(self.active(), 'btn btn-danger')
+        self.press(Qt.Key_Return)
+        self.wait_for("document.querySelectorAll('#chat-log .msg-user').length === 0")
+        self.assertEqual(json.loads(self.js(state)), {'open': False, 'modal': False, 'active': 'clear-chat-btn', 'kept': 0})
+        self.assertEqual(self.js("document.querySelector('#chat-log .msg-system').textContent"), 'Chat history and context memory cleared.')
+        deadline = time.monotonic() + 5
+        while 'clear_history' not in [action['action'] for action in self.actions] and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.02)
+        self.assertIn('clear_history', [action['action'] for action in self.actions])
+        # The browser's own confirm box is gone for good.
+        self.assertEqual(self.js('window.confirmed'), 0)
+        self.assertNotIn('confirm(', (ROOT / 'src/web_ui/agent.html').read_text(encoding='utf-8'))
 
     def test_replies_errors_and_the_connection_are_announced(self):
         announcer = "document.getElementById('chat-announcer')"

@@ -94,7 +94,8 @@ function startToastTimer() {
 let heldStatus = null;
 
 // `duration` 0 keeps the message until the next one. `options`: {error, label, run, focus}, an action button: `run` does it (and may return
-// a promise of its end), and `focus` names the control that takes the focus once it is done (see focusAfterAction).
+// a promise of its end), and `focus` names the control that takes the focus once it is done (see focusAfterAction). `quiet` shows a
+// message and does not say it: what is under way (Loading, Aligning) is not news to a screen reader, its outcome is.
 function showStatus(text, duration = 3000, options = {}) {
     if (document.querySelector('dialog[open]')) {
         heldStatus = [text, duration, options];
@@ -124,7 +125,7 @@ function showStatus(text, duration = 3000, options = {}) {
         toast.append(action);
     }
     // A screen reader is told the message's text and that its button is there (it is in the message, which goes after a while).
-    byId('live').textContent = options.run ? text + ' ' + t("{action} is available.", {action: options.label}) : text;
+    if (!options.quiet) byId('live').textContent = options.run ? text + ' ' + t("{action} is available.", {action: options.label}) : text;
     toastDuration = duration;
     startToastTimer();
 }
@@ -285,10 +286,14 @@ function updateView() {
 
 // ---- Mol*: its interface hidden, only the canvas. Without layoutShowRemoteState: false,
 // Mol* lists the public states at webchem.ncbr.muni.cz on every load.
-// The page's scripts after this one define what the start below calls; it waits for them.
-const scriptsLoaded = document.readyState === 'loading'
-    ? new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }))
-    : Promise.resolve();
+// The page's scripts after this one define what the start below calls; it waits for them. They are all deferred, so they have run
+// when DOMContentLoaded comes (the readyState is "interactive" while they run, so it cannot tell).
+const scriptsLoaded = document.readyState === 'complete'
+    ? Promise.resolve()
+    : new Promise(resolve => {
+        document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        window.addEventListener('load', resolve, { once: true });
+    });
 
 // An async function, so that every way of not starting (the bundle is not there, it fails as it runs, its
 // Viewer cannot be made, the setup below throws) is a rejection that failStart answers, not an error that stops here.
@@ -329,7 +334,7 @@ async function startMolstar() {
     renderStructures();
     setupResidueEvents();
     setupToolEvents();
-    showStatus(t("Mol* initialized. Connecting to the Viewer..."));
+    showStatus(t("Mol* initialized. Connecting to the Viewer..."), 3000, {quiet: true});
     setupSSE();
 }
 
@@ -393,7 +398,7 @@ function setupSSE() {
 
     async function processPendingStructures() {
         for (const struct of pendingStructures) {
-            showStatus(t("Processing queued structure: {name}...", {name: struct.node_id}), 0);
+            showStatus(t("Processing queued structure: {name}...", {name: struct.node_id}), 0, {quiet: true});
             await (struct.saved ? enqueueSavedStructure : enqueueStructure)(struct.pdb_url, struct.node_id);
         }
         pendingStructures = [];
@@ -406,7 +411,7 @@ function setupSSE() {
             if (msg.type === 'restore_session') {
                 if (isRestoring) {
                     if (msg.session) {
-                        showStatus(t("Restoring the saved session..."));
+                        showStatus(t("Restoring the saved session..."), 3000, {quiet: true});
                         await plugin.state.setSnapshot(msg.session);
                         await reconcileLayers();
                         syncCanvasProps();
@@ -429,7 +434,7 @@ function setupSSE() {
                     // Queue incoming structure while waiting for the session state response
                     pendingStructures.push({ pdb_url, node_id, saved });
                 } else {
-                    showStatus(t("New structure received: {name}. Loading...", {name: node_id}), 0);
+                    showStatus(t("New structure received: {name}. Loading...", {name: node_id}), 0, {quiet: true});
                     await (saved ? enqueueSavedStructure : enqueueStructure)(pdb_url, node_id);
                 }
             }
@@ -485,7 +490,7 @@ function enqueueLoad(load, label, url) {
 // Load structure, apply cartoon/pLDDT coloring, align to pivot, and auto-save
 async function loadAndAlignStructure(load, label, url) {
     try {
-        showStatus(t("Loading structure {name}...", {name: label}), 0);
+        showStatus(t("Loading structure {name}...", {name: label}), 0, {quiet: true});
         plugin.log.info(`Loading structure ${label}...`);
 
         const before = loadedStructures().length;
@@ -498,7 +503,7 @@ async function loadAndAlignStructure(load, label, url) {
         // Color by card says otherwise; the structures already there keep what they show.
         await colorNewStructure(structures[structures.length - 1]);
         if (structures.length > 1) {
-            showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0);
+            showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0, {quiet: true});
             plugin.log.info(`Aligning ${label} to pivot structure...`);
             const target = structures[structures.length - 1];
             const pivot = pivotStructure(target.cell.transform.ref);
@@ -797,23 +802,37 @@ measureScrollbar();
 })();
 
 // ---- The panel's tabs: on a phone the cards take turns in the strip; elsewhere all are in view ----
+// The browser moves the focus along the tabs where it has focusgroup (the attribute on the strip in esmfold.html; nomemory and
+// focusgroupstart make the focus come in on the chosen tab); elsewhere the roving tabindex and the keys below do. The chosen tab
+// follows the focus either way.
+const nativeFocusGroup = 'focusGroup' in HTMLElement.prototype;
 function setTab(name) {
     document.body.dataset.tab = name;
     for (const tab of document.querySelectorAll('.side-tabs [role="tab"]')) {
-        tab.setAttribute('aria-selected', tab.dataset.tab === name ? 'true' : 'false');
-        tab.tabIndex = tab.dataset.tab === name ? 0 : -1;
+        const chosen = tab.dataset.tab === name;
+        tab.setAttribute('aria-selected', chosen ? 'true' : 'false');
+        tab.toggleAttribute('focusgroupstart', chosen);
+        if (!nativeFocusGroup) tab.tabIndex = chosen ? 0 : -1;
     }
 }
 for (const tab of document.querySelectorAll('.side-tabs [role="tab"]')) {
     tab.addEventListener('click', () => setTab(tab.dataset.tab));
+    if (nativeFocusGroup) {
+        tab.addEventListener('focus', () => setTab(tab.dataset.tab));
+        continue;
+    }
     tab.addEventListener('keydown', event => {
         const tabs = [...document.querySelectorAll('.side-tabs [role="tab"]')];
-        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
-        if (!step) return;
+        const at = tabs.indexOf(tab);
+        let to;
+        if (event.key === 'ArrowRight') to = (at + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
+        else if (event.key === 'Home') to = 0;
+        else if (event.key === 'End') to = tabs.length - 1;
+        else return;
         event.preventDefault();
-        const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
-        setTab(next.dataset.tab);
-        next.focus();
+        setTab(tabs[to].dataset.tab);
+        tabs[to].focus();
     });
 }
 setTab('structures');
@@ -844,11 +863,11 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
-// Escape closes the layer on top: a menu, a question, the help, the drawer (a narrow window's panel), a tool, the pinned residue, then the Advanced view. (An open dialog's
+// Escape closes the layer on top: the hover tooltip, a menu, a question, the help, the drawer (a narrow window's panel), a tool, the pinned residue, then the Advanced view. (An open dialog's
 // Escape would be the browser's too, after this: this closes the dialog first, as its buttons do, and leaves the browser nothing to close.)
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (closeSessionMenu() || closeConfirm() || closeImage() || closeHelp() || closeDrawer()) return;
+    if (dismissTip() || closeSessionMenu() || closeConfirm() || closeImage() || closeHelp() || closeDrawer()) return;
     if (leaveTool() || clearPin()) return;
     if (document.body.dataset.adv === '1') setAdvanced(false);
 });

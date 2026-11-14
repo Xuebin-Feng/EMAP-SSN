@@ -29,6 +29,9 @@ for folder in (SRC, ROOT):
 from tests import esmfold_layer_fixtures as fixtures
 from tests.test_esmfold_structures import StructuresTestCase
 
+from PySide6.QtCore import Qt  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtTest import QTest  # noqa: E402
+
 GREY = 0xDCDCDC
 A, B, C = "11.pdb", "22.pdb", "33.pdb"
 SEQUENCE = fixtures.FIRST_SEQUENCE
@@ -310,7 +313,7 @@ class CardTests(ColorTestCase):
         many = self.script("""
             const body = document.getElementById('color-body');
             return {filter: !!body.querySelector('.filter'), scroll: !!body.querySelector('.seg.scroll'),
-                    chips: body.querySelectorAll('[role="radio"]').length};
+                    chips: body.querySelectorAll('.seg-btn').length};
             """)
         self.assertEqual(many, {"filter": True, "scroll": True, "chips": 12})
         # Typing narrows the buttons, and the filter keeps the focus.
@@ -322,7 +325,7 @@ class CardTests(ColorTestCase):
             """)
         narrowed = self.script("""
             const body = document.getElementById('color-body');
-            return {labels: [...body.querySelectorAll('.seg.scroll [role="radio"]')].map(c => c.firstChild.textContent),
+            return {labels: [...body.querySelectorAll('.seg.scroll .seg-btn')].map(c => c.querySelector('.seg-label').textContent),
                     focus: document.activeElement.classList.contains('filter')};
             """)
         self.assertEqual(narrowed, {"labels": ["Property 7"], "focus": True})
@@ -340,7 +343,7 @@ class CardTests(ColorTestCase):
         self.settle(200)
         none = self.script("""
             const body = document.getElementById('color-body');
-            return {filter: !!body.querySelector('.filter'), chips: [...body.querySelectorAll('[role="radio"]')].map(c => c.dataset.coloring),
+            return {filter: !!body.querySelector('.filter'), chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
                     notes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent)};
             """)
         self.assertFalse(none["filter"])
@@ -358,7 +361,7 @@ class CardTests(ColorTestCase):
         field = """
             const body = document.getElementById('color-body'), filter = body.querySelector('.filter');
             return {same: filter === window.__filter, focus: document.activeElement === filter, value: filter.value, caret: filter.selectionStart,
-                    labels: [...body.querySelectorAll('.seg.scroll [role="radio"]')].map(chip => chip.firstChild.textContent).join(', ')};"""
+                    labels: [...body.querySelectorAll('.seg.scroll .seg-btn')].map(chip => chip.querySelector('.seg-label').textContent).join(', ')};"""
         everything = ", ".join(f"Property {index}" for index in range(10))
         self.script("window.__filter = document.querySelector('#color-body .filter'); window.__filter.focus(); return 1")
         # An IME composing (the pinyin of a word not yet chosen) changes the text, and the filter waits.
@@ -392,30 +395,37 @@ class CardTests(ColorTestCase):
         self.assertEqual(self.script("return card().selected"), "prop_1")
         self.assertEqual(self.console_errors(), [])
 
-    def test_the_buttons_are_one_radio_group_with_one_tab_stop_and_arrow_keys(self):
+    def test_the_chips_are_native_radios_each_group_one_tab_stop_with_the_arrow_keys_of_a_radio_group(self):
         self.write_with(A, "information_content", "same_residue_pct")
         self.open_scene(A)
+        self.script("document.querySelector('#color-body .more-toggle').click(); return 1")
+        self.settle(200)
         group = self.script("""
             const body = document.getElementById('color-body');
-            const chips = [...body.querySelectorAll('[role="radio"]')];
-            return {group: body.querySelector('[role="radiogroup"]').getAttribute('aria-label'),
-                    stops: chips.filter(c => c.tabIndex === 0).map(c => c.dataset.coloring),
-                    names: chips.every(c => c.textContent.trim().length > 0)};
+            const radios = [...body.querySelectorAll('input[type="radio"]')];
+            const names = {};
+            for (const radio of radios) (names[radio.name] ||= []).push(radio.closest('.seg-btn').dataset.coloring);
+            return {groups: [...body.querySelectorAll('[role="radiogroup"]')].map(g => g.getAttribute('aria-label')), names,
+                    checked: radios.filter(r => r.checked).map(r => r.value),
+                    roles: body.querySelectorAll('[role="radio"], .seg-btn[tabindex]').length,
+                    labelled: radios.every(r => r.labels.length === 1 && r.labels[0].textContent.trim().length > 0)};
             """)
-        self.assertEqual(group, {"group": "Color by", "stops": ["plddt"], "names": True})
-        for key, expected in (("ArrowRight", "information_content"), ("ArrowRight", "same_residue_pct"), ("ArrowRight", "builtin:structure"),
-                              ("ArrowLeft", "same_residue_pct"), ("Home", "builtin:structure"), ("End", "same_residue_pct")):
-            self.script("""
-                const target = document.activeElement.matches('[role="radio"]') ? document.activeElement
-                    : document.querySelector('#color-body [role="radio"][tabindex="0"]');
-                target.focus();
-                target.dispatchEvent(new KeyboardEvent('keydown', {key: %s, bubbles: true, cancelable: true}));
-                await structureQueue;
-                await cardNow();
-                return 1;
-                """ % json.dumps(key))
+        self.assertEqual(group, {
+            "groups": ["Color by", "More colorings"],
+            "names": {"coloring": ["builtin:structure", "plddt", "information_content", "same_residue_pct"],
+                      "coloring-more": ["builtin:secondary-structure", "builtin:residue-position"]},
+            "checked": ["plddt"], "roles": 0, "labelled": True})
+        # The browser's own keys: Right and Left move along the group (round its ends) and choose, as radio buttons do.
+        widget = self.view.focusProxy() or self.view
+        self.script("document.querySelector('#color-body [data-coloring=\"plddt\"] input').focus(); return 1")
+        for key, expected in ((Qt.Key_Right, "information_content"), (Qt.Key_Right, "same_residue_pct"), (Qt.Key_Right, "builtin:structure"),
+                              (Qt.Key_Left, "same_residue_pct")):
+            QTest.keyClick(widget, key)
+            self.pump(0.3)
+            self.script("await structureQueue; await cardNow(); return 1")
             self.settle(150)
-            state = self.script("return {selected: card().selected, focus: document.activeElement.dataset.coloring, coloring: coloringOf(loadedStructures()[0])}")
+            state = self.script("""return {selected: card().selected, focus: document.activeElement.closest('.seg-btn')?.dataset.coloring,
+                                           coloring: coloringOf(loadedStructures()[0])}""")
             self.assertEqual(state, {"selected": expected, "focus": expected, "coloring": expected}, key)
 
     def test_the_compact_legend_on_the_canvas_follows_the_choice(self):
@@ -457,8 +467,33 @@ class PanelTabTests(ColorTestCase):
                 return 1;
                 """)
             self.assertEqual(self.script(visible), ["structures"])
+            # Home and End go to the first and the last.
+            for key, expected in (("End", "tab-residue"), ("Home", "tab-structures")):
+                self.script("""
+                    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: %s, bubbles: true, cancelable: true}));
+                    return 1;
+                    """ % json.dumps(key))
+                self.assertEqual(self.script("return document.activeElement.id"), expected, key)
         finally:
             self.view.resize(1300, 800)
+
+    def test_the_strip_is_a_focusgroup_and_its_cards_are_tab_panels_named_by_their_tabs(self):
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        markup = self.script("""
+            const list = document.querySelector('.side-tabs');
+            return {group: list.getAttribute('focusgroup'), start: [...list.querySelectorAll('[focusgroupstart]')].map(t => t.id),
+                    panels: [...document.querySelectorAll('.sec[data-tab]')].map(p => [p.getAttribute('role'), p.getAttribute('aria-labelledby'),
+                        document.getElementById(p.getAttribute('aria-labelledby')).dataset.tab === p.dataset.tab])};
+            """)
+        self.assertEqual(markup, {"group": "tablist nomemory", "start": ["tab-structures"],
+                                  "panels": [["tabpanel", "tab-structures", True], ["tabpanel", "tab-color", True], ["tabpanel", "tab-residue", True]]})
+        self.script("document.getElementById('tab-color').click(); return 1")
+        self.assertEqual(self.script("return [...document.querySelectorAll('.side-tabs [focusgroupstart]')].map(t => t.id)"), ["tab-color"])
+        # The script's roving tabindex is the fallback only: where the browser has focusgroup it leaves tabindex alone.
+        native = self.script("return 'focusGroup' in HTMLElement.prototype")
+        stops = self.script("return [...document.querySelectorAll('.side-tabs [role=\"tab\"], .view-toolbar button')].filter(b => b.hasAttribute('tabindex')).length")
+        self.assertEqual(stops == 0, native)
 
 
 if __name__ == "__main__":

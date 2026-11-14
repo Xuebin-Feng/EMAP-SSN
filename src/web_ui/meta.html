@@ -20,6 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-i18n>EMAP-SSN Metadata</title>
     <!-- Load local Tabulator CSS -->
     <link rel="stylesheet" href="/meta_resource/tabulator.min.css">
@@ -740,7 +741,6 @@
             border: 1px solid var(--border-color);
             border-radius: var(--radius-card);
             box-shadow: var(--shadow-dialog);
-            animation: modalFadeIn 0.2s ease-out;
         }
 
         .modal-content::backdrop {
@@ -749,7 +749,7 @@
             overscroll-behavior: contain;
         }
 
-        .modal-content h3 {
+        .modal-content h2 {
             margin: 0;
             font-size: 1rem;
             font-weight: 600;
@@ -758,7 +758,7 @@
             align-items: center;
             gap: 8px;
         }
-        .modal-content h3 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+        .modal-content h2 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
 
         /* .btn.: the place holds while the button has the focus, which
            .btn:focus-visible would otherwise make relative. */
@@ -785,7 +785,7 @@
             line-height: 1.6;
             color: var(--text-secondary);
         }
-        .modal-section h4 {
+        .modal-section h3 {
             margin: 0;
             font-size: 0.875rem;
             font-weight: 600;
@@ -794,7 +794,7 @@
             align-items: center;
             gap: 8px;
         }
-        .modal-section h4 .icon { color: var(--text-secondary); }
+        .modal-section h3 .icon { color: var(--text-secondary); }
         .modal-section p { margin: 6px 0 0; }
         .modal-section strong { color: var(--text-primary); }
         .modal-section ul { margin: 6px 0 0 18px; padding: 0; }
@@ -856,9 +856,13 @@
         }
         .modal-footer .btn { min-height: 32px; padding: 0 16px; }
 
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+        /* The slide-in is for those who have not asked for less motion. */
+        @media (prefers-reduced-motion: no-preference) {
+            .modal-content { animation: modalFadeIn 0.2s ease-out; }
+            @keyframes modalFadeIn {
+                from { opacity: 0; transform: translateY(-10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
         }
     </style>
     <!-- The theme chosen on this page or the Agent page (both keep it as
@@ -899,8 +903,8 @@
             <button class="btn btn-primary" id="import-btn"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import</span></button>
             <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n>Export</span></button>
             <div class="btn-group">
-                <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)"><svg class="icon" aria-hidden="true"><use href="#i-undo-2"/></svg><span data-i18n>Undo</span></button>
-                <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
+                <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)" aria-keyshortcuts="Control+Z Meta+Z"><svg class="icon" aria-hidden="true"><use href="#i-undo-2"/></svg><span data-i18n>Undo</span></button>
+                <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" aria-keyshortcuts="Control+Y Meta+Y"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
             </div>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <button class="btn btn-ghost" id="help-btn"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Help</span></button>
@@ -1586,6 +1590,7 @@
             // no key does more than in the body; the filters and buttons in
             // it are stops of their own.
             table.on("tableBuilt", () => {
+                table.element.setAttribute("aria-label", t("Metadata table"));
                 const header = table.element.querySelector(".tabulator-header");
                 header.tabIndex = -1;
                 // A button in the header that takes the focus, off to the
@@ -1893,14 +1898,14 @@
 
     <!-- Help: a modal dialog, which its buttons, Esc and a click outside it close -->
     <dialog id="help-modal" class="modal-content" aria-labelledby="help-modal-title" closedby="any">
-        <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Metadata Spreadsheet Help</span></h3>
+        <h2 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Metadata Spreadsheet Help</span></h2>
         <form method="dialog">
-            <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close" autofocus><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+            <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close" aria-label="Close" autofocus><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
         </form>
         <p class="modal-intro" data-i18n>The table holds the metadata of the network's nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as <code>spectrum</code> and <code>meta show</code> use it.</p>
 
         <section class="modal-section">
-            <h4><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h4>
+            <h3><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h3>
             <p data-i18n>Type in the box under a column's name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</p>
             <div class="filter-grid">
                 <div class="filter-card">
@@ -1945,7 +1950,7 @@
         </section>
 
         <section class="modal-section">
-            <h4><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span data-i18n>Working with the Table</span></h4>
+            <h3><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span data-i18n>Working with the Table</span></h3>
             <ul class="rules-grid">
                 <li data-i18n><strong>Sort:</strong> Click a column's name to sort by it. Click again to reverse the order, and a third time to return to the Viewer's order.</li>
                 <li data-i18n><strong>Resize:</strong> Drag the right edge of a column's header. The column keeps that width when the window is resized and when the Viewer updates the table.</li>
@@ -1958,7 +1963,7 @@
         </section>
 
         <section class="modal-section">
-            <h4><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import and Export</span></h4>
+            <h3><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import and Export</span></h3>
             <ul class="rules-grid">
                 <li data-i18n><strong>Import:</strong> Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, <code>_</code>, <code>-</code> and <code>.</code>), row 2 each column's type (<code>number</code> or <code>text</code>), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; <code>docs/metadata_template.xlsx</code> shows the layout.</li>
                 <li data-i18n><strong>Export:</strong> Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer's selection don't limit it.</li>
@@ -1966,7 +1971,7 @@
         </section>
 
         <section class="modal-section">
-            <h4><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h4>
+            <h3><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h3>
             <ul class="rules-grid">
                 <li data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
                 <li data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>

@@ -198,6 +198,9 @@ class ChooserTests(SourceCase):
                     view: document.body.dataset.view}; })()""")
         self.assertEqual((found["value"], found["guideDisabled"], found["score"], found["view"]), ("threshold", True, True, "tree"))
         self.assertEqual(found["why"], "No guide tree was found for this alignment")
+        # The reason is in the option's text, which a keyboard or a screen reader reads, not only in its tooltip.
+        self.assertEqual(self.state("Array.from(document.getElementById('source-select').options).map(o => o.textContent.trim())"),
+                         ["Network threshold tree", "MSA Guide Tree (No guide tree was found for this alignment)"])
         self.assertEqual(self.console_errors(), [])
 
     def test_choosing_a_tree_shows_it_and_the_viewer_keeps_the_choice(self):

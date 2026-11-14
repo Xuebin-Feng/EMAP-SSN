@@ -135,6 +135,33 @@ class TooltipTests(ResidueTestCase):
         self.script("document.getElementById('viewer').dispatchEvent(new PointerEvent('pointerleave', {bubbles: false})); return 1")
         self.assertFalse(self.script("return tipNow().shown"))
 
+    def test_escape_hides_the_tip_before_anything_else_until_the_pointer_moves_again(self):
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        escape = "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))"
+        move = """
+            const stage = document.getElementById('stage').getBoundingClientRect();
+            document.getElementById('viewer').dispatchEvent(new PointerEvent('pointermove', {clientX: stage.left + %d, clientY: stage.top + 150, bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 250));
+            return 1"""
+        # A pinned residue, and the tip of the hovered one: Escape takes the tip only, the pin stays.
+        self.script("await clickOn(0, 2); await hoverOn(0, 5); return 1")
+        self.assertTrue(self.script("return tipNow().shown"))
+        self.js(escape)
+        self.assertFalse(self.script("return tipNow().shown"))
+        self.assertEqual(self.script("return pinnedResidue ? pinnedResidue.number : null"), 3)
+        # It stays hidden while the pointer is still over the residue, even if the residue is drawn again (the pin changes)...
+        self.script("await clickOn(0, 4); return 1")
+        self.assertFalse(self.script("return tipNow().shown"))
+        # ... and comes back with the pointer's next move.
+        self.script(move % 200)
+        self.assertTrue(self.script("return tipNow().shown"))
+        # The next Escape is the pin's.
+        self.js(escape)
+        self.assertFalse(self.script("return tipNow().shown"))
+        self.js(escape)
+        self.assertIsNone(self.script("return pinnedResidue"))
+
 
 class PinTests(ResidueTestCase):
     def test_a_click_pins_a_residue_and_the_card_shows_its_equivalent_in_every_structure(self):

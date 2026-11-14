@@ -29,7 +29,8 @@ from tests.esmfold_long_names import NAME_120, OPENED_NAME, SECOND_NAME, UNDERSC
 from tests.test_esmfold_colors import A, B
 from tests.test_esmfold_residue import ResidueTestCase
 
-from PySide6.QtCore import QUrl  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtCore import Qt, QUrl  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtTest import QTest  # noqa: E402
 
 # How the tooltip is laid out, measured in the page from where each text is drawn.
 TIP_LAYOUT = """
@@ -371,12 +372,11 @@ window.noteNow = function () {
         const clone = row.cloneNode(true);
         clone.classList.remove('clamp');
         clone.classList.add('measuring');
-        clone.removeAttribute('role');
         row.parentElement.append(clone);
         const whole = clone.querySelector('.note-text').getBoundingClientRect().height;
         clone.remove();
         Object.assign(found, {
-            text: text.textContent, role: row.getAttribute('role'), tabindex: row.getAttribute('tabindex'), expanded: row.getAttribute('aria-expanded'),
+            text: text.textContent, tag: row.tagName.toLowerCase(), expanded: row.getAttribute('aria-expanded'),
             clamped: row.classList.contains('clamp'), chevron: getComputedStyle(chevron).display !== 'none', turned: getComputedStyle(chevron).transform,
             inView: text.clientHeight, inFull: text.scrollHeight, lineHeight, lines: Math.round(whole / lineHeight)});
     }
@@ -389,15 +389,13 @@ window.noteNow = function () {
     }
     return found;
 };
-window.pressNote = function (how) {
-    const row = document.querySelector('#color-legend .note-row') || document.querySelector('#color-legend details.src summary');
-    if (how === 'click') row.click();
-    else row.dispatchEvent(new KeyboardEvent('keydown', {key: how, bubbles: true, cancelable: true}));
+window.pressNote = function () {
+    (document.querySelector('#color-legend .note-row') || document.querySelector('#color-legend details.src summary')).click();
 };
 // Everything in the legend that offers to open something: its state, and what pressing it does to the legend's height.
 window.disclosures = function () {
     const legend = document.getElementById('color-legend');
-    return [...legend.querySelectorAll('.note-row[role="button"], details.src summary')].map(control => {
+    return [...legend.querySelectorAll('button.note-row, details.src summary')].map(control => {
         const before = legend.getBoundingClientRect().height;
         control.click();
         const during = legend.getBoundingClientRect().height;
@@ -440,8 +438,16 @@ class LegendNoteDisclosureTests(LongNameTestCase):
     def note(self):
         return self.script("return noteNow()")
 
-    def press(self, how="click"):
-        self.script("pressNote(%s); return 1" % json.dumps(how))
+    def press(self):
+        self.script("pressNote(); return 1")
+        self.settle(120)
+        return self.note()
+
+    def press_key(self, key):
+        """A real key on the note's button, which the browser turns into a press (or not): the note as it is after."""
+        self.script("document.querySelector('#color-legend button.note-row').focus(); return 1")
+        QTest.keyClick(self.view.focusProxy() or self.view, key)
+        self.pump(0.2)
         self.settle(120)
         return self.note()
 
@@ -452,14 +458,14 @@ class LegendNoteDisclosureTests(LongNameTestCase):
     def assert_plain(self, note, context=""):
         """A note with nothing to open: whole, no chevron, nothing to press."""
         self.assertEqual(note["kind"], "note", context)
-        self.assertEqual((note["role"], note["tabindex"], note["expanded"], note["chevron"]), (None, None, None, False), context)
+        self.assertEqual((note["tag"], note["expanded"], note["chevron"]), ("div", None, False), context)
         self.assertLessEqual(note["lines"], 2, context)
         self.assertLessEqual(note["inFull"], note["inView"] + 1, context)
 
     def assert_opens(self, note, context=""):
         """A note with more than it shows: a button with a chevron, closed, two lines in view."""
         self.assertEqual(note["kind"], "note", context)
-        self.assertEqual((note["role"], note["tabindex"], note["expanded"], note["chevron"], note["clamped"]), ("button", "0", "false", True, True), context)
+        self.assertEqual((note["tag"], note["expanded"], note["chevron"], note["clamped"]), ("button", "false", True, True), context)
         self.assertGreater(note["lines"], 2, context)
         self.assertAlmostEqual(note["inView"], 2 * note["lineHeight"], delta=2, msg=context)
         self.assertGreater(note["inFull"], note["inView"] + 1, context)
@@ -471,10 +477,10 @@ class LegendNoteDisclosureTests(LongNameTestCase):
         self.assertEqual(note["text"], "The model's confidence in each residue, stored in the B-factor column of the PDB file.")
         self.assert_plain(note)
         before = note["legend"]
-        # Pressing it (the row, with the pointer or with a key) changes nothing, and nothing was offered.
-        for how in ("click", "Enter", " "):
-            self.assertEqual(self.press(how)["legend"], before)
-            self.assert_plain(self.note(), how)
+        # Pressing it changes nothing, and nothing was offered: the row is no button, so there is nothing for a key to press.
+        self.assertEqual(self.press()["legend"], before)
+        self.assert_plain(self.note())
+        self.assertEqual(self.script("return document.querySelectorAll('#color-legend button').length"), 0)
         self.assertEqual(self.overflowing("#color-legend"), [])
 
     def test_a_short_description_or_a_source_alone_is_the_note_whole_and_has_no_chevron(self):
@@ -494,7 +500,7 @@ class LegendNoteDisclosureTests(LongNameTestCase):
         self.assertEqual(self.overflowing("#color-legend"), [])
         opened = self.press()
         # Open: all of the text in view, the legend as much taller, the chevron turned over (a rotation of 180 degrees), and the button says so.
-        self.assertEqual((opened["expanded"], opened["clamped"], opened["role"], opened["chevron"]), ("true", False, "button", True))
+        self.assertEqual((opened["expanded"], opened["clamped"], opened["tag"], opened["chevron"]), ("true", False, "button", True))
         self.assertAlmostEqual(opened["inView"], closed["inFull"], delta=1)
         self.assertGreater(opened["legend"], closed["legend"] + 10)
         self.assertNotEqual(opened["turned"], closed["turned"])
@@ -503,10 +509,10 @@ class LegendNoteDisclosureTests(LongNameTestCase):
         self.assertEqual((again["expanded"], again["clamped"]), ("false", True))
         self.assertAlmostEqual(again["legend"], closed["legend"], delta=1)
         # The keyboard: Enter and Space press it; another key does not.
-        self.assertEqual(self.press("Enter")["expanded"], "true")
-        self.assertEqual(self.press(" ")["expanded"], "false")
-        self.assertEqual(self.press("a")["expanded"], "false")
-        self.assertEqual(self.press("ArrowDown")["expanded"], "false")
+        self.assertEqual(self.press_key(Qt.Key_Return)["expanded"], "true")
+        self.assertEqual(self.press_key(Qt.Key_Space)["expanded"], "false")
+        self.assertEqual(self.press_key(Qt.Key_A)["expanded"], "false")
+        self.assertEqual(self.press_key(Qt.Key_Down)["expanded"], "false")
         self.assertEqual(self.console_errors(), [])
 
     def test_the_chevron_is_there_exactly_when_the_text_has_more_than_two_lines_in_the_panels_room(self):
@@ -603,7 +609,7 @@ PANEL = """
 window.chipRects = function () {
     const side = document.getElementById('side-scroll');
     side.scrollTop = 0;
-    return [...document.querySelectorAll('#color-body [role="radio"]')].map(chip => {
+    return [...document.querySelectorAll('#color-body .seg-btn')].map(chip => {
         const box = chip.getBoundingClientRect();
         return [chip.dataset.coloring, box.left, box.top, box.width, box.height];
     });

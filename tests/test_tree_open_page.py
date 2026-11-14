@@ -883,6 +883,84 @@ class BannerLineTests(BannerCase):
         self.assertGreaterEqual(right, 27)
 
 
+class AnnouncementTests(BannerCase):
+    """What a screen reader is told outside the focus: one status line, said when the warnings change or a copy ends."""
+
+    SAY = "document.getElementById('announcer').textContent.trim()"
+
+    def test_the_banner_and_the_cards_are_not_live_regions_and_one_hidden_status_line_is(self):
+        self.guide()
+        found = self.script("""
+            const line = document.getElementById('announcer');
+            const box = line.getBoundingClientRect();
+            return {role: line.getAttribute('role'), live: line.getAttribute('aria-live'), small: box.width <= 1 && box.height <= 1,
+                banner: document.getElementById('banner').getAttribute('role'),
+                cards: ['match-report', 'mismatch-card'].map(id => document.getElementById(id).getAttribute('role')),
+                regions: document.querySelectorAll('[role=status]').length};""")
+        self.assertEqual((found["role"], found["live"], found["small"], found["banner"], found["regions"]), ("status", "polite", True, None, 1))
+        self.assertNotIn("status", found["cards"])
+
+    def test_the_warnings_are_said_when_they_change_and_not_when_the_banner_is_laid_out_again(self):
+        self.guide()
+        self.assertRegex(self.state(self.SAY), r"^2 warnings: ")
+        self.script("document.getElementById('announcer').textContent = ''; return 1")
+        # A layout change with the same warnings lays the banner out again and says nothing.
+        self.script("const s = document.getElementById('layout-select'); s.value = 'rectangular'; s.dispatchEvent(new Event('change')); return 1")
+        self.pump(0.3)
+        self.assertEqual(self.state(self.SAY), "")
+
+    def test_a_copy_is_said_and_a_refused_copy_says_so_and_a_second_click_does_not_stick(self):
+        self.guide()
+        self.script("document.getElementById('mismatch-btn').click(); return 1")
+        self.wait_for("document.querySelectorAll('#mismatch-card textarea').length === 2")
+        found = self.script("""
+            const button = document.querySelector('#mismatch-card .mismatch-copy'), label = button.querySelector('span');
+            const original = label.textContent;
+            const say = () => document.getElementById('announcer').textContent.trim();
+            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('no'))}});
+            button.click();
+            await wait(50);
+            const refused = {label: label.textContent, said: say()};
+            Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.resolve()}});
+            await wait(700);
+            button.click();
+            await wait(50);
+            const copied = {label: label.textContent, said: say()};
+            await wait(1000);
+            // 1.75 s after the first press but 1.05 s after the second: still the second's word, not the first's timer.
+            const between = label.textContent;
+            await wait(700);
+            return {original, refused, copied, between, back: label.textContent, kept: label.dataset.label};""")
+        self.assertEqual(found["refused"], {"label": "Could not copy", "said": "Could not copy"})
+        self.assertEqual(found["copied"], {"label": "Copied", "said": "Copied"})
+        self.assertEqual(found["between"], "Copied")
+        self.assertEqual((found["back"], found["kept"]), (found["original"], found["original"]))
+
+
+class FocusKeptTests(BannerCase):
+    """A tree pushed by the Viewer switches the controls off: the one that has the focus keeps it."""
+
+    def test_the_focused_control_stays_focusable_and_ignores_activation_while_the_others_are_disabled(self):
+        self.guide()
+        found = self.script("""
+            const fit = document.getElementById('fit-btn'), details = document.getElementById('details-btn');
+            fit.focus();
+            let fits = 0;
+            TreeView.fitView = () => { fits++; };
+            TreeView.show('loading');
+            const during = {active: document.activeElement.id, aria: fit.getAttribute('aria-disabled'), disabled: fit.disabled,
+                other: details.disabled, otherAria: details.getAttribute('aria-disabled')};
+            fit.click();
+            fit.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+            TreeView.show('tree');
+            const after = {active: document.activeElement.id, aria: fit.getAttribute('aria-disabled'), disabled: fit.disabled};
+            return {during, fits, after};""")
+        self.assertEqual(found["during"], {"active": "fit-btn", "aria": "true", "disabled": False, "other": True, "otherAria": None})
+        self.assertEqual(found["fits"], 0)
+        self.assertEqual(found["after"], {"active": "fit-btn", "aria": None, "disabled": False})
+
+
 class ShowDetailsTests(BannerCase):
     """The button at the right end of the banner and the card of the leaves and nodes the warnings count."""
 

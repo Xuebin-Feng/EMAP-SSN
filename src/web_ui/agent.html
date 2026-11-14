@@ -182,7 +182,8 @@
         }
         .icon-spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) { .icon-spin { animation: none; } }
+        /* Slowed, not stopped: it still has to say that the agent is at work. */
+        @media (prefers-reduced-motion: reduce) { .icon-spin { animation-duration: 6s; } }
 
         header {
             background-color: var(--bg-card);
@@ -274,7 +275,9 @@
             flex-shrink: 0;
         }
 
+        /* An <h2>, drawn as the title text it was. */
         .pane-title {
+            margin: 0;
             font-size: 0.875rem;
             font-weight: 600;
             color: var(--text-primary);
@@ -330,7 +333,10 @@
             border-radius: 50%;
             background: var(--switch-thumb);
             box-shadow: 0 1px 2px var(--switch-thumb-shadow);
-            transition: transform 0.15s ease, background-color 0.15s;
+            transition: background-color 0.15s;
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .ios-toggle-thumb { transition: transform 0.15s ease, background-color 0.15s; }
         }
 
         .ios-toggle input:checked + .ios-toggle-track .ios-toggle-thumb {
@@ -504,7 +510,8 @@
             overflow: hidden; clip-path: inset(50%); white-space: nowrap;
         }
 
-        .msg-wrapper { display: flex; width: 100%; animation: fadeInUp 0.18s ease-out; }
+        .msg-wrapper { display: flex; width: 100%; }
+        @media (prefers-reduced-motion: no-preference) { .msg-wrapper { animation: fadeInUp 0.18s ease-out; } }
         @keyframes fadeInUp { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 
         .msg-wrapper-user { justify-content: flex-end; }
@@ -733,8 +740,8 @@
         .thought-box-toggle {
             display: inline-flex;
             transform: rotate(-90deg);
-            transition: transform 0.2s ease;
         }
+        @media (prefers-reduced-motion: no-preference) { .thought-box-toggle { transition: transform 0.2s ease; } }
         .thought-box-toggle .icon { width: 14px; height: 14px; }
         .thought-box[open] .thought-box-toggle {
             transform: none;
@@ -797,12 +804,15 @@
             width: 0;
             min-width: 0;
             overflow: hidden;
-            transition: width 0.25s ease, min-width 0.25s ease;
             background-color: var(--bg-card);
             border-left: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
+        }
+
+        @media (prefers-reduced-motion: no-preference) {
+            .models-panel { transition: width 0.25s ease, min-width 0.25s ease; }
         }
 
         .models-panel.open {
@@ -824,7 +834,8 @@
             flex-shrink: 0;
         }
 
-        .panel-title { display: inline-flex; align-items: center; gap: 8px; }
+        /* An <h2> in the header's own type, as the title text it was. */
+        .panel-title { display: inline-flex; align-items: center; gap: 8px; margin: 0; font: inherit; }
         .panel-title .icon { color: var(--text-secondary); }
         /* The panel's title takes the focus when it opens. */
         .panel-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -921,7 +932,7 @@
         .card-delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
         .card-expand-btn:hover { background: var(--bg-muted); color: var(--text-primary); }
         .card-delete-btn:focus-visible, .card-expand-btn:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        .card-expand-btn .icon { transition: transform 0.2s ease; }
+        @media (prefers-reduced-motion: no-preference) { .card-expand-btn .icon { transition: transform 0.2s ease; } }
         .model-card.expanded .card-expand-btn .icon { transform: rotate(180deg); }
 
         .model-card-body {
@@ -1038,6 +1049,27 @@
         #attachment-notice:not(:empty) { margin-top: 8px; }
         .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 6px; }
 
+        /* ── Clear Chat confirmation: a modal <dialog> drawn as a card ── */
+        .confirm-dialog {
+            width: min(420px, calc(100vw - 32px));
+            padding: 18px 20px 16px;
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-card);
+        }
+        /* Scrolling over the backdrop or in the dialog never scrolls the page behind it. */
+        .confirm-dialog:modal { overscroll-behavior: contain; }
+        .confirm-dialog::backdrop { background: rgba(9, 9, 11, 0.45); overflow: hidden; overscroll-behavior: contain; }
+        [data-theme="dark"] .confirm-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+        .confirm-title { margin: 0 0 8px; font-size: 0.9375rem; font-weight: 600; }
+        .confirm-text { margin: 0; line-height: 1.5; color: var(--text-soft); overflow-wrap: anywhere; }
+        .confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+        /* The button that destroys something: outlined in the danger colour. */
+        .btn-danger { color: var(--danger); border-color: var(--danger); }
+        .btn-danger:hover { background-color: var(--danger-soft); }
+
         /* Windows High Contrast flattens backgrounds and drops shadows: what they carry is drawn with system colours. */
         @media (forced-colors: active) {
             .ios-toggle-track { border: 1px solid ButtonText; background: Canvas; }
@@ -1101,7 +1133,7 @@
         <div class="chat-container">
           <div class="chat-card">
             <div class="pane-header">
-                <span class="pane-title" data-i18n>Agent Control Panel</span>
+                <h2 class="pane-title" data-i18n>Agent Control Panel</h2>
                 <div class="header-controls">
                     <span id="active-model-badge" data-i18n>Deactivated</span>
                     <label id="agent-toggle-btn" class="ios-toggle" title="Toggle agent on/off">
@@ -1128,11 +1160,12 @@
             </div>
         </div>
 
-        <!-- Right panel: Model Cards Manager. Closed, it is inert, so its
-             controls are out of the Tab order and hidden from screen readers. -->
-        <div id="models-panel" class="models-panel" role="region" aria-labelledby="models-panel-title" inert>
+        <!-- Right panel: Model Cards Manager, a complementary landmark named by
+             its heading. Closed, it is inert, so its controls are out of the Tab
+             order and hidden from screen readers. -->
+        <aside id="models-panel" class="models-panel" aria-labelledby="models-panel-title" inert>
             <div class="panel-header">
-                <span class="panel-title" id="models-panel-title" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></span>
+                <h2 class="panel-title" id="models-panel-title" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></h2>
                 <button id="close-panel-btn" class="btn btn-ghost btn-icon" aria-label="Close panel" title="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <span id="card-move-hint" class="visually-hidden" data-i18n>Up and Down arrows move the card</span>
@@ -1144,8 +1177,19 @@
                 <button id="add-card-btn" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>Add Model</span></button>
                 <button id="save-cards-btn" class="btn btn-primary"><svg class="icon" id="save-cards-icon" aria-hidden="true"><use href="#i-save"/></svg><span id="save-cards-label" data-i18n>Save</span></button>
             </div>
-        </div>
+        </aside>
     </main>
+
+    <!-- Clear Chat asks first. Cancel has the focus, and it or Esc leaves the
+         chat as it is; the browser gives the focus back to Clear Chat. -->
+    <dialog id="clear-chat-dialog" class="confirm-dialog" role="alertdialog" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-text">
+        <h2 id="clear-chat-title" class="confirm-title" data-i18n>Clear Chat</h2>
+        <p id="clear-chat-text" class="confirm-text" data-i18n>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</p>
+        <form method="dialog" class="confirm-buttons">
+            <button class="btn" value="cancel" autofocus data-i18n>Cancel</button>
+            <button class="btn btn-danger" value="clear" data-i18n>Clear Chat</button>
+        </form>
+    </dialog>
 
     <script src="/agent_resource/attachments.js"></script>
     <script>
@@ -1204,6 +1248,14 @@
             return svg;
         }
         function setIcon(svg, name) { svg.querySelector("use").setAttribute("href", "#i-" + name); }
+
+        // A <span> holding text, never markup.
+        function textSpan(text, className = "") {
+            const span = document.createElement("span");
+            if (className) span.className = className;
+            span.textContent = text;
+            return span;
+        }
 
         if (window.marked && typeof window.marked.setOptions === "function") {
             window.marked.setOptions({ gfm: true, breaks: true });
@@ -1306,7 +1358,7 @@
         function populateDropdown() {
             const sel = document.getElementById("model-selector");
             const prevVal = sel.value;
-            sel.innerHTML = "";
+            sel.replaceChildren();
             modelCards.forEach((card, i) => {
                 const opt = document.createElement("option");
                 opt.value = String(i);
@@ -1425,7 +1477,7 @@
         function renderCardsPanel() {
             const list = document.getElementById("cards-list");
             const open = new Set(Array.from(list.querySelectorAll(".model-card.expanded"), element => element.dataset.cardId));
-            list.innerHTML = "";
+            list.replaceChildren();
             modelCards.forEach((card, i) => {
                 const element = createCardEl(card, i);
                 if (open.has(card.id)) element._setExpanded(true);
@@ -1776,7 +1828,7 @@
             const last = cards[cards.length - 1];
             if (last) {
                 last._setExpanded(true);
-                last.scrollIntoView({ behavior: "smooth" });
+                last.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth" });
             }
         }
 
@@ -1813,14 +1865,14 @@
                 }
             });
 
-            clearBtn.addEventListener("click", () => {
-                if (!window.confirm(t('Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.'))) return;
-                clearAttachmentDraft();
-                enableInput(agentActive);
-                sendAction({ action: "clear_history" });
-                setTurnActive(false);
-                document.getElementById("chat-log").innerHTML = "";
-                appendSystemMsg(t("Chat history and context memory cleared."));
+            // Clear Chat asks in its dialog first: only the dialog's own Clear Chat button
+            // clears, as Cancel and Esc close it without that value.
+            const clearDialog = document.getElementById("clear-chat-dialog");
+            clearBtn.addEventListener("click", () => clearDialog.showModal());
+            clearDialog.addEventListener("close", () => {
+                const confirmed = clearDialog.returnValue === "clear";
+                clearDialog.returnValue = "";
+                if (confirmed) clearChat();
             });
 
             toggleInput.addEventListener("change", () => {
@@ -1854,6 +1906,23 @@
             addCardBtn.addEventListener("click", addCard);
 
             saveCardsBtn.addEventListener("click", () => saveModelCards(true));
+        }
+
+        // Unlocks the message box if a turn was running, but leaves the focus where the closed
+        // dialog gave it back: on Clear Chat.
+        function clearChat() {
+            clearAttachmentDraft();
+            composerEnabled = agentActive;
+            refreshComposer();
+            sendAction({ action: "clear_history" });
+            setTurnActive(false);
+            document.getElementById("chat-log").replaceChildren();
+            appendSystemMsg(t("Chat history and context memory cleared."));
+        }
+
+        // Read when the motion would start, so a change of the system setting applies at once.
+        function prefersReducedMotion() {
+            return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         }
 
         // The closed panel is only narrowed to nothing, so it is made inert as well. Opening it
@@ -2076,7 +2145,7 @@
                     if (event.data.llm_history && event.data.llm_history.length > 0) {
                         renderHistory(event.data.llm_history);
                     } else {
-                        document.getElementById("chat-log").innerHTML = "";
+                        document.getElementById("chat-log").replaceChildren();
                         appendSystemMsg(event.data.llm_loaded
                             ? t("Agent active: {model}", {model: event.data.llm_model_name})
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
@@ -2254,11 +2323,15 @@
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-system";
             wrapper.id = "thinking-bubble";
-            wrapper.innerHTML = `<div class="msg msg-system"><span class="thinking-text"></span></div>`;
+            const bubble = document.createElement("div");
+            bubble.className = "msg msg-system";
             const spinner = icon("loader-circle");
             spinner.classList.add("icon-spin");
-            wrapper.firstElementChild.insertBefore(spinner, wrapper.firstElementChild.firstChild);
-            wrapper.querySelector(".thinking-text").textContent = text;
+            const label = document.createElement("span");
+            label.className = "thinking-text";
+            label.textContent = text;
+            bubble.append(spinner, label);
+            wrapper.appendChild(bubble);
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -2267,7 +2340,10 @@
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-system";
-            wrapper.innerHTML = `<div class="msg msg-system">${escapeHtml(msg)}</div>`;
+            const box = document.createElement("div");
+            box.className = "msg msg-system";
+            box.textContent = msg;
+            wrapper.appendChild(box);
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -2290,7 +2366,10 @@
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-user";
-            wrapper.innerHTML = `<div class="msg msg-user">${escapeHtml(msg)}</div>`;
+            const box = document.createElement("div");
+            box.className = "msg msg-user";
+            box.textContent = msg;
+            wrapper.appendChild(box);
             const images = document.createElement('div');
             images.className = 'message-attachments';
             attachments.forEach(item => {
@@ -2300,7 +2379,7 @@
                 img.alt = item.name || t('Image');
                 images.appendChild(img);
             });
-            wrapper.firstElementChild.appendChild(images);
+            box.appendChild(images);
             // The Viewer says it is thinking before it says it accepted the message: the
             // message still goes above the spinner that waits for its answer.
             chatLog.insertBefore(wrapper, document.getElementById("thinking-bubble"));
@@ -2308,42 +2387,103 @@
             return wrapper;
         }
 
-        // Attributes the marked renderer emits; any other attribute, including
-        // event handlers, is dropped from rendered explanations.
-        const MARKDOWN_ATTRIBUTES = new Set(["href", "src", "alt", "title", "class", "align", "start", "type", "checked", "disabled"]);
+        // The elements and attributes the marked renderer writes, which are all a reply may hold;
+        // any other attribute, event handlers included, is dropped.
+        const MARKDOWN_ELEMENTS = ["p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",
+                                   "blockquote", "ul", "ol", "li", "input", "a", "img", "table", "thead", "tbody", "tr", "th", "td"];
+        const MARKDOWN_ATTRIBUTES = ["href", "src", "alt", "title", "class", "align", "start", "type", "checked", "disabled"];
+        // Where the browser has no Sanitizer API, these go with their content, which is script,
+        // styles or another document, never text to read; any other element gives way to its content.
+        const DROPPED_ELEMENTS = new Set(["script", "style", "iframe", "object", "embed", "template", "svg", "math"]);
+        const HTML_NS = "http://www.w3.org/1999/xhtml";
+        // Links lead to web pages, mail or a place in this page (relative URLs resolve to this page's
+        // http origin); images are only those the reply carries itself, so it makes the browser
+        // request nothing. javascript:, vbscript: and every other scheme are refused.
+        const LINK_SCHEMES = ["http:", "https:", "mailto:"];
+        const IMAGE_SCHEMES = ["data:", "blob:"];
 
-        function isSafeUrl(value) {
-            // Relative URLs resolve to this page's http origin; javascript:,
-            // data:, vbscript: and every other scheme are refused.
-            try {
-                return ["http:", "https:"].includes(new URL(value, document.baseURI).protocol);
-            } catch (e) {
-                return false;
+        function urlScheme(value) {
+            try { return new URL(value, document.baseURI).protocol; } catch (e) { return null; }
+        }
+
+        // The Sanitizer API's work, by hand: children first, so what an unwrapped element held is checked too.
+        function keepMarkdown(parent) {
+            for (const node of Array.from(parent.childNodes)) {
+                if (node.nodeType === Node.TEXT_NODE) continue;
+                if (node.nodeType !== Node.ELEMENT_NODE || DROPPED_ELEMENTS.has(node.localName)) {
+                    node.remove();
+                    continue;
+                }
+                keepMarkdown(node);
+                if (node.namespaceURI !== HTML_NS || !MARKDOWN_ELEMENTS.includes(node.localName)) {
+                    node.replaceWith(...node.childNodes);
+                    continue;
+                }
+                for (const name of node.getAttributeNames()) {
+                    if (!MARKDOWN_ATTRIBUTES.includes(name)) node.removeAttribute(name);
+                }
             }
         }
 
-        // Second line of defence behind the html renderer: the markup is parsed
-        // in an inert <template>, where nothing loads or runs, and checked as the
-        // browser will read it (entities decoded) before it joins the page.
+        // Either way, URLs are checked as the browser will read them (entities decoded), and a
+        // link or image whose URL was refused is shown as its text. An input can only be
+        // Markdown's task-list box, which cannot be changed.
+        function restrictReply(root) {
+            root.querySelectorAll("*").forEach(element => {
+                const link = element.localName === "a", image = element.localName === "img";
+                if (element.localName === "input") {
+                    if (element.getAttribute("type") !== "checkbox") {
+                        element.remove();
+                        return;
+                    }
+                    element.setAttribute("disabled", "");
+                }
+                if (element.hasAttribute("href") && !(link && LINK_SCHEMES.includes(urlScheme(element.getAttribute("href"))))) {
+                    element.removeAttribute("href");
+                }
+                if (element.hasAttribute("src") && !(image && IMAGE_SCHEMES.includes(urlScheme(element.getAttribute("src"))))) {
+                    element.removeAttribute("src");
+                }
+                // The one class marked writes is a code block's language: a page class (a user's bubble,
+                // an error) would let a reply pass for part of the page.
+                if (element.hasAttribute("class")
+                    && !(element.localName === "code" && /^language-[\w+#.-]+$/.test(element.getAttribute("class")))) {
+                    element.removeAttribute("class");
+                }
+                if (link && !element.hasAttribute("href")) element.replaceWith(...element.childNodes);
+                if (image && !element.hasAttribute("src")) element.replaceWith(element.getAttribute("alt") || "");
+            });
+        }
+
+        // Text shown as it is, its line breaks kept.
+        function textWithBreaks(text) {
+            const fragment = document.createDocumentFragment();
+            String(text).split("\n").forEach((line, index) => {
+                if (index) fragment.append(document.createElement("br"));
+                fragment.append(line);
+            });
+            return fragment;
+        }
+
+        // Second line of defence behind the html renderer: the markup is parsed in a document
+        // without a window, where nothing loads or runs, and cleaned there before it joins the page.
         function renderExplanation(explanation) {
             let html = null;
             if (window.marked && typeof window.marked.parse === "function") {
                 try { html = window.marked.parse(explanation); } catch (e) { html = null; }
             }
-            if (typeof html !== "string") html = escapeHtml(explanation).replace(/\n/g, "<br>");
-            const template = document.createElement("template");
-            template.innerHTML = html;
-            template.content.querySelectorAll("*").forEach(element => {
-                for (const { name, value } of Array.from(element.attributes)) {
-                    if (!MARKDOWN_ATTRIBUTES.has(name) || ((name === "href" || name === "src") && !isSafeUrl(value))) {
-                        element.removeAttribute(name);
-                    }
-                }
-                // A link or image whose URL was refused is shown as its text.
-                if (element.localName === "a" && !element.hasAttribute("href")) element.replaceWith(...element.childNodes);
-                if (element.localName === "img" && !element.hasAttribute("src")) element.replaceWith(element.getAttribute("alt") || "");
-            });
-            return template.content;
+            if (typeof html !== "string") return textWithBreaks(explanation);
+            const holder = document.implementation.createHTMLDocument("").body;
+            if ("setHTML" in Element.prototype) {
+                holder.setHTML(html, { sanitizer: { elements: MARKDOWN_ELEMENTS, attributes: MARKDOWN_ATTRIBUTES } });
+            } else {
+                holder.innerHTML = html;
+                keepMarkdown(holder);
+            }
+            restrictReply(holder);
+            const fragment = document.createDocumentFragment();
+            fragment.append(...holder.childNodes);
+            return fragment;
         }
 
         function appendAgentMsg(explanation, commands, tokens, terminalOutput, reasoning) {
@@ -2356,8 +2496,8 @@
 
             const hdr = document.createElement("div");
             hdr.className = "msg-agent-header";
-            hdr.innerHTML = `<span>${escapeHtml(t("Assistant"))}</span>`;
-            hdr.insertBefore(icon("bot"), hdr.firstChild);
+            const botIcon = icon("bot");
+            hdr.append(botIcon, textSpan(t("Assistant")));
             wrapper.appendChild(hdr);
 
             if (reasoning) {
@@ -2368,8 +2508,9 @@
 
                 const thoughtHdr = document.createElement("summary");
                 thoughtHdr.className = "thought-box-header";
-                thoughtHdr.innerHTML = `<span>${escapeHtml(t("Thought Process"))}</span><span class="thought-box-toggle"></span>`;
-                thoughtHdr.querySelector(".thought-box-toggle").appendChild(icon("chevron-down"));
+                const chevron = textSpan("", "thought-box-toggle");
+                chevron.appendChild(icon("chevron-down"));
+                thoughtHdr.append(textSpan(t("Thought Process")), chevron);
 
                 const thoughtContent = document.createElement("div");
                 thoughtContent.className = "thought-box-content";
@@ -2389,13 +2530,14 @@
                 box.className = "code-box";
                 const boxHdr = document.createElement("div");
                 boxHdr.className = "code-box-header";
-                boxHdr.innerHTML = `<span>${escapeHtml(t("Executed Command(s)"))}</span>`;
+                boxHdr.appendChild(textSpan(t("Executed Command(s)")));
                 const copyBtn = document.createElement("button");
                 copyBtn.className = "copy-btn";
                 copyBtn.type = "button";
                 copyBtn.setAttribute("aria-label", t("Copy commands"));
-                copyBtn.innerHTML = `<span class="copy-label">${escapeHtml(t("Copy"))}</span>`;
-                copyBtn.insertBefore(icon("copy"), copyBtn.firstChild);
+                const copyIcon = icon("copy");
+                const copyLabel = textSpan(t("Copy"), "copy-label");
+                copyBtn.append(copyIcon, copyLabel);
                 copyBtn.addEventListener("click", () => copyText(commands, copyBtn));
                 boxHdr.appendChild(copyBtn);
                 box.appendChild(boxHdr);
@@ -2410,7 +2552,7 @@
                 termBox.className = "terminal-output-box";
                 const termHdr = document.createElement("div");
                 termHdr.className = "terminal-output-header";
-                termHdr.innerHTML = `<span>${escapeHtml(t("Terminal Output"))}</span>`;
+                termHdr.appendChild(textSpan(t("Terminal Output")));
                 termBox.appendChild(termHdr);
                 const pre = document.createElement("pre");
                 pre.textContent = terminalOutput;
@@ -2442,7 +2584,18 @@
             wrapper.className = "msg-wrapper msg-wrapper-error";
             // An alert is read out as it is added. Errors are not part of the history a
             // page redraws as it opens or reconnects, so no backlog of them is read.
-            wrapper.innerHTML = `<div class="msg msg-error" role="alert">${t("<b>Error:</b> {error}", {error: escapeHtml(err)})}</div>`;
+            const box = document.createElement("div");
+            box.className = "msg msg-error";
+            box.setAttribute("role", "alert");
+            // Only the page's own text, which holds <b>, is parsed as markup: the error
+            // takes the place of a <slot> in it as text.
+            const template = document.createElement("template");
+            template.innerHTML = t("<b>Error:</b> {error}", {error: "<slot></slot>"});
+            template.content.querySelectorAll("slot").forEach(slot => slot.replaceWith(String(err)));
+            // One text node, as the text is set as one run.
+            template.content.normalize();
+            box.appendChild(template.content);
+            wrapper.appendChild(box);
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -2461,7 +2614,7 @@
 
         function renderHistory(history) {
             const chatLog = document.getElementById("chat-log");
-            chatLog.innerHTML = "";
+            chatLog.replaceChildren();
             history.forEach(msg => {
                 if (msg.role === "user") {
                     appendUserMsg(msg.content, msg.attachments || []);

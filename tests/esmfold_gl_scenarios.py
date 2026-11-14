@@ -280,6 +280,10 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["residueCard"] = self.script(
             "const body = document.getElementById('residue-body'); return {head: body.querySelector('.res-head div').firstChild.textContent, rows: body.querySelectorAll('tr').length}")
         self.picture("pinned-light")
+        # The pointer is still over the residue, so the first Escape hides its tip and the pin stays; the second lets go of the pin.
+        QTest.keyClick(widget, Qt.Key_Escape)
+        self.pump(0.6)
+        FACTS["afterFirstEscape"] = self.script("return {tip: document.getElementById('tip').classList.contains('show'), pinned: pinnedResidue ? pinnedResidue.number : null}")
         QTest.keyClick(widget, Qt.Key_Escape)
         self.pump(0.6)
         FACTS["pinnedAfterEscape"] = self.script("return pinnedResidue ? pinnedResidue.number : null")
@@ -301,6 +305,8 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.pump(1.5)
         FACTS["pinnedAgain"] = self.script("return {nodes: focusNodes().length, pinned: pinnedResidue ? pinnedResidue.number : null}")
         pinned_session = self.script("return plugin.state.getSnapshot({camera: true})")
+        QTest.keyClick(widget, Qt.Key_Escape)
+        self.pump(0.6)
         QTest.keyClick(widget, Qt.Key_Escape)
         self.pump(0.6)
         self.wait(1800)

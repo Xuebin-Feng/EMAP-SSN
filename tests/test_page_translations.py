@@ -630,12 +630,13 @@ class AgentPageTests(WebPageTestCase):
         self.run_and_collect("sendAction({action: 'fail'})")
         self.wait_for("document.querySelectorAll('#chat-log .msg-error').length === 2")
         self.collect()
-        self.page.answer = False
-        self.js("document.getElementById('clear-chat-btn').click()")
-        self.page.answer = True
+        # Clear Chat asks in the page's own dialog, whose texts are collected with the page's, not with confirm().
         self.run_and_collect("document.getElementById('clear-chat-btn').click()")
-        self.assertEqual(len(self.page.dialogs), 2)
-        self.shown += self.page.dialogs
+        self.assertTrue(self.js("document.getElementById('clear-chat-dialog').open"))
+        self.js("document.querySelector('#clear-chat-dialog button[value=clear]').click()")
+        self.wait_for("document.querySelectorAll('#chat-log .msg-user').length === 0")
+        self.collect()
+        self.assertEqual(self.page.dialogs, [])
         self.assert_translated("500")
 
     def test_attachments(self):
@@ -1378,6 +1379,35 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(json.loads(self.js(scrolled)), [0, 0])
         self.js("table.getColumn('6').getElement().querySelector('.column-title-button').focus()")
         self.wait_for(f"(([header, rows]) => header > 0 && rows === header)({scrolled.removeprefix('JSON.stringify(')[:-1]})")
+
+    def test_the_table_the_help_and_the_buttons_have_names_levels_and_shortcuts(self):
+        """The grid is named, the help's headings go h1, h2, h3 without a skip, its
+        Close button has a name of its own, Undo and Redo list the keys the page
+        takes, and the help's slide-in runs only for those who have not asked for
+        less motion."""
+        self.open(self.TABLE)
+        found = json.loads(self.js("""JSON.stringify({
+            grid: document.getElementById('spreadsheet-table').getAttribute('aria-label'),
+            levels: Array.from(document.querySelectorAll('h1, h2, h3, h4'), h => h.tagName),
+            close: [document.getElementById('close-modal-btn').getAttribute('aria-label'),
+                    document.getElementById('close-modal-btn').title],
+            undo: document.getElementById('undo-btn').getAttribute('aria-keyshortcuts'),
+            redo: document.getElementById('redo-btn').getAttribute('aria-keyshortcuts'),
+            viewport: !!document.querySelector('meta[name=viewport][content*="width=device-width"]'),
+            animated: getComputedStyle(document.getElementById('help-modal')).animationName,
+        })"""))
+        self.assertTrue(found["grid"])
+        self.assertEqual(found["levels"], ["H1", "H2"] + ["H3"] * 4)
+        self.assertTrue(found["close"][0])
+        self.assertEqual(found["close"][0], found["close"][1])
+        self.assertEqual(found["undo"], "Control+Z Meta+Z")
+        self.assertEqual(found["redo"], "Control+Y Meta+Y")
+        self.assertTrue(found["viewport"])
+        # Offscreen Qt gives no-preference, so the animation is there; the rule
+        # sits inside the media query, not on the dialog itself.
+        self.assertEqual(found["animated"], "modalFadeIn")
+        source = (Path(__file__).resolve().parents[1] / "src" / "web_ui" / "meta.html").read_text(encoding="utf-8")
+        self.assertRegex(source, r"@media \(prefers-reduced-motion: no-preference\) \{\s*\.modal-content \{ animation")
 
     def test_the_header_wraps_rather_than_cut_off_help_and_the_status(self):
         """The header was one row 56 px high, in px, in a page that does not scroll:

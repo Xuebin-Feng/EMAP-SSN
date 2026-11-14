@@ -42,13 +42,15 @@ class SequenceTestCase(ResidueTestCase):
         return self.script("""
             const body = document.getElementById('seq-body');
             const buttons = [...body.querySelectorAll('.seq-res')];
+            // A button is named by its letter first ("I, Ile 6"); the tests below say the residue ("Ile 6").
+            const residue = button => button.getAttribute('aria-label').replace(/^[A-Z], /, '');
             return {letters: buttons.map(b => b.textContent).join(''),
                     numbers: [...body.querySelectorAll('.seq-num')].map(n => n.textContent),
                     colors: buttons.map(b => b.style.getPropertyValue('--rc')),
-                    stops: buttons.filter(b => b.tabIndex === 0).map(b => b.getAttribute('aria-label')),
-                    pinned: buttons.filter(b => b.classList.contains('pinned')).map(b => b.getAttribute('aria-label')),
-                    hover: buttons.filter(b => b.classList.contains('hover')).map(b => b.getAttribute('aria-label')),
-                    focus: document.activeElement.classList.contains('seq-res') ? document.activeElement.getAttribute('aria-label') : null,
+                    stops: buttons.filter(b => b.tabIndex === 0).map(residue),
+                    pinned: buttons.filter(b => b.classList.contains('pinned')).map(residue),
+                    hover: buttons.filter(b => b.classList.contains('hover')).map(residue),
+                    focus: document.activeElement.classList.contains('seq-res') ? residue(document.activeElement) : null,
                     label: body.getAttribute('aria-label'), empty: document.getElementById('seqbar').dataset.empty,
                     select: {hidden: document.getElementById('seq-structure').hidden, value: document.getElementById('seq-structure').value,
                              options: [...document.getElementById('seq-structure').options].map(o => o.textContent)},
@@ -88,6 +90,16 @@ class StripTests(SequenceTestCase):
         self.assertEqual(len(own), 1)
         self.assertEqual(own, {self.script("return structureColor(loadedStructures()[0].cell.transform.ref)")})
         self.assertEqual(self.console_errors(), [])
+
+    def test_a_residue_button_is_named_from_the_letter_it_shows(self):
+        # Label in name: a person who says "V" to a voice control, or hears it, finds the button named from it.
+        self.two()
+        named = self.script("""
+            const buttons = [...document.querySelectorAll('#seq-body .seq-res')];
+            return {all: buttons.every(b => b.getAttribute('aria-label').startsWith(b.textContent + ', ')),
+                    first: buttons[0].getAttribute('aria-label'), described: buttons.filter(b => b.hasAttribute('aria-describedby')).length};
+            """)
+        self.assertEqual(named, {"all": True, "first": "M, Met 1", "described": 0})
 
     def test_with_two_structures_a_select_chooses_which_one_is_shown(self):
         self.two()
@@ -135,7 +147,7 @@ class StripResidueTests(SequenceTestCase):
     def test_pointing_at_a_residue_fills_the_card_and_a_click_pins_it(self):
         self.two()
         self.script("""
-            const button = document.querySelector('#seq-body .seq-res[aria-label="Ile 6"]');
+            const button = document.querySelector('#seq-body .seq-res[aria-label="I, Ile 6"]');
             button.dispatchEvent(new PointerEvent('pointerover', {bubbles: true}));
             return 1;
             """)
@@ -148,7 +160,7 @@ class StripResidueTests(SequenceTestCase):
         self.assertEqual(self.strip()["hover"], [])
         self.assertIn("Hover a residue", self.script("return residueNow().hint"))
         # A click pins it: marked on the strip, marked in Mol*, shown in the card, let go with Escape.
-        self.click("#seq-body .seq-res[aria-label=\"Ile 6\"]", 500)
+        self.click("#seq-body .seq-res[aria-label=\"I, Ile 6\"]", 500)
         pinned = self.strip()
         self.assertEqual(pinned["pinned"], ["Ile 6"])
         self.assertEqual(self.script("return pinnedResidue.number"), 6)
@@ -198,10 +210,14 @@ class CanvasKeyboardTests(SequenceTestCase):
         self.two()
         canvas = self.script("""
             const view = document.getElementById('viewer');
-            return {tab: view.tabIndex, role: view.getAttribute('role'), label: view.getAttribute('aria-label')};
+            return {tab: view.tabIndex, role: view.getAttribute('role'), label: view.getAttribute('aria-label'),
+                    describedby: view.getAttribute('aria-describedby'), help: document.getElementById('viewer-help').textContent};
             """)
         self.assertEqual((canvas["tab"], canvas["role"]), (0, "application"))
-        self.assertIn("Arrow keys step through the residues", canvas["label"])
+        self.assertEqual(canvas["label"], "3D structure view")
+        # The keys are said once, as the description of the view, not in its name.
+        self.assertEqual(canvas["describedby"], "viewer-help")
+        self.assertIn("Arrow keys step through the residues", canvas["help"])
         pinned = "return pinnedResidue ? pinnedResidue.number : null"
         self.script("document.getElementById('viewer').focus(); return 1")
         for key, expected in (("ArrowRight", 1), ("ArrowRight", 2), ("ArrowDown", 3), ("ArrowLeft", 2), ("End", 33), ("ArrowRight", 33),

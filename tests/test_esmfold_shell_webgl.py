@@ -158,6 +158,8 @@ class ShellWebglTests(unittest.TestCase):
         self.assertGreater(found["marked"], 0)
         self.assertTrue(found["residueCard"]["head"].endswith(str(found["pinned"])), found["residueCard"])
         self.assertGreaterEqual(found["residueCard"]["rows"], 3)
+        # Escape hides the tip first (the pointer is still over the residue) and the pin stays; the next one lets go of it.
+        self.assertEqual(found["afterFirstEscape"], {"tip": False, "pinned": found["pinned"]})
         self.assertIsNone(found["pinnedAfterEscape"])
         self.assertEqual(found["markedAfterEscape"], 0)
 
