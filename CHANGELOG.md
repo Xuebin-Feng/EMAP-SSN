@@ -273,6 +273,10 @@ still change before version 1.0.0.
 - **The theme's red is darker,** #b91c1c in place of #dc2626, in the web pages, the
   documentation and the Qt windows: error text on the pages' pink tint is 5.9:1, where it
   was 4.4:1.
+- **Field borders, switches that are off and scroll handles are darker** in the web pages,
+  the documentation and the Qt windows, so they stand out 3:1 or more from what is around
+  them: a field's border on white was 1.4:1. The key caps in the Viewer's info card and the
+  tip panel's code chips use the field border, so they darken too.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
@@ -394,6 +398,28 @@ still change before version 1.0.0.
     and says why; it used to be emptied, and the empty value sent to the Viewer.
   - **Contrast:** the Agent's token line, Tree View's search placeholder, the names of tree
     leaves outside the network, and Fold View's dark error message are 4.5:1 or more.
+- **The Viewer's web pages grow with the text size, show their state in contrast themes,
+  and name every control** (second round of the audit).
+  - **Text size:** the pages follow the browser's font size, and their headers wrap rather
+    than cut off buttons in a narrow or zoomed window.
+  - **Contrast themes:** Windows High Contrast shows the focus ring, the switches, pressed
+    buttons and the selected cell, and the Meta Data sort arrows keep their shape.
+  - **System theme:** a page whose theme you haven't chosen follows the system's light or
+    dark setting when it changes. The scroll bars are the system's own, at its width.
+  - **Agent:** every field and button has a name. Copy says when copying failed. Custom
+    Options that aren't a JSON object are refused with a message, where Save used to keep
+    the old value silently. The ≡ handle moves a model card with ↑ and ↓.
+  - **Fold View:** the canvas toolbar is one Tab stop that the arrow keys walk. The drawer
+    of a narrow window has a Close button and closes with Esc. The eye button keeps its
+    "Hide" name and says its state.
+  - **Meta Data:** column titles sort from the keyboard, and Alt+←/→ moves a column. A
+    third click on a title returns the Viewer's order, as the help says. The header filters
+    are named in the page's language. An edit the Viewer didn't receive says so instead of
+    looking saved.
+  - **Tree View:** Open a tree file is a button beside the tree chooser, so arrowing through
+    the chooser no longer opens the file dialog. The Details and Open cards take the focus
+    and give it back, and Details has Close and Esc. A pressed legend row has a ring, and
+    the legend's range bar is a slider that screen readers read.
 
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
