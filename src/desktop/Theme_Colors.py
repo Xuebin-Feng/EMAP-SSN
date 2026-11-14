@@ -71,7 +71,7 @@ NEUTRAL_SHADES = {
         # Status texts
         "success": "#15803d",           # 5.0:1 on white
         "warning": "#b45309",           # 5.0:1 on white
-        "danger": "#dc2626",            # 4.8:1 on white
+        "danger": "#b91c1c",            # 6.5:1 on white, 5.9:1 on the pages' danger tint
         # Scroll bars
         "scroll": "#d4d4d8",
     },

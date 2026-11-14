@@ -97,7 +97,7 @@ class ThemeColourSchemeTests(unittest.TestCase):
                 if role not in self.ACCENT_ROLES:
                     with self.subTest(color=color, role=role):
                         self.assertEqual(scheme[role], tokens[token])
-        for role, color in (("danger", "#dc2626"), ("warning", "#b45309"), ("text", "#09090b"), ("surface", "#ffffff")):
+        for role, color in (("danger", "#b91c1c"), ("warning", "#b45309"), ("text", "#09090b"), ("surface", "#ffffff")):
             self.assertEqual({Splash.scheme_for(name)[role] for name in THEME_COLORS}, {color})
 
     def test_the_kicker_and_the_link_stay_readable_in_every_family(self):
