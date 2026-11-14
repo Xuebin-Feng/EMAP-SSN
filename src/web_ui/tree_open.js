@@ -126,19 +126,7 @@ window.TreeView = window.TreeView || {};
     function fillReport(panel, model) {
         const match = model.match;
         panel.replaceChildren();
-        const head = document.createElement("div");
-        head.className = "head";
-        const title = document.createElement("h2");
-        title.textContent = t("How the tree matched the network");
-        const close = document.createElement("button");
-        close.type = "button";
-        close.className = "btn btn-icon btn-ghost";
-        close.title = t("Close");
-        close.setAttribute("aria-label", t("Close"));
-        close.appendChild(TV.icon("x"));
-        close.addEventListener("click", () => TV.showReport(false));
-        head.append(title, close);
-        panel.appendChild(head);
+        panel.appendChild(TV.cardHead("match-report", t("How the tree matched the network")));
 
         const summary = document.createElement("p");
         summary.className = "note";
@@ -181,8 +169,8 @@ window.TreeView = window.TreeView || {};
         }
     }
 
-    // Show the card of the match, or take it away.
-    TV.showReport = function (on) {
+    // Show the card of the match, or take it away. opener: the button that asked, which takes the focus into the card.
+    TV.showReport = function (on, opener) {
         const panel = $("match-report");
         if (!on || !state.model || !state.model.match || !state.model.uploaded) {
             panel.classList.remove("shown");
@@ -191,7 +179,7 @@ window.TreeView = window.TreeView || {};
         $("details").classList.remove("shown");
         TV.showMismatch(false);
         fillReport(panel, state.model);
-        panel.classList.add("shown");
+        TV.openCard("match-report", opener);
     };
 
     // ---- The leaves and nodes the banner's warnings count ----------------------------------------------------------
@@ -236,19 +224,7 @@ window.TreeView = window.TreeView || {};
     // nodes. answer is what the Viewer sent, or null when it could not be asked.
     function fillMismatch(panel, answer) {
         panel.replaceChildren();
-        const head = document.createElement("div");
-        head.className = "head";
-        const title = document.createElement("h2");
-        title.textContent = t("The leaves and nodes the warnings count");
-        const close = document.createElement("button");
-        close.type = "button";
-        close.className = "btn btn-icon btn-ghost";
-        close.title = t("Close");
-        close.setAttribute("aria-label", t("Close"));
-        close.appendChild(TV.icon("x"));
-        close.addEventListener("click", () => TV.showMismatch(false));
-        head.append(title, close);
-        panel.appendChild(head);
+        panel.appendChild(TV.cardHead("mismatch-card", t("The leaves and nodes the warnings count")));
         if (!answer) {
             const note = document.createElement("p");
             note.className = "note";
@@ -282,7 +258,7 @@ window.TreeView = window.TreeView || {};
 
     // Show the card of the leaves and nodes the banner's warnings count, or take it away. Showing it (again, after the tree
     // or the source changed) asks the Viewer; the card closes the other cards, and the button says whether it is open.
-    TV.showMismatch = function (on) {
+    TV.showMismatch = function (on, opener) {
         const panel = $("mismatch-card"), button = $("mismatch-btn");
         const open = on && state.model && !button.hidden;
         button.setAttribute("aria-expanded", String(Boolean(open)));
@@ -293,7 +269,7 @@ window.TreeView = window.TreeView || {};
         }
         $("details").classList.remove("shown");
         $("match-report").classList.remove("shown");
-        panel.classList.add("shown");
+        TV.openCard("mismatch-card", opener);
         loadMismatch();
     };
 

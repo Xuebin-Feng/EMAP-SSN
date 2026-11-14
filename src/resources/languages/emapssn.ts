@@ -100,6 +100,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Message to the agent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Ask the agent a question or give a command...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -121,6 +125,10 @@
     </message>
     <message>
         <source>Close panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Up and Down arrows move the card</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -184,6 +192,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Not saved: correct the Custom Options that show an error first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Using the saved settings of &quot;{model}&quot;: press Save to use the edits made here.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -200,11 +212,19 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Remove model</source>
+        <source>Move {name}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Expand / collapse</source>
+        <source>Remove {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show details of {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} moved to position {position} of {count}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -261,6 +281,10 @@
     </message>
     <message>
         <source>Custom Options (JSON)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Options must be a JSON object.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -404,6 +428,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Copy commands</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Copy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -429,6 +457,10 @@
     </message>
     <message>
         <source>Copied!</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy failed</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2502,10 +2534,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Show {name}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Hide {name}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2755,6 +2783,10 @@ Command-line usage:
     </message>
     <message>
         <source>Drag to resize the panel. Double-click to restore its width.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close the Scene panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6912,6 +6944,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Moved {column} to column {place} of {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Delete metadata column {column}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6921,6 +6957,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Sequence Header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filter {column}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6945,6 +6989,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>This column takes numbers only. Type a number, or leave the cell empty to clear it; Esc cancels the edit.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer did not get this change: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer did not get this change (HTTP {status}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Viewer did not get this change: the page can&apos;t reach it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7076,7 +7132,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways. The row numbers and Sequence Header stay first.</source>
+        <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways, or press Alt+Left or Alt+Right on its name. The row numbers and Sequence Header stay first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9329,6 +9385,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>No range marked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Press or drag to mark the leaves with a value in that range</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9578,10 +9638,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>How the tree matched the network</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10173,6 +10229,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>This tree</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10450,10 +10510,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>MSA Guide Tree</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Open a tree file...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

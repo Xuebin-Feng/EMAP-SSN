@@ -1356,6 +1356,152 @@ class ModelCardPageTests(unittest.TestCase):
         self.js(f'handleServerEvent({json.dumps(init)})')
         self.assertEqual([button for button, _ in approval()[0]['buttons']], ['Run', 'Discard'])
 
+    press = ComposerTests.press
+
+    def active(self):
+        return self.js("document.activeElement.id || document.activeElement.className")
+
+    def test_form_controls_and_the_buttons_of_a_card_are_named(self):
+        self.open_page(json.dumps({'cards': [{'id': 'a', 'name': 'Alpha', 'url': 'http://localhost:1/v1'},
+                                             {'id': 'b', 'name': 'Beta'}]}).encode())
+        names = json.loads(self.js("""JSON.stringify(['chat-input-field', 'model-selector', 'agent-toggle-input', 'close-panel-btn']
+            .map(id => document.getElementById(id).getAttribute('aria-label')))"""))
+        self.assertEqual(names, ['Message to the agent', 'Select model card', 'Toggle agent on/off', 'Close panel'])
+        # Each caption is the label of its own field, and no id is used twice.
+        fields = json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('.model-card'), card =>
+            Array.from(card.querySelectorAll('.card-field')).map(field => {
+                const label = field.querySelector('label'), control = field.querySelector('input, textarea');
+                return [label.localName, label.htmlFor === control.id, control.labels[0] === label, label.textContent];
+            })))"""))
+        captions = ['Name', 'Base URL', 'Model Name', 'Temperature', 'API Key', 'Custom Options (JSON)']
+        for card in fields:
+            self.assertEqual([entry[3] for entry in card], captions)
+            self.assertTrue(all(entry[:3] == ['label', True, True] for entry in card))
+        self.assertTrue(self.js("(ids => new Set(ids).size === ids.length)(Array.from(document.querySelectorAll('[id]'), e => e.id))"))
+
+        buttons = """JSON.stringify(Array.from(document.querySelectorAll('.model-card'), card => Array.from(
+            card.querySelectorAll('.model-card-header button'), b => [b.getAttribute('aria-label'), b.getAttribute('aria-expanded')])))"""
+        self.assertEqual(json.loads(self.js(buttons)), [
+            [['Move Alpha', None], ['Remove Alpha', None], ['Show details of Alpha', 'false']],
+            [['Move Beta', None], ['Remove Beta', None], ['Show details of Beta', 'false']]])
+        # The name follows an edit of the card's name, and aria-expanded the card's state.
+        self.type_into(f"{self.card_inputs(1)}[0]", 'Gamma')
+        self.js("document.querySelectorAll('.card-expand-btn')[1].click()")
+        self.assertEqual(json.loads(self.js(buttons))[1], [['Move Gamma', None], ['Remove Gamma', None], ['Show details of Gamma', 'true']])
+        self.js("document.querySelectorAll('.model-card-header')[1].click()")
+        self.assertEqual(self.js("document.querySelectorAll('.card-expand-btn')[1].getAttribute('aria-expanded')"), 'false')
+        self.js("document.getElementById('add-card-btn').click()")
+        self.assertEqual(json.loads(self.js("(b => JSON.stringify([b.getAttribute('aria-expanded'), b.closest('.model-card').classList.contains('expanded')]))"
+                                            "(Array.from(document.querySelectorAll('.card-expand-btn')).pop())")), ['true', True])
+
+    def test_the_copy_button_says_how_the_copy_went_and_goes_back(self):
+        self.open_page(json.dumps({'cards': [{'id': 'a', 'name': 'Alpha'}]}).encode())
+        self.js("window.copyResult = 'resolve'; navigator.clipboard.writeText = () => copyResult === 'resolve' ? Promise.resolve() : Promise.reject(new Error('denied'));"
+                "appendAgentMsg('Done', 'select 1', null, '', ''); true")
+        button = "document.querySelector('.copy-btn')"
+        state = f"JSON.stringify([{button}.textContent.trim(), {button}.getAttribute('aria-label'), {button}.classList.contains('is-copied')])"
+        self.assertEqual(json.loads(self.js(state)), ['Copy', 'Copy commands', False])
+        self.js(f'{button}.click(); true')
+        self.wait_for(f"{button}.textContent.trim() === 'Copied!'")
+        self.assertEqual(json.loads(self.js(state)), ['Copied!', 'Copied!', True])
+        self.wait_for("document.getElementById('chat-announcer').textContent === 'Copied!'")
+        # A second click while it says Copied! must not make that the label it goes back to.
+        QTest.qWait(900)
+        self.js(f'{button}.click(); true')
+        QTest.qWait(900)  # past the first click's 1.5 s, inside the second's
+        self.assertEqual(self.js(f'{button}.textContent.trim()'), 'Copied!')
+        self.wait_for(f"{button}.textContent.trim() === 'Copy'")
+        self.assertEqual(json.loads(self.js(state)), ['Copy', 'Copy commands', False])
+        # A refused copy is shown and announced, not only logged.
+        self.js("copyResult = 'reject'; true")
+        self.js(f'{button}.click(); true')
+        self.wait_for(f"{button}.textContent.trim() === 'Copy failed'")
+        self.assertTrue(self.js(f"{button}.classList.contains('is-failed')"))
+        self.wait_for("document.getElementById('chat-announcer').textContent === 'Copy failed'")
+        self.wait_for(f"{button}.textContent.trim() === 'Copy' && !{button}.classList.contains('is-failed')")
+
+    def test_custom_options_that_are_not_an_object_are_marked_and_are_not_saved(self):
+        self.open_page(json.dumps({'cards': [{'id': 'a', 'name': 'Alpha', 'options': {'top_p': 1}}, {'id': 'b', 'name': 'Beta'}]}).encode())
+        options = "document.querySelectorAll('.card-options')[0]"
+        state = f"""JSON.stringify((() => {{
+            const field = {options}, message = document.getElementById(field.getAttribute('aria-describedby') || 'none');
+            return [field.getAttribute('aria-invalid'), message && !message.hidden && message.textContent,
+                    document.getElementById('cards-save-message').hidden, JSON.stringify(modelCards[0].options)];
+        }})())"""
+        self.assertEqual(json.loads(self.js(state)), [None, None, True, '{"top_p":1}'])
+        for typed in ('{"top_p": ', '[1, 2]', '3'):
+            with self.subTest(typed=typed):
+                self.type_into(options, typed)
+                invalid, text, _, stored = json.loads(self.js(state))
+                self.assertEqual((invalid, text), ('true', 'Custom Options must be a JSON object.'))
+                self.assertEqual(stored, '{"top_p":1}')  # the card keeps its last valid options
+        # Save does not store them: it stays pressable, says why, and takes the keyboard to the field.
+        self.js("setModelsPanelOpen(true); document.getElementById('save-cards-btn').click(); true")
+        self.assertEqual([a for a in self.state()['actions'] if a['action'] == 'save_model_cards'], [])
+        self.assertFalse(self.js("document.getElementById('cards-save-message').hidden"))
+        self.assertEqual(self.js("document.getElementById('cards-save-message').textContent"),
+                         'Not saved: correct the Custom Options that show an error first.')
+        self.assertEqual(self.js("document.getElementById('cards-save-message').getAttribute('role')"), 'alert')
+        self.assertEqual(self.js("document.activeElement === document.querySelectorAll('.card-options')[0]"), True)
+        self.assertFalse(self.js("document.getElementById('save-cards-btn').disabled"))
+        # A card moved meanwhile does not save them either, and the text is not lost with the redraw.
+        self.js("reorderCard(0, 1); true")
+        self.assertEqual([a for a in self.state()['actions'] if a['action'] == 'save_model_cards'], [])
+        moved = "document.querySelectorAll('.card-options')[1]"
+        self.assertEqual(self.js(f'{moved}.value'), '3')
+        self.assertEqual(self.js(f"{moved}.getAttribute('aria-invalid')"), 'true')
+        # Corrected, the marks and the message go and Save stores it.
+        self.type_into(moved, '{"top_p": 0.5}')
+        self.assertEqual(self.js(f"{moved}.hasAttribute('aria-invalid') || {moved}.hasAttribute('aria-describedby')"), False)
+        self.assertTrue(self.js("document.getElementById('cards-save-message').hidden"))
+        self.js("document.getElementById('save-cards-btn').click(); true")
+        [save] = [a for a in self.state()['actions'] if a['action'] == 'save_model_cards']
+        self.assertEqual([card.get('options') for card in save['cards']], [None, {'top_p': 0.5}])
+
+    def test_a_card_is_moved_with_the_arrow_keys_and_the_move_is_announced(self):
+        self.open_page(json.dumps({'cards': [{'id': 'a', 'name': 'Alpha'}, {'id': 'b', 'name': 'Beta'}, {'id': 'c', 'name': 'Gamma'}]}).encode())
+        self.js("setModelsPanelOpen(true); document.querySelectorAll('.model-card-header')[0].click(); true")
+        handle = lambda i: f"document.querySelectorAll('.drag-handle')[{i}]"
+        self.assertEqual(json.loads(self.js(f"JSON.stringify([{handle(0)}.localName, {handle(0)}.type, {handle(0)}.getAttribute('aria-label')])")),
+                         ['button', 'button', 'Move Alpha'])
+        hint = self.js(f"document.getElementById({handle(0)}.getAttribute('aria-describedby')).textContent")
+        self.assertEqual(hint, 'Up and Down arrows move the card')
+        self.js(f'{handle(0)}.focus(); true')
+        self.press(Qt.Key_Down)
+        self.assertEqual(self.js('modelCards.map(c => c.name).join()'), 'Beta,Alpha,Gamma')
+        # The dropdown and the saved order follow, as after a drag; the card stays open.
+        self.assertEqual(self.js("Array.from(document.getElementById('model-selector').options, o => o.textContent).join()"), 'Beta,Alpha,Gamma')
+        [save] = [a for a in self.state()['actions'] if a['action'] == 'save_model_cards']
+        self.assertEqual([card['name'] for card in save['cards']], ['Beta', 'Alpha', 'Gamma'])
+        self.assertTrue(self.js("document.querySelectorAll('.model-card')[1].classList.contains('expanded')"))
+        # The keyboard stays on the moved card's handle, and the new place is said.
+        self.assertEqual(self.js(f"document.activeElement === {handle(1)}"), True)
+        self.wait_for("document.getElementById('chat-announcer').textContent === 'Alpha moved to position 2 of 3'")
+        self.press(Qt.Key_Down)
+        self.wait_for("document.getElementById('chat-announcer').textContent === 'Alpha moved to position 3 of 3'")
+        self.assertEqual(self.js('modelCards.map(c => c.name).join()'), 'Beta,Gamma,Alpha')
+        # At the end, a further press moves nothing and saves nothing more.
+        saves = len([a for a in self.state()['actions'] if a['action'] == 'save_model_cards'])
+        self.press(Qt.Key_Down)
+        self.assertEqual(len([a for a in self.state()['actions'] if a['action'] == 'save_model_cards']), saves)
+        self.assertEqual(self.js(f"document.activeElement === {handle(2)}"), True)
+        self.press(Qt.Key_Up)
+        self.assertEqual(self.js('modelCards.map(c => c.name).join()'), 'Beta,Alpha,Gamma')
+        # The handle is a visible control: its icon is at least 3:1 against the card, in either theme.
+        for theme in ('light', 'dark'):
+            self.js(f"document.documentElement.dataset.theme = '{theme}'; true")
+            ratio = self.js("""(() => {
+                const luminance = colour => {
+                    const [r, g, b] = colour.match(/\\d+/g).slice(0, 3).map(v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+                    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                };
+                const handle = document.querySelector('.drag-handle');
+                const [a, b] = [getComputedStyle(handle).color, getComputedStyle(handle.closest('.model-card')).backgroundColor].map(luminance);
+                return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+            })()""")
+            with self.subTest(theme=theme):
+                self.assertGreaterEqual(ratio, 3)
+
 
 if __name__ == '__main__':
     unittest.main()

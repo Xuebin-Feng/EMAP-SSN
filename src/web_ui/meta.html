@@ -19,6 +19,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light dark">
     <title data-i18n>EMAP-SSN Metadata</title>
     <!-- Load local Tabulator CSS -->
     <link rel="stylesheet" href="/meta_resource/tabulator.min.css">
@@ -67,7 +68,8 @@
             --text-badge-border: #c4cbf5;
             --text-badge-text: #4e4ac4;
             --highlight-bg: rgba(245, 158, 11, 0.15);
-            --highlight-ring: #f59e0b;
+            /* 5:1 on the card, as a ring that marks the row must be at least 3:1 */
+            --highlight-ring: #b45309;
             --overlay: rgba(9, 9, 11, 0.45);
             --scroll: #d4d4d8;
             --scroll-hover: #a1a1aa;
@@ -78,6 +80,8 @@
             --radius-card: 12px;
             --font-family: 'Noto Sans', 'EMAP-SSN Language', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
             --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
+            /* Every scrollbar on the page, the table's too: thumb, track */
+            scrollbar-color: var(--scroll) transparent;
         }
 
         /* Dark mode: the Agent page's dark palette (agent.html), with the
@@ -129,7 +133,7 @@
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -154,33 +158,37 @@
             pointer-events: none;
         }
 
-        /* Header bar */
+        /* Header bar. In a narrow window, or with larger text, the buttons
+           wrap onto more rows rather than run off the page, which does not
+           scroll. */
         header {
             background-color: var(--bg-card);
             border-bottom: 1px solid var(--border-color);
-            padding: 0 16px 0 20px;
+            padding: 8px 16px 8px 20px;
             display: flex;
+            flex-wrap: wrap;
             justify-content: space-between;
             align-items: center;
-            height: 56px;
+            gap: 8px 16px;
+            min-height: 56px;
             box-sizing: border-box;
             flex-shrink: 0;
         }
 
         header h1 {
             margin: 0;
-            font-size: 15px;
+            font-size: 0.9375rem;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
-            white-space: nowrap;
         }
         header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
 
         .header-actions {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 8px;
         }
@@ -189,13 +197,13 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 24px;
+            min-height: 24px;
             padding: 0 10px;
             margin-left: 4px;
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             white-space: nowrap;
         }
         .status-badge::before {
@@ -208,11 +216,12 @@
         .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
         .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
 
-        /* Workspace Grid */
+        /* Workspace Grid: the height the header leaves, however many rows
+           its buttons take */
         .workspace {
             display: flex;
             flex: 1;
-            height: calc(100vh - 56px);
+            min-height: 0;
             overflow: hidden;
             background-color: var(--bg-main);
         }
@@ -229,10 +238,10 @@
             align-items: center;
             justify-content: center;
             gap: 6px;
-            height: 30px;
+            min-height: 30px;
             padding: 0 12px;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 400;
             border-radius: var(--radius);
             border: 1px solid var(--field-border);
@@ -248,7 +257,9 @@
 
         .btn:hover { background-color: var(--bg-muted); }
         .btn:active { background-color: var(--border-color); }
-        .btn:focus-visible { position: relative; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        /* The outline, clear here, is the ring where Windows' contrast
+           themes take off shadows and recolour borders. */
+        .btn:focus-visible { position: relative; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); outline: 2px solid transparent; }
 
         .btn-primary {
             background-color: var(--primary);
@@ -306,11 +317,30 @@
         .metadata-column-drag-handle .icon { width: 14px; height: 14px; }
         .metadata-column-drag-handle:hover { color: var(--text-secondary); }
 
-        .metadata-column-name {
+        /* A column's name, a button that sorts by it as a click on the
+           header does, drawn as the name alone */
+        .column-title-button {
+            appearance: none;
+            border: none;
+            background: none;
+            color: inherit;
+            cursor: inherit;
+            font: inherit;
+            margin: 0;
+            max-width: 100%;
+            padding: 0;
+            vertical-align: bottom;
             overflow: hidden;
             text-align: center;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+        .column-title-button:focus-visible { outline: none; }
+        /* The ring goes round the header's title row: the title itself
+           clips what is drawn outside the name. */
+        .tabulator-col-title-holder:has(.column-title-button:focus-visible) {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
         }
 
         .metadata-delete-column {
@@ -342,7 +372,11 @@
         .metadata-delete-column:focus-visible {
             background: var(--danger-soft);
             color: var(--danger);
-            outline: none;
+        }
+        /* Inside the button: the title clips what is drawn outside it */
+        .metadata-delete-column:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
         }
 
         /* Stack header title and filter container vertically */
@@ -354,7 +388,7 @@
         }
 
         .tabulator-col-title-holder {
-            font-size: 13px !important;
+            font-size: 0.8125rem !important;
             font-weight: 600 !important;
             padding: 8px 10px !important;
             display: flex !important;
@@ -385,7 +419,7 @@
             border-radius: 4px;
             box-sizing: border-box;
             flex: 0 0 auto;
-            font-size: 9.5px;
+            font-size: 0.59375rem;
             font-weight: 600;
             letter-spacing: 0.02em;
             line-height: 1;
@@ -412,11 +446,11 @@
 
         .tabulator-header-filter input {
             flex: 1 1 auto;
-            height: 24px !important;
+            min-height: 24px !important;
             min-width: 0;
             padding: 2px 8px !important;
             font-family: var(--font-family) !important;
-            font-size: 12px !important;
+            font-size: 0.75rem !important;
             color: var(--text-primary);
             background-color: var(--bg-card);
             border-radius: 6px !important;
@@ -434,6 +468,12 @@
         .tabulator-header-filter input:focus {
             border-color: var(--accent) !important;
             box-shadow: 0 0 0 1px var(--accent);
+            outline: 2px solid transparent !important;
+        }
+
+        .tabulator-header-filter input::placeholder {
+            color: var(--text-subtle);
+            opacity: 1;
         }
 
         #table-container {
@@ -450,7 +490,7 @@
             overflow: hidden;
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 13px;
+            font-size: 0.8125rem;
         }
 
         /* Tabulator's own colours, in the Studio's */
@@ -501,7 +541,7 @@
         }
         .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
             color: var(--text-subtle);
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 400;
         }
         .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range {
@@ -530,7 +570,7 @@
         }
         .tabulator-row .tabulator-cell.tabulator-editing input {
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-primary);
             padding: 0 7px;
         }
@@ -568,7 +608,7 @@
             border-radius: var(--radius);
             background-color: var(--bg-card);
             color: var(--text-primary);
-            font-size: 12px;
+            font-size: 0.75rem;
             line-height: 1.5;
         }
         .edit-message:not(:empty) {
@@ -577,26 +617,35 @@
             box-shadow: var(--shadow-card);
         }
 
-        /* Scrollbar styles */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        /* Read to a screen reader, not shown: where a column moved to */
+        .visually-hidden {
+            position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+            overflow: hidden; clip-path: inset(50%); white-space: nowrap;
         }
 
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
+        /* Scrollbar styles, where the browser has no scrollbar-color (:root
+           sets it), as Safari before 26 */
+        @supports not (scrollbar-color: auto) {
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
 
-        ::-webkit-scrollbar-thumb {
-            background: var(--scroll);
-            border: 2px solid transparent;
-            border-radius: 4px;
-            background-clip: content-box;
-        }
+            ::-webkit-scrollbar-track {
+                background: transparent;
+            }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--scroll-hover);
-            background-clip: content-box;
+            ::-webkit-scrollbar-thumb {
+                background: var(--scroll);
+                border: 2px solid transparent;
+                border-radius: 4px;
+                background-clip: content-box;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: var(--scroll-hover);
+                background-clip: content-box;
+            }
         }
         /* Hide HTML5 spin-buttons on number inputs */
         input::-webkit-outer-spin-button,
@@ -649,6 +698,32 @@
             outline-offset: -2px;
         }
 
+        /* Windows' contrast themes take off backgrounds and shadows and give
+           every border one colour: what those alone showed is drawn in the
+           theme's system colours. */
+        @media (forced-colors: active) {
+            .status-badge::before { background: ButtonText; }
+            /* Not adjusted, or the browser draws a Canvas backplate behind the HighlightText text and hides it. */
+            .tabulator-cell.tabulator-range-selected { forced-color-adjust: none; background-color: Highlight !important; color: HighlightText; }
+            .tabulator-row.tabulator-selected { outline: 2px solid Highlight; outline-offset: -2px; }
+            .tabulator-row .tabulator-cell.tabulator-editing { border-color: Highlight; }
+            .tabulator-row .tabulator-cell.tabulator-validation-fail { border-style: dashed; border-width: 2px; }
+            /* The sort arrows are triangles of clear and coloured borders,
+               which the theme would fill in alike. */
+            .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+                forced-color-adjust: none;
+            }
+            .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=none] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+                border-bottom-color: GrayText;
+            }
+            .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=ascending] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+                border-bottom-color: CanvasText;
+            }
+            .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=descending] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+                border-top-color: CanvasText;
+            }
+        }
+
         /* Help dialog: a modal <dialog>, which the browser centres over the
            page and keeps the focus in; scrolling in it or over its backdrop
            leaves the page behind alone. */
@@ -676,7 +751,7 @@
 
         .modal-content h3 {
             margin: 0;
-            font-size: 16px;
+            font-size: 1rem;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
@@ -692,12 +767,12 @@
             top: 16px;
             right: 16px;
             width: 28px;
-            height: 28px;
+            min-height: 28px;
         }
 
         .modal-intro {
             margin: 10px 32px 0 0;
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1.6;
             color: var(--text-secondary);
         }
@@ -706,13 +781,13 @@
             margin-top: 20px;
             padding-top: 18px;
             border-top: 1px solid var(--border-color);
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1.6;
             color: var(--text-secondary);
         }
         .modal-section h4 {
             margin: 0;
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
@@ -745,7 +820,7 @@
             align-items: center;
             gap: 8px;
             color: var(--text-primary);
-            font-size: 13.5px;
+            font-size: 0.84375rem;
         }
 
         /* Short rules, each led by its name in bold, in two columns */
@@ -767,7 +842,7 @@
 
         .modal-content code {
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--text-primary);
             background: var(--bg-muted);
             border-radius: max(6px, 0.6em);
@@ -779,7 +854,7 @@
             display: flex;
             justify-content: flex-end;
         }
-        .modal-footer .btn { height: 32px; padding: 0 16px; }
+        .modal-footer .btn { min-height: 32px; padding: 0 16px; }
 
         @keyframes modalFadeIn {
             from { opacity: 0; transform: translateY(-10px); }
@@ -829,18 +904,19 @@
             </div>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <button class="btn btn-ghost" id="help-btn"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Help</span></button>
-            <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
+            <div id="connection-status" class="status-badge" role="status" data-i18n>Connecting...</div>
         </div>
     </header>
 
-    <div class="workspace">
+    <main class="workspace">
         <div class="pane-main">
             <div id="table-container">
                 <div id="spreadsheet-table"></div>
                 <p id="edit-message" class="edit-message" role="alert"></p>
+                <p id="table-announcer" class="visually-hidden" role="status"></p>
             </div>
         </div>
-    </div>
+    </main>
 
     <!-- Load local Tabulator JS -->
     <script src="/meta_resource/tabulator.min.js"></script>
@@ -909,6 +985,45 @@
         document.addEventListener("pointercancel", cancelPendingNodeNameGesture);
         window.addEventListener("blur", cancelPendingNodeNameGesture);
 
+        // A column's name, a button. Enter or Space sorts by the column as a
+        // click on its header does: Tabulator's listener on the header takes
+        // the button's click as it bubbles. On a metadata column's name,
+        // Alt+Left and Alt+Right move the column a place, as a drag does.
+        function columnTitleButton(name, movable) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "column-title-button";
+            button.textContent = name;
+            if (movable) button.setAttribute("aria-keyshortcuts", "Alt+ArrowLeft Alt+ArrowRight");
+            button.addEventListener("keydown", event => {
+                if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+                    (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+                // Not the browser's Back and Forward, nor Tabulator's move of
+                // the selected cell, which takes Alt with an arrow as the arrow.
+                event.preventDefault();
+                event.stopPropagation();
+                if (movable) moveColumnOnePlace(name, button, event.key === "ArrowLeft" ? -1 : 1);
+            });
+            return button;
+        }
+
+        // Moves a metadata column a place left (-1) or right (1), past
+        // another metadata column only, keeping the focus on its name, which
+        // Tabulator takes off as it moves the header; a screen reader hears
+        // where it went.
+        function moveColumnOnePlace(field, button, step) {
+            const columns = table.getColumns();
+            const index = columns.findIndex(column => column.getField() === field);
+            const next = columns[index + step];
+            if (index < 0 || !next || next.getField() === undefined || next.getField() === "Node ID") return;
+            columns[index].move(next, step > 0);
+            button.focus({preventScroll: true});
+            columns[index].scrollTo("center", false).catch(() => {});
+            const place = table.getColumns().findIndex(column => column.getField() === field) + 1;
+            document.getElementById("table-announcer").textContent =
+                t("Moved {column} to column {place} of {count}.", {column: field, place: place, count: columns.length});
+        }
+
         function buildMetadataColumnTitle(columnName) {
             const wrapper = document.createElement("span");
             wrapper.className = "metadata-column-title";
@@ -918,10 +1033,7 @@
             dragHandle.appendChild(icon("menu"));
             wrapper.appendChild(dragHandle);
 
-            const title = document.createElement("span");
-            title.className = "metadata-column-name";
-            title.textContent = columnName;
-            wrapper.appendChild(title);
+            wrapper.appendChild(columnTitleButton(columnName, true));
 
             const deleteButton = document.createElement("button");
             deleteButton.type = "button";
@@ -960,10 +1072,10 @@
         // setColumns builds the header again, which empties the header
         // filter inputs and the sort arrow, though the table still filters
         // and sorts by them. A header filter the user typed, the sort, and
-        // the input being typed in are put back for each column that stays;
-        // one for a column no longer there is dropped. headerState reads
-        // them before the table is changed at all: a new set of data takes
-        // the focus off the input.
+        // the input being typed in or the header button with the focus are
+        // put back for each column that stays; one for a column no longer
+        // there is dropped. headerState reads them before the table is
+        // changed at all: a new set of data takes the focus off the input.
         function headerState() {
             const typed = {};
             let focused = null;
@@ -972,8 +1084,12 @@
                 const input = column.getElement().querySelector(".tabulator-header-filter input");
                 if (field === undefined || !input) return;
                 if (input.value !== "") typed[field] = input.value;
-                if (input === document.activeElement) {
-                    focused = {field: field, start: input.selectionStart, end: input.selectionEnd};
+                const active = document.activeElement;
+                if (active === input) {
+                    focused = {field: field, control: ".tabulator-header-filter input",
+                               start: input.selectionStart, end: input.selectionEnd};
+                } else if (active.tagName === "BUTTON" && column.getElement().contains(active)) {
+                    focused = {field: field, control: "." + active.classList[0]};
                 }
             });
             const applied = {};
@@ -1011,10 +1127,10 @@
             // range selection takes it to the table when the filters are set.
             return () => {
                 if (!focused || !present.has(focused.field)) return;
-                const input = table.getColumn(focused.field).getElement().querySelector(".tabulator-header-filter input");
-                if (input) {
-                    input.focus();
-                    input.setSelectionRange(focused.start, focused.end);
+                const control = table.getColumn(focused.field).getElement().querySelector(focused.control);
+                if (control) {
+                    control.focus();
+                    if (focused.start !== undefined) control.setSelectionRange(focused.start, focused.end);
                 }
             };
         }
@@ -1075,8 +1191,10 @@
                 },
                 {
                     title: t("Sequence Header"),
+                    titleFormatter: () => columnTitleButton(t("Sequence Header"), false),
                     field: "Node ID",
                     headerFilter: headerFilterInput,
+                    headerFilterPlaceholder: t("Filter"),
                     headerFilterLiveFilter: false,
                     sorter: "string",
                     hozAlign: "left",
@@ -1101,6 +1219,7 @@
                     mutatorEdit: type === "number" ? numberCellValue : undefined,
                     sorter: type === "number" ? "number" : "string",
                     headerFilter: headerFilterInput,
+                    headerFilterPlaceholder: t("Filter"),
                     headerFilterLiveFilter: false,
                     hozAlign: "center",
                     headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
@@ -1125,6 +1244,10 @@
             input.style.padding = "4px";
             input.style.width = "100%";
             input.style.boxSizing = "border-box";
+            // Named for its column: the placeholder, the column's
+            // headerFilterPlaceholder, is the same in every column.
+            input.setAttribute("aria-label", t("Filter {column}", {column: cell.getColumn().getDefinition().title}));
+            input.spellcheck = false;
             input.value = cell.getValue();
             let composing = false;
             const filterSoon = debounce(() => {
@@ -1296,10 +1419,21 @@
         // ssn_theme, which the Agent page keeps too, so the two pages match.
         function toggleTheme() {
             const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-            document.documentElement.setAttribute("data-theme", next);
+            applyTheme(next);
             try { localStorage.setItem("ssn_theme", next); } catch (error) {}
-            updateThemeBtn(next);
         }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute("data-theme", theme);
+            updateThemeBtn(theme);
+        }
+
+        // Until a theme is chosen, the page follows the system's, also while it is open.
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+            let chosen = null;
+            try { chosen = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (chosen !== "dark" && chosen !== "light") applyTheme(event.matches ? "dark" : "light");
+        });
 
         function updateThemeBtn(theme) {
             document.getElementById("theme-toggle-label").textContent =
@@ -1311,8 +1445,7 @@
         // A choice made on the Agent page while both are open applies here at once.
         window.addEventListener("storage", (event) => {
             if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) {
-                document.documentElement.setAttribute("data-theme", event.newValue);
-                updateThemeBtn(event.newValue);
+                applyTheme(event.newValue);
             }
         });
 
@@ -1320,15 +1453,15 @@
             const statusBadge = document.getElementById("connection-status");
             eventSource = new EventSource("/api/events?client=meta");
 
-            eventSource.onopen = () => {
-                statusBadge.innerText = t("Connected");
-                statusBadge.dataset.state = "connected";
+            // The badge is a status region: a state set again, as each failed
+            // retry sets "reconnecting", is not read out again.
+            const setState = (state, text) => {
+                if (statusBadge.dataset.state === state) return;
+                statusBadge.textContent = text;
+                statusBadge.dataset.state = state;
             };
-
-            eventSource.onerror = () => {
-                statusBadge.innerText = t("Reconnecting...");
-                statusBadge.dataset.state = "reconnecting";
-            };
+            eventSource.onopen = () => setState("connected", t("Connected"));
+            eventSource.onerror = () => setState("reconnecting", t("Reconnecting..."));
 
             eventSource.onmessage = (event) => {
                 const message = JSON.parse(event.data);
@@ -1418,7 +1551,9 @@
                 selectable: true,
                 virtualDom: true,
                 placeholder: t("No network data loaded"),
-                headerSortTristate: true,
+                // A column option: a third click on a column's name returns the
+                // rows to the Viewer's order, as the help says.
+                columnDefaults: {headerSortTristate: true},
                 movableColumns: true,
                 history: false,
                 validationMode: "blocking",
@@ -1451,7 +1586,17 @@
             // no key does more than in the body; the filters and buttons in
             // it are stops of their own.
             table.on("tableBuilt", () => {
-                table.element.querySelector(".tabulator-header").tabIndex = -1;
+                const header = table.element.querySelector(".tabulator-header");
+                header.tabIndex = -1;
+                // A button in the header that takes the focus, off to the
+                // side, scrolls the header to show it; the rows follow, as
+                // Tabulator has them do for a filter, so each column's name
+                // stays over its cells.
+                const contents = header.querySelector(".tabulator-header-contents");
+                const holder = table.element.querySelector(".tabulator-tableholder");
+                contents.addEventListener("scroll", () => {
+                    if (holder.scrollLeft !== contents.scrollLeft) holder.scrollLeft = contents.scrollLeft;
+                });
             });
 
             // Tabulator takes Tab and the arrow keys anywhere in the table
@@ -1663,13 +1808,33 @@
             }
         }
 
+        // An action the Viewer did not get, which a lost connection or a
+        // request it refused leaves undone though the page may show it done,
+        // as an edit: the page says so where it says why an edit was kept,
+        // until an action reaches the Viewer or another edit starts.
+        let actionFailure = null;
+
         function sendAction(payload) {
+            const message = document.getElementById("edit-message");
             fetch("/api/action", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
-            }).catch(err => {
-                console.error("Action error:", err);
+            }).then(response => {
+                if (response.ok) return null;
+                return response.json().then(body => body.error, () => null).then(error => error
+                    ? t("The Viewer did not get this change: {reason}", {reason: error})
+                    : t("The Viewer did not get this change (HTTP {status}).", {status: response.status}));
+            }, () => t("The Viewer did not get this change: the page can't reach it."))
+            .then(failure => {
+                if (failure === null) {
+                    if (actionFailure !== null && message.textContent === actionFailure) message.textContent = "";
+                    actionFailure = null;
+                    return;
+                }
+                console.error("Action error:", payload.action, failure);
+                actionFailure = failure;
+                if (message.textContent !== failure) message.textContent = failure;
             });
         }
 
@@ -1785,7 +1950,7 @@
                 <li data-i18n><strong>Sort:</strong> Click a column's name to sort by it. Click again to reverse the order, and a third time to return to the Viewer's order.</li>
                 <li data-i18n><strong>Resize:</strong> Drag the right edge of a column's header. The column keeps that width when the window is resized and when the Viewer updates the table.</li>
                 <li data-i18n><strong>Edit:</strong> Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can't be edited.</li>
-                <li data-i18n><strong>Move:</strong> Drag a metadata column's header sideways. The row numbers and Sequence Header stay first.</li>
+                <li data-i18n><strong>Move:</strong> Drag a metadata column's header sideways, or press Alt+Left or Alt+Right on its name. The row numbers and Sequence Header stay first.</li>
                 <li data-i18n><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer's history, which holds its commands as well as the edits made here.</li>
                 <li data-i18n><strong>Delete a Column:</strong> Click the X in its header. The page asks first, and Undo brings the column back.</li>
                 <li class="wide" data-i18n><strong>Copy:</strong> Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</li>

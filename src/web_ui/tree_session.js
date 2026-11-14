@@ -208,13 +208,13 @@ window.TreeView = window.TreeView || {};
         const select = $("source-select");
         if (Array.isArray(payload.sources)) state.sources = payload.sources;
         if (payload.source) state.source = payload.source;
-        // The tree the user opened is listed by its file's name, before the entry that opens another.
+        // The tree the user opened is listed by its file's name, after the others.
         const opened = state.sources.find((item) => item.id === "uploaded");
         let option = select.querySelector('option[value="uploaded"]');
         if (opened && !option) {
             option = document.createElement("option");
             option.value = "uploaded";
-            select.insertBefore(option, select.querySelector('option[value="open"]'));
+            select.appendChild(option);
         } else if (!opened && option) {
             option.remove();
         }
@@ -223,7 +223,6 @@ window.TreeView = window.TreeView || {};
             option.title = opened.name || "";
         }
         for (const option of select.options) {
-            if (option.value === "open") continue;
             const entry = state.sources.find((item) => item.id === option.value);
             option.disabled = !!entry && !entry.available;
             if (option.value !== "uploaded") {
@@ -238,12 +237,6 @@ window.TreeView = window.TreeView || {};
     // as they do for any new tree; the colours, the selection and the nodes the network hides come through the nodes the
     // leaves stand for, so they carry over to it.
     function chooseSource(value) {
-        if (value === "open") {
-            // The entry that opens a file is no tree: the list goes back to the tree shown, and the file chooser opens.
-            $("source-select").value = state.source;
-            TV.chooseFile();
-            return;
-        }
         if (value === state.source && state.model) return;
         TV.loadTree(value).then((ok) => { $("source-select").value = state.source; return ok; });
     }
@@ -418,6 +411,8 @@ window.TreeView = window.TreeView || {};
         const list = $("warning-list");
         list.replaceChildren();
         bannerRoll.overClose = bannerRoll.parked = false;
+        // The sentences are new: measured as a line again (a wrapped line keeps its old measure).
+        $("banner-line").classList.remove("wrapped");
         const add = (symbol, text, className) => {
             const item = document.createElement("li");
             if (className) item.className = className;
@@ -486,6 +481,8 @@ window.TreeView = window.TreeView || {};
     // Measured again whenever the window or the sentences change size (the language's words are longer or shorter).
     function measureBanner() {
         const line = $("banner-line");
+        // A wrapped line is taller and its sentences stand in rows: it keeps what was measured until it is a line again.
+        if (line.classList.contains("wrapped")) return;
         const shown = $("banner").classList.contains("shown");
         const room = line.clientWidth;
         const rolls = shown && room > 0 && bannerTextWidth() > room;
@@ -500,7 +497,15 @@ window.TreeView = window.TreeView || {};
     function rollBanner() {
         const line = $("banner-line"), track = $("warning-list");
         const overflowing = line.classList.contains("rolls");
-        const parked = overflowing && bannerRoll.parked;
+        // Where the line does not roll (reduced motion) a long one wraps instead while it is hovered or has the keyboard.
+        const wrap = overflowing && reducedMotion() && (bannerRoll.hovered || bannerRoll.focused || bannerRoll.parked);
+        if (line.classList.contains("wrapped") !== wrap) {
+            line.classList.toggle("wrapped", wrap);
+            track.style.transform = "";
+            if (!wrap) measureBanner();
+            return;
+        }
+        const parked = overflowing && bannerRoll.parked && !wrap;
         track.style.transform = parked ? "translateX(" + (-bannerRoll.distance) + "px)" : "";
         const wanted = overflowing && !parked && (bannerRoll.hovered || bannerRoll.focused) && !reducedMotion();
         if (!wanted) {
@@ -580,6 +585,8 @@ window.TreeView = window.TreeView || {};
             text = [description.title, ...description.lines].join(" · ");
         }
         if ($("summary").textContent !== text) $("summary").textContent = text;
+        // The line is cut short by its room: the whole of it is the title.
+        $("summary").title = text;
     }
 
     // A key that pins a node is answered a moment after the keys stop (KEY_PIN_MS), so that walking the tree says the
@@ -609,6 +616,7 @@ window.TreeView = window.TreeView || {};
         const hint = keyboard ? keys : TV.hintText();
         if ($("tree-keys").textContent !== keys) $("tree-keys").textContent = keys;
         if ($("hints").textContent !== hint) $("hints").textContent = hint;
+        $("hints").title = hint;
     }
 
     // ---- The network's selection and focus, and the stability of the splits ------------------------------------
@@ -710,13 +718,75 @@ window.TreeView = window.TreeView || {};
         }
     }
 
+    // ---- The cards ---------------------------------------------------------------------------------------------
+
+    // The three cards over the drawing (Details, the match of an opened tree, the leaves and nodes the warnings count), each
+    // opened by a button of the page; at most one is open. A card opened by its button takes the focus (the card itself,
+    // which says its name: the lists inside are filled in again as the Viewer answers), and closing it with its Close button,
+    // its button or Esc gives the focus back to what opened it, else to the drawing. A card the page opens or closes of
+    // itself (a tree that was loaded, another card taking its place) moves no focus.
+    const CARDS = ["details", "match-report", "mismatch-card"];
+    const CARD_BUTTONS = { "details": "details-btn", "match-report": "report-btn", "mismatch-card": "mismatch-btn" };
+    const openers = {};
+
+    // Each button says whether its card is open, whoever opened or closed the card.
+    function syncCardButtons() {
+        for (const id of CARDS) $(CARD_BUTTONS[id]).setAttribute("aria-expanded", String($(id).classList.contains("shown")));
+    }
+
+    // The card that is open, or null.
+    TV.openCardId = () => CARDS.find((id) => $(id).classList.contains("shown")) || null;
+
+    // Show the card `id`. opener: the control that asked for it, which takes the focus into the card.
+    TV.openCard = function (id, opener) {
+        const panel = $(id);
+        if (opener || !panel.classList.contains("shown")) openers[id] = opener || null;
+        panel.classList.add("shown");
+        syncCardButtons();
+        if (opener) panel.focus({ preventScroll: true });
+    };
+
+    // Take the card `id` away. restoreFocus: the user closed it, so the focus goes back (unless it is already elsewhere on
+    // the page, as when Esc is pressed on the drawing).
+    TV.closeCard = function (id, restoreFocus) {
+        const panel = $(id);
+        if (!panel.classList.contains("shown")) return;
+        const active = document.activeElement;
+        const held = !active || active === document.body || panel.contains(active);
+        if (id === "details") panel.classList.remove("shown");
+        else if (id === "match-report") TV.showReport(false);
+        else TV.showMismatch(false);
+        syncCardButtons();
+        const opener = openers[id];
+        openers[id] = null;
+        if (!restoreFocus || !held) return;
+        const back = opener && opener.isConnected && !opener.disabled && opener.offsetParent !== null ? opener : TV.canvas;
+        if (back) back.focus({ preventScroll: true });
+    };
+
+    // The top of a card: its heading and its Close button.
+    TV.cardHead = function (id, text, headingId) {
+        const head = document.createElement("div");
+        head.className = "head";
+        const title = document.createElement("h2");
+        if (headingId) title.id = headingId;
+        title.textContent = text;
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "btn btn-icon btn-ghost";
+        close.title = t("Close");
+        close.setAttribute("aria-label", t("Close"));
+        close.appendChild(icon("x"));
+        close.addEventListener("click", () => TV.closeCard(id, true));
+        head.append(title, close);
+        return head;
+    };
+
     // The Details panel: the file, how the run made the tree, and the counts.
     function showDetails(payload, model) {
         const panel = $("details");
         panel.replaceChildren();
-        const heading = document.createElement("h2");
-        heading.textContent = t("This tree");
-        panel.appendChild(heading);
+        panel.appendChild(TV.cardHead("details", t("This tree"), "details-title"));
 
         const addRows = (rows) => {
             const list = document.createElement("dl");
@@ -1117,13 +1187,19 @@ window.TreeView = window.TreeView || {};
             if (overviewOn) TV.requestDraw();
         });
         $("details-btn").addEventListener("click", () => {
-            $("match-report").classList.remove("shown");
-            TV.showMismatch(false);
-            $("details").classList.toggle("shown");
+            if ($("details").classList.contains("shown")) {
+                TV.closeCard("details", true);
+                return;
+            }
+            TV.closeCard("match-report");
+            TV.closeCard("mismatch-card");
+            TV.openCard("details", $("details-btn"));
         });
+        for (const id of CARDS) new MutationObserver(syncCardButtons).observe($(id), { attributes: true, attributeFilter: ["class"] });
         attachBanner();
-        $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown")));
-        $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown")));
+        $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown"), $("mismatch-btn")));
+        $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown"), $("report-btn")));
+        $("open-tree-btn").addEventListener("click", () => TV.chooseFile());
         $("legend-toggle").addEventListener("click", () => TV.toggleLegend());
         $("empty-retry").addEventListener("click", () => TV.loadTree());
         $("empty-copy").addEventListener("click", copyPath);
@@ -1158,13 +1234,21 @@ window.TreeView = window.TreeView || {};
                 clearTimeout(searchTimer);
                 if (state.query !== event.target.value.trim()) search(event.target.value); else step(event.shiftKey ? -1 : 1);
             } else if (event.key === "Escape") {
+                event.preventDefault();
                 event.target.value = "";
                 search("");
                 TV.canvas.focus();
             }
         });
+        // Esc closes the card that is open. A card is the newer thing on the page, so it goes before what Esc does on the
+        // drawing (let the pinned node go), which waits for the next Esc; a drag or a box in progress, the search box and the
+        // legend's bars keep their own Esc (they mark the event handled).
         document.addEventListener("keydown", (event) => {
-            if (event.key === "Escape" && !event.isComposing && $("mismatch-card").classList.contains("shown")) TV.showMismatch(false);
+            if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+            const id = TV.openCardId();
+            if (!id) return;
+            event.preventDefault();
+            TV.closeCard(id, true);
         });
         document.addEventListener("keydown", (event) => {
             if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !$("search-input").disabled
@@ -1177,6 +1261,13 @@ window.TreeView = window.TreeView || {};
         showThemeButton();
         $("theme-toggle-btn").addEventListener("click", toggleTheme);
         new MutationObserver(showThemeButton).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+        // Until a theme is chosen the system's is the page's, and follows the system as it changes.
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+            let chosen = null;
+            try { chosen = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (chosen === "dark" || chosen === "light") return;
+            document.documentElement.setAttribute("data-theme", event.matches ? "dark" : "light");
+        });
         // A choice made on another page while this one is open applies here at once.
         window.addEventListener("storage", (event) => {
             if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) {

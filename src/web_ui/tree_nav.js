@@ -1327,6 +1327,11 @@ window.TreeView = window.TreeView || {};
                     break;
                 case "s": case "S": selectByKey(event.shiftKey); break;
                 case "Escape":
+                    // A card that is open is closed first (the page's own Esc handler, on the document); this Esc is the next one.
+                    if (TV.openCardId && TV.openCardId()) {
+                        handled = false;
+                        break;
+                    }
                     state.pinned = -1;
                     ui.onPin(-1);
                     TV.requestDraw();

@@ -784,6 +784,19 @@ class MetadataPageTests(WebPageTestCase):
         self.js("handleServerEvent({type: 'metadata_error', message: '9'})")
         self.assertEqual(len(self.page.dialogs), 3)
         self.shown += self.page.dialogs
+        # Where a column moved to, for a screen reader.
+        self.js("table.getColumn('1').getElement().querySelector('.column-title-button').focus()")
+        self.press(Qt.Key_Right, Qt.AltModifier)
+        self.wait_for("document.getElementById('table-announcer').textContent !== ''")
+        self.collect()
+        # An action the Viewer refused, with its reason or without, and one that did not reach it.
+        message = "document.getElementById('edit-message')"
+        for answer in ("""Promise.resolve(new Response('{"error": "9"}', {status: 500}))""",
+                       "Promise.resolve(new Response('', {status: 503}))", "Promise.reject(new TypeError())"):
+            shown = self.js(f"{message}.textContent")
+            self.js(f"window.fetch = () => {answer}; sendAction({{action: 'export_metadata'}})")
+            self.wait_for(f"{message}.textContent !== {json.dumps(shown)}")
+            self.collect()
         self.assert_translated()
 
     def test_a_press_on_a_buttons_icon_or_label_keeps_the_selection(self):
@@ -1100,18 +1113,36 @@ class MetadataPageTests(WebPageTestCase):
         focus never left it; Enter edited the selected cell, not the focused one.
         The table's body is the one stop, the table ringed while it has the focus,
         and Tab leaves the table. The arrow keys move the selected cell, Enter
-        edits it, and in the edit the arrow keys move the caret."""
+        edits it, and in the edit the arrow keys move the caret. Each column's
+        name, a button, and its delete button come before its filter, each
+        ringed while it has the focus."""
         self.open(self.TABLE)
         self.js("document.getElementById('help-btn').focus()")
         ring = "getComputedStyle(document.getElementById('spreadsheet-table')).outlineStyle"
-        stops = []
-        for _ in range(6):
+        # A name's ring goes round its header's title row, which shows the whole of it.
+        own_ring = """(() => {
+            const element = document.activeElement;
+            const ringed = element.closest('.tabulator-col-title-holder:has(.column-title-button:focus-visible)')
+                || element;
+            return getComputedStyle(ringed).outlineStyle + ' ' + getComputedStyle(ringed).outlineColor;
+        })()"""
+        accent = self.js("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()")
+        accent = "rgb({}, {}, {})".format(*(int(accent[i:i + 2], 16) for i in (1, 3, 5)))
+        stops, rings = [], []
+        for _ in range(9):
             self.press(Qt.Key_Tab)
             stops.append([self.js(self.FOCUSED), self.js(ring)])
+            rings.append(self.js(own_ring))
         self.assertEqual(stops, [
-            ["input Node ID", "none"], ["metadata-delete-column 1", "none"], ["input 1", "none"],
-            ["metadata-delete-column 2", "none"], ["input 2", "none"], ["tabulator-tableholder", "solid"],
+            ["column-title-button Node ID", "none"], ["input Node ID", "none"],
+            ["column-title-button 1", "none"], ["metadata-delete-column 1", "none"], ["input 1", "none"],
+            ["column-title-button 2", "none"], ["metadata-delete-column 2", "none"], ["input 2", "none"],
+            ["tabulator-tableholder", "solid"],
         ])
+        # The names and delete buttons in the theme colour; a filter's ring is
+        # its border and shadow, its outline clear but for a contrast theme.
+        self.assertEqual([rings[index] for index in (0, 2, 3)], [f"solid {accent}"] * 3)
+        self.assertEqual(rings[1], "solid rgba(0, 0, 0, 0)")
         self.press(Qt.Key_Tab)
         self.assertFalse(self.js("document.getElementById('spreadsheet-table').contains(document.activeElement)"))
         cells = "Array.from(document.querySelectorAll('.tabulator-cell'), cell => cell.tabIndex)"
@@ -1238,6 +1269,248 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(json.loads(self.js("""JSON.stringify([document.activeElement.value,
             table.getHeaderFilters()[0].value, table.getRows('active').map(row => row.getData().id)])""")),
                          ["8", "8", [1]])
+
+    def test_a_columns_name_sorts_and_moves_it_from_the_keyboard(self):
+        """A column sorted on a click on its name, which no key reached, and moved
+        only by a drag. Its name is a button: Enter and Space sort through the
+        click's three states, and on a metadata column's name Alt+Left and
+        Alt+Right move the column a place, past metadata columns only, the focus
+        staying on its name and a screen reader told where it went. Alt with an
+        arrow is not the browser's Back or Forward there, nor a move of the
+        table's selected cell."""
+        self.open(self.TABLE)
+        self.actions.clear()
+        self.js("window.samePage = true")
+        state = f"""JSON.stringify({{
+            order: table.getColumns().map(c => c.getField() || '#'),
+            sorters: table.getSorters().map(s => [s.field, s.dir]),
+            sort: table.getColumn('1').getElement().getAttribute('aria-sort'),
+            focused: {self.FOCUSED},
+            heard: document.getElementById('table-announcer').textContent.match(/\\d+/g),
+            samePage: window.samePage === true,
+            ranges: table.getRanges().map(range =>
+                [range.getTopEdge(), range.getBottomEdge(), range.getLeftEdge(), range.getRightEdge()]),
+        }})"""
+        self.js("table.getColumn('1').getElement().querySelector('.column-title-button').focus()")
+        before = json.loads(self.js(state))
+        ranges = before.pop("ranges")
+        self.assertEqual(before, {"order": ["#", "Node ID", "1", "2"], "sorters": [], "sort": "none",
+                                  "focused": "column-title-button 1", "heard": None, "samePage": True})
+
+        def after(key, modifier=Qt.NoModifier, **changes):
+            self.press(key, modifier)
+            now = json.loads(self.js(state))
+            self.assertEqual(now.pop("ranges"), ranges)
+            self.assertEqual(now, {**before, **changes})
+            before.update(changes)
+
+        after(Qt.Key_Return, sorters=[["1", "asc"]], sort="ascending")
+        after(Qt.Key_Space, sorters=[["1", "desc"]], sort="descending")
+        after(Qt.Key_Return, sorters=[], sort="none")
+        # The click's states, which the help names: a third returns the Viewer's order.
+        self.assertEqual(self.js("""(() => {
+            const name = document.activeElement, directions = [];
+            for (let i = 0; i < 3; i++) {
+                name.click();
+                directions.push(table.getSorters().map(sorter => sorter.dir).join() || 'none');
+            }
+            return directions.join();
+        })()"""), "asc,desc,none")
+        # Moved right to the last place, column 4 of 4; no further.
+        after(Qt.Key_Right, Qt.AltModifier, order=["#", "Node ID", "2", "1"], heard=["1", "4", "4"])
+        after(Qt.Key_Right, Qt.AltModifier)
+        after(Qt.Key_Left, Qt.AltModifier, order=["#", "Node ID", "1", "2"], heard=["1", "3", "4"])
+        # Sequence Header stays first, and its name moves nothing.
+        after(Qt.Key_Left, Qt.AltModifier)
+        self.js("table.getColumn('Node ID').getElement().querySelector('.column-title-button').focus()")
+        before["focused"] = "column-title-button Node ID"
+        after(Qt.Key_Left, Qt.AltModifier)
+        after(Qt.Key_Right, Qt.AltModifier)
+        self.assertFalse(self.js("""document.activeElement.dispatchEvent(new KeyboardEvent('keydown',
+            {key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true}))"""))
+        self.assertEqual(self.sent(), [])
+
+    def test_each_header_filter_is_named_for_its_column(self):
+        """The filters were named only by Tabulator's placeholder, "filter column...",
+        the same in every column and in English. Each is named for its column, its
+        placeholder is the page's own, and no spelling check marks what is typed."""
+        self.open(self.TABLE)
+        filters = json.loads(self.js("""JSON.stringify(table.getColumns().slice(1).map(column => {
+            const input = column.getElement().querySelector('.tabulator-header-filter input');
+            return [column.getElement().querySelector('.column-title-button').textContent,
+                    input.getAttribute('aria-label'), input.placeholder, input.spellcheck];
+        }))"""))
+        names = [name for name, _, _, _ in filters]
+        labels = [label for _, label, _, _ in filters]
+        self.assertEqual(names[1:], ["1", "2"])
+        # One wording, each with its column's name.
+        self.assertEqual([label.replace(name, "{}") for name, label in zip(names, labels)], [labels[2].replace("2", "{}")] * 3)
+        self.assertEqual(len(set(labels)), 3)
+        placeholders = {placeholder for _, _, placeholder, _ in filters}
+        self.assertEqual(len(placeholders), 1)
+        self.assertNotIn(placeholders.pop(), ("", "filter column..."))
+        self.assertEqual([spellcheck for _, _, _, spellcheck in filters], [False] * 3)
+
+    def test_a_header_button_with_the_focus_keeps_it_through_a_viewer_update(self):
+        """A Viewer update builds the header again; a column's name or delete
+        button with the focus keeps it, as a filter being typed in does."""
+        self.open(self.TABLE)
+        for control in ("column-title-button", "metadata-delete-column"):
+            with self.subTest(control=control):
+                self.js(f"table.getColumn('2').getElement().querySelector('.{control}').focus()")
+                self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(self.TABLE['rows'])},"
+                        f" columns: {json.dumps(self.TABLE['columns'])}, types: {json.dumps(self.TABLE['types'])},"
+                        " selected_indices: [], visible_mask: [true, true]})")
+                self.wait_for("!isEditingFromVispy")
+                self.assertEqual(self.js(self.FOCUSED), f"{control} 2")
+
+    def test_a_header_button_off_to_the_side_brings_its_cells_with_it(self):
+        """A button in the header that took the focus scrolled the header to show it
+        and left the rows where they were, each column's name over another's cells.
+        The rows follow."""
+        self.addCleanup(self.view.resize, 1200, 800)
+        self.view.resize(420, 600)
+        columns = ["Node ID", *map(str, range(1, 7))]
+        self.open({**self.TABLE, "columns": columns, "types": {name: "number" for name in columns[1:]},
+                   "rows": [{**row, **{name: 1000 * int(name) for name in columns[1:]}} for row in self.TABLE["rows"]]})
+        scrolled = ("JSON.stringify([document.querySelector('.tabulator-header-contents').scrollLeft,"
+                    " document.querySelector('.tabulator-tableholder').scrollLeft])")
+        self.assertEqual(json.loads(self.js(scrolled)), [0, 0])
+        self.js("table.getColumn('6').getElement().querySelector('.column-title-button').focus()")
+        self.wait_for(f"(([header, rows]) => header > 0 && rows === header)({scrolled.removeprefix('JSON.stringify(')[:-1]})")
+
+    def test_the_header_wraps_rather_than_cut_off_help_and_the_status(self):
+        """The header was one row 56 px high, in px, in a page that does not scroll:
+        at 200% zoom, or with the browser's text twice its size, it cut off Help and
+        the connection's status. Its buttons wrap onto more rows, which grow with
+        their text, and the table takes the height left below them."""
+        self.addCleanup(self.view.setZoomFactor, 1.0)
+        self.open(self.TABLE)
+        geometry = """JSON.stringify((() => {
+            const header = document.querySelector('header').getBoundingClientRect();
+            const main = document.querySelector('main').getBoundingClientRect();
+            const shown = id => {
+                const box = document.getElementById(id).getBoundingClientRect();
+                return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= header.bottom;
+            };
+            return {help: shown('help-btn'), status: shown('connection-status'),
+                    main: [Math.round(main.top) === Math.round(header.bottom), Math.round(main.bottom) === innerHeight],
+                    header: header.height, button: document.getElementById('import-btn').offsetHeight};
+        })())"""
+        shown = {"help": True, "status": True, "main": [True, True]}
+        normal = json.loads(self.js(geometry))
+        self.assertEqual({key: normal[key] for key in shown}, shown)
+        self.assertGreaterEqual(normal["header"], 56)
+        self.assertEqual(normal["button"], 30)
+        self.view.setZoomFactor(2.0)
+        self.wait_for("innerWidth < 700")
+        zoomed = json.loads(self.js(geometry))
+        self.assertEqual({key: zoomed[key] for key in shown}, shown)
+        self.assertGreater(zoomed["header"], normal["header"])
+        self.view.setZoomFactor(1.0)
+        self.wait_for("innerWidth > 1000")
+        self.js("document.documentElement.style.fontSize = '32px'")
+        larger = json.loads(self.js(geometry))
+        self.assertEqual({key: larger[key] for key in shown}, shown)
+        self.assertGreater(larger["header"], normal["header"])
+        self.assertGreater(larger["button"], 30)
+
+    def test_the_connection_status_is_read_out_once_for_each_change(self):
+        """The badge's text changed without a screen reader hearing it. It is a
+        status region, and a state set again, as each failed retry sets
+        reconnecting, leaves its text alone, so it is not read out again."""
+        self.open(self.TABLE)
+        badge = "document.getElementById('connection-status')"
+        self.assertEqual(self.js(f"{badge}.getAttribute('role')"), "status")
+        self.js(f"""window.changes = 0; new MutationObserver(records => {{ window.changes += records.length; }})
+            .observe({badge}, {{childList: true, characterData: true, subtree: true}})""")
+        for call in ("onerror", "onerror", "onopen", "onopen", "onerror"):
+            self.js(f"eventSource.{call}()")
+        self.assertEqual(self.js("window.changes"), 3)
+        self.assertEqual(self.js(f"{badge}.dataset.state"), "reconnecting")
+
+    def test_an_action_the_viewer_did_not_get_says_so(self):
+        """An edit made while the Viewer refused it, or could not be reached, looked
+        saved: the page only logged the failed request. The page says the Viewer did
+        not get it, where it says why an edit was kept, as an alert, until an action
+        reaches the Viewer."""
+        self.open(self.TABLE)
+        message = "document.getElementById('edit-message')"
+        refusal = "The Viewer refused it."
+        communicator = self.server.viewer.communicator
+        handle = communicator.handle_action
+
+        def refuse(data):
+            raise RuntimeError(refusal)
+
+        def edit(text):
+            self.js(f"table.getRows()[0].getCell('2').edit(); document.activeElement.value = {json.dumps(text)}")
+            self.press(Qt.Key_Return)
+
+        communicator.handle_action = refuse
+        edit("9")
+        self.wait_for(f"{message}.textContent !== ''")
+        self.assertIn(refusal, self.js(f"{message}.textContent"))
+        self.assertEqual(self.js(f"{message}.getAttribute('role')"), "alert")
+        self.assertEqual(self.js("table.getRows()[0].getCell('2').getValue()"), "9")
+
+        communicator.handle_action = handle
+        self.js("document.getElementById('export-btn').click()")
+        self.wait_for(f"{message}.textContent === ''")
+        self.assertEqual(self.sent(), [{"action": "export_metadata"}])
+
+        # The Viewer closed: nothing answers at its address.
+        self.server.shutdown()
+        self.server.server_close()
+        edit("7")
+        self.wait_for(f"{message}.textContent !== ''")
+        unreachable = self.js(f"{message}.textContent")
+        self.assertNotIn(refusal, unreachable)
+        # The next edit takes it away, to say why that edit is kept if it is.
+        self.js("table.getRows()[0].getCell('1').edit()")
+        self.assertEqual(self.js(f"{message}.textContent"), "")
+        self.press(Qt.Key_Escape)
+
+    def test_the_page_follows_the_systems_theme_until_one_is_chosen(self):
+        """The page took the system's theme as it opened, and kept it when the system
+        changed. Until a theme is chosen on this page or the Agent page, it follows
+        the system's, the toggle's label and icon too."""
+        system = QWebEngineScript()
+        system.setInjectionPoint(QWebEngineScript.DocumentCreation)
+        system.setWorldId(QWebEngineScript.MainWorld)
+        system.setSourceCode("""(() => {
+            try { localStorage.removeItem('ssn_theme'); } catch (error) {}
+            const query = '(prefers-color-scheme: dark)', listeners = [], matchMedia = window.matchMedia.bind(window);
+            let dark = false;
+            window.matchMedia = media => media !== query ? matchMedia(media) : {
+                media, get matches() { return dark; }, onchange: null,
+                addEventListener: (type, listener) => { if (type === 'change') listeners.push(listener); },
+                removeEventListener() {}, addListener: listener => listeners.push(listener), removeListener() {},
+            };
+            window.setSystemTheme = value => {
+                dark = value === 'dark';
+                listeners.forEach(listener => listener({matches: dark, media: query}));
+            };
+        })();""")
+        self.page.scripts().insert(system)
+        self.addCleanup(self.page.scripts().remove, system)
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        self.open(self.TABLE)
+        state = """JSON.stringify([document.documentElement.dataset.theme,
+            document.querySelector('#theme-toggle-btn use').getAttribute('href'),
+            document.getElementById('theme-toggle-label').textContent])"""
+        light = ["light", "#i-moon", pseudo_translate("Dark Mode")]
+        dark = ["dark", "#i-sun", pseudo_translate("Light Mode")]
+        self.assertEqual(json.loads(self.js(state)), light)
+        self.js("setSystemTheme('dark')")
+        self.assertEqual(json.loads(self.js(state)), dark)
+        self.js("setSystemTheme('light')")
+        self.assertEqual(json.loads(self.js(state)), light)
+        # Chosen: the system's changes leave it.
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(self.js("localStorage.getItem('ssn_theme')"), "dark")
+        self.js("setSystemTheme('light')")
+        self.assertEqual(json.loads(self.js(state)), dark)
 
 
 class AgentMessageTests(unittest.TestCase):

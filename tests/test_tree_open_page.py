@@ -86,12 +86,12 @@ class OpenCase(TreePageMixin, unittest.TestCase):
             return event.defaultPrevented""")
 
     def choose_file(self, text, name="tree.nwk"):
-        """What the Tree list's "Open a tree file..." entry does: the file chooser opens, and a file chosen in it is opened."""
+        """What the "Open a tree file" button beside the Tree list does: the file chooser opens, and a file chosen in it is opened."""
         return self.script(f"""window.__chooser = 0;
             const input = document.getElementById('file-input');
             input.click = () => {{ window.__chooser++; }};
             const select = document.getElementById('source-select');
-            select.value = 'open'; select.dispatchEvent(new Event('change'));
+            document.getElementById('open-tree-btn').click();
             const dt = new DataTransfer(); dt.items.add(new File([{json.dumps(text)}], {json.dumps(name)}));
             input.files = dt.files; input.dispatchEvent(new Event('change'));
             return {{chooser: window.__chooser, selected: select.value}}""")
@@ -219,19 +219,20 @@ class FormatTests(OpenCase):
 
 
 class OpeningTests(OpenCase):
-    def test_the_chooser_has_an_entry_that_opens_a_file_and_lists_the_opened_tree_by_its_name(self):
+    def test_a_button_beside_the_chooser_opens_a_file_and_the_chooser_lists_the_opened_tree_by_its_name(self):
         self.start()
         options = self.state("Array.from(document.getElementById('source-select').options).map(o => [o.value, o.textContent.trim()])")
-        self.assertEqual([value for value, _ in options], ["threshold", "guide", "open"])
-        self.assertEqual(options[2][1], "Open a tree file...")
+        # The list only switches between trees: arrowing through it must never open the file chooser.
+        self.assertEqual([value for value, _ in options], ["threshold", "guide"])
+        button = self.state("(() => { const b = document.getElementById('open-tree-btn'); return [b.textContent.trim(), b.disabled]; })()")
+        self.assertEqual(button, ["Open a tree file", False])
         found = self.choose_file(text_of("primates.nwk"), "my primates.nwk")
         self.assertEqual(found["chooser"], 1)
         self.wait_uploaded()
         options = self.state("""Array.from(document.getElementById('source-select').options).map(o => [o.value, o.textContent.trim(), o.disabled])""")
-        self.assertEqual([entry[0] for entry in options], ["threshold", "guide", "uploaded", "open"])
+        self.assertEqual([entry[0] for entry in options], ["threshold", "guide", "uploaded"])
         self.assertEqual(options[2][1:], ["my primates.nwk", False])
         self.assertEqual(self.state("document.getElementById('source-select').value"), "uploaded")
-        # The entry that opens a file is no tree: after it the list shows the tree that is shown.
         self.assertEqual(self.state("TreeView.state.source"), "uploaded")
         self.assertEqual(self.console_errors(), [])
 
@@ -286,7 +287,7 @@ class OpeningTests(OpenCase):
         self.open_text(text_of("nested.json"), "two.json")
         self.wait_for("TreeView.state.source === 'uploaded' && TreeView.state.model.uploaded.file === 'two.json'")
         self.assertEqual(self.state("Array.from(document.getElementById('source-select').options).map(o => o.textContent.trim())"),
-                         ["Network threshold tree", "MSA Guide Tree", "two.json", "Open a tree file..."])
+                         ["Network threshold tree", "MSA Guide Tree", "two.json"])
         for source, leaves in (("threshold", len(NETWORK)), ("guide", len(NETWORK)), ("uploaded", 4), ("guide", len(NETWORK)), ("threshold", len(NETWORK))):
             with self.subTest(source):
                 self.script(f"""const select = document.getElementById('source-select');
@@ -807,6 +808,40 @@ class BannerLineTests(BannerCase):
         self.assertEqual(after["title"], found["title"])
         self.assertIn("Nodes of this network that are not leaves of the tree: 5.", after["title"])
 
+    def test_under_reduced_motion_the_hovered_or_focused_line_wraps_to_show_all_of_it(self):
+        self.guide()
+        found = self.overflow_by(100)
+        self.set_reduced_motion(True)
+        self.hover()
+        self.wait_for(f"{self.LINE}.classList.contains('wrapped')")
+        wrapped = self.banner()
+        self.assertTrue(wrapped["rolls"])
+        self.assertGreater(wrapped["height"], found["height"])
+        self.assertEqual((wrapped["animations"], wrapped["transform"]), (0, "none"))
+        # Every sentence is inside the line, none cut off to the right.
+        inside = self.state(f"""(() => {{ const box = {self.LINE}.getBoundingClientRect();
+            return [...document.querySelectorAll('#warning-list li')].every(li => li.getBoundingClientRect().right <= box.right + 1); }})()""")
+        self.assertTrue(inside)
+        self.hover(False)
+        self.wait_for(f"!{self.LINE}.classList.contains('wrapped')")
+        after = self.banner()
+        self.assertTrue(after["rolls"])
+        self.assertAlmostEqual(after["height"], found["height"], delta=1)
+        # The keyboard wraps it too.
+        self.script(f"{self.LINE}.dispatchEvent(new FocusEvent('focusin', {{bubbles: true}})); return 1")
+        self.wait_for(f"{self.LINE}.classList.contains('wrapped')")
+        self.script(f"{self.LINE}.dispatchEvent(new FocusEvent('focusout', {{bubbles: true}})); return 1")
+        self.wait_for(f"!{self.LINE}.classList.contains('wrapped')")
+
+    def test_the_focus_ring_of_the_line_is_drawn_on_the_banner_which_does_not_clip_it(self):
+        self.guide()
+        self.overflow_by(100)
+        ring = self.state("""(() => { const line = document.getElementById('banner-line'); line.focus();
+            const style = getComputedStyle(document.getElementById('banner'));
+            return [line.matches(':focus-visible'), style.outlineStyle, style.outlineWidth]; })()""")
+        self.assertEqual(ring, [True, "solid", "2px"])
+        self.assertEqual(self.state("getComputedStyle(document.getElementById('banner-line')).outlineColor"), "rgba(0, 0, 0, 0)")
+
     def test_the_line_is_measured_again_when_the_window_or_the_words_change(self):
         self.guide()
         self.overflow_by(100)
@@ -950,6 +985,64 @@ class ShowDetailsTests(BannerCase):
         self.wait_card(2)
         self.script("document.querySelector('#mismatch-card .head .btn').click(); return 1")
         self.assertFalse(self.card()["shown"])
+
+    def active(self):
+        return self.state("document.activeElement && document.activeElement.id")
+
+    def test_a_card_takes_the_focus_when_its_button_opens_it_and_gives_it_back_when_it_closes(self):
+        self.guide()
+        # The three buttons say which card they open and whether it is open.
+        self.assertEqual(self.state("""['details-btn', 'mismatch-btn'].map(id => { const b = document.getElementById(id);
+            return [b.getAttribute('aria-controls'), b.getAttribute('aria-expanded')]; })"""), [["details", "false"], ["mismatch-card", "false"]])
+        self.assertEqual(self.state("document.getElementById('report-btn').getAttribute('aria-controls')"), "match-report")
+        # The card of the warnings: the focus goes into it, its x gives it back to the button.
+        self.script("document.getElementById('mismatch-btn').focus(); document.getElementById('mismatch-btn').click(); return 1")
+        self.wait_card(2)
+        self.assertEqual(self.active(), "mismatch-card")
+        self.assertEqual(self.card()["expanded"], "true")
+        self.script("document.querySelector('#mismatch-card .head .btn').click(); return 1")
+        self.assertEqual(self.active(), "mismatch-btn")
+        self.assertEqual(self.card()["expanded"], "false")
+        # Details has a Close button of its own, and says it is open.
+        self.script("document.getElementById('details-btn').focus(); document.getElementById('details-btn').click(); return 1")
+        self.assertEqual(self.active(), "details")
+        self.assertEqual(self.state("document.getElementById('details-btn').getAttribute('aria-expanded')"), "true")
+        self.assertEqual(self.state("document.getElementById('details').getAttribute('aria-labelledby')"), "details-title")
+        self.assertEqual(self.state("document.getElementById('details-title').tagName"), "H2")
+        self.script("document.querySelector('#details .head .btn').click(); return 1")
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.assertEqual(self.active(), "details-btn")
+        self.assertEqual(self.state("document.getElementById('details-btn').getAttribute('aria-expanded')"), "false")
+        # The same button closes it too.
+        self.script("document.getElementById('details-btn').click(); document.getElementById('details-btn').click(); return 1")
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.assertEqual(self.active(), "details-btn")
+        self.assertEqual(self.console_errors(), [])
+
+    def test_escape_closes_the_open_card_first_and_lets_the_pinned_node_go_the_next_time(self):
+        self.guide()
+        esc = lambda target: self.script(f"""{target}.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Escape', bubbles: true, cancelable: true}})); return 1""")
+        canvas = "document.getElementById('tree-canvas')"
+        self.script("TreeView.state.pinned = TreeView.state.model.leafNode[3]; document.getElementById('details-btn').click(); return 1")
+        self.assertEqual(self.active(), "details")
+        self.script("document.getElementById('tree-canvas').focus(); return 1")
+        esc(canvas)
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.assertGreaterEqual(self.state("TreeView.state.pinned"), 0)
+        # The focus was on the drawing: it stays there.
+        self.assertEqual(self.active(), "tree-canvas")
+        esc(canvas)
+        self.assertEqual(self.state("TreeView.state.pinned"), -1)
+        # The card closed by Esc from inside it gives the focus back to its button.
+        self.script("document.getElementById('details-btn').click(); return 1")
+        esc("document.activeElement")
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.assertEqual(self.active(), "details-btn")
+        # The search box keeps its own Esc.
+        self.script("document.getElementById('details-btn').click(); document.getElementById('search-input').focus(); return 1")
+        esc("document.getElementById('search-input')")
+        self.assertTrue(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.assertEqual(self.active(), "tree-canvas")
 
     def test_the_card_closes_the_card_of_the_match_and_the_match_closes_it(self):
         self.start()

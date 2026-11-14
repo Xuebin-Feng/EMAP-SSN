@@ -53,6 +53,8 @@ window.TreeView = window.TreeView || {};
         const swatch = element("span", "swatch");
         swatch.style.backgroundColor = css;
         const name = element("span", "name", label);
+        // The label is cut short by the row's room: the whole of it is the title (the row's own title says what it does).
+        name.title = label;
         const total = element("span", "count", count.toLocaleString());
         button.append(swatch, name, total);
         button.addEventListener("click", () => {
@@ -94,11 +96,16 @@ window.TreeView = window.TreeView || {};
         const band = wrap.querySelector(".legend-band");
         const line = wrap.querySelector(".legend-range");
         const clear = wrap.querySelector(".legend-clear");
+        const slider = wrap.querySelector(".legend-bar");
         const min = Number(wrap.dataset.min);
         const max = Number(wrap.dataset.max);
         band.hidden = !range;
         line.hidden = !range;
         clear.hidden = !range;
+        // The slider says the range to a screen reader whether or not the line below the bar is shown: its value is where the
+        // range starts, and its text is the range, which is announced as each arrow key moves it.
+        slider.setAttribute("aria-valuenow", String(Number((range ? Math.min(max, Math.max(min, range.low)) : min).toPrecision(8))));
+        slider.setAttribute("aria-valuetext", range ? t("{low} to {high}", { low: number(range.low), high: number(range.high) }) : t("No range marked"));
         if (!range) return;
         const span = max - min;
         const from = span > 0 ? (range.low - min) / span : 0;
@@ -124,7 +131,11 @@ window.TreeView = window.TreeView || {};
         wrap.dataset.max = String(layer.max);
         const bar = element("div", "legend-bar");
         bar.tabIndex = 0;
-        bar.setAttribute("role", "group");
+        // One marked range that the arrow keys step along the bar, so one slider: its value is where the range starts.
+        bar.setAttribute("role", "slider");
+        bar.setAttribute("aria-valuemin", String(layer.min));
+        bar.setAttribute("aria-valuemax", String(layer.max));
+        bar.setAttribute("aria-valuenow", String(layer.min));
         const hint = t("Press or drag to mark the leaves with a value in that range");
         bar.title = hint;
         bar.setAttribute("aria-label", layer.title + ": " + hint);
@@ -139,7 +150,6 @@ window.TreeView = window.TreeView || {};
         ends.append(low, high);
         const line = element("div", "legend-range");
         line.hidden = true;
-        line.setAttribute("aria-live", "polite");
         const clear = element("button", "legend-clear", t("Clear"));
         clear.type = "button";
         clear.hidden = true;
@@ -201,7 +211,10 @@ window.TreeView = window.TreeView || {};
 
     function groupOf(title) {
         const group = element("section", "legend-group");
-        group.appendChild(element("h3", "legend-title", title));
+        const heading = element("h3", "legend-title", title);
+        // A title cut short by the legend's width is read whole in its tooltip.
+        heading.title = title;
+        group.appendChild(heading);
         return group;
     }
 
@@ -219,7 +232,11 @@ window.TreeView = window.TreeView || {};
             for (const layer of layers) {
                 const group = groupOf(layer.title);
                 if (layer.kind === "gradient") {
-                    if (layer.scheme) group.appendChild(element("div", "legend-scheme", layer.scheme));
+                    if (layer.scheme) {
+                        const scheme = element("div", "legend-scheme", layer.scheme);
+                        scheme.title = layer.scheme;
+                        group.appendChild(scheme);
+                    }
                     if (layer.bar.count > 0 && layer.min !== null && layer.max !== null) group.appendChild(barOf(layer));
                 }
                 if (layer.rows.length > 0) {

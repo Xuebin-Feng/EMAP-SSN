@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -372,11 +373,38 @@ class MetadataWebMarkupTests(unittest.TestCase):
         self.assertIn('cssClass: `metadata-typed-column metadata-${type', html)
         # Nine rules in meta.html centre their content; this is the header title's.
         self.assertRegex(html, r'\.metadata-column-title \{[^}]*justify-content: center;')
-        self.assertIn('className = "metadata-column-name"', html)
+        self.assertIn('button.className = "column-title-button"', html)
         self.assertIn('className = "metadata-column-drag-handle"', html)
         self.assertIn('right: -4px;', html)
         self.assertIn('#spreadsheet-table .tabulator-col-sorter', html)
         self.assertIn('right: 10px !important;', html)
+
+    def test_the_page_holds_up_in_contrast_themes_and_with_larger_text(self):
+        """What Qt WebEngine can't show the tests: Windows' contrast themes, which take
+        off backgrounds and shadows and recolour borders, and the scrollbars' colours.
+        The page's text follows the browser's text size (tests/test_page_translations.py
+        checks the header with larger text)."""
+        html = (SRC_DIR / "web_ui" / "meta.html").read_text(encoding="utf-8")
+        style = html[html.index("<style>"):html.index("</style>")]
+
+        self.assertEqual(re.findall(r"font-size:\s*[\d.]+px", style), [])
+        self.assertIn('<meta name="color-scheme" content="light dark">', html)
+        self.assertIn('<main class="workspace">', html)
+        # A ring drawn with a shadow and a border colour keeps a clear outline,
+        # which a contrast theme colours in.
+        self.assertRegex(style, r"\.btn:focus-visible \{[^}]*outline: 2px solid transparent;")
+        self.assertRegex(style, r"\.tabulator-header-filter input:focus \{[^}]*outline: 2px solid transparent !important;")
+        self.assertRegex(style, r"\.metadata-delete-column:focus-visible \{\s*outline: 2px solid var\(--accent\);")
+        contrast = style[style.index("@media (forced-colors: active)"):]
+        for selector in (".tabulator-cell.tabulator-range-selected", ".tabulator-cell.tabulator-editing",
+                         "[aria-sort=ascending]", "[aria-sort=descending]"):
+            self.assertIn(selector, contrast)
+        # The ring round the row the Viewer highlights, 5:1 on white.
+        self.assertIn("--highlight-ring: #b45309;", style)
+        # The standard scrollbar colours, and WebKit's own only where they are missing.
+        self.assertRegex(style, r":root \{[^}]*scrollbar-color: var\(--scroll\) transparent;")
+        webkit = style.index("::-webkit-scrollbar")
+        self.assertGreater(webkit, style.index("@supports not (scrollbar-color: auto) {"))
 
 
 class MetadataValueFormattingTests(unittest.TestCase):

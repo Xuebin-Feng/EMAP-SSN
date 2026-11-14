@@ -19,6 +19,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light dark">
     <title data-i18n>EMAP-SSN Tree View</title>
     <link rel="stylesheet" href="/fonts/fonts.css">
     <!-- t() fills in this page's texts, which the Viewer serves in its
@@ -31,6 +32,7 @@
            here; the Viewer's web server adds the Viewer's theme colour after them. */
         :root {
             color-scheme: light;
+            scrollbar-color: var(--scroll) transparent;
             --bg-main: #fafafa;
             --bg-card: #ffffff;
             --bg-muted: #f4f4f5;
@@ -113,7 +115,7 @@
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -146,12 +148,15 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 56px;
+            flex-wrap: wrap;
+            gap: 0 16px;
+            padding-block: 6px;
+            min-height: 56px;
             flex-shrink: 0;
         }
         header h1 {
             margin: 0;
-            font-size: 15px;
+            font-size: 0.9375rem;
             font-weight: 600;
             display: flex;
             align-items: center;
@@ -159,19 +164,19 @@
             white-space: nowrap;
         }
         header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
-        .header-actions { display: flex; align-items: center; gap: 8px; }
+        .header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
         .status-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 24px;
+            min-height: 24px;
             padding: 0 10px;
             margin-left: 4px;
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             white-space: nowrap;
         }
         .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -184,17 +189,17 @@
             align-items: center;
             justify-content: center;
             gap: 6px;
-            height: 30px;
+            min-height: 30px;
             padding: 0 12px;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             border-radius: var(--radius);
             border: 1px solid var(--field-border);
             background-color: var(--bg-card);
             color: var(--text-primary);
             cursor: pointer;
             transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-            outline: none;
+            outline: 2px solid transparent;
             box-shadow: var(--shadow-control);
             white-space: nowrap;
         }
@@ -223,16 +228,16 @@
         .search { position: relative; display: inline-flex; align-items: center; }
         .search .icon { position: absolute; left: 9px; color: var(--text-subtle); }
         .search input {
-            height: 30px;
+            min-height: 30px;
             width: 300px;
             padding: 0 30px 0 30px;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            outline: none;
+            outline: 2px solid transparent;
         }
         .search input:hover { border-color: var(--field-border-hover); }
         .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -243,22 +248,22 @@
         .search .clear { position: absolute; right: 2px; width: 26px; height: 26px; border: none; background: transparent; color: var(--text-subtle); border-radius: 6px; cursor: pointer; display: none; align-items: center; justify-content: center; }
         .search .clear:hover { background-color: var(--bg-muted); color: var(--text-primary); }
         .search.has-text .clear { display: inline-flex; }
-        .match-count { min-width: 76px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+        .match-count { min-width: 76px; color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap; }
         .toolbar .spacer { flex: 1; }
         .toolbar .divider { width: 1px; height: 20px; background-color: var(--border-color); margin: 0 4px; }
 
         /* The layout, a select as the page's other fields are */
-        .field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+        .field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap; }
         .field select {
-            height: 30px;
+            min-height: 30px;
             padding: 0 28px 0 10px;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            outline: none;
+            outline: 2px solid transparent;
             cursor: pointer;
         }
         .field select:hover { border-color: var(--field-border-hover); }
@@ -286,21 +291,27 @@
             flex-shrink: 0;
         }
         .banner.shown { display: flex; }
-        .banner-line { flex: 1; min-width: 0; min-height: 24px; display: flex; align-items: center; overflow: hidden; border-radius: 4px; outline: none; }
-        .banner-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .banner-line { flex: 1; min-width: 0; min-height: 24px; display: flex; align-items: center; overflow: hidden; border-radius: 4px; outline: 2px solid transparent; }
+        /* The focus ring is the banner's: the line clips its own outline (and fades its end), so a ring drawn on it would be cut. */
+        .banner:has(.banner-line:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
         .banner-line.rolls { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
         .banner ul { margin: 0; padding: 0; list-style: none; display: flex; align-items: center; flex: none; width: max-content; white-space: nowrap; line-height: 24px; }
         .banner-line.rolls ul { padding-right: 28px; }
+        /* Under reduced motion the line does not roll: while it is hovered or has the keyboard it wraps, so that all of it can be read. */
+        .banner-line.wrapped { -webkit-mask-image: none; mask-image: none; overflow: visible; align-items: flex-start; }
+        .banner-line.wrapped ul { flex: 1 1 auto; width: auto; min-width: 0; flex-wrap: wrap; gap: 4px 32px; white-space: normal; padding-right: 0; }
+        .banner-line.wrapped li { flex: 0 1 auto; min-width: 0; }
+        .banner-line.wrapped li + li { margin-left: 0; }
         .banner li { display: flex; gap: 8px; align-items: center; flex: none; }
         .banner li + li { margin-left: 32px; }
         .banner li .note-close { margin: 0 0 0 4px; padding: 0; width: 22px; height: 22px; flex-shrink: 0; border: none; background: transparent; color: inherit; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         .banner li .note-close:hover { background-color: var(--bg-muted); color: var(--text-primary); }
-        .banner li .note-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
-        .banner .btn { height: 24px; padding: 0 10px; flex: none; }
+        .banner li .note-close:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .banner .btn { min-height: 24px; padding: 0 10px; flex: none; }
 
         /* The drawing */
         .stage { position: relative; flex: 1; min-height: 0; background-color: var(--bg-card); }
-        .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline: none; }
+        .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; outline: 2px solid transparent; outline-offset: -2px; }
         .stage canvas.dragging { cursor: grabbing; }
         .stage canvas.pointing { cursor: pointer; }
         .stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -322,7 +333,7 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 12px;
+            font-size: 0.75rem;
         }
         .legend.shown { display: flex; }
         .legend-head {
@@ -344,7 +355,7 @@
         .legend-list[hidden] { display: none; }
         .legend-rows { list-style: none; margin: 0; padding: 0; }
         .legend-group + .legend-group { margin-top: 6px; border-top: 1px solid var(--border-color); padding-top: 4px; }
-        .legend-title { margin: 0; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+        .legend-title { margin: 0; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
         .legend-scheme { padding: 0 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft); }
         .legend-scale { padding: 2px 6px 4px; }
         .legend-bar {
@@ -380,9 +391,12 @@
             cursor: pointer;
         }
         .legend-row:hover { background-color: var(--bg-muted); }
-        .legend-row[aria-pressed="true"] { background-color: var(--accent-soft); }
+        /* On is not only a tint (1.2:1 against the card): an inset ring in the theme colour says it too. */
+        .legend-row[aria-pressed="true"] { background-color: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
         .legend-row .swatch { flex: none; width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; }
-        .legend-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .legend-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* A label cut short is shown whole while the row is under the pointer or has the keyboard (its title says it too). */
+        .legend-row:hover .name, .legend-row:focus-visible .name { white-space: normal; overflow-wrap: anywhere; }
         .legend-row .count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
 
         /* The legend of the split stability dots, at the foot of the drawing */
@@ -396,7 +410,7 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--text-secondary);
         }
         .support-legend[hidden], .support-legend .body[hidden] { display: none; }
@@ -458,7 +472,7 @@
             background-color: var(--bg-card);
             color: var(--text-primary);
             box-shadow: var(--shadow-dialog);
-            font-size: 12px;
+            font-size: 0.75rem;
             line-height: 1.45;
             pointer-events: none;
         }
@@ -477,7 +491,7 @@
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
         }
-        .empty-card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+        .empty-card h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
         .empty-card p { margin: 0 0 12px; line-height: 1.55; color: var(--text-soft); overflow-wrap: anywhere; }
         .empty-card .path {
             display: block;
@@ -487,7 +501,7 @@
             border-radius: var(--radius);
             background-color: var(--bg-inset);
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             line-height: 1.5;
             overflow-wrap: anywhere;
         }
@@ -514,24 +528,24 @@
             box-shadow: var(--shadow-dialog);
         }
         .details.shown { display: block; }
-        .details h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-        .details dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12px; }
+        .details h2 { margin: 0 0 8px; font-size: 0.875rem; font-weight: 600; }
+        .details dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.75rem; }
         .details dt { color: var(--text-subtle); }
         .details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-soft); }
-        .details .note { margin: 0 0 6px; font-size: 12px; color: var(--text-soft); }
-        .details .group-title { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+        .details .note { margin: 0 0 6px; font-size: 0.75rem; color: var(--text-soft); }
+        .details .group-title { margin: 12px 0 6px; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
 
         .statusbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 16px;
-            height: 28px;
+            min-height: 28px;
             padding: 0 16px;
             border-top: 1px solid var(--border-color);
             background-color: var(--bg-card);
             color: var(--text-subtle);
-            font-size: 12px;
+            font-size: 0.75rem;
             flex-shrink: 0;
             white-space: nowrap;
             overflow: hidden;
@@ -557,22 +571,25 @@
             margin: 0 0 12px;
             padding: 4px;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
         }
-        .empty-card select#empty-choice:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); outline: none; }
+        .empty-card select#empty-choice:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); outline: 2px solid transparent; }
         .empty-card select#empty-choice[hidden], .empty-card #empty-report[hidden], .empty-card .path[hidden], .btn[hidden] { display: none; }
         .report { width: 460px; }
-        .report .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .report .head h2 { margin: 0 0 8px; }
-        .report .head .btn { margin-bottom: 8px; }
-        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 12px; color: var(--text-soft); }
-        .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 12px; }
-        .report-lists h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-        .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-soft); overflow-wrap: anywhere; }
+        .details .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .details .head h2 { margin: 0 0 8px; }
+        .details .head .btn { margin-bottom: 8px; }
+        /* A card takes the focus when it opens (and gives it back when it closes): its ring shows for the keyboard only. */
+        .details:focus { outline: 2px solid transparent; }
+        .details:focus-visible { box-shadow: var(--shadow-dialog), 0 0 0 2px var(--accent); }
+        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 0.75rem; color: var(--text-soft); }
+        .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 0.75rem; }
+        .report-lists h3 { margin: 0 0 4px; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+        .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-soft); overflow-wrap: anywhere; }
         .report-lists li { padding: 1px 0; }
         .report textarea, .empty-card textarea {
             width: 100%;
@@ -581,12 +598,23 @@
             margin: 4px 0 6px;
             padding: 6px 8px;
             font-family: var(--font-mono);
-            font-size: 11px;
+            font-size: 0.6875rem;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
             resize: vertical;
+        }
+
+        /* Windows High Contrast drops box-shadows and backgrounds: what they say is said again with system colours. */
+        @media (forced-colors: active) {
+            /* Not adjusted, or the browser draws a Canvas backplate behind the HighlightText label and hides it. */
+            .btn[aria-pressed="true"], .legend-row[aria-pressed="true"] { forced-color-adjust: none; background-color: Highlight; border-color: Highlight; color: HighlightText; }
+            .btn[aria-pressed="true"]:disabled { background-color: Canvas; border-color: GrayText; color: GrayText; }
+            .legend-row[aria-pressed="true"] .count { color: HighlightText; }
+            .support-legend .head[aria-pressed="true"]::before { background: Highlight; border-color: Highlight; }
+            .legend-band { background-color: Highlight; border-color: ButtonText; opacity: 0.4; }
+            .status-badge::before { background: ButtonText; }
         }
     </style>
     <!-- The theme chosen on this page or the Agent page (all keep it as ssn_theme), else the system's, set
@@ -624,17 +652,18 @@
         <h1><svg class="icon" aria-hidden="true"><use href="#i-list-tree"/></svg><span data-i18n>EMAP-SSN Tree View</span></h1>
         <div class="header-actions">
             <!-- Which tree is shown. The page fills in the trees the Viewer offers; the tree the user opened from a file is one
-                 more option before "Open a tree file...", listed by its file name (tree_session.js showSources). -->
+                 more option, listed by its file name (tree_session.js showSources). Opening a file is the button beside the
+                 list, not an entry of it: a list that acts on every arrow key must only switch between trees. -->
             <label class="field" for="source-select"><span data-i18n>Tree</span>
                 <select id="source-select" title="Which tree is shown" disabled>
                     <option value="threshold" data-i18n>Network threshold tree</option>
                     <option value="guide" data-i18n>MSA Guide Tree</option>
-                    <option value="open" data-i18n>Open a tree file...</option>
                 </select>
             </label>
+            <button class="btn" id="open-tree-btn"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a tree file</span></button>
             <input type="file" id="file-input" hidden aria-label="Open a tree file">
             <!-- In the header, beside the Tree list, so that the toolbar keeps one row. -->
-            <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" hidden disabled><span data-i18n>Match</span></button>
+            <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" aria-expanded="false" aria-controls="match-report" hidden disabled><span data-i18n>Match</span></button>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
@@ -665,7 +694,7 @@
         <button class="btn" id="unfold-btn" title="Open every clade that is folded up" disabled><span data-i18n>Open all</span></button>
         <button class="btn" id="overview-btn" aria-pressed="true" title="Show or hide the overview map" disabled><span data-i18n>Overview</span></button>
         <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
-        <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
+        <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" aria-expanded="false" aria-controls="details" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
 
     <div class="banner" id="banner" role="status">
@@ -692,9 +721,9 @@
             </div>
         </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
-        <div class="details" id="details"></div>
-        <div class="details report" id="match-report" role="status" aria-label="How the opened tree matched the network"></div>
-        <div class="details report" id="mismatch-card" role="status" aria-label="The leaves and nodes the warnings count"></div>
+        <div class="details" id="details" tabindex="-1" role="region" aria-labelledby="details-title"></div>
+        <div class="details report" id="match-report" tabindex="-1" role="status" aria-label="How the opened tree matched the network"></div>
+        <div class="details report" id="mismatch-card" tabindex="-1" role="status" aria-label="The leaves and nodes the warnings count"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
         <div class="empty" id="empty">
             <div class="empty-card">

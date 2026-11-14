@@ -254,9 +254,18 @@ function applyTheme(theme, remember = true) {
     byId('theme-toggle-label').textContent = dark ? t("Light Mode") : t("Dark Mode");
     setIcon(themeIcon, dark ? "sun" : "moon");
     syncCanvasProps();
+    measureScrollbar();
 }
 
 byId('theme-toggle-btn').addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
+// While no theme has been chosen (on this page or another: ssn_theme) the page follows the system's, as it changes.
+function followSystemTheme(dark) {
+    let chosen = null;
+    try { chosen = localStorage.getItem('ssn_theme'); } catch (error) {}
+    if (chosen === 'light' || chosen === 'dark') return;
+    applyTheme(dark ? 'dark' : 'light', false);
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => followSystemTheme(event.matches));
 window.addEventListener('storage', event => {
     if (event.key === 'ssn_theme' && (event.newValue === 'dark' || event.newValue === 'light')) applyTheme(event.newValue, false);
 });
@@ -616,14 +625,32 @@ function syncPanelInert() {
 }
 
 function setPanel(open) {
+    // A drawer that closes takes its inert with it, and the focus inside it would drop to the page: it goes to the Scene button.
+    if (!open && panelIsDrawer() && byId('side').contains(document.activeElement)) byId('panel-toggle').focus();
     document.body.dataset.panel = open ? '1' : '0';
     byId('panel-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
     byId('side-grip').setAttribute('aria-expanded', open ? 'true' : 'false');
     syncPanelInert();
     if (plugin) setTimeout(() => viewerInstance.handleResize(), 220);
 }
-byId('panel-toggle').addEventListener('click', () => setPanel(document.body.dataset.panel !== '1'));
+// An open drawer lies over its Scene button, so the focus goes in with it, to its Close.
+byId('panel-toggle').addEventListener('click', () => {
+    setPanel(document.body.dataset.panel !== '1');
+    if (document.body.dataset.panel === '1') byId('side-close').focus({ preventScroll: true });
+});
 byId('side-grip').addEventListener('click', () => setPanel(document.body.dataset.panel !== '1'));
+byId('side-close').addEventListener('click', () => {
+    setPanel(false);
+    byId('panel-toggle').focus();
+});
+
+// Closes the open drawer, and says whether it was one (the Scene button is where the focus goes back to).
+function closeDrawer() {
+    if (!panelIsDrawer() || document.body.dataset.panel !== '1') return false;
+    setPanel(false);
+    byId('panel-toggle').focus();
+    return true;
+}
 (() => {
     const width = byId('app').clientWidth;
     setPanel(!(width <= 1040 && width > 700));
@@ -747,6 +774,18 @@ sideResizer.addEventListener('keydown', event => {
     event.preventDefault();
 });
 new ResizeObserver(showSideWidth).observe(byId('app'));
+
+// ---- The platform's scrollbar: its width is taken from the room round the panel's cards (--sb, esmfold.html) ----
+// A classic bar is 15 px or more, an overlay one has none; scrollbar-gutter keeps the room, so it is measured whether or not the panel scrolls.
+// (Not while the panel is not drawn, as in the phone's closed strip: the last width stays.)
+function measureScrollbar() {
+    const scroller = byId('side-scroll');
+    if (scroller.offsetWidth === 0) return;
+    byId('app').style.setProperty('--sb', (scroller.offsetWidth - scroller.clientWidth) + 'px');
+}
+new ResizeObserver(measureScrollbar).observe(byId('side-scroll'));
+window.addEventListener('resize', measureScrollbar);
+measureScrollbar();
 (() => {
     let stored = null;
     try {
@@ -805,11 +844,11 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
-// Escape closes the layer on top: a menu, a question, the help, a tool, the pinned residue, then the Advanced view. (An open dialog's
+// Escape closes the layer on top: a menu, a question, the help, the drawer (a narrow window's panel), a tool, the pinned residue, then the Advanced view. (An open dialog's
 // Escape would be the browser's too, after this: this closes the dialog first, as its buttons do, and leaves the browser nothing to close.)
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (closeSessionMenu() || closeConfirm() || closeImage() || closeHelp()) return;
+    if (closeSessionMenu() || closeConfirm() || closeImage() || closeHelp() || closeDrawer()) return;
     if (leaveTool() || clearPin()) return;
     if (document.body.dataset.adv === '1') setAdvanced(false);
 });

@@ -38,9 +38,50 @@ function leaveTool() {
 
 byId('t-measure').addEventListener('click', () => setTool('measure'));
 byId('t-label').addEventListener('click', () => setTool('label'));
+// Zoom is aria-disabled, not disabled, without a pinned residue: it stays focusable (the focus does not drop when it goes off), and
+// ignores a press.
 byId('t-zoom').addEventListener('click', () => {
-    if (pinnedResidue) zoomToResidue(pinnedResidue);
+    if (pinnedResidue && byId('t-zoom').getAttribute('aria-disabled') !== 'true') zoomToResidue(pinnedResidue);
 });
+
+// ---- The toolbar: one Tab stop, the arrow keys move along it ------------------------------------------
+// The buttons that are shown (the view's tools come and go with the view, Label and full screen go on a phone, Clear with the
+// annotations). The Tab stop is the one the focus was last on, else the first shown; Left and Right move (round the ends), Home and End jump.
+const viewToolbar = document.querySelector('.view-toolbar');
+let toolbarStop = null;      // the button the focus was last on, or null
+
+function toolbarItems() {
+    return [...viewToolbar.querySelectorAll('button')].filter(button => button.getClientRects().length > 0);
+}
+
+function syncToolbarStop() {
+    const items = toolbarItems();
+    const stop = items.includes(toolbarStop) ? toolbarStop : items[0];
+    for (const button of viewToolbar.querySelectorAll('button')) button.tabIndex = button === stop ? 0 : -1;
+}
+
+viewToolbar.addEventListener('focusin', event => {
+    if (event.target.tagName !== 'BUTTON') return;
+    toolbarStop = event.target;
+    syncToolbarStop();
+});
+viewToolbar.addEventListener('keydown', event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const items = toolbarItems();
+    const at = items.indexOf(document.activeElement);
+    if (at < 0) return;
+    let to;
+    if (event.key === 'ArrowRight') to = (at + 1) % items.length;
+    else if (event.key === 'ArrowLeft') to = (at - 1 + items.length) % items.length;
+    else if (event.key === 'Home') to = 0;
+    else if (event.key === 'End') to = items.length - 1;
+    else return;
+    event.preventDefault();
+    items[to].focus();
+});
+// What is shown changes the buttons' sizes (the view, the window's width, Clear), so a resize says when the stop must be chosen again.
+new ResizeObserver(syncToolbarStop).observe(viewToolbar);
+syncToolbarStop();
 
 // ---- Measuring and labeling -----------------------------------------------------------------------
 // The CA atom of a residue, as Mol* loci: what the distance is drawn between.
@@ -122,8 +163,14 @@ byId('t-clear').addEventListener('click', clearAnnotations);
 // The tools' buttons follow what there is to use them on: Zoom needs a pinned residue, Clear something to clear.
 function refreshTools() {
     if (!plugin) return;
-    byId('t-zoom').disabled = !pinnedResidue;
-    byId('t-clear').hidden = annotationCount() === 0;
+    byId('t-zoom').setAttribute('aria-disabled', pinnedResidue ? 'false' : 'true');
+    const clear = byId('t-clear');
+    // Clear goes when there is nothing to clear, and the focus with it: it goes to the next button of the toolbar, not to the page.
+    const lost = annotationCount() === 0 && document.activeElement === clear;
+    clear.hidden = annotationCount() === 0;
+    if (lost) toolbarStop = byId('t-image');
+    syncToolbarStop();
+    if (lost) byId('t-image').focus();
     document.body.dataset.annotations = annotationCount() ? '1' : '0';
 }
 

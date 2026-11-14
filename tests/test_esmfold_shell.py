@@ -239,7 +239,8 @@ class ShellTests(PageTestCase):
         self.script("await new Promise(resolve => setTimeout(resolve, 300)); return 1")
         hidden = self.rows()[1]
         self.assertTrue(hidden["hidden"])
-        self.assertEqual(hidden["buttons"][0][:3], ["Show 22", "Show 22", "true"])
+        # One label whatever the state: the pressed state says that it is hidden.
+        self.assertEqual(hidden["buttons"][0][:3], ["Hide 22", "Hide 22", "true"])
         self.assertEqual(hidden["buttons"][0][3], "#i-eye-off")
         self.assertFalse(self.rows()[0]["hidden"])
         # A change made in Mol* itself shows in the list too.
@@ -295,6 +296,41 @@ class ShellTests(PageTestCase):
         self.js("window.dispatchEvent(new StorageEvent('storage', {key: 'ssn_theme', newValue: 'light'}))")
         self.assertEqual(json.loads(self.js(state))["theme"], "light")
         self.assertEqual(self.console_errors(), [])
+
+    def test_the_page_follows_the_systems_theme_until_one_is_chosen(self):
+        # The offscreen engine's own color scheme cannot be switched, so what the media query's change listener calls is called.
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        self.open_page()
+        self.assertTrue(self.script("return typeof followSystemTheme === 'function'"))
+        self.script("applyTheme('light', false); return 1")
+        self.js("localStorage.removeItem('ssn_theme')")
+        theme = "return [document.documentElement.getAttribute('data-theme'), document.getElementById('theme-toggle-label').textContent, matchMedia('(prefers-color-scheme: dark)').matches]"
+        self.assertEqual(self.script(theme)[:2], ["light", "Dark Mode"])
+        self.script("followSystemTheme(true); return 1")
+        # No theme chosen: the system's change is followed, and the toggle's label with it (and nothing is remembered).
+        self.assertEqual(self.script(theme)[:2], ["dark", "Light Mode"])
+        self.assertIsNone(self.script("return localStorage.getItem('ssn_theme')"))
+        self.script("followSystemTheme(false); return 1")
+        self.assertEqual(self.script(theme)[0], "light")
+        # A chosen theme stays whatever the system does.
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(self.script(theme)[0], "dark")
+        self.script("followSystemTheme(false); return 1")
+        self.assertEqual(self.script(theme)[0], "dark")
+        self.assertEqual(self.script("return document.querySelector('meta[name=color-scheme]').content"), "light dark")
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_canvas_is_in_the_one_main_landmark_and_the_cards_are_no_landmarks_of_their_own(self):
+        self.open_page()
+        found = self.script("""
+            return {main: document.querySelectorAll('main').length, stage: !!document.querySelector('main #stage'), seq: !!document.querySelector('main #seqbar'),
+                    header: !!document.querySelector('main header'), side: !!document.querySelector('main #side'),
+                    sections: [...document.querySelectorAll('#side section')].map(node => node.hasAttribute('aria-labelledby') || node.hasAttribute('aria-label')),
+                    headings: ['h-structures', 'h-color', 'h-residue'].map(id => !!document.getElementById(id)),
+                    sep: [...document.querySelectorAll('.view-toolbar [role=separator]')].map(node => node.getAttribute('aria-orientation'))};
+            """)
+        self.assertEqual(found, {"main": 1, "stage": True, "seq": True, "header": False, "side": False, "sections": [False] * 3,
+                                 "headings": [True] * 3, "sep": ["vertical"] * 3})
 
     def test_the_advanced_door_shows_mol_stars_panels_and_comes_back_with_escape(self):
         self.open_with_two()

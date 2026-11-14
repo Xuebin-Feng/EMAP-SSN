@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+1059"/>
+        <location filename="../../../web_ui/agent.html" line="+1095"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,17 +92,19 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+988"/>
+        <location line="+1108"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1107"/>
+        <location line="+1"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
+        <location line="+0"/>
         <source>Select model card</source>
         <translation type="unfinished">选择模型卡</translation>
     </message>
@@ -153,6 +155,7 @@
     </message>
     <message>
         <location line="+12"/>
+        <location line="+0"/>
         <source>Close panel</source>
         <translation type="unfinished">关闭面板</translation>
     </message>
@@ -165,7 +168,7 @@
         <translation type="obsolete">💾 保存</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+47"/>
         <source>queued</source>
         <translation type="unfinished">已排队</translation>
     </message>
@@ -204,7 +207,7 @@
         <translation type="obsolete">☀️ 浅色模式</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+88"/>
         <source>the Viewer answered HTTP {status}</source>
         <translation type="unfinished">查看器返回了 HTTP {status}</translation>
     </message>
@@ -225,8 +228,8 @@
     </message>
     <message>
         <location line="+24"/>
-        <location line="+103"/>
-        <location line="+69"/>
+        <location line="+147"/>
+        <location line="+99"/>
         <source>Model {number}</source>
         <translation type="unfinished">模型 {number}</translation>
     </message>
@@ -235,7 +238,7 @@
         <translation type="obsolete">正在使用“{model}”已保存的设置：要使用此处的修改，请点击 💾 保存。</translation>
     </message>
     <message>
-        <location line="-147"/>
+        <location line="-190"/>
         <source>this model</source>
         <translation type="unfinished">此模型</translation>
     </message>
@@ -244,24 +247,29 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1270"/>
-        <location line="+1034"/>
+        <location line="-1346"/>
+        <location line="+1069"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+150"/>
+        <location line="+163"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-132"/>
+        <location line="-145"/>
         <source>Models</source>
         <translation type="unfinished">模型</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>Message to the agent</source>
+        <translation type="unfinished">发给智能体的消息</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <location line="+0"/>
         <location line="+0"/>
         <source>Stop</source>
@@ -273,7 +281,12 @@
         <translation type="unfinished">模型卡</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+3"/>
+        <source>Up and Down arrows move the card</source>
+        <translation type="unfinished">上下方向键可移动此卡片</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Add Model</source>
         <translation type="unfinished">添加模型</translation>
     </message>
@@ -283,12 +296,17 @@
         <translation type="unfinished">保存</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+112"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+89"/>
+        <source>Not saved: correct the Custom Options that show an error first.</source>
+        <translation type="unfinished">未保存：请先更正显示错误的自定义选项。</translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>Using the saved settings of &quot;{model}&quot;: press Save to use the edits made here.</source>
         <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击保存。</translation>
     </message>
@@ -298,22 +316,20 @@
         <translation type="unfinished">已保存！</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+41"/>
         <source>Drag to reorder</source>
         <translation type="unfinished">拖动以调整顺序</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>Remove model</source>
-        <translation type="unfinished">移除模型</translation>
+        <translation type="obsolete">移除模型</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Expand / collapse</source>
-        <translation type="unfinished">展开/折叠</translation>
+        <translation type="obsolete">展开/折叠</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+71"/>
         <source>Name</source>
         <translation type="unfinished">名称</translation>
     </message>
@@ -348,7 +364,7 @@
         <translation type="unfinished">留空：不发送</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+41"/>
         <source>The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.</source>
         <translation type="unfinished">服务商拒绝了采样参数，因此不再发送任何采样参数。修改温度即可重新发送。</translation>
     </message>
@@ -358,12 +374,12 @@
         <translation type="unfinished">此卡片会通过普通的 http:// 把 API 密钥发送到 {host}，该服务器不在本机上：网络路径上的任何人都可能读取它。请使用 https:// 地址。</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>API Key</source>
         <translation type="unfinished">API 密钥</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>sk-... (leave blank if not needed)</source>
         <translation type="unfinished">sk-...（不需要时留空）</translation>
     </message>
@@ -378,22 +394,22 @@
         <translation type="unfinished">隐藏</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Custom Options (JSON)</source>
         <translation type="unfinished">自定义选项（JSON）</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+9"/>
         <source>e.g. {example}</source>
         <translation type="unfinished">如 {example}</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+54"/>
         <source>Cannot remove the last model card.</source>
         <translation type="unfinished">不能移除最后一个模型卡。</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+120"/>
         <source>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</source>
         <translation type="unfinished">要清空对话吗？所有对话记录（包括已保存的图片）都将丢失，待发送的附件也会被移除。此操作无法撤销。</translation>
     </message>
@@ -422,7 +438,32 @@
         <translation type="obsolete">查看器命令：{status}</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-423"/>
+        <source>Move {name}</source>
+        <translation type="unfinished">移动 {name}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remove {name}</source>
+        <translation type="unfinished">移除 {name}</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show details of {name}</source>
+        <translation type="unfinished">显示 {name} 的详情</translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>{name} moved to position {position} of {count}</source>
+        <translation type="unfinished">{name} 已移到第 {position} 位（共 {count} 个）</translation>
+    </message>
+    <message>
+        <location line="+126"/>
+        <source>Custom Options must be a JSON object.</source>
+        <translation type="unfinished">自定义选项必须是 JSON 对象。</translation>
+    </message>
+    <message>
+        <location line="+267"/>
         <location line="+4"/>
         <source>The agent wants to run {command}</source>
         <translation type="unfinished">智能体想要运行 {command}</translation>
@@ -545,16 +586,26 @@
         <translation type="unfinished">思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+150"/>
+        <source>Copy commands</source>
+        <translation type="unfinished">复制命令</translation>
+    </message>
+    <message>
+        <location line="+49"/>
         <source>&lt;b&gt;Error:&lt;/b&gt; {error}</source>
         <translation type="unfinished">&lt;b&gt;错误：&lt;/b&gt;{error}</translation>
+    </message>
+    <message>
+        <location line="+56"/>
+        <source>Copy failed</source>
+        <translation type="unfinished">复制失败</translation>
     </message>
     <message>
         <source>⏳ Thinking ({model})...</source>
         <translation type="obsolete">⏳ 思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="-144"/>
+        <location line="-201"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
@@ -574,7 +625,7 @@
         <translation type="unfinished">已执行的命令</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
@@ -603,7 +654,7 @@
         <translation type="unfinished">请求失败（HTTP {status}）。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+19"/>
         <source>Copied!</source>
         <translation type="unfinished">已复制！</translation>
     </message>
@@ -3292,7 +3343,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+184"/>
-        <location filename="../../../web_ui/esmfold.html" line="+947"/>
+        <location filename="../../../web_ui/esmfold.html" line="+973"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3345,7 +3396,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-100"/>
+        <location filename="../../../web_ui/esmfold.html" line="-101"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -3361,7 +3412,7 @@ Command-line usage:
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+78"/>
         <source>Mol* initialized. Connecting to the Viewer...</source>
         <translation type="unfinished">Mol* 已初始化。正在连接查看器…</translation>
     </message>
@@ -3370,7 +3421,7 @@ Command-line usage:
         <translation type="obsolete">Mol* 无法启动：{reason}</translation>
     </message>
     <message>
-        <location line="-196"/>
+        <location line="-205"/>
         <source>{action} is available.</source>
         <translation type="unfinished">可以{action}。</translation>
     </message>
@@ -3380,7 +3431,7 @@ Command-line usage:
         <translation type="unfinished">3D 视图不可用</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+129"/>
         <source>Mol* loaded without its viewer.</source>
         <translation type="unfinished">Mol* 已加载，但缺少其查看器。</translation>
     </message>
@@ -3524,7 +3575,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_structures.js" line="+240"/>
-        <location filename="../../../web_ui/esmfold.html" line="+50"/>
+        <location filename="../../../web_ui/esmfold.html" line="+51"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -3701,12 +3752,11 @@ Command-line usage:
         <translation type="unfinished">{n} 个残基</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Show {name}</source>
-        <translation type="unfinished">显示 {name}</translation>
+        <translation type="obsolete">显示 {name}</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="+5"/>
         <source>Hide {name}</source>
         <translation type="unfinished">隐藏 {name}</translation>
     </message>
@@ -3757,7 +3807,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-104"/>
+        <location filename="../../../web_ui/esmfold.html" line="-105"/>
         <source>Saved automatically after every change</source>
         <translation type="unfinished">每次更改后自动保存</translation>
     </message>
@@ -3824,8 +3874,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-811"/>
-        <location line="+806"/>
+        <location filename="../../../web_ui/esmfold.html" line="-835"/>
+        <location line="+830"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -3949,12 +3999,12 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location line="+0"/>
-        <location line="+126"/>
+        <location line="+127"/>
         <source>Save an image</source>
         <translation type="unfinished">保存图片</translation>
     </message>
     <message>
-        <location line="-125"/>
+        <location line="-126"/>
         <location line="+0"/>
         <source>Full screen</source>
         <translation type="unfinished">全屏</translation>
@@ -4032,17 +4082,23 @@ Command-line usage:
     </message>
     <message>
         <location line="+19"/>
-        <location line="+38"/>
+        <location line="+39"/>
         <source>Resize the panel</source>
         <translation type="unfinished">调整面板宽度</translation>
     </message>
     <message>
-        <location line="-38"/>
+        <location line="-39"/>
         <source>Drag to resize the panel. Double-click to restore its width.</source>
         <translation type="unfinished">拖动可调整面板宽度，双击可恢复原宽度。</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+3"/>
+        <location line="+0"/>
+        <source>Close the Scene panel</source>
+        <translation type="unfinished">关闭场景面板</translation>
+    </message>
+    <message>
+        <location line="+34"/>
         <source>Pin a residue</source>
         <translation type="unfinished">固定残基</translation>
     </message>
@@ -4126,7 +4182,7 @@ Command-line usage:
         <translation type="obsolete">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
     </message>
     <message>
-        <location line="-74"/>
+        <location line="-75"/>
         <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
         <translation type="unfinished">此查看器没有窗口。由 MCP 客户端（或其他驱动它的程序）选择节点并运行 &lt;code&gt;esmfold&lt;/code&gt;；结构会显示在这里。</translation>
     </message>
@@ -4161,7 +4217,7 @@ Command-line usage:
         <translation type="unfinished">序列所属的结构和链</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Scene panels</source>
         <translation type="unfinished">场景面板</translation>
     </message>
@@ -4346,17 +4402,17 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_tools.js" line="+28"/>
-        <location line="+50"/>
+        <location line="+91"/>
         <source>Click two residues to measure the distance between them.</source>
         <translation type="unfinished">单击两个残基以测量它们之间的距离。</translation>
     </message>
     <message>
-        <location line="-49"/>
+        <location line="-90"/>
         <source>Click a residue to label it.</source>
         <translation type="unfinished">单击残基以标注它。</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+83"/>
         <source>{name}: now click the second residue.</source>
         <translation type="unfinished">{name}：现在请单击第二个残基。</translation>
     </message>
@@ -9724,7 +9780,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>MetadataPage</name>
     <message>
-        <location filename="../../../web_ui/meta.html" line="+22"/>
+        <location filename="../../../web_ui/meta.html" line="+23"/>
         <source>EMAP-SSN Metadata</source>
         <translation type="unfinished">EMAP-SSN 元数据</translation>
     </message>
@@ -9737,7 +9793,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+803"/>
+        <location line="+876"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
@@ -9773,19 +9829,19 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
     <message>
-        <location line="+42"/>
-        <location line="+873"/>
+        <location line="+43"/>
+        <location line="+967"/>
         <source>NUM</source>
         <translation type="unfinished">数值</translation>
     </message>
     <message>
-        <location line="-872"/>
-        <location line="+862"/>
+        <location line="-966"/>
+        <location line="+956"/>
         <source>TXT</source>
         <translation type="unfinished">文本</translation>
     </message>
     <message>
-        <location line="-807"/>
+        <location line="-865"/>
         <location line="+1"/>
         <source>Delete metadata column {column}</source>
         <translation type="unfinished">删除元数据列 {column}</translation>
@@ -9796,22 +9852,23 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">要删除元数据列“{column}”吗？</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+140"/>
+        <location line="+1"/>
         <source>Sequence Header</source>
         <translation type="unfinished">序列标题</translation>
     </message>
     <message>
-        <location line="+242"/>
+        <location line="+269"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+1"/>
         <source>Reconnecting...</source>
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+42"/>
         <source>Metadata operation failed.</source>
         <translation type="unfinished">元数据操作失败。</translation>
     </message>
@@ -9825,7 +9882,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">🔍 搜索过滤规则</translation>
     </message>
     <message>
-        <location line="-593"/>
+        <location line="-656"/>
         <source>EMAP-SSN Metadata Spreadsheet</source>
         <translation type="unfinished">EMAP-SSN 元数据电子表格</translation>
     </message>
@@ -9851,22 +9908,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+471"/>
+        <location line="+535"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-470"/>
+        <location line="-534"/>
         <source>Help</source>
         <translation type="unfinished">帮助</translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+534"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
     <message>
-        <location line="+432"/>
+        <location line="+463"/>
         <source>Search Filter Rules</source>
         <translation type="unfinished">搜索过滤规则</translation>
     </message>
@@ -9876,12 +9933,43 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="-216"/>
+        <location line="-874"/>
+        <source>Moved {column} to column {place} of {count}.</source>
+        <translation type="unfinished">已将 {column} 移到第 {place} 列（共 {count} 列）。</translation>
+    </message>
+    <message>
+        <location line="+173"/>
+        <location line="+25"/>
+        <source>Filter</source>
+        <translation type="unfinished">筛选</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Filter {column}</source>
+        <translation type="unfinished">筛选 {column}</translation>
+    </message>
+    <message>
+        <location line="+413"/>
         <source>This column takes numbers only. Type a number, or leave the cell empty to clear it; Esc cancels the edit.</source>
         <translation type="unfinished">此列只接受数字。请输入数字，或将单元格留空以清除其值；按 Esc 可取消编辑。</translation>
     </message>
     <message>
-        <location line="+214"/>
+        <location line="+164"/>
+        <source>The Viewer did not get this change: {reason}</source>
+        <translation type="unfinished">查看器未收到此更改：{reason}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The Viewer did not get this change (HTTP {status}).</source>
+        <translation type="unfinished">查看器未收到此更改（HTTP {status}）。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The Viewer did not get this change: the page can&apos;t reach it.</source>
+        <translation type="unfinished">查看器未收到此更改：页面无法连接到查看器。</translation>
+    </message>
+    <message>
+        <location line="+68"/>
         <source>Metadata Spreadsheet Help</source>
         <translation type="unfinished">元数据电子表格帮助</translation>
     </message>
@@ -10032,8 +10120,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+1"/>
+        <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways, or press Alt+Left or Alt+Right on its name. The row numbers and Sequence Header stay first.</source>
+        <translation type="unfinished">&lt;strong&gt;移动：&lt;/strong&gt;左右拖动元数据列的表头，或在列名上按 Alt+左方向键 或 Alt+右方向键。行号和序列标题列始终位于最前。</translation>
+    </message>
+    <message>
         <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways. The row numbers and Sequence Header stay first.</source>
-        <translation type="unfinished">&lt;strong&gt;移动：&lt;/strong&gt;左右拖动元数据列的表头。行号和序列标题列始终位于最前。</translation>
+        <translation type="obsolete">&lt;strong&gt;移动：&lt;/strong&gt;左右拖动元数据列的表头。行号和序列标题列始终位于最前。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -13839,7 +13931,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+7"/>
-        <location filename="../../../web_ui/tree_session.js" line="+864"/>
+        <location filename="../../../web_ui/tree_session.js" line="+934"/>
         <source>{count} groups share no kept edge</source>
         <translation type="unfinished">{count} 个组之间没有保留的边</translation>
     </message>
@@ -13892,7 +13984,7 @@ Fedora / RHEL：
         <translation type="obsolete">滚轮：缩放行。Shift+滚轮：缩放宽度。拖动：移动。双击进化枝：缩放到该进化枝。点击其方块可折叠。右键点击：在网络中选择。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="-720"/>
+        <location filename="../../../web_ui/tree_session.js" line="-790"/>
         <source>No alignment is loaded</source>
         <translation type="unfinished">未加载比对</translation>
     </message>
@@ -13948,7 +14040,8 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/tree.html" line="+635"/>
+        <location filename="../../../web_ui/tree.html" line="+662"/>
+        <location line="+1"/>
         <source>Open a tree file</source>
         <translation type="unfinished">打开树文件</translation>
     </message>
@@ -14106,13 +14199,13 @@ Fedora / RHEL：
     <message>
         <location line="-9"/>
         <location line="+10"/>
-        <location line="+315"/>
+        <location line="+291"/>
         <location line="+44"/>
         <source>Back to the tree</source>
         <translation type="unfinished">返回树</translation>
     </message>
     <message>
-        <location line="-362"/>
+        <location line="-338"/>
         <source>The Viewer did not take this tree</source>
         <translation type="unfinished">查看器未接收这棵树</translation>
     </message>
@@ -14122,20 +14215,18 @@ Fedora / RHEL：
         <translation type="unfinished">已读取 {name}，但是：{reason}</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+49"/>
         <source>How the tree matched the network</source>
         <translation type="unfinished">树与网络的匹配情况</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+1"/>
-        <location line="+109"/>
+        <location filename="../../../web_ui/tree_session.js" line="+591"/>
         <location line="+1"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="-102"/>
+        <location filename="../../../web_ui/tree_open.js" line="+4"/>
         <source>{matched} of the {leaves} leaves of {file} are nodes of this network.</source>
         <translation type="unfinished">{file} 的 {leaves} 个叶节点中，有 {matched} 个是此网络的节点。</translation>
     </message>
@@ -14191,13 +14282,13 @@ Fedora / RHEL：
         <translation type="unfinished">序列不在已加载比对中的叶节点：{count}</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+9"/>
         <location filename="../../../web_ui/tree.html" line="+62"/>
         <source>The leaves and nodes the warnings count</source>
         <translation type="unfinished">警告所统计的叶节点和节点</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+4"/>
         <source>The Viewer could not list them.</source>
         <translation type="unfinished">查看器无法列出它们。</translation>
     </message>
@@ -14233,7 +14324,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+69"/>
-        <location filename="../../../web_ui/tree_session.js" line="+4"/>
+        <location filename="../../../web_ui/tree_session.js" line="-588"/>
         <source>Tree View could not reach the Viewer</source>
         <translation type="unfinished">树视图无法连接到查看器</translation>
     </message>
@@ -14315,16 +14406,22 @@ Fedora / RHEL：
     </message>
     <message>
         <location filename="../../../web_ui/tree_legend.js" line="+108"/>
+        <location line="+7"/>
         <source>{low} to {high}</source>
         <translation type="unfinished">{low} 至 {high}</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="-7"/>
+        <source>No range marked</source>
+        <translation type="unfinished">未标记范围</translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>Press or drag to mark the leaves with a value in that range</source>
         <translation type="unfinished">按下或拖动以标出数值在该范围内的叶节点</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Clear</source>
         <translation type="unfinished">清除</translation>
     </message>
@@ -14334,12 +14431,12 @@ Fedora / RHEL：
         <translation type="unfinished">取消标记</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+75"/>
         <source>Mark these leaves</source>
         <translation type="unfinished">标出这些叶节点</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+20"/>
         <source>Unlabelled colours</source>
         <translation type="unfinished">未标注的颜色</translation>
     </message>
@@ -14353,7 +14450,7 @@ Fedora / RHEL：
         <translation type="obsolete">另有 {count} 种颜色</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_session.js" line="+149"/>
+        <location filename="../../../web_ui/tree_session.js" line="+142"/>
         <source>This tree was made for the alignment {tree}, but the loaded alignment is {loaded}.</source>
         <translation type="unfinished">此树是为比对 {tree} 生成的，但已加载的比对是 {loaded}。</translation>
     </message>
@@ -14428,13 +14525,13 @@ Fedora / RHEL：
         <translation type="unfinished">按中点根绘制；树本身是无根的。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+32"/>
         <location line="+1"/>
         <source>Hide this note</source>
         <translation type="unfinished">隐藏此提示</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+126"/>
         <source>{leaves} leaves, {shown} of them nodes of this network</source>
         <translation type="unfinished">{leaves} 个叶节点，其中 {shown} 个是此网络的节点</translation>
     </message>
@@ -14454,13 +14551,13 @@ Fedora / RHEL：
         <translation type="unfinished">在网络中已选择 {count} 个，其中 {leaves} 个在此树中</translation>
     </message>
     <message>
-        <location line="+130"/>
-        <location line="+112"/>
+        <location line="+133"/>
+        <location line="+174"/>
         <source>Support</source>
         <translation type="unfinished">支持度</translation>
     </message>
     <message>
-        <location line="-111"/>
+        <location line="-173"/>
         <source>The support the file gives each split, as a percentage. The dots show where the tree is zoomed in.</source>
         <translation type="unfinished">文件给出的每个分裂的支持度，以百分数表示。圆点显示在树被放大的位置。</translation>
     </message>
@@ -14470,12 +14567,12 @@ Fedora / RHEL：
         <translation type="unfinished">把文件给出的每个分裂的支持度显示为进化枝上的圆点（在树被放大的位置）</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+84"/>
         <source>This tree</source>
         <translation type="unfinished">此树</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+30"/>
         <location line="+117"/>
         <source>Rooted</source>
         <translation type="unfinished">有根</translation>
@@ -14805,7 +14902,7 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_open.js" line="-438"/>
+        <location filename="../../../web_ui/tree_open.js" line="-414"/>
         <location filename="../../../web_ui/tree_session.js" line="+57"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
@@ -14817,13 +14914,13 @@ Fedora / RHEL：
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree.html" line="-688"/>
-        <location line="+602"/>
+        <location filename="../../../web_ui/tree.html" line="-715"/>
+        <location line="+628"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -14973,12 +15070,11 @@ Fedora / RHEL：
         <translation type="unfinished">MSA 引导树</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Open a tree file...</source>
-        <translation type="unfinished">打开树文件……</translation>
+        <translation type="obsolete">打开树文件……</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>How the leaves of the opened tree matched the nodes of the network</source>
         <translation type="unfinished">已打开的树的叶节点与网络节点的匹配情况</translation>
     </message>

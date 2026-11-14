@@ -985,6 +985,12 @@ class KeyboardTests(TreeCase):
         self.assertAlmostEqual(box["y"], self.view_state()["h"] / 2, delta=1)
         self.assertGreaterEqual(self.view_state()["sy"], 16)
 
+    def test_the_status_line_carries_its_whole_text_as_its_title_for_when_it_is_cut_short(self):
+        self.pin(self.state(clade_of(8, 14)))
+        self.assertTrue(self.summary())
+        self.assertEqual(self.state("document.getElementById('summary').title === document.getElementById('summary').textContent"), True)
+        self.assertEqual(self.state("document.querySelector('meta[name=color-scheme]').content"), "light dark")
+
     def test_the_status_line_is_a_live_region_that_says_the_node_where_the_keys_stop_once(self):
         attributes = self.state("['aria-live', 'aria-atomic'].map(name => document.getElementById('summary').getAttribute(name))")
         self.assertEqual(attributes, ["polite", "true"])
@@ -3257,6 +3263,44 @@ class KeyLegendTests(ColorCase):
         key("Escape")
         self.assertEqual(self.state("TreeView.state.legendMark"), None)
         self.assertEqual(self.console_errors(), [])
+
+    def test_the_bar_is_a_slider_whose_value_and_text_say_the_range_from_the_first_step(self):
+        self.open_colored(key=gradient_key())
+        read = lambda: self.state("""(() => { const bar = document.querySelector('#legend-list .legend-bar');
+            return ['role', 'aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext'].map(name => bar.getAttribute(name)); })()""")
+        key = lambda name: self.script(f"""const bar = document.querySelector('#legend-list .legend-bar'); bar.focus();
+            bar.dispatchEvent(new KeyboardEvent('keydown', {{key: '{name}', bubbles: true, cancelable: true}})); return 1""")
+        # Before any use the range line is hidden, but the slider already says what it is and that nothing is marked.
+        self.assertEqual(read(), ["slider", "0", "5", "0", "No range marked"])
+        self.assertTrue(self.state("document.querySelector('#legend-list .legend-range').hidden"))
+        key("ArrowRight")  # the first step of the bar is the first band, and is said at once
+        self.assertEqual(read(), ["slider", "0", "5", "0", "0 to 0.3125"])
+        key("ArrowRight")
+        self.assertEqual(read(), ["slider", "0", "5", "0.3125", "0.3125 to 0.625"])
+        key("End")
+        self.assertEqual(read()[3:], ["4.6875", "4.688 to 5"])
+        key("Escape")
+        self.assertEqual(read(), ["slider", "0", "5", "0", "No range marked"])
+        # A drag says its range too.
+        self.drag(0.18, 0.62)
+        self.assertEqual(read()[3:], ["0.9", "0.9 to 3.1"])
+        self.assertEqual(self.state("document.querySelector('#legend-list .legend-range').hasAttribute('aria-live')"), False)
+
+    def test_a_pressed_row_has_a_ring_and_a_label_cut_short_is_the_title_of_its_text(self):
+        self.open_colored(key=cluster_key())
+        before = self.state("getComputedStyle(document.querySelector('#legend-list .legend-row')).boxShadow")
+        self.assertEqual(before, "none")
+        self.click_row(0)
+        found = self.state("""(() => { const row = document.querySelector('#legend-list .legend-row');
+            return {shadow: getComputedStyle(row).boxShadow, pressed: row.getAttribute('aria-pressed'),
+                    names: [...document.querySelectorAll('#legend-list .legend-row .name')].every(n => n.title === n.textContent),
+                    titles: [...document.querySelectorAll('#legend-list .legend-title')].every(n => n.title === n.textContent),
+                    action: row.title}; })()""")
+        self.assertEqual(found["pressed"], "true")
+        self.assertIn("inset", found["shadow"])
+        self.assertTrue(found["names"])
+        self.assertTrue(found["titles"])
+        self.assertEqual(found["action"], "Mark these leaves")
 
     def test_a_gradient_with_no_leaf_value_has_no_bar_and_a_layer_with_no_leaf_has_no_group(self):
         # Hide every node the gradient coloured: its bar and its rows have nothing to count.

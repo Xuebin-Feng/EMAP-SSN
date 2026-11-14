@@ -19,6 +19,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light dark">
     <title data-i18n>EMAP-SSN Agent (Beta)</title>
     <!-- Fonts and marked are vendored under src/resources so the agent panel
          works offline. See THIRD_PARTY_LICENSES.md section 1. -->
@@ -94,6 +95,7 @@
             --radius-card: 12px;
             --font-family: 'Noto Sans', 'EMAP-SSN Language', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
+            scrollbar-color: var(--scroll) transparent;
         }
 
         [data-theme="dark"] {
@@ -158,7 +160,7 @@
         body {
             margin: 0; padding: 0;
             font-family: var(--font-family);
-            font-size: 13px;
+            font-size: 0.8125rem;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -189,7 +191,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 52px;
+            flex-wrap: wrap;
+            gap: 0 12px;
+            min-height: 52px;
             flex-shrink: 0;
         }
 
@@ -198,24 +202,24 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 15px;
+            font-size: 0.9375rem;
             font-weight: 600;
             color: var(--text-primary);
         }
         header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
 
-        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 
         .status-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 24px;
+            min-height: 24px;
             padding: 0 10px;
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             white-space: nowrap;
         }
         .status-badge::before {
@@ -271,7 +275,7 @@
         }
 
         .pane-title {
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 600;
             color: var(--text-primary);
             white-space: nowrap;
@@ -315,7 +319,7 @@
 
         .ios-toggle input:checked + .ios-toggle-track { background: var(--switch-on); }
         .ios-toggle:hover input:checked + .ios-toggle-track { background: var(--switch-on-hover); }
-        .ios-toggle input:focus-visible + .ios-toggle-track { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--accent); }
+        .ios-toggle input:focus-visible + .ios-toggle-track { outline: 2px solid transparent; outline-offset: 3px; box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--accent); }
 
         .ios-toggle-thumb {
             position: absolute;
@@ -336,11 +340,11 @@
 
         /* Model selector dropdown */
         #model-selector {
-            height: 30px;
+            min-height: 30px;
             padding: 0 30px 0 10px;
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-primary);
             background: var(--input-bg) var(--select-chevron) no-repeat right 9px center / 14px 14px;
             -webkit-appearance: none;
@@ -352,11 +356,11 @@
             box-shadow: var(--shadow-control);
         }
         #model-selector:hover { border-color: var(--field-border-hover); }
-        #model-selector:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        #model-selector:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
         /* Model status label (left of toggle) */
         #active-model-badge {
-            font-size: 13px;
+            font-size: 0.8125rem;
             color: var(--text-subtle);
             white-space: nowrap;
             max-width: 180px;
@@ -375,12 +379,12 @@
             align-items: center;
             justify-content: center;
             gap: 6px;
-            height: 30px;
+            min-height: 30px;
             padding: 0 12px;
             background-color: var(--bg-card);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 400;
             color: var(--text-primary);
             cursor: pointer;
@@ -392,7 +396,7 @@
         }
         .btn:hover { background-color: var(--bg-muted); }
         .btn:active { background-color: var(--border-color); }
-        .btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .btn:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .btn:disabled {
             cursor: not-allowed;
             background-color: var(--input-disabled-bg);
@@ -437,21 +441,21 @@
             border-radius: var(--radius);
             background-color: var(--bg-inset);
             padding: 8px 12px 10px;
-            font-size: 12.5px;
+            font-size: 0.78125rem;
         }
         .command-request-title {
-            font-size: 11px; font-weight: 600; color: var(--text-subtle);
+            font-size: 0.6875rem; font-weight: 600; color: var(--text-subtle);
             text-transform: uppercase; letter-spacing: 0.05em;
             margin-bottom: 6px;
         }
         .command-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
         .command-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
         .command-text {
-            font-family: var(--font-mono); font-size: 12px; color: var(--code-text);
+            font-family: var(--font-mono); font-size: 0.75rem; color: var(--code-text);
             overflow-wrap: anywhere; min-width: 0;
         }
         .command-status {
-            font-size: 11.5px; line-height: 18px; padding: 0 8px; border-radius: 6px;
+            font-size: 0.71875rem; line-height: 1.125rem; padding: 0 8px; border-radius: 6px;
             background: var(--bg-muted); color: var(--text-secondary); white-space: nowrap;
         }
         .command-item[data-status="succeeded"] .command-status { background: var(--success-soft); color: var(--success); }
@@ -471,11 +475,11 @@
             background-color: var(--warning-soft);
         }
         /* The row takes the focus when a command starts waiting, so it shows it for any way it got it. */
-        .command-approval:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+        .command-approval:focus { outline: 2px solid transparent; box-shadow: 0 0 0 2px var(--accent); }
 
         .command-approval code {
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             background: var(--code-inline-bg);
             border-radius: max(6px, 0.6em);
             padding: 1px 0.4em;
@@ -485,6 +489,7 @@
         /* ── Chat log ────────────────────────────────────── */
         #chat-log {
             flex: 1;
+            scrollbar-color: var(--scroll) transparent;
             overflow-y: auto;
             background-color: var(--bg-card);
             padding: 16px;
@@ -517,7 +522,7 @@
             padding: 8px 12px;
             border-radius: var(--radius-card);
             word-wrap: break-word;
-            font-size: 13.5px;
+            font-size: 0.84375rem;
             line-height: 1.55;
         }
 
@@ -527,7 +532,7 @@
             gap: 6px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 0.75rem;
             line-height: 1.45;
             border-radius: var(--radius);
             text-align: center;
@@ -546,7 +551,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -568,15 +573,15 @@
         .msg-agent p { margin: 0 0 9px 0; }
         .msg-agent p:last-child { margin-bottom: 0; }
         .msg-agent h1, .msg-agent h2, .msg-agent h3, .msg-agent h4 { margin: 14px 0 7px 0; color: var(--text-primary); font-weight: 600; }
-        .msg-agent h1 { font-size: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
-        .msg-agent h2 { font-size: 14px; }
-        .msg-agent h3 { font-size: 13px; }
+        .msg-agent h1 { font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
+        .msg-agent h2 { font-size: 0.875rem; }
+        .msg-agent h3 { font-size: 0.8125rem; }
         .msg-agent ul, .msg-agent ol { margin: 0 0 9px 0; padding-left: 20px; }
         .msg-agent li { margin-bottom: 3px; }
         .msg-agent a { color: var(--accent); text-underline-offset: 2px; }
         .msg-agent code {
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             background: var(--code-inline-bg);
             color: var(--code-inline-text);
             padding: 1px 0.4em;
@@ -590,11 +595,11 @@
             overflow-x: auto;
             margin: 7px 0 11px 0;
         }
-        .msg-agent pre code { padding:0; background:transparent; color:var(--code-text); font-size:12px; }
+        .msg-agent pre code { padding:0; background:transparent; color:var(--code-text); font-size:0.75rem; }
         .msg-agent strong { color: var(--text-primary); }
         .msg-agent em { font-style: italic; }
         .msg-agent blockquote { border-left:2px solid var(--field-border-hover); margin:0 0 9px 0; padding-left:11px; color:var(--text-secondary); font-style:italic; }
-        .msg-agent table { border-collapse: collapse; margin: 0 0 9px 0; font-size: 12.5px; }
+        .msg-agent table { border-collapse: collapse; margin: 0 0 9px 0; font-size: 0.78125rem; }
         .msg-agent th, .msg-agent td { border: 1px solid var(--border-color); padding: 4px 8px; }
         .msg-agent th { background: var(--bg-muted); font-weight: 600; }
 
@@ -604,7 +609,7 @@
             border-radius: var(--radius);
             padding: 8px 12px;
             max-width: 86%;
-            font-size: 12.5px;
+            font-size: 0.78125rem;
             line-height: 1.5;
             overflow-wrap: anywhere;
         }
@@ -616,11 +621,11 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-inset);
             padding: 12px 14px;
-            font-size: 13px;
+            font-size: 0.8125rem;
             line-height: 1.5;
         }
-        .data-use-notice:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
-        .data-use-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+        .data-use-notice:focus { outline: 2px solid transparent; box-shadow: 0 0 0 2px var(--accent); }
+        .data-use-title { font-weight: 600; font-size: 0.875rem; margin-bottom: 6px; }
         .data-use-notice p { margin: 6px 0; overflow-wrap: anywhere; }
         .data-use-notice ul { margin: 4px 0 6px; padding-left: 20px; }
         .data-use-notice .card-note { margin: 8px 0; }
@@ -641,7 +646,7 @@
             border-radius: var(--radius);
             padding: 8px 12px 10px;
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--code-text);
             margin-top: 11px;
             white-space: pre-wrap;
@@ -659,7 +664,7 @@
             padding-bottom: 5px;
             min-height: 22px;
             font-family: var(--font-family);
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--text-subtle);
             text-transform: uppercase;
@@ -669,23 +674,24 @@
 
         .copy-btn {
             display: inline-flex; align-items: center; gap: 4px;
-            height: 22px;
+            min-height: 22px;
             background: none; border: 1px solid transparent;
             color: var(--text-secondary);
-            cursor: pointer; font-family: var(--font-family); font-size: 11.5px; font-weight: 400;
+            cursor: pointer; font-family: var(--font-family); font-size: 0.71875rem; font-weight: 400;
             text-transform: none; letter-spacing: normal;
             padding: 0 6px; border-radius: 6px; outline: none;
             transition: background-color 0.15s, color 0.15s;
         }
         .copy-btn .icon { width: 13px; height: 13px; }
         .copy-btn:hover { color: var(--text-primary); background: var(--bg-muted); }
-        .copy-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .copy-btn:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .copy-btn.is-copied { color: var(--success); }
+        .copy-btn.is-failed { color: var(--danger); }
 
         .terminal-output-box {
             background: var(--code-bg); border: 1px solid var(--code-border);
             border-radius: var(--radius); padding: 8px 12px 10px;
-            font-family: var(--font-mono); font-size: 11.5px; color: var(--code-text);
+            font-family: var(--font-mono); font-size: 0.71875rem; color: var(--code-text);
             margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;
             line-height: 1.4; width: 100%;
         }
@@ -707,7 +713,7 @@
             align-items: center;
             padding: 8px 12px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 0.6875rem;
             font-weight: 600;
             color: var(--text-subtle);
             text-transform: uppercase;
@@ -737,7 +743,7 @@
             padding: 16px 14px; /* Increased top/bottom padding */
             border-top: 1px solid var(--code-border);
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             white-space: pre-wrap;
             word-wrap: break-word;
@@ -745,7 +751,7 @@
         }
 
         .token-info {
-            font-size: 11px; color: var(--text-secondary);
+            font-size: 0.6875rem; color: var(--text-secondary);
             margin-top: 8px; display: inline-block;
             background: var(--bg-muted);
             padding: 2px 8px; border-radius: 6px;
@@ -759,12 +765,14 @@
         #chat-input-field {
             flex: 1; padding: 10px 12px;
             border: 1px solid var(--field-border);
-            border-radius: var(--radius); font-size: 13.5px; outline: none;
+            border-radius: var(--radius); font-size: 0.84375rem; outline: none;
             background: var(--input-bg); color: var(--input-text);
             box-shadow: var(--shadow-control); transition: border-color 0.15s, box-shadow 0.15s;
             font-family: var(--font-family);
             resize: none;
+            /* The script sizes it to its text, from this height up. */
             height: 40px;
+            min-height: 40px;
             max-height: 200px;
             line-height: 1.4;
             overflow-y: auto;
@@ -772,11 +780,11 @@
         #chat-input-field::placeholder { color: var(--text-subtle); }
         #chat-input-field:placeholder-shown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         #chat-input-field:hover { border-color: var(--field-border-hover); }
-        #chat-input-field:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        #chat-input-field:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         #chat-input-field:disabled { background: var(--input-disabled-bg); border-color: var(--border-color); color: var(--text-disabled); cursor: not-allowed; box-shadow: none; }
 
         #chat-send-btn {
-            height: 40px;
+            min-height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -806,9 +814,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
             padding: 9px 10px 9px 16px;
             border-bottom: 1px solid var(--border-color);
-            font-size: 14px;
+            font-size: 0.875rem;
             font-weight: 600;
             white-space: nowrap;
             flex-shrink: 0;
@@ -821,6 +831,7 @@
 
         .cards-list {
             flex: 1;
+            scrollbar-color: var(--scroll) transparent;
             overflow-y: auto;
             padding: 10px 10px 2px;
         }
@@ -856,7 +867,7 @@
 
         .card-name-label {
             flex: 1;
-            font-size: 13px;
+            font-size: 0.8125rem;
             font-weight: 600;
             color: var(--text-primary);
             overflow: hidden;
@@ -864,21 +875,27 @@
             white-space: nowrap;
         }
 
+        /* A button, so the keyboard reaches it: Up and Down move the card. */
         .drag-handle {
             cursor: grab;
-            color: var(--text-disabled);
+            color: var(--text-subtle);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             width: 24px;
             height: 26px;
+            padding: 0;
+            background: none;
+            border: 1px solid transparent;
             flex-shrink: 0;
             border-radius: 6px;
             user-select: none;
             touch-action: none;
+            font: inherit;
         }
         .drag-handle .icon { width: 14px; height: 14px; }
         .drag-handle:hover { color: var(--text-secondary); }
+        .drag-handle:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .drag-handle:active { cursor: grabbing; }
         .model-card.drag-over-top    { border-top: 2px solid var(--accent); }
         .model-card.drag-over-bottom { border-bottom: 2px solid var(--accent); }
@@ -903,7 +920,7 @@
         .card-delete-btn .icon, .card-expand-btn .icon { width: 15px; height: 15px; }
         .card-delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
         .card-expand-btn:hover { background: var(--bg-muted); color: var(--text-primary); }
-        .card-delete-btn:focus-visible, .card-expand-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .card-delete-btn:focus-visible, .card-expand-btn:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .card-expand-btn .icon { transition: transform 0.2s ease; }
         .model-card.expanded .card-expand-btn .icon { transform: rotate(180deg); }
 
@@ -918,7 +935,8 @@
         .model-card.expanded .model-card-body { display: flex; }
 
         .card-field-label {
-            font-size: 12px;
+            display: block;
+            font-size: 0.75rem;
             font-weight: 600;
             color: var(--text-soft);
             margin-bottom: 4px;
@@ -929,11 +947,11 @@
         .card-field input[type="number"],
         .card-options {
             width: 100%;
-            height: 30px;
+            min-height: 30px;
             padding: 0 10px;
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 13px;
+            font-size: 0.8125rem;
             background: var(--input-bg);
             color: var(--input-text);
             outline: none;
@@ -941,20 +959,23 @@
             font-family: var(--font-family);
         }
         .card-options {
-            height: 64px;
+            min-height: 64px;
             padding: 6px 10px;
             font-family: var(--font-mono);
-            font-size: 12px;
+            font-size: 0.75rem;
             resize: vertical;
         }
         .card-field input::placeholder, .card-options::placeholder { color: var(--text-subtle); }
         .card-field input:hover, .card-options:hover { border-color: var(--field-border-hover); }
-        .card-field input:focus, .card-options:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        .card-options.is-invalid, .card-options.is-invalid:hover { border-color: var(--danger); }
+        .card-field input:focus, .card-options:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .card-options[aria-invalid="true"], .card-options[aria-invalid="true"]:hover { border-color: var(--danger); }
+        .card-field-error, .cards-save-message { font-size: 0.75rem; line-height: 1.45; color: var(--danger); overflow-wrap: anywhere; }
+        .card-field-error { margin-top: 4px; }
+        .cards-save-message { padding: 8px 12px 0; flex-shrink: 0; }
 
         /* A note under a card's fields: what the Viewer learned about the card, or a warning about it. */
         .card-note {
-            font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+            font-size: 0.75rem; line-height: 1.45; color: var(--text-secondary);
             border-left: 3px solid var(--field-border); padding: 2px 0 2px 9px;
             overflow-wrap: anywhere;
         }
@@ -966,10 +987,13 @@
         .show-key-btn { flex-shrink: 0; box-shadow: none; }
 
         /* Scrollbars */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
+        /* Where scrollbar-color is missing (Safari before 26) */
+        @supports not (scrollbar-color: auto) {
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-track { background: transparent; }
+            ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+            ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
+        }
 
         /* ── Composer card ───────────────────────────────── */
         #chat-composer {
@@ -994,10 +1018,10 @@
         #chat-stop-btn[hidden] { display: none; }
         #chat-composer.drag-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
         #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
-        #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
+        #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; scrollbar-color: var(--scroll) transparent; }
         .attachment-tile { position: relative; width: 112px; padding: 5px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-inset); }
         .attachment-tile img { width: 100%; height: 76px; object-fit: contain; }
-        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px; }
         .attachment-tile button {
             position: absolute; top: 3px; right: 3px;
             display: flex; align-items: center; justify-content: center;
@@ -1008,11 +1032,23 @@
         }
         .attachment-tile button .icon { width: 13px; height: 13px; }
         .attachment-tile button:hover { color: var(--text-primary); background: var(--bg-muted); }
-        .attachment-tile button:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .attachment-tile button:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .attachment-tile button:disabled { color: var(--text-disabled); cursor: not-allowed; }
-        #attachment-notice { font-size: 12.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
+        #attachment-notice { font-size: 0.78125rem; color: var(--text-secondary); overflow-wrap: anywhere; }
         #attachment-notice:not(:empty) { margin-top: 8px; }
         .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 6px; }
+
+        /* Windows High Contrast flattens backgrounds and drops shadows: what they carry is drawn with system colours. */
+        @media (forced-colors: active) {
+            .ios-toggle-track { border: 1px solid ButtonText; background: Canvas; }
+            .ios-toggle-thumb { background: ButtonText; box-shadow: none; }
+            .ios-toggle input:checked + .ios-toggle-track { background: Highlight; }
+            .ios-toggle input:checked + .ios-toggle-track .ios-toggle-thumb { background: HighlightText; }
+            .status-badge::before { background: ButtonText; }
+            .model-card.expanded { border-color: Highlight; }
+            .btn-primary.is-saved { outline: 2px solid Highlight; }
+            .card-options[aria-invalid="true"] { border-style: dashed; border-width: 2px; }
+        }
     </style>
     <!-- The theme chosen on this page or the Metadata page (both keep it as
          ssn_theme), else the system's, set before the page is drawn so a dark
@@ -1060,7 +1096,7 @@
         </div>
     </header>
 
-    <div class="workspace">
+    <main class="workspace">
         <!-- Chat area -->
         <div class="chat-container">
           <div class="chat-card">
@@ -1069,10 +1105,10 @@
                 <div class="header-controls">
                     <span id="active-model-badge" data-i18n>Deactivated</span>
                     <label id="agent-toggle-btn" class="ios-toggle" title="Toggle agent on/off">
-                        <input type="checkbox" id="agent-toggle-input">
+                        <input type="checkbox" id="agent-toggle-input" aria-label="Toggle agent on/off">
                         <span class="ios-toggle-track"><span class="ios-toggle-thumb"></span></span>
                     </label>
-                    <select id="model-selector" title="Select model card"></select>
+                    <select id="model-selector" aria-label="Select model card" title="Select model card"></select>
                     <button class="btn" id="models-panel-btn" title="Manage model cards" aria-expanded="false" aria-controls="models-panel"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Models</span></button>
                     <button class="btn btn-ghost btn-icon" id="clear-chat-btn" aria-label="Clear Chat" title="Clear Chat"><svg class="icon" aria-hidden="true"><use href="#i-brush-cleaning"/></svg></button>
                 </div>
@@ -1083,7 +1119,7 @@
             <div id="chat-composer">
               <div id="attachment-tray" aria-label="Pending image attachments"></div>
               <div class="chat-input-bar">
-                <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
+                <textarea id="chat-input-field" aria-label="Message to the agent" placeholder="Ask the agent a question or give a command..." disabled></textarea>
                 <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer" title="Capture Viewer"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span class="btn-label" data-i18n>Capture Viewer</span></button>
                 <button class="btn btn-primary" id="chat-send-btn" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span data-i18n>Send</span></button>
                 <button class="btn" id="chat-stop-btn" aria-label="Stop" title="Stop" hidden><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="btn-label" data-i18n>Stop</span></button>
@@ -1097,17 +1133,19 @@
         <div id="models-panel" class="models-panel" role="region" aria-labelledby="models-panel-title" inert>
             <div class="panel-header">
                 <span class="panel-title" id="models-panel-title" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></span>
-                <button id="close-panel-btn" class="btn btn-ghost btn-icon" title="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+                <button id="close-panel-btn" class="btn btn-ghost btn-icon" aria-label="Close panel" title="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
+            <span id="card-move-hint" class="visually-hidden" data-i18n>Up and Down arrows move the card</span>
             <div id="cards-list" class="cards-list">
                 <!-- Cards rendered by JS -->
             </div>
+            <div id="cards-save-message" class="cards-save-message" role="alert" hidden></div>
             <div class="panel-footer">
                 <button id="add-card-btn" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>Add Model</span></button>
                 <button id="save-cards-btn" class="btn btn-primary"><svg class="icon" id="save-cards-icon" aria-hidden="true"><use href="#i-save"/></svg><span id="save-cards-label" data-i18n>Save</span></button>
             </div>
         </div>
-    </div>
+    </main>
 
     <script src="/agent_resource/attachments.js"></script>
     <script>
@@ -1195,13 +1233,24 @@
             updateThemeBtn(document.documentElement.getAttribute("data-theme"));
         }
 
+        function applyTheme(theme) {
+            document.documentElement.setAttribute("data-theme", theme);
+            updateThemeBtn(theme);
+        }
+
         function toggleTheme() {
             const cur = document.documentElement.getAttribute("data-theme") || "light";
             const next = cur === "dark" ? "light" : "dark";
-            document.documentElement.setAttribute("data-theme", next);
-            localStorage.setItem("ssn_theme", next);
-            updateThemeBtn(next);
+            try { localStorage.setItem("ssn_theme", next); } catch (error) {}
+            applyTheme(next);
         }
+
+        // Until a theme is chosen, the page follows the system's, also while it is open.
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+            let chosen = null;
+            try { chosen = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (chosen !== "dark" && chosen !== "light") applyTheme(event.matches ? "dark" : "light");
+        });
 
         function updateThemeBtn(theme) {
             const label = document.getElementById("theme-toggle-label");
@@ -1212,10 +1261,7 @@
 
         // A choice made on the Metadata page while both are open applies here at once.
         window.addEventListener("storage", (event) => {
-            if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) {
-                document.documentElement.setAttribute("data-theme", event.newValue);
-                updateThemeBtn(event.newValue);
-            }
+            if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) applyTheme(event.newValue);
         });
 
         // ─── Model Cards ──────────────────────────────────────────────────────────
@@ -1277,10 +1323,41 @@
                 appendErrorMsg(modelCardsLoadError, true);
                 return;
             }
+            // Custom Options that are not JSON are not in modelCards (it keeps the last valid ones),
+            // so saving would store what the user has since changed as if it were not.
+            if (invalidOptions.size > 0) {
+                refuseSave(fromSaveButton);
+                return;
+            }
             const saveId = uid();
             if (fromSaveButton) cardsSaveId = saveId;
             sentCards.set(saveId, JSON.stringify(modelCards));
             sendAction({ action: "save_model_cards", cards: modelCards, save_id: saveId });
+        }
+
+        // Custom Options text that is not a JSON object, by card id: kept so the card shows it again
+        // when the panel is drawn anew (a card moved, one removed), until it is corrected.
+        const invalidOptions = new Map();
+
+        // Shown above the buttons in the panel, where the user pressed Save, and the first field to
+        // correct takes the keyboard. Save stays a button the keyboard reaches, so it can say why.
+        function refuseSave(moveFocus) {
+            const message = document.getElementById("cards-save-message");
+            message.textContent = t("Not saved: correct the Custom Options that show an error first.");
+            message.hidden = false;
+            if (!moveFocus) return;
+            const field = document.querySelector('.card-options[aria-invalid="true"]');
+            if (field) {
+                field.closest(".model-card")._setExpanded(true);
+                field.focus();
+            }
+        }
+
+        function clearSaveRefusal() {
+            if (invalidOptions.size > 0) return;
+            const message = document.getElementById("cards-save-message");
+            message.hidden = true;
+            message.textContent = "";
         }
 
         // The Viewer activates the saved card with this id, never the card as
@@ -1344,26 +1421,39 @@
             }, 1600);
         }
 
+        // A card stays open or closed as it was when the panel is drawn anew.
         function renderCardsPanel() {
             const list = document.getElementById("cards-list");
+            const open = new Set(Array.from(list.querySelectorAll(".model-card.expanded"), element => element.dataset.cardId));
             list.innerHTML = "";
-            modelCards.forEach((card, i) => list.appendChild(createCardEl(card, i)));
+            modelCards.forEach((card, i) => {
+                const element = createCardEl(card, i);
+                if (open.has(card.id)) element._setExpanded(true);
+                list.appendChild(element);
+            });
+            clearSaveRefusal();
         }
+
+        let cardFieldSequence = 0;
 
         function createCardEl(card, index) {
             const div = document.createElement("div");
             div.className = "model-card";
+            div.dataset.cardId = card.id;
+            const fieldId = (name) => `card-field-${cardFieldSequence}-${name}`;
+            cardFieldSequence++;
 
             // Header
             const header = document.createElement("div");
             header.className = "model-card-header";
 
             // Drag handle for reordering
-            const dragHandle = document.createElement("span");
+            const dragHandle = document.createElement("button");
             dragHandle.className = "drag-handle";
+            dragHandle.type = "button";
             dragHandle.title = t("Drag to reorder");
+            dragHandle.setAttribute("aria-describedby", "card-move-hint");
             dragHandle.appendChild(icon("menu"));
-            dragHandle.addEventListener("mousedown", (e) => e.stopPropagation());
 
             const nameLabel = document.createElement("span");
             nameLabel.className = "card-name-label";
@@ -1372,15 +1462,30 @@
             const delBtn = document.createElement("button");
             delBtn.className = "card-delete-btn";
             delBtn.type = "button";
-            delBtn.title = t("Remove model");
             delBtn.appendChild(icon("trash-2"));
             delBtn.addEventListener("click", (e) => { e.stopPropagation(); removeCard(index); });
 
             const expandBtn = document.createElement("button");
             expandBtn.className = "card-expand-btn";
             expandBtn.type = "button";
-            expandBtn.title = t("Expand / collapse");
+            expandBtn.setAttribute("aria-controls", fieldId("body"));
             expandBtn.appendChild(icon("chevron-down"));
+
+            // The buttons name the card they act on, as it is named now.
+            const nameButtons = () => {
+                const name = nameLabel.textContent;
+                dragHandle.setAttribute("aria-label", t("Move {name}", {name}));
+                delBtn.setAttribute("aria-label", t("Remove {name}", {name}));
+                delBtn.title = delBtn.getAttribute("aria-label");
+                expandBtn.setAttribute("aria-label", t("Show details of {name}", {name}));
+                expandBtn.title = expandBtn.getAttribute("aria-label");
+            };
+            nameButtons();
+            div._setExpanded = (expanded) => {
+                div.classList.toggle("expanded", expanded);
+                expandBtn.setAttribute("aria-expanded", String(expanded));
+            };
+            div._setExpanded(false);
 
             header.appendChild(dragHandle);
             header.appendChild(nameLabel);
@@ -1389,19 +1494,32 @@
 
             header.addEventListener("click", (e) => {
                 if (e.target.closest(".card-delete-btn") || e.target.closest(".drag-handle")) return;
-                div.classList.toggle("expanded");
+                div._setExpanded(!div.classList.contains("expanded"));
             });
 
             // Pointer-based drag-to-reorder (works inside PyQt WebEngineView)
-            dragHandle.addEventListener("mousedown", (e) => {
+            dragHandle.addEventListener("pointerdown", (e) => {
+                if (e.button !== 0) return;
                 e.preventDefault();
                 e.stopPropagation();
-                initCardDrag(e, index);
+                initCardDrag(index);
+            });
+            // The keyboard moves the card one place through the same reorder as a drag does.
+            dragHandle.addEventListener("keydown", (e) => {
+                if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                e.preventDefault();
+                const to = index + (e.key === "ArrowUp" ? -1 : 1);
+                if (to < 0 || to >= modelCards.length) return;
+                reorderCard(index, to);
+                const moved = document.querySelectorAll(".model-card")[to];
+                if (moved) moved.querySelector(".drag-handle").focus();
+                announce(t("{name} moved to position {position} of {count}", {name: nameLabel.textContent, position: to + 1, count: modelCards.length}));
             });
 
             // Body — all editable fields
             const body = document.createElement("div");
             body.className = "model-card-body";
+            body.id = fieldId("body");
 
             const fields = [
                 { key: "name",        label: t("Name"),        type: "text",     placeholder: t("e.g. My Ollama")                          },
@@ -1413,10 +1531,12 @@
             fields.forEach(({ key, label, type, placeholder, min, max, step, width }) => {
                 const fieldDiv = document.createElement("div");
                 fieldDiv.className = "card-field";
-                const lbl = document.createElement("div");
+                const lbl = document.createElement("label");
                 lbl.className = "card-field-label";
+                lbl.htmlFor = fieldId(key);
                 lbl.textContent = label;
                 const inp = document.createElement("input");
+                inp.id = fieldId(key);
                 inp.type = type;
                 inp.placeholder = placeholder;
                 inp.value = key === "temperature" ? (card[key] ?? "") : (card[key] || "");
@@ -1436,7 +1556,7 @@
                         modelCards[index][key] = inp.value;
                         if (key === "url") div._refresh();
                     }
-                    if (key === "name") { nameLabel.textContent = inp.value || t("Model {number}", {number: index + 1}); populateDropdown(); }
+                    if (key === "name") { nameLabel.textContent = inp.value || t("Model {number}", {number: index + 1}); nameButtons(); populateDropdown(); }
                 });
                 fieldDiv.appendChild(lbl);
                 fieldDiv.appendChild(inp);
@@ -1466,12 +1586,14 @@
             // API key field (password with show/hide toggle)
             const apiDiv = document.createElement("div");
             apiDiv.className = "card-field";
-            const apiLbl = document.createElement("div");
+            const apiLbl = document.createElement("label");
             apiLbl.className = "card-field-label";
+            apiLbl.htmlFor = fieldId("api_key");
             apiLbl.textContent = t("API Key");
             const apiRow = document.createElement("div");
             apiRow.className = "card-key-row";
             const apiInp = document.createElement("input");
+            apiInp.id = fieldId("api_key");
             apiInp.type = "password";
             apiInp.placeholder = t("sk-... (leave blank if not needed)");
             apiInp.value = card.api_key || "";
@@ -1506,11 +1628,18 @@
             // Custom Options (JSON) field
             const optDiv = document.createElement("div");
             optDiv.className = "card-field";
-            const optLbl = document.createElement("div");
+            const optLbl = document.createElement("label");
             optLbl.className = "card-field-label";
+            optLbl.htmlFor = fieldId("options");
             optLbl.textContent = t("Custom Options (JSON)");
             const optArea = document.createElement("textarea");
+            optArea.id = fieldId("options");
             optArea.className = "card-options";
+            const optError = document.createElement("div");
+            optError.className = "card-field-error";
+            optError.id = fieldId("options-error");
+            optError.hidden = true;
+            optError.textContent = t("Custom Options must be a JSON object.");
             optArea.placeholder = t("e.g. {example}", {example: OPTIONS_EXAMPLE});
             
             let initialVal = "";
@@ -1521,25 +1650,41 @@
                     initialVal = String(card.options);
                 }
             }
-            optArea.value = initialVal;
-            
+            optArea.value = invalidOptions.has(card.id) ? invalidOptions.get(card.id) : initialVal;
+
+            // The card keeps its last valid options while the text is not an object (the Viewer
+            // ignores any other JSON), and Save refuses until it is corrected.
+            const checkOptions = () => {
+                const rawVal = optArea.value.trim();
+                let valid = true;
+                let parsed = null;
+                if (rawVal !== "") {
+                    try { parsed = JSON.parse(rawVal); } catch (e) { valid = false; }
+                    if (valid && !isPlainObject(parsed)) valid = false;
+                }
+                // The message is linked only while it shows: a hidden element is still read as a description.
+                if (valid) {
+                    optArea.removeAttribute("aria-invalid");
+                    optArea.removeAttribute("aria-describedby");
+                } else {
+                    optArea.setAttribute("aria-invalid", "true");
+                    optArea.setAttribute("aria-describedby", optError.id);
+                }
+                optError.hidden = valid;
+                if (valid) invalidOptions.delete(card.id); else invalidOptions.set(card.id, optArea.value);
+                return valid ? (rawVal === "" ? null : parsed) : undefined;
+            };
             optArea.addEventListener("input", () => {
                 if (!modelCards[index]) return;
-                const rawVal = optArea.value.trim();
-                if (rawVal === "") {
-                    modelCards[index].options = null;
-                    optArea.classList.remove("is-invalid");
-                } else {
-                    try {
-                        modelCards[index].options = JSON.parse(rawVal);
-                        optArea.classList.remove("is-invalid"); // valid
-                    } catch (e) {
-                        optArea.classList.add("is-invalid");
-                    }
-                }
+                const options = checkOptions();
+                if (options !== undefined) modelCards[index].options = options;
+                clearSaveRefusal();
             });
+            // What was typed before a redraw is checked again, without changing the card.
+            if (invalidOptions.has(card.id) || typeof card.options === "string") checkOptions();
             optDiv.appendChild(optLbl);
             optDiv.appendChild(optArea);
+            optDiv.appendChild(optError);
             body.appendChild(optDiv);
 
             div.appendChild(header);
@@ -1550,7 +1695,19 @@
 
         function removeCard(index) {
             if (modelCards.length <= 1) { appendSystemMsg(t("Cannot remove the last model card.")); return; }
+            invalidOptions.delete(modelCards[index].id);
             modelCards.splice(index, 1);
+            populateDropdown();
+            renderCardsPanel();
+        }
+
+        // The one way a card changes place, whether it is dragged or moved with the keys: the
+        // order is saved, and is the dropdown's order.
+        function reorderCard(from, to) {
+            if (from === to) return;
+            const [moved] = modelCards.splice(from, 1);
+            modelCards.splice(to, 0, moved);
+            saveModelCards();
             populateDropdown();
             renderCardsPanel();
         }
@@ -1558,7 +1715,7 @@
         /* ── Mouse-based drag-to-reorder for model cards ── */
         let _dragState = null;
 
-        function initCardDrag(startEvent, fromIndex) {
+        function initCardDrag(fromIndex) {
             const cardsList = document.querySelector(".cards-list");
             if (!cardsList) return;
 
@@ -1567,7 +1724,7 @@
 
             let toIndex = fromIndex;
 
-            function onMouseMove(e) {
+            function onPointerMove(e) {
                 // Clear indicators
                 allCards.forEach(c => c.classList.remove("drag-over-top", "drag-over-bottom"));
 
@@ -1588,26 +1745,25 @@
                 }
             }
 
-            function onMouseUp() {
-                document.removeEventListener("mousemove", onMouseMove);
-                document.removeEventListener("mouseup", onMouseUp);
+            function endDrag(drop) {
+                document.removeEventListener("pointermove", onPointerMove);
+                document.removeEventListener("pointerup", onPointerUp);
+                document.removeEventListener("pointercancel", onPointerCancel);
 
                 allCards.forEach(c => c.classList.remove("dragging", "drag-over-top", "drag-over-bottom"));
+                if (!drop) return;
 
                 // Normalize toIndex after removing fromIndex
                 let insertAt = toIndex;
                 if (insertAt > fromIndex) insertAt--;
-                if (insertAt === fromIndex) return;
-
-                const [moved] = modelCards.splice(fromIndex, 1);
-                modelCards.splice(insertAt, 0, moved);
-                saveModelCards();
-                populateDropdown();
-                renderCardsPanel();
+                reorderCard(fromIndex, insertAt);
             }
+            const onPointerUp = () => endDrag(true);
+            const onPointerCancel = () => endDrag(false);
 
-            document.addEventListener("mousemove", onMouseMove);
-            document.addEventListener("mouseup", onMouseUp);
+            document.addEventListener("pointermove", onPointerMove);
+            document.addEventListener("pointerup", onPointerUp);
+            document.addEventListener("pointercancel", onPointerCancel);
         }
 
 
@@ -1619,7 +1775,7 @@
             const cards = document.querySelectorAll(".model-card");
             const last = cards[cards.length - 1];
             if (last) {
-                last.classList.add("expanded");
+                last._setExpanded(true);
                 last.scrollIntoView({ behavior: "smooth" });
             }
         }
@@ -2237,6 +2393,7 @@
                 const copyBtn = document.createElement("button");
                 copyBtn.className = "copy-btn";
                 copyBtn.type = "button";
+                copyBtn.setAttribute("aria-label", t("Copy commands"));
                 copyBtn.innerHTML = `<span class="copy-label">${escapeHtml(t("Copy"))}</span>`;
                 copyBtn.insertBefore(icon("copy"), copyBtn.firstChild);
                 copyBtn.addEventListener("click", () => copyText(commands, copyBtn));
@@ -2330,20 +2487,40 @@
             });
         }
 
+        // The button says how the copy went, on screen and to a screen reader, and goes back to
+        // "Copy" 1.5 s after the last click: the first label is kept, so a second click while it
+        // shows "Copied!" does not make that the label it returns to.
         function copyText(text, btn) {
-            navigator.clipboard.writeText(text).then(() => {
+            const copied = (done) => {
                 const label = btn.querySelector(".copy-label");
                 const copyIcon = btn.querySelector(".icon");
-                const orig = label.textContent;
-                label.textContent = t("Copied!");
-                setIcon(copyIcon, "check");
-                btn.classList.add("is-copied");
-                setTimeout(() => {
-                    label.textContent = orig;
+                if (btn.dataset.label === undefined) {
+                    btn.dataset.label = label.textContent;
+                    btn.dataset.name = btn.getAttribute("aria-label");
+                }
+                const message = done ? t("Copied!") : t("Copy failed");
+                label.textContent = message;
+                // The name follows the words shown, as it must contain them.
+                btn.setAttribute("aria-label", message);
+                setIcon(copyIcon, done ? "check" : "copy");
+                btn.classList.toggle("is-copied", done);
+                btn.classList.toggle("is-failed", !done);
+                announce(message);
+                clearTimeout(btn._copyTimer);
+                btn._copyTimer = setTimeout(() => {
+                    label.textContent = btn.dataset.label;
+                    btn.setAttribute("aria-label", btn.dataset.name);
                     setIcon(copyIcon, "copy");
-                    btn.classList.remove("is-copied");
+                    btn.classList.remove("is-copied", "is-failed");
+                    delete btn.dataset.label;
+                    delete btn.dataset.name;
                 }, 1500);
-            }).catch(err => console.error("Clipboard error:", err));
+            };
+            // A page without clipboard access (an insecure origin) has no navigator.clipboard.
+            Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => copied(true), err => {
+                console.error("Clipboard error:", err);
+                copied(false);
+            });
         }
 
         function escapeHtml(text) {

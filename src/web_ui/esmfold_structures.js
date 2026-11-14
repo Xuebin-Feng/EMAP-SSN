@@ -417,7 +417,8 @@ function structureRow(structure, index, pivot) {
     sub.append(...(badge ? [badge] : []), ...(noData ? [noData] : []), count);
     text.append(sub);
 
-    const eyeLabel = hidden ? t("Show {name}", {name}) : t("Hide {name}", {name});
+    // One label whatever the state: the pressed state says that it is hidden ("Hide X, pressed"), as a toggle's label does not change.
+    const eyeLabel = t("Hide {name}", {name});
     const eyeIcon = icon("eye");
     setIcon(eyeIcon, hidden ? "eye-off" : "eye");
     const eye = focusable(iconButton(eyeLabel, eyeIcon, onLive(ref, current => {

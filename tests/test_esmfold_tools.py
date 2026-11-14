@@ -13,6 +13,7 @@ residue gives; the picture itself is checked over a real canvas in
 tests/test_esmfold_shell_webgl.py.
 """
 
+import json
 import math
 import sys
 import unittest
@@ -53,7 +54,7 @@ class ToolTestCase(ResidueTestCase):
             return {measure: document.getElementById('t-measure').getAttribute('aria-pressed'),
                     label: document.getElementById('t-label').getAttribute('aria-pressed'), mode: toolMode,
                     distances: state.distances.length, labels: state.labels.length,
-                    clear: document.getElementById('t-clear').hidden, zoom: document.getElementById('t-zoom').disabled,
+                    clear: document.getElementById('t-clear').hidden, zoom: document.getElementById('t-zoom').getAttribute('aria-disabled') === 'true',
                     pinned: pinnedResidue ? pinnedResidue.number : null, nodes: focusNodes().length,
                     marked: plugin.managers.structure.selection.stats.elementCount, cells: plugin.state.data.cells.size};
             """)
@@ -165,6 +166,79 @@ class ZoomTests(ToolTestCase):
         self.assertEqual(self.script("return window.__focused"), before + 1)
         self.escape()
         self.assertTrue(self.tools()["zoom"])
+
+
+class ToolbarTests(ToolTestCase):
+    """The toolbar over the canvas is one Tab stop, and the arrow keys move along it."""
+
+    STOPS = "return [...document.querySelectorAll('.view-toolbar button')].filter(node => node.tabIndex === 0).map(node => node.id)"
+
+    def two(self):
+        super().two()
+        # The offscreen engine has no WebGL, so the page would show its "webgl" card and none of the view's tools.
+        self.js("document.body.dataset.view = 'ready'")
+        self.settle(200)
+
+    def press(self, key):
+        self.js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: %s, bubbles: true, cancelable: true}))" % json.dumps(key))
+        self.settle(50)
+        return self.script("return document.activeElement.id")
+
+    def test_it_is_a_toolbar_with_one_tab_stop_that_the_arrow_keys_home_and_end_move(self):
+        self.two()
+        self.assertEqual(self.script("const bar = document.querySelector('.view-toolbar'); return [bar.getAttribute('role'), bar.getAttribute('aria-label')]"),
+                         ["toolbar", "View tools"])
+        self.assertEqual(self.script(self.STOPS), ["t-reset"])
+        self.script("document.getElementById('t-measure').focus(); return 1")
+        self.assertEqual(self.script(self.STOPS), ["t-measure"])
+        self.assertEqual(self.press("ArrowRight"), "t-label")
+        self.assertEqual(self.press("End"), "t-adv")
+        # Round the ends, and Home and End; the stop is where the focus last was.
+        self.assertEqual(self.press("ArrowRight"), "t-reset")
+        self.assertEqual(self.press("ArrowLeft"), "t-adv")
+        self.assertEqual(self.press("Home"), "t-reset")
+        self.assertEqual(self.press("ArrowRight"), "t-zoom")
+        self.assertEqual(self.script(self.STOPS), ["t-zoom"])
+        self.script("document.getElementById('t-image').focus(); document.getElementById('t-image').blur(); return 1")
+        self.assertEqual(self.script(self.STOPS), ["t-image"])
+        # A button that is not shown is no stop and no step (Clear, which is there once something is measured).
+        self.assertTrue(self.script("return document.getElementById('t-clear').hidden"))
+        self.script("document.getElementById('t-measure').focus(); return 1")
+        self.assertEqual(self.press("ArrowRight"), "t-label")
+        self.assertEqual(self.press("ArrowRight"), "t-image")
+
+    def test_the_stop_is_one_that_is_shown_when_the_one_it_was_on_goes(self):
+        self.two()
+        self.script("document.getElementById('t-measure').focus(); document.getElementById('t-measure').blur(); return 1")
+        self.assertEqual(self.script(self.STOPS), ["t-measure"])
+        self.js("document.body.dataset.view = 'empty'")
+        self.settle(200)
+        self.assertEqual(self.script(self.STOPS), ["t-adv"])
+        # And it is the one it was when it is shown again.
+        self.js("document.body.dataset.view = 'ready'")
+        self.settle(200)
+        self.assertEqual(self.script(self.STOPS), ["t-measure"])
+
+    def test_zoom_is_aria_disabled_not_disabled_so_it_keeps_the_focus_and_ignores_a_press(self):
+        self.two()
+        found = self.script("""
+            const zoom = document.getElementById('t-zoom');
+            window.__zoomed = 0;
+            const original = zoomToResidue;
+            zoomToResidue = (...args) => { window.__zoomed++; return original(...args); };
+            zoom.focus();
+            zoom.click();
+            return {disabled: zoom.disabled, aria: zoom.getAttribute('aria-disabled'), focus: document.activeElement.id, zoomed: window.__zoomed};
+            """)
+        self.assertEqual(found, {"disabled": False, "aria": "true", "focus": "t-zoom", "zoomed": 0})
+        # Pinned, it is on; it goes off again with the focus still on it.
+        self.script("await clickOn(0, 5); return 1")
+        self.settle(300)
+        self.assertEqual(self.script("return document.getElementById('t-zoom').getAttribute('aria-disabled')"), "false")
+        self.js("document.body.dataset.view = 'ready'")
+        self.settle(100)
+        self.script("document.getElementById('t-zoom').focus(); pinnedResidue = null; refreshTools(); return 1")
+        self.assertEqual(self.script("return [document.getElementById('t-zoom').getAttribute('aria-disabled'), document.activeElement.id]"), ["true", "t-zoom"])
 
 
 class ImageDialogTests(ToolTestCase):

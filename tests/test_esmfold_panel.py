@@ -77,6 +77,7 @@ window.panelLook = function () {
             workspaceBottom: workspace.bottom, workspaceRight: workspace.right, handleLeft: handle.left, handleRight: handle.right,
             background: side.backgroundColor, edges: [side.borderTopWidth, side.borderRightWidth, side.borderBottomWidth, side.borderLeftWidth],
             shadow: side.boxShadow, padding: scroll.padding, standsOnStage: behind('.stage-card'), standsOnCards: behind('.sec[data-tab="structures"]'),
+            scrollbar: document.getElementById('side-scroll').offsetWidth - document.getElementById('side-scroll').clientWidth,
             page: tokenColor('--bg-main'), card: tokenColor('--bg-card'), accent: tokenColor('--accent')};
 };
 window.press = function (key, options = {}) {
@@ -411,8 +412,10 @@ class LayoutTests(PanelTestCase):
                 state = self.state()
                 self.assertEqual(state["shown"], shown)
                 if width is not None:
-                    # A drawer: 340 px (or what the window allows), over the canvas, which keeps the whole window.
-                    self.assertEqual(state["width"], width)
+                    # A drawer: 340 px (or what the window allows), over the canvas, which keeps the whole window; wider by what the
+                    # platform's scrollbar takes beyond the 10 px gap, so that the cards are as wide as they are with none.
+                    bar = self.script("const bar = document.getElementById('side-scroll'); return bar.offsetWidth - bar.clientWidth")
+                    self.assertEqual(state["width"], width + max(0, bar - 10))
                     self.assertAlmostEqual(state["cardRight"], state["app"] - 10, delta=1)
                 else:
                     # A strip: as wide as the window.
@@ -565,7 +568,8 @@ class LookTests(PanelTestCase):
                 # the cards as round the canvas's card.
                 self.assertAlmostEqual(look["structuresLeft"] - look["stageRight"], 10, delta=0.01)
                 self.assertAlmostEqual(look["colorTop"] - look["structuresBottom"], 10, delta=0.01)
-                self.assertAlmostEqual(look["workspaceRight"] - look["structuresRight"], 14, delta=0.01)
+                # (Or the platform's scrollbar, where that is wider: its room is measured, a classic one is 15 px or more, an overlay one none.)
+                self.assertAlmostEqual(look["workspaceRight"] - look["structuresRight"], max(14, look["scrollbar"]), delta=0.01)
                 self.assertAlmostEqual(look["workspaceBottom"] - look["stageBottom"], 14, delta=0.01)
                 self.assertAlmostEqual(look["handleLeft"], look["stageRight"], delta=0.01)
                 self.assertAlmostEqual(look["handleRight"], look["structuresLeft"], delta=0.01)
@@ -648,7 +652,7 @@ class LookTests(PanelTestCase):
                     self.assertEqual(look["edges"], edges)
                     self.assertNotEqual(look["shadow"], "none")
                     # And the room round their cards, as they were.
-                    self.assertEqual(look["padding"], "10px 2px 4px 10px")
+                    self.assertEqual(look["padding"], "10px %dpx 4px 10px" % max(0, 10 - look["scrollbar"]))
 
     def test_with_no_panel_the_canvas_card_keeps_its_14_px_on_the_right(self):
         # Advanced and the failed view hide the panel and its handle, and with them the gap the handle takes out of the card's space.
@@ -708,6 +712,41 @@ class DrawerTests(PanelTestCase):
         self.assertTrue(self.drawer()["side"])
         self.at_width(1300)
         self.assertEqual(self.drawer(), {"panel": "0", "side": False, "toolbar": False, "sideFocus": True, "toolbarFocus": True})
+        self.assertEqual(self.console_errors(), [])
+
+    def test_an_open_drawer_has_a_close_button_and_escape_closes_it_and_the_focus_goes_to_the_scene_button(self):
+        self.open_two()
+        state = "return {panel: document.body.dataset.panel, inert: document.getElementById('side').inert, focus: document.activeElement.id}"
+        shown = "return document.getElementById('side-close').getClientRects().length > 0"
+        # Beside the canvas and in a phone's strip the drawer's Close is not there.
+        for window in (1300, 600):
+            self.at_width(window)
+            self.assertFalse(self.script(shown), window)
+        self.at_width(900)
+        self.script("setPanel(false); return 1")
+        self.settle(300)
+        # The Scene button opens it, and the focus goes in, to its Close (the button itself is under the drawer).
+        self.js("document.getElementById('panel-toggle').click()")
+        self.settle(300)
+        self.assertEqual(self.script(state), {"panel": "1", "inert": False, "focus": "side-close"})
+        self.assertTrue(self.script(shown))
+        self.assertEqual(self.script("return document.getElementById('side-close').getAttribute('aria-label')"), "Close the Scene panel")
+        self.js("document.getElementById('side-close').click()")
+        self.settle(300)
+        self.assertEqual(self.script(state), {"panel": "0", "inert": True, "focus": "panel-toggle"})
+        self.assertEqual(self.script("return document.getElementById('panel-toggle').getAttribute('aria-expanded')"), "false")
+        # Escape closes it from wherever the focus is in it, and gives the focus to the Scene button.
+        self.js("document.getElementById('panel-toggle').click()")
+        self.settle(300)
+        self.script("document.getElementById('h-structures').focus(); return 1")
+        self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        self.settle(300)
+        self.assertEqual(self.script(state), {"panel": "0", "inert": True, "focus": "panel-toggle"})
+        # With the panel beside the canvas, Escape leaves it as it was.
+        self.at_width(1300)
+        self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        self.settle(100)
+        self.assertEqual(self.script(state)["inert"], False)
         self.assertEqual(self.console_errors(), [])
 
     def test_the_skip_link_opens_a_closed_drawer_and_takes_the_focus_into_the_panel(self):
