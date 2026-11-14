@@ -176,6 +176,31 @@ class PinTests(ResidueTestCase):
         self.assertEqual(self.script("return plugin.managers.structure.selection.stats.elementCount"), 0)
         self.assertEqual(self.console_errors(), [])
 
+    def test_the_cards_buttons_keep_the_focus_as_it_is_drawn_again_and_clear_gives_it_to_the_heading(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, "information_content", shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+        self.script("await clickOn(0, 5); return 1")
+        focus = "return {key: document.activeElement.dataset.focusKey || document.activeElement.id, text: document.activeElement.textContent.trim()}"
+        # The card is drawn again whenever the structures are (here, as any change does it): Zoom to keeps the focus.
+        self.script("""
+            document.querySelector('#residue-body [data-focus-key="residue:zoom"]').focus();
+            renderStructures();
+            await new Promise(resolve => setTimeout(resolve, 400));
+            return 1;""")
+        self.assertEqual(self.script(focus), {"key": "residue:zoom", "text": "Zoom to"})
+        self.assertEqual(self.script("return residueNow().buttons"), ["Zoom to", "Clear"])
+        # Clear lets go of the pin and goes with it: the focus goes to the card's heading, not to the page.
+        self.script("""
+            const clear = document.querySelector('#residue-body [data-focus-key="residue:clear"]');
+            clear.focus();
+            clear.click();
+            await new Promise(resolve => setTimeout(resolve, 400));
+            return 1;""")
+        self.assertIsNone(self.script("return pinnedResidue"))
+        self.assertEqual(self.script(focus), {"key": "h-residue", "text": "Residue"})
+        self.assertEqual(self.console_errors(), [])
+
     def test_the_card_follows_the_hover_until_something_is_pinned(self):
         self.write_with(A, "information_content")
         self.open_scene(A)

@@ -244,8 +244,8 @@ class LongTextSweepTests(LongNameTestCase):
     def test_the_dialogs_and_the_session_menu_hold_no_name_and_stay_in_their_boxes(self):
         self.scene(USER_NAME, SECOND_NAME)
         for name, selector, opener in (
-                ("help", "#help-modal .modal", "document.getElementById('help-modal').classList.add('open')"),
-                ("image", "#image-modal .modal", "document.getElementById('image-modal').classList.add('open')"),
+                ("help", "#help-modal .modal", "document.getElementById('help-modal').showModal()"),
+                ("image", "#image-modal .modal", "document.getElementById('image-modal').showModal()"),
                 ("confirm", "#confirm-modal .modal", "askToConfirm('Clear the scene?', 'This removes every structure.', 'Clear scene', () => {})"),
                 ("menu", "#session-menu", "document.getElementById('session-menu').classList.add('open')")):
             for width in self.WIDTHS:
@@ -253,7 +253,8 @@ class LongTextSweepTests(LongNameTestCase):
                     self.at(width)
                     self.script(opener + "; return 1")
                     self.assertEqual(self.overflowing(selector), [])
-                    self.script("for (const node of document.querySelectorAll('.modal-overlay, .menu')) node.classList.remove('open'); return 1")
+                    self.script("for (const node of document.querySelectorAll('dialog[open]')) node.close();"
+                                " for (const node of document.querySelectorAll('.menu')) node.classList.remove('open'); return 1")
 
     def test_the_legend_drawn_into_a_saved_image_is_cut_to_fit_not_run_out_of_the_picture(self):
         # drawLegend(context, width, height, k, model): at 1 and at 2 times the page's size, with a layer whose name is far too long.

@@ -132,6 +132,24 @@ class FailureTests(JobTestCase):
         self.click("#struct-list .srow.failed button", 400)
         self.assertEqual([row["name"] for row in self.rows()], ["11"])
 
+    def test_a_dismissed_failure_gives_the_focus_to_the_next_ones_dismiss_and_the_last_to_the_heading(self):
+        self.write_all()
+        self.open_page()
+        self.push(A)
+        self.event("structure_failed", name="node_b", reason="CUDA out of memory")
+        self.event("structure_failed", name="node_c", reason="CUDA out of memory")
+        dismiss = """
+            const button = [...document.querySelectorAll('#struct-list .srow.failed button')].find(b => b.textContent === 'Dismiss');
+            button.focus();
+            button.click();
+            await new Promise(resolve => setTimeout(resolve, 400));
+            const node = document.activeElement, row = node.closest('.srow');
+            return {names: [...document.querySelectorAll('#struct-list .srow')].map(r => r.getAttribute('aria-label') || r.querySelector('.srow-name').textContent),
+                    focus: row ? [row.getAttribute('aria-label'), node.textContent] : node.id};"""
+        self.assertEqual(self.script(dismiss), {"names": ["11", "node_c"], "focus": ["node_c", "Dismiss"]})
+        # The last failure: the row before is a structure's, which has no Dismiss; the focus goes to the card's heading.
+        self.assertEqual(self.script(dismiss), {"names": ["11"], "focus": "h-structures"})
+
     def test_a_failure_with_a_log_can_copy_its_path(self):
         self.write_all()
         self.open_page()

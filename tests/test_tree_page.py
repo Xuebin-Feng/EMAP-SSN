@@ -333,6 +333,44 @@ class DrawingTests(TreeCase):
                 self.assertEqual(colours["found"]["faded"][part][:3], colours["faded"])
         self.assertNotEqual(colours["shown"], colours["faded"])
 
+    def test_names_of_leaves_the_network_lacks_are_in_the_subtle_text_colour_which_can_be_read(self):
+        # Their branches and dots are faded (the disabled colour), but a name is text: 4.5:1 against the drawing.
+        headers = headers_of(40)
+        self.serve_headers(headers, network=headers[:20])
+        self.open_page()
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                found = self.script(f"""
+                    document.documentElement.setAttribute('data-theme', {json.dumps(theme)});
+                    const s = TreeView.state, m = s.model;
+                    s.palette = TreeView.readPalette();
+                    TreeView.zoomToNode(m.root);
+                    const root = getComputedStyle(document.documentElement);
+                    const proto = CanvasRenderingContext2D.prototype, original = proto.fillText, names = [];
+                    proto.fillText = function (text) {{
+                        if (this.canvas.id === 'tree-canvas') names.push([text, TreeView.rgbOf(this.fillStyle)]);
+                        return original.apply(this, arguments);
+                    }};
+                    try {{ TreeView.drawNow(); }} finally {{ proto.fillText = original; }}
+                    const shown = new Map(), faded = new Map();
+                    for (let k = 0; k < m.leafCount; k++) (m.viewerNode[k] >= 0 ? shown : faded).set(TreeView.shortenedName(m.labels[k]), k);
+                    return {{
+                        shown: names.filter(([text]) => shown.has(text)).map(([, style]) => style),
+                        faded: names.filter(([text]) => faded.has(text)).map(([, style]) => style),
+                        label: TreeView.rgbOf(root.getPropertyValue('--text-primary')),
+                        subtle: TreeView.rgbOf(root.getPropertyValue('--text-subtle')),
+                        disabled: TreeView.rgbOf(s.palette.faded),
+                        disabledToken: TreeView.rgbOf(root.getPropertyValue('--text-disabled')),
+                        contrast: TreeView.contrast(s.palette.fadedLabel, s.palette.background),
+                    }};""")
+                self.assertEqual(len(found["shown"]), 20)
+                self.assertEqual(len(found["faded"]), 20)
+                self.assertEqual({tuple(style) for style in found["shown"]}, {tuple(found["label"])})
+                self.assertEqual({tuple(style) for style in found["faded"]}, {tuple(found["subtle"])})
+                self.assertGreaterEqual(found["contrast"], 4.5)
+                # The lines stay in the disabled colour.
+                self.assertEqual(found["disabled"], found["disabledToken"])
+
     def test_a_tree_without_branch_lengths_is_drawn_as_a_cladogram(self):
         headers = list("abcde")
         folder = self.make_folder()
@@ -786,6 +824,235 @@ class TooltipAndPinTests(TreeCase):
         self.assertEqual(self.state("document.getElementById('summary').textContent"), counts)
 
 
+# The node drawn nearest the middle of the canvas, found by looking at every node of a tree that hides and folds nothing.
+NEAREST_THE_MIDDLE = """(() => {
+    const s = TreeView.state, m = s.model, L = s.layout, v = s.view, c = TreeView.canvas;
+    let best = -1, nearest = Infinity;
+    for (let i = 0; i < m.nodeCount; i++) {
+        const d = Math.hypot(v.ox + L.x[i] * v.sx - c.clientWidth / 2, v.oy + L.y[i] * v.sy - c.clientHeight / 2);
+        if (d < nearest) { nearest = d; best = i; }
+    }
+    return best;
+})()"""
+
+
+class KeyboardTests(TreeCase):
+    """The keys reach what the pointer does to a node: Enter pins one, Ctrl and the arrows walk the pin through the tree,
+    Z zooms to the pinned node as a double-click does, and the status line, a live region, says what is pinned once the
+    keys stop. The keys that move the view keep their meaning."""
+
+    def key(self, key, **options):
+        return self.script(f"return fire.key({json.dumps(key)}, {json.dumps(options)})")
+
+    def walk(self, arrow):
+        return self.key("Arrow" + arrow, ctrlKey=True)
+
+    def pinned(self):
+        return self.state("TreeView.state.pinned")
+
+    def pin(self, node):
+        self.script(f"TreeView.state.pinned = {node}; return 1")
+
+    def described(self, node):
+        return self.state(f"(() => {{ const d = TreeView.describeNode({node}); return [d.title, ...d.lines].join(' · '); }})()")
+
+    def summary(self):
+        return self.state("document.getElementById('summary').textContent")
+
+    def in_view(self, node):
+        """Whether node's own point is inside the canvas."""
+        return self.state(f"""(() => {{ const s = TreeView.state, b = TreeView.nodePixels(s, {node}), c = TreeView.canvas;
+            return b.x >= 0 && b.x <= c.clientWidth && b.y >= 0 && b.y <= c.clientHeight; }})()""")
+
+    def test_enter_pins_the_search_match_brings_it_into_view_and_the_status_line_says_it(self):
+        self.script("""const input = document.getElementById('search-input'); input.value = 'PROT_29';
+            input.dispatchEvent(new Event('input', {bubbles: true})); return 1""")
+        self.wait_for("TreeView.state.current === 0")
+        self.script("TreeView.stepMatch(1); return 1")
+        leaf = self.state("TreeView.state.matches[1]")
+        node = self.state(f"TreeView.state.model.leafNode[{leaf}]")
+        # The view moves away from the match: Enter brings it back.
+        self.script("TreeView.pan(0, -3000); return 1")
+        self.assertFalse(self.in_view(node))
+        self.assertTrue(self.key("Enter"))
+        self.assertEqual(self.pinned(), node)
+        self.assertTrue(self.in_view(node))
+        said = self.described(node)
+        self.assertTrue(said.startswith(self.state(f"TreeView.state.model.labels[{leaf}]")), said)
+        self.wait_for(f"document.getElementById('summary').textContent === {json.dumps(said)}")
+
+    def test_enter_with_no_match_pins_the_node_nearest_the_middle_and_moves_nothing(self):
+        expected = self.state(NEAREST_THE_MIDDLE)
+        before = self.view_state()
+        self.assertTrue(self.key("Enter"))
+        self.assertEqual(self.pinned(), expected)
+        self.assertEqual(self.view_state(), before)
+        # Enter again keeps what is pinned; Esc lets it go, as it did.
+        self.key("Enter")
+        self.assertEqual(self.pinned(), expected)
+        self.key("Escape")
+        self.assertEqual(self.pinned(), -1)
+        # Zoomed in elsewhere, the middle is another node.
+        self.script("TreeView.focusLeaf(200); return 1")
+        expected = self.state(NEAREST_THE_MIDDLE)
+        self.key("Enter")
+        self.assertEqual(self.pinned(), expected)
+        # A walk key with nothing pinned starts at the same node.
+        self.key("Escape")
+        self.assertTrue(self.walk("Down"))
+        self.assertEqual(self.pinned(), expected)
+
+    def test_ctrl_and_the_arrows_walk_the_pin_to_the_parent_the_first_child_and_the_siblings(self):
+        model = self.script("""const m = TreeView.state.model;
+            return {parent: Array.from(m.parent), childCount: Array.from(m.childCount), root: m.root,
+                    children: Array.from({length: m.nodeCount}, (_, i) => Array.from(m.childList.slice(m.childStart[i], m.childStart[i + 1])))};""")
+        clade = self.state(clade_of(8, 14))
+        children = model["children"][clade]
+        self.assertGreaterEqual(len(children), 2)
+        self.pin(clade)
+        self.assertTrue(self.walk("Right"))
+        self.assertEqual(self.pinned(), children[0])
+        for index in range(1, len(children)):
+            self.walk("Down")
+            self.assertEqual(self.pinned(), children[index])
+        # The last child has no next sibling, and the first no previous one: the pin stays.
+        self.walk("Down")
+        self.assertEqual(self.pinned(), children[-1])
+        for index in range(len(children) - 2, -1, -1):
+            self.walk("Up")
+            self.assertEqual(self.pinned(), children[index])
+        self.walk("Up")
+        self.assertEqual(self.pinned(), children[0])
+        self.walk("Left")
+        self.assertEqual(self.pinned(), clade)
+        self.walk("Left")
+        self.assertEqual(self.pinned(), model["parent"][clade])
+        # A leaf has no child, and the root no parent and no sibling.
+        leaf = self.state("TreeView.state.model.leafNode[0]")
+        self.pin(leaf)
+        self.walk("Right")
+        self.assertEqual(self.pinned(), leaf)
+        self.pin(model["root"])
+        for arrow in ("Left", "Up", "Down"):
+            self.walk(arrow)
+            self.assertEqual(self.pinned(), model["root"], arrow)
+        # The arrows alone still move the view and leave the pin; Alt and an arrow is the browser's, not the page's.
+        before = self.view_state()
+        self.assertTrue(self.key("ArrowDown"))
+        self.assertNotEqual(self.view_state()["oy"], before["oy"])
+        self.assertEqual(self.pinned(), model["root"])
+        self.assertFalse(self.key("ArrowLeft", altKey=True))
+        self.assertFalse(self.key("ArrowLeft", ctrlKey=True, shiftKey=True))
+        self.assertEqual(self.pinned(), model["root"])
+
+    def test_the_view_moves_to_keep_the_pinned_node_in_it(self):
+        self.script("TreeView.focusLeaf(150); return 1")
+        self.pin(self.state("TreeView.state.model.leafNode[150]"))
+        root = self.state("TreeView.state.model.root")
+        seen = []
+        for _ in range(60):
+            self.walk("Left")
+            seen.append(self.pinned())
+            self.assertTrue(self.in_view(seen[-1]), seen[-1])
+            if seen[-1] == root:
+                break
+        self.assertEqual(seen[-1], root)
+        # And down again, by first children, to the first leaf.
+        for _ in range(60):
+            self.walk("Right")
+            self.assertTrue(self.in_view(self.pinned()), self.pinned())
+        self.assertEqual(self.pinned(), self.state("TreeView.state.model.leafNode[0]"))
+
+    def test_z_zooms_to_the_pinned_node_as_a_double_click_does(self):
+        self.assertFalse(self.key("z"))
+        self.assertTrue(self.view_state()["fitted"])
+        clade = self.state(clade_of(8, 14))
+        parent = self.state(f"TreeView.state.model.parent[{clade}]")
+        # The same view for both: the clade's parent filling it, where the clade's branch is long enough to point at.
+        self.script(f"TreeView.zoomToNode({parent}); return 1")
+        x, y = self.state(f"(() => {{ const b = TreeView.nodePixels(TreeView.state, {clade}); return [(b.x0 + b.x) / 2, b.y]; }})()")
+        self.assertEqual(self.state(f"TreeView.hitTest({x}, {y}).node"), clade)
+        self.script(f"fire.dblclick({x}, {y}); return 1")
+        clicked = self.view_state()
+        self.script(f"TreeView.zoomToNode({parent}); return 1")
+        self.pin(clade)
+        self.assertTrue(self.key("z"))
+        self.assertEqual(self.view_state(), clicked)
+        # A leaf, as a double-click on one: in the middle, at a row that can be read.
+        self.pin(self.state("TreeView.state.model.leafNode[42]"))
+        self.assertTrue(self.key("Z"))
+        box = self.state(tip_of(42))
+        self.assertAlmostEqual(box["y"], self.view_state()["h"] / 2, delta=1)
+        self.assertGreaterEqual(self.view_state()["sy"], 16)
+
+    def test_the_status_line_is_a_live_region_that_says_the_node_where_the_keys_stop_once(self):
+        attributes = self.state("['aria-live', 'aria-atomic'].map(name => document.getElementById('summary').getAttribute(name))")
+        self.assertEqual(attributes, ["polite", "true"])
+        counts = self.summary()
+        clade = self.state(clade_of(8, 14))
+        self.pin(clade)
+        changes = self.script("""window.__changes = 0;
+            new MutationObserver((records) => { window.__changes += records.length; })
+                .observe(document.getElementById('summary'), {childList: true, characterData: true, subtree: true});
+            for (const key of ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) fire.key(key, {ctrlKey: true});
+            return {changes: window.__changes, text: document.getElementById('summary').textContent};""")
+        # Nothing is said while the keys go on, and the node they stopped at is said once.
+        self.assertEqual(changes, {"changes": 0, "text": counts})
+        final = self.pinned()
+        self.wait_for(f"document.getElementById('summary').textContent === {json.dumps(self.described(final))}")
+        self.pump(0.4)
+        self.assertEqual(self.state("window.__changes"), 1)
+        # Esc is answered at once.
+        self.key("Escape")
+        self.assertEqual(self.summary(), counts)
+        # Moving and zooming the view, and the same counts said again, say nothing new.
+        self.script("""window.__changes = 0; fire.key('ArrowDown'); fire.key('+'); fire.key(']'); fire.wheel(-120, 600, 300);
+            TreeView.onSelectionChanged(); return 1""")
+        self.pump(0.4)
+        self.assertEqual(self.state("window.__changes"), 0)
+
+    def test_the_keys_are_the_canvas_description_and_the_hint_while_it_has_the_keyboard(self):
+        info = self.script("""const canvas = document.getElementById('tree-canvas'), keys = document.getElementById('tree-keys');
+            return {role: canvas.getAttribute('role'), describedby: canvas.getAttribute('aria-describedby'), keys: keys.textContent,
+                    expected: TreeView.keyText(), hint: document.getElementById('hints').textContent, pointer: TreeView.hintText(),
+                    shown: keys.getBoundingClientRect().width};""")
+        self.assertEqual((info["role"], info["describedby"]), ("application", "tree-keys"))
+        self.assertEqual(info["keys"], info["expected"])
+        for words in ("Enter: pin the search match, or the node in the middle.",
+                      "Ctrl+Left and Right: go to the parent and the first child; Ctrl+Up and Down: to the previous and next sibling.",
+                      "Z: zoom to the pinned node.", "S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it.",
+                      "C: fold it up or open it.", "Esc: let it go.", "+ and -: zoom the rows; [ and ]: the width."):
+            self.assertIn(words, info["keys"])
+        self.assertLessEqual(info["shown"], 1)
+        self.assertEqual(info["hint"], info["pointer"])
+        # A real key on the drawing shows its focus ring, and the hint says the keys; leaving it brings the pointer's back.
+        self.script("document.getElementById('tree-canvas').focus(); return 1")
+        QTest.keyClick(self.view.focusProxy() or self.view, Qt.Key_A)
+        self.pump(0.1)
+        self.assertTrue(self.state("document.getElementById('tree-canvas').matches(':focus-visible')"))
+        self.assertEqual(self.state("document.getElementById('hints').textContent"), info["keys"])
+        self.script("document.getElementById('search-input').focus(); return 1")
+        self.assertEqual(self.state("document.getElementById('hints').textContent"), info["pointer"])
+        # A layout of one scale has one zoom.
+        self.script("""const select = document.getElementById('layout-select'); select.value = 'circular';
+            select.dispatchEvent(new Event('change')); return 1""")
+        keys = self.state("document.getElementById('tree-keys').textContent")
+        self.assertIn("+ and -: zoom. Home", keys)
+        self.assertEqual(keys, self.state("TreeView.keyText()"))
+
+    def test_real_keys_reach_the_drawing(self):
+        self.script("document.getElementById('tree-canvas').focus(); return 1")
+        target = self.view.focusProxy() or self.view
+        QTest.keyClick(target, Qt.Key_Return)
+        self.pump(0.1)
+        start = self.pinned()
+        self.assertEqual(start, self.state(NEAREST_THE_MIDDLE))
+        self.assertNotEqual(start, self.state("TreeView.state.model.root"))
+        QTest.keyClick(target, Qt.Key_Left, Qt.ControlModifier)
+        self.pump(0.1)
+        self.assertEqual(self.pinned(), self.state(f"TreeView.state.model.parent[{start}]"))
+
+
 class SupportTests(TreePageMixin, unittest.TestCase):
     """Split support is the share of replicate trees that hold a split: said so, and never as bootstrap."""
 
@@ -906,6 +1173,60 @@ class SearchTests(TreeCase):
         self.script("document.getElementById('tree-canvas').focus(); return 1")
         self.script("document.dispatchEvent(new KeyboardEvent('keydown', {key: '/', bubbles: true, cancelable: true})); return 1")
         self.assertEqual(self.state("document.activeElement.id"), "search-input")
+
+    def test_a_word_an_input_method_is_composing_is_searched_only_when_it_is_done(self):
+        # Pinyin or kana in the box is not the word yet: neither typing it nor the Enter or Esc that confirms or cancels
+        # it searches, moves the view or empties the box. The search runs when the composition ends.
+        before = self.view_state()
+        self.script("""const input = document.getElementById('search-input');
+            input.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+            input.value = 'PROT_29';
+            input.dispatchEvent(new InputEvent('input', {bubbles: true, isComposing: true, inputType: 'insertCompositionText', data: 'PROT_29'}));
+            return 1;""")
+        self.pump(0.5)
+        self.assertEqual(self.state("[TreeView.state.query, TreeView.state.matches.length]"), ["", 0])
+        self.assertEqual(self.view_state(), before)
+        self.assertTrue(self.ui()["hasText"])
+        prevented = self.script("""const input = document.getElementById('search-input'), sent = [];
+            for (const key of ['Enter', 'Escape']) {
+                const composing = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true, isComposing: true});
+                input.dispatchEvent(composing);
+                // Safari and some input methods report the confirming key as keyCode 229 with isComposing already false.
+                const late = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
+                Object.defineProperty(late, 'keyCode', {get: () => 229});
+                input.dispatchEvent(late);
+                sent.push(composing.defaultPrevented, late.defaultPrevented);
+            }
+            return sent;""")
+        self.assertEqual(prevented, [False] * 4)
+        self.pump(0.3)
+        self.assertEqual(self.state("[TreeView.state.query, TreeView.state.matches.length, document.getElementById('search-input').value]"),
+                         ["", 0, "PROT_29"])
+        self.assertEqual(self.view_state(), before)
+        self.script("""document.getElementById('search-input').dispatchEvent(new CompositionEvent('compositionend', {bubbles: true, data: 'PROT_29'}));
+            return 1;""")
+        self.wait_for("TreeView.state.current === 0")
+        self.assertEqual(self.ui()["count"], "1 of 11")
+        # The Enter after it is the search's again.
+        self.script("""document.getElementById('search-input').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return 1""")
+        self.assertEqual(self.ui()["count"], "2 of 11")
+
+    def test_the_placeholder_is_in_the_subtle_text_colour_and_a_disabled_box_keeps_the_disabled_one(self):
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                found = self.script(f"""document.documentElement.setAttribute('data-theme', {json.dumps(theme)});
+                    const input = document.getElementById('search-input'), root = getComputedStyle(document.documentElement);
+                    const placeholder = getComputedStyle(input, '::placeholder').color;
+                    input.disabled = true;
+                    const disabled = getComputedStyle(input).color;
+                    input.disabled = false;
+                    return {{placeholder: TreeView.rgbOf(placeholder), disabled: TreeView.rgbOf(disabled),
+                            subtle: TreeView.rgbOf(root.getPropertyValue('--text-subtle')),
+                            disabledToken: TreeView.rgbOf(root.getPropertyValue('--text-disabled')),
+                            contrast: TreeView.contrast(placeholder, getComputedStyle(input).backgroundColor)}};""")
+                self.assertEqual(found["placeholder"], found["subtle"])
+                self.assertEqual(found["disabled"], found["disabledToken"])
+                self.assertGreaterEqual(found["contrast"], 4.5)
 
     def test_the_matches_are_marked_on_the_ruler_in_the_highlight_colour(self):
         self.type("PROT_29")
@@ -1629,6 +1950,33 @@ class FoldingTests(LayoutCase):
         self.script("TreeView.state.pinned = -1; return 1")
         self.assertFalse(self.script("return fire.key('c')"))
 
+    def test_the_keys_walk_into_a_clade_only_while_it_is_open_and_the_status_line_says_its_fold(self):
+        clade = self.clade(5, 10)
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                self.script(f"TreeView.state.pinned = {clade}; return 1")
+                walk = "fire.key('ArrowRight', {ctrlKey: true}); return TreeView.state.pinned"
+                child = self.script(walk)
+                self.assertEqual(self.state(f"TreeView.state.model.parent[{child}]"), clade)
+                self.script(f"TreeView.state.pinned = {clade}; fire.key('c'); return 1")
+                self.assertEqual(self.state(f"TreeView.state.collapsed[{clade}]"), 1)
+                self.assertIn("Folded up", self.state("document.getElementById('summary').textContent"))
+                self.assertEqual(self.script(walk), clade)
+                self.script("fire.key('c'); return 1")
+                self.assertNotIn("Folded up", self.state("document.getElementById('summary').textContent"))
+                self.assertEqual(self.script(walk), child)
+                self.script("fire.key('Escape'); return 1")
+
+    def test_the_node_in_the_middle_is_never_inside_a_folded_clade(self):
+        clade = self.clade(12, 30)
+        self.choose("rectangular")
+        self.script(f"TreeView.zoomToNode({clade}); TreeView.toggleFold({clade}); return 1")
+        self.script("fire.key('Enter'); return 1")
+        pinned = self.state("TreeView.state.pinned")
+        self.assertGreaterEqual(pinned, 0)
+        self.assertFalse(self.state(f"TreeView.isInside({pinned}, {clade})"))
+
     def test_folds_and_the_selection_go_with_a_change_of_layout(self):
         clade = self.clade(12, 30)
         pinned = self.state("TreeView.state.model.leafNode[2]")
@@ -1766,6 +2114,36 @@ class PassThroughTests(LayoutCase):
                     }
                     return Array.from(found).filter(i => s.layout.through[i]);""")
                 self.assertEqual(found, [])
+
+    def test_the_keys_walk_over_pass_through_points_and_never_onto_a_hidden_node(self):
+        clade = self.clade()
+        for kind in self.KINDS:
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                info = self.hide_all_but(clade)
+                # Up from the leaf that is left: the first clade above it that joins two shown branches.
+                self.script(f"TreeView.state.pinned = {info['node']}; fire.key('ArrowLeft', {{ctrlKey: true}}); return 1")
+                above = self.state("TreeView.state.pinned")
+                chain = self.state(f"""(() => {{ const m = TreeView.state.model, out = [];
+                    for (let a = m.parent[{info['node']}]; a !== {above}; a = m.parent[a]) out.push(a);
+                    return out; }})()""")
+                self.assertNotIn(above, info["through"])
+                self.assertTrue(chain)
+                self.assertEqual(sorted(chain), sorted(set(chain) & set(info["through"])))
+                # Its children and their siblings, as the keys find them: the leaf that is left is one, and none is
+                # a pass-through point or a node that is hidden.
+                visited = self.script("""const s = TreeView.state, seen = [];
+                    fire.key('ArrowRight', {ctrlKey: true});
+                    for (let n = 0; n < 50; n++) {
+                        seen.push(s.pinned);
+                        fire.key('ArrowDown', {ctrlKey: true});
+                        if (s.pinned === seen[seen.length - 1]) break;
+                    }
+                    return seen.map(i => [i, s.layout.live[i], s.layout.through[i]]);""")
+                self.assertIn(info["node"], [node for node, _, _ in visited])
+                for node, live, through in visited:
+                    self.assertEqual((live, through), (1, 0), node)
+                self.script("TreeView.applyRemoved(null); TreeView.state.pinned = -1; return 1")
 
     def test_the_stretch_of_a_clade_with_several_leaves_left_belongs_to_that_clade(self):
         clade = self.clade(12, 30)

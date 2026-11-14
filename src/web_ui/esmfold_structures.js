@@ -190,9 +190,14 @@ async function realign(ref) {
     showStatus(t("Aligned {name} again: RMSD {rmsd} Å.", {name: structureName(target), rmsd: fit.rmsd.toFixed(1)}));
 }
 
+// What a failure says to the person: the page's words, and the reason.
+function failureText(err) {
+    return t("Could not do that: {reason}", {reason: err.message});
+}
+
 function reportFailure(message, err) {
     console.warn(message, err);
-    showStatus(t("Could not do that: {reason}", {reason: err.message}), 6000, {error: true});
+    showStatus(failureText(err), 6000, {error: true});
 }
 
 // A structure the Viewer folded is loaded from its own folder; any other (a file opened or dropped here, or one
@@ -450,7 +455,7 @@ function renderStructures() {
     }
     const structures = loadedStructures();
     const list = byId('struct-list');
-    const focused = list.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    const focused = focusPlace(list);
     for (const ref of [...expandedRows]) {
         if (!structures.some(structure => structure.cell.transform.ref === ref)) expandedRows.delete(ref);
     }
@@ -473,7 +478,8 @@ function renderStructures() {
     renderColorCard();
     refreshResidue();
     scheduleSequence();
-    if (focused) list.querySelector('[data-focus-key="' + focused.replace(/["\\]/g, '\\$&') + '"]')?.focus();
+    // A removed structure's Remove gives the focus to the next row's (else the row before's), else to the card's heading.
+    restoreFocus(list, focused, byId('h-structures'));
 }
 
 byId('struct-list').addEventListener('pointerdown', event => {
@@ -525,7 +531,11 @@ function removeStructure(structure) {
         scheduleStructures();
         setTimeout(saveSession, 1500);
     }).catch(err => reportFailure("Could not remove the structure:", err));
-    const undo = before ? {label: t("Undo"), run: () => undoSceneChange(before)} : {};
+    // Undone, the structure is back in its row (Mol*'s session keeps its ref): the focus goes back to its Remove, where it was.
+    const undo = before ? {label: t("Undo"), run: () => undoSceneChange(before), focus: () => {
+        renderStructures();
+        return keyedControl(byId('struct-list'), ref + ':remove');
+    }} : {};
     showStatus(t("Removed {name}.", {name}), 6000, undo);
 }
 
@@ -539,8 +549,9 @@ function snapshotForUndo() {
     }
 }
 
+// Resolves when the scene is back (a message's Undo then moves the focus: showStatus).
 function undoSceneChange(snapshot) {
-    runExclusive(async () => {
+    return runExclusive(async () => {
         await plugin.state.setSnapshot(snapshot);
         await reconcileLayers();
         syncCanvasProps();
@@ -548,7 +559,7 @@ function undoSceneChange(snapshot) {
         resetPointerState();
         scheduleStructures();
         setTimeout(saveSession, 1500);
-    });
+    }).catch(err => reportFailure("Could not undo:", err));
 }
 
 // ---- Opening files ---------------------------------------------------------------------

@@ -542,6 +542,41 @@
             color: var(--text-primary);
         }
 
+        /* The keyboard's focus in the table, whose outline Tabulator's style
+           takes off. The table is one stop for Tab, its body, where the
+           arrow keys move the selected cell and Enter edits it. The ring goes
+           round the whole table: the body's rows would cover one drawn
+           inside it. A cell a script focuses has a ring of its own. */
+        #spreadsheet-table:has(> .tabulator-tableholder:focus-visible) {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        #spreadsheet-table .tabulator-cell:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+
+        /* Why the table kept a number cell's value, over the table's foot */
+        .edit-message {
+            position: absolute;
+            left: 24px;
+            bottom: 24px;
+            z-index: 20;
+            box-sizing: border-box;
+            max-width: calc(100% - 48px);
+            margin: 0;
+            border-radius: var(--radius);
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .edit-message:not(:empty) {
+            padding: 6px 10px;
+            border: 1px solid var(--danger);
+            box-shadow: var(--shadow-card);
+        }
+
         /* Scrollbar styles */
         ::-webkit-scrollbar {
             width: 8px;
@@ -614,29 +649,29 @@
             outline-offset: -2px;
         }
 
-        /* Help dialog */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background-color: var(--overlay);
-            z-index: 9999;
-            justify-content: center;
-            align-items: center;
-        }
-
+        /* Help dialog: a modal <dialog>, which the browser centres over the
+           page and keeps the focus in; scrolling in it or over its backdrop
+           leaves the page behind alone. */
         .modal-content {
-            position: relative;
             box-sizing: border-box;
             width: 880px;
             max-width: calc(100% - 32px);
             max-height: calc(100vh - 48px);
             overflow-y: auto;
+            overscroll-behavior: contain;
             padding: 24px 28px;
+            color: var(--text-primary);
             background-color: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-card);
             box-shadow: var(--shadow-dialog);
             animation: modalFadeIn 0.2s ease-out;
+        }
+
+        .modal-content::backdrop {
+            background-color: var(--overlay);
+            overflow: hidden;
+            overscroll-behavior: contain;
         }
 
         .modal-content h3 {
@@ -650,7 +685,9 @@
         }
         .modal-content h3 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
 
-        .modal-close {
+        /* .btn.: the place holds while the button has the focus, which
+           .btn:focus-visible would otherwise make relative. */
+        .btn.modal-close {
             position: absolute;
             top: 16px;
             right: 16px;
@@ -800,6 +837,7 @@
         <div class="pane-main">
             <div id="table-container">
                 <div id="spreadsheet-table"></div>
+                <p id="edit-message" class="edit-message" role="alert"></p>
             </div>
         </div>
     </div>
@@ -1038,7 +1076,8 @@
                 {
                     title: t("Sequence Header"),
                     field: "Node ID",
-                    headerFilter: "input",
+                    headerFilter: headerFilterInput,
+                    headerFilterLiveFilter: false,
                     sorter: "string",
                     hozAlign: "left",
                     minWidth: 200,
@@ -1054,16 +1093,77 @@
                     titleFormatter: () => buildMetadataColumnTitle(columnName),
                     field: columnName,
                     cssClass: `metadata-typed-column metadata-${type === "number" ? "number" : "text"}-column`,
-                    editor: type === "number" ? "number" : "input",
-                    editorParams: type === "number" ? {step: "any"} : undefined,
-                    validator: type === "number" ? "numeric" : undefined,
+                    // A number is edited as text too, which isNumberText
+                    // checks as typed: a number input reads text it cannot
+                    // parse, such as "1e", as "", which emptied the cell.
+                    editor: "input",
+                    validator: type === "number" ? isNumberText : undefined,
+                    mutatorEdit: type === "number" ? numberCellValue : undefined,
                     sorter: type === "number" ? "number" : "string",
-                    headerFilter: "input",
+                    headerFilter: headerFilterInput,
+                    headerFilterLiveFilter: false,
                     hozAlign: "center",
                     headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
                 });
             });
             return keepResizedWidths(columns);
+        }
+
+        // A column's filter, which filters the table a moment after the
+        // user last changed it. While an input method composes a word, as
+        // pinyin does, the letters typed so far are not the text yet: the
+        // table is filtered once the word is chosen. Tabulator's own live
+        // filter, which the columns turn off, runs on every key, those of a
+        // composition too.
+        const HEADER_FILTER_DELAY = 300;
+
+        function headerFilterInput(cell, onRendered, success) {
+            // Styled as Tabulator's own input editor styles a filter, which
+            // fills its column without widening it.
+            const input = document.createElement("input");
+            input.type = "search";
+            input.style.padding = "4px";
+            input.style.width = "100%";
+            input.style.boxSizing = "border-box";
+            input.value = cell.getValue();
+            let composing = false;
+            const filterSoon = debounce(() => {
+                if (!composing) success(input.value);
+            }, HEADER_FILTER_DELAY);
+            input.addEventListener("compositionstart", () => { composing = true; });
+            input.addEventListener("compositionend", () => {
+                composing = false;
+                filterSoon();
+            });
+            input.addEventListener("input", event => {
+                if (!event.isComposing && !composing) filterSoon();
+            });
+            // The keys pressed in a filter are its own: Tabulator takes the
+            // arrow keys anywhere in the table to move its selected cell,
+            // and would keep them from moving the caret.
+            input.addEventListener("keydown", event => event.stopPropagation());
+            // A press in a filter starts no column move.
+            input.addEventListener("mousedown", event => event.stopPropagation());
+            return input;
+        }
+
+        // What a number cell takes, as the Viewer reads it: a number, with
+        // an exponent or not, inf or infinity, or nothing, which empties it.
+        const NUMBER_TEXT = /^[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf|infinity)$/i;
+
+        function isNumberText(cell, value) {
+            const text = String(value === null || value === undefined ? "" : value).trim();
+            return text === "" || NUMBER_TEXT.test(text);
+        }
+
+        // The value a number cell keeps for what was typed: a number, "inf"
+        // or "-inf" for an infinite one as the Viewer sends it, or "" for none.
+        function numberCellValue(value) {
+            const text = String(value).trim();
+            if (text === "") return "";
+            const number = Number(text.replace(/^([+-]?)inf(inity)?$/i, "$1Infinity"));
+            if (Number.isFinite(number)) return number;
+            return number > 0 ? "inf" : "-inf";
         }
 
         function textFilterFunc(headerValue, rowValue, rowData, filterParams) {
@@ -1337,8 +1437,35 @@
                     } else {
                         row.getElement().classList.remove("row-highlighted");
                     }
+                    // Tabulator makes each editable cell a stop for Tab. The
+                    // table's body is the one stop for them all: the range
+                    // selection keeps the focus there, where the arrow keys
+                    // move the selected cell and Enter edits it.
+                    row.getElement().querySelectorAll(".tabulator-cell[tabindex='0']").forEach(cell => {
+                        cell.tabIndex = -1;
+                    });
                 }
             });
+
+            // The range selection makes the header a stop for Tab too, where
+            // no key does more than in the body; the filters and buttons in
+            // it are stops of their own.
+            table.on("tableBuilt", () => {
+                table.element.querySelector(".tabulator-header").tabIndex = -1;
+            });
+
+            // Tabulator takes Tab and the arrow keys anywhere in the table
+            // to move its selected cell, and keeps them from doing what they
+            // do by default. Tab moves the focus on out of the table, as on
+            // the rest of the page, except in a cell being edited, where it
+            // moves the edit to the next cell; there, Left and Right move the
+            // caret.
+            document.getElementById("spreadsheet-table").addEventListener("keydown", event => {
+                const editing = event.target.closest(".tabulator-cell.tabulator-editing");
+                if (event.key === "Tab" ? !editing : editing && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+                    event.stopPropagation();
+                }
+            }, true);
 
             table.on("cellMouseDown", (event, cell) => {
                 pendingNodeNameGesture = null;
@@ -1375,6 +1502,23 @@
                     column: cell.getField(),
                     value: cell.getValue()
                 });
+            });
+
+            // A number cell's edit that is not a number stays open, the
+            // cell keeping its value, and the page says why until the edit
+            // ends.
+            const editMessage = document.getElementById("edit-message");
+            table.on("validationFailed", (cell) => {
+                const input = cell.getElement().querySelector("input");
+                if (input) {
+                    input.setAttribute("aria-invalid", "true");
+                    input.setAttribute("aria-describedby", "edit-message");
+                }
+                const message = t("This column takes numbers only. Type a number, or leave the cell empty to clear it; Esc cancels the edit.");
+                if (editMessage.textContent !== message) editMessage.textContent = message;
+            });
+            ["cellEditing", "cellEdited", "cellEditCancelled"].forEach(name => {
+                table.on(name, () => { editMessage.textContent = ""; });
             });
 
 
@@ -1428,30 +1572,36 @@
                 sendAction({ action: "metadata_redo" });
             });
 
-            const helpBtn = document.getElementById("help-btn");
+            // The help opens as a modal dialog: the browser keeps the focus
+            // in it, closes it on Esc, and gives the focus back to the Help
+            // button as it closes. Its buttons close it as a form's.
             const helpModal = document.getElementById("help-modal");
-            const closeModalBtns = [
-                document.getElementById("close-modal-btn"),
-                document.getElementById("close-modal-btn-ok")
-            ];
-
-            helpBtn.addEventListener("click", () => {
-                helpModal.style.display = "flex";
+            document.getElementById("help-btn").addEventListener("click", () => {
+                helpModal.showModal();
             });
 
-            closeModalBtns.forEach(btn => {
-                btn.addEventListener("click", () => {
-                    helpModal.style.display = "none";
+            // A click outside the help closes it; closedby="any" asks the
+            // browser to, and the page does where the browser cannot. The
+            // help's own padding is part of it, so where the press and the
+            // release fall decides, not what they fall on.
+            if (!("closedBy" in HTMLDialogElement.prototype)) {
+                const outside = (event) => {
+                    const box = helpModal.getBoundingClientRect();
+                    return event.clientX < box.left || event.clientX > box.right ||
+                        event.clientY < box.top || event.clientY > box.bottom;
+                };
+                let pressedOutside = false;
+                helpModal.addEventListener("pointerdown", (e) => { pressedOutside = outside(e); });
+                helpModal.addEventListener("pointerup", (e) => {
+                    if (pressedOutside && outside(e)) helpModal.close();
                 });
-            });
-
-            helpModal.addEventListener("click", (e) => {
-                if (e.target === helpModal) {
-                    helpModal.style.display = "none";
-                }
-            });
+            }
 
             document.addEventListener("keydown", (e) => {
+                // In a field, a column's filter or a cell being edited, the
+                // keys undo and redo its typing; behind the help they leave
+                // the table alone.
+                if (helpModal.open || e.target.closest("input, textarea, select, [contenteditable]")) return;
                 if (e.ctrlKey || e.metaKey) {
                     if (e.key.toLowerCase() === "z") {
                         e.preventDefault();
@@ -1527,7 +1677,7 @@
         document.addEventListener("mousedown", (e) => {
             // Check if the click is on an interactive element or inside the table cells/headers
             const isInsideCellOrCol = e.target.closest(".tabulator-cell") || e.target.closest(".tabulator-col") || e.target.closest(".tabulator-header");
-            const isInteractive = e.target.closest(".toolbar") || e.target.closest(".search-container") || e.target.closest("button") || e.target.closest(".modal-overlay") || e.target.closest("input");
+            const isInteractive = e.target.closest(".toolbar") || e.target.closest(".search-container") || e.target.closest("button") || e.target.closest("dialog") || e.target.closest("input");
             
             if (!isInsideCellOrCol && !isInteractive) {
                 // Prevent clearing when clicking scrollbars
@@ -1576,93 +1726,93 @@
 
     </script>
 
-    <!-- Help Modal -->
-    <div id="help-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
-            <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Metadata Spreadsheet Help</span></h3>
-            <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
-            <p class="modal-intro" data-i18n>The table holds the metadata of the network's nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as <code>spectrum</code> and <code>meta show</code> use it.</p>
+    <!-- Help: a modal dialog, which its buttons, Esc and a click outside it close -->
+    <dialog id="help-modal" class="modal-content" aria-labelledby="help-modal-title" closedby="any">
+        <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Metadata Spreadsheet Help</span></h3>
+        <form method="dialog">
+            <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close" autofocus><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+        </form>
+        <p class="modal-intro" data-i18n>The table holds the metadata of the network's nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as <code>spectrum</code> and <code>meta show</code> use it.</p>
 
-            <section class="modal-section">
-                <h4><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h4>
-                <p data-i18n>Type in the box under a column's name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</p>
-                <div class="filter-grid">
-                    <div class="filter-card">
-                        <div class="filter-card-title"><span class="type-badge type-badge-text" data-i18n>TXT</span><strong data-i18n>Text / Sequence Header Columns:</strong></div>
-                        <ul>
-                            <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
-                            <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
-                            <li data-i18n><strong>Whole Value</strong>: A pattern with a wildcard must match the whole value, so <code>coli*</code> finds only values that start with “coli”.</li>
-                            <li data-i18n><strong>Letter Case</strong>: Ignored, so <code>bacillus</code> also finds “Bacillus”.</li>
-                        </ul>
-                    </div>
-
-                    <div class="filter-card">
-                        <div class="filter-card-title"><span class="type-badge type-badge-number" data-i18n>NUM</span><strong data-i18n>Numerical Columns (e.g. Length):</strong></div>
-                        <ul>
-                            <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
-                            <li data-i18n><strong>Range Ends</strong>: Both are included, and either may be negative or a decimal (e.g. <code>-2.5-0</code>).</li>
-                            <li class="spaced"><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
-                                <ul>
-                                    <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
-                                    <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
-                                    <li data-i18n><code>&gt;50</code> (greater than 50)</li>
-                                    <li data-i18n><code>&lt;200</code> (less than 200)</li>
-                                    <li data-i18n><code>!=10</code> (not equal to 10)</li>
-                                    <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
-                                </ul>
-                            </li>
-                            <li class="spaced"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
-                                <ul>
-                                    <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
-                                    <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
-                                    <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
-                                    <li data-i18n>Parentheses can nest: <code>((&gt;=1)&amp;(&lt;5))|(&gt;100)</code></li>
-                                    <li data-i18n>Where parentheses don't group them, <code>&amp;</code> applies first, then <code>^</code>, then <code>|</code>.</li>
-                                </ul>
-                            </li>
-                            <li class="spaced" data-i18n><strong>Empty Cells</strong>: A cell without a number never matches a number filter.</li>
-                            <li data-i18n><strong>Unreadable Filters</strong>: A filter in none of these forms, such as <code>abc</code>, matches no row.</li>
-                        </ul>
-                    </div>
+        <section class="modal-section">
+            <h4><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h4>
+            <p data-i18n>Type in the box under a column's name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</p>
+            <div class="filter-grid">
+                <div class="filter-card">
+                    <div class="filter-card-title"><span class="type-badge type-badge-text" data-i18n>TXT</span><strong data-i18n>Text / Sequence Header Columns:</strong></div>
+                    <ul>
+                        <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
+                        <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
+                        <li data-i18n><strong>Whole Value</strong>: A pattern with a wildcard must match the whole value, so <code>coli*</code> finds only values that start with “coli”.</li>
+                        <li data-i18n><strong>Letter Case</strong>: Ignored, so <code>bacillus</code> also finds “Bacillus”.</li>
+                    </ul>
                 </div>
-            </section>
 
-            <section class="modal-section">
-                <h4><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span data-i18n>Working with the Table</span></h4>
-                <ul class="rules-grid">
-                    <li data-i18n><strong>Sort:</strong> Click a column's name to sort by it. Click again to reverse the order, and a third time to return to the Viewer's order.</li>
-                    <li data-i18n><strong>Resize:</strong> Drag the right edge of a column's header. The column keeps that width when the window is resized and when the Viewer updates the table.</li>
-                    <li data-i18n><strong>Edit:</strong> Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can't be edited.</li>
-                    <li data-i18n><strong>Move:</strong> Drag a metadata column's header sideways. The row numbers and Sequence Header stay first.</li>
-                    <li data-i18n><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer's history, which holds its commands as well as the edits made here.</li>
-                    <li data-i18n><strong>Delete a Column:</strong> Click the X in its header. The page asks first, and Undo brings the column back.</li>
-                    <li class="wide" data-i18n><strong>Copy:</strong> Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</li>
-                </ul>
-            </section>
-
-            <section class="modal-section">
-                <h4><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import and Export</span></h4>
-                <ul class="rules-grid">
-                    <li data-i18n><strong>Import:</strong> Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, <code>_</code>, <code>-</code> and <code>.</code>), row 2 each column's type (<code>number</code> or <code>text</code>), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; <code>docs/metadata_template.xlsx</code> shows the layout.</li>
-                    <li data-i18n><strong>Export:</strong> Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer's selection don't limit it.</li>
-                </ul>
-            </section>
-
-            <section class="modal-section">
-                <h4><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h4>
-                <ul class="rules-grid">
-                    <li data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
-                    <li data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
-                    <li data-i18n><strong>Sequence Header Clicks:</strong> Clicking a cell in Sequence Header selects its node in the Viewer, as a left-click on the node does. Clicking an empty part of this page clears it.</li>
-                    <li data-i18n><strong>Hidden Nodes:</strong> Nodes hidden in the Viewer leave the table until they are shown again.</li>
-                </ul>
-            </section>
-
-            <div class="modal-footer">
-                <button class="btn btn-primary" id="close-modal-btn-ok" data-i18n>Got it</button>
+                <div class="filter-card">
+                    <div class="filter-card-title"><span class="type-badge type-badge-number" data-i18n>NUM</span><strong data-i18n>Numerical Columns (e.g. Length):</strong></div>
+                    <ul>
+                        <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
+                        <li data-i18n><strong>Range Ends</strong>: Both are included, and either may be negative or a decimal (e.g. <code>-2.5-0</code>).</li>
+                        <li class="spaced"><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
+                            <ul>
+                                <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
+                                <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
+                                <li data-i18n><code>&gt;50</code> (greater than 50)</li>
+                                <li data-i18n><code>&lt;200</code> (less than 200)</li>
+                                <li data-i18n><code>!=10</code> (not equal to 10)</li>
+                                <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
+                            </ul>
+                        </li>
+                        <li class="spaced"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
+                            <ul>
+                                <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
+                                <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
+                                <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
+                                <li data-i18n>Parentheses can nest: <code>((&gt;=1)&amp;(&lt;5))|(&gt;100)</code></li>
+                                <li data-i18n>Where parentheses don't group them, <code>&amp;</code> applies first, then <code>^</code>, then <code>|</code>.</li>
+                            </ul>
+                        </li>
+                        <li class="spaced" data-i18n><strong>Empty Cells</strong>: A cell without a number never matches a number filter.</li>
+                        <li data-i18n><strong>Unreadable Filters</strong>: A filter in none of these forms, such as <code>abc</code>, matches no row.</li>
+                    </ul>
+                </div>
             </div>
-        </div>
-    </div>
+        </section>
+
+        <section class="modal-section">
+            <h4><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span data-i18n>Working with the Table</span></h4>
+            <ul class="rules-grid">
+                <li data-i18n><strong>Sort:</strong> Click a column's name to sort by it. Click again to reverse the order, and a third time to return to the Viewer's order.</li>
+                <li data-i18n><strong>Resize:</strong> Drag the right edge of a column's header. The column keeps that width when the window is resized and when the Viewer updates the table.</li>
+                <li data-i18n><strong>Edit:</strong> Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can't be edited.</li>
+                <li data-i18n><strong>Move:</strong> Drag a metadata column's header sideways. The row numbers and Sequence Header stay first.</li>
+                <li data-i18n><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer's history, which holds its commands as well as the edits made here.</li>
+                <li data-i18n><strong>Delete a Column:</strong> Click the X in its header. The page asks first, and Undo brings the column back.</li>
+                <li class="wide" data-i18n><strong>Copy:</strong> Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</li>
+            </ul>
+        </section>
+
+        <section class="modal-section">
+            <h4><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import and Export</span></h4>
+            <ul class="rules-grid">
+                <li data-i18n><strong>Import:</strong> Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, <code>_</code>, <code>-</code> and <code>.</code>), row 2 each column's type (<code>number</code> or <code>text</code>), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; <code>docs/metadata_template.xlsx</code> shows the layout.</li>
+                <li data-i18n><strong>Export:</strong> Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer's selection don't limit it.</li>
+            </ul>
+        </section>
+
+        <section class="modal-section">
+            <h4><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h4>
+            <ul class="rules-grid">
+                <li data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
+                <li data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
+                <li data-i18n><strong>Sequence Header Clicks:</strong> Clicking a cell in Sequence Header selects its node in the Viewer, as a left-click on the node does. Clicking an empty part of this page clears it.</li>
+                <li data-i18n><strong>Hidden Nodes:</strong> Nodes hidden in the Viewer leave the table until they are shown again.</li>
+            </ul>
+        </section>
+
+        <form method="dialog" class="modal-footer">
+            <button class="btn btn-primary" id="close-modal-btn-ok" data-i18n>Got it</button>
+        </form>
+    </dialog>
 </body>
 </html>

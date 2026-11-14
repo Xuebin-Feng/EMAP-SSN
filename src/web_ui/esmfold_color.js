@@ -519,47 +519,100 @@ function compactLegend(model) {
     box.replaceChildren(...parts);
 }
 
+// The layer filter is one <input> for the page's life. A card drawn again leaves it where it is, never taken out and put back, which would
+// lose its focus and its caret and end a composition in it (an IME's pinyin, before a word is chosen); its text is the person's, and
+// the card never writes it. What is typed filters the layer buttons only, the rest of the card stays, and not while an IME is composing:
+// the text then is not yet what is meant, and the filter follows when the composition ends.
+let layerFilterInput = null;
+// The model the card was last drawn from, which the filter draws the buttons again from.
+let drawnColorModel = null;
+
+function layerFilter() {
+    if (!layerFilterInput) {
+        const filter = make('input', 'filter');
+        filter.type = 'search';
+        filter.placeholder = t("Filter layers");
+        filter.setAttribute('aria-label', t("Filter layers"));
+        filter.addEventListener('input', event => {
+            if (!event.isComposing) filterLayers();
+        });
+        filter.addEventListener('compositionend', filterLayers);
+        layerFilterInput = filter;
+    }
+    return layerFilterInput;
+}
+
+function filterLayers() {
+    if (colorFilter === layerFilterInput.value) return;
+    colorFilter = layerFilterInput.value;
+    if (!drawnColorModel) return;
+    // The card as drawn, with the new filter: what renderColorCard would draw, so that it does not draw it all again.
+    drawnColorModel = { ...drawnColorModel, filter: colorFilter };
+    renderedColors = JSON.stringify(drawnColorModel);
+    const body = byId('color-body');
+    const choices = layerChoices(drawnColorModel);
+    if (choices) body.querySelector('.layer-choices')?.replaceWith(choices);
+    rovingChips(body);
+}
+
+// The layer buttons the filter lets through (with eight layers or fewer there is no filter: all of them), or what says none does.
+function layerChoices(model) {
+    const many = model.layers.length > MAX_PLAIN_LAYERS;
+    const wanted = model.filter.trim().toLowerCase();
+    const shown = model.layers.filter(layer => !many || layer.label.toLowerCase().includes(wanted));
+    if (shown.length) {
+        const layerChips = make('div', (many ? 'seg scroll' : 'seg') + ' layer-choices');
+        layerChips.append(...shown.map(layer => colorChip(layer.id, layer.label, model,
+            layer.lack.length ? t("{n} of {total}", {n: layer.have.length, total: model.count}) : '')));
+        return layerChips;
+    }
+    return many ? make('div', 'hint layer-choices', t("No layer matches.")) : null;
+}
+
+// One tab stop for the group: the chosen chip, or the first.
+function rovingChips(body) {
+    const chips = [...body.querySelectorAll('[role="radio"]')];
+    const current = chips.find(chip => chip.getAttribute('aria-checked') === 'true') || chips[0];
+    for (const chip of chips) chip.tabIndex = chip === current ? 0 : -1;
+}
+
+// Puts `before`, `keep` and `after` in `parent`, in that order, in place of what it held. A `keep` that is in `parent` already stays where
+// it is, and what is around it changes.
+function replaceAround(parent, keep, before, after) {
+    if (keep.parentNode !== parent) {
+        parent.replaceChildren(...before, keep, ...after);
+        return;
+    }
+    for (const child of [...parent.childNodes]) {
+        if (child !== keep) child.remove();
+    }
+    keep.before(...before);
+    keep.after(...after);
+}
+
 function renderColorBody(model) {
     const body = byId('color-body');
     const focused = body.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
-    const filterFocused = document.activeElement === body.querySelector('.filter');
+    drawnColorModel = model;
     const nodes = [];
-    const group = make('div', 'seg-group');
-    group.setAttribute('role', 'radiogroup');
-    group.setAttribute('aria-label', t("Color by"));
+    const many = model.layers.length > MAX_PLAIN_LAYERS;
+    const filter = many ? layerFilter() : null;
+    // The group the filter is in, if the card has it already: it stays, with the filter in it.
+    let group = filter && filter.parentNode?.parentNode === body ? filter.parentNode : null;
+    if (!group) {
+        group = make('div', 'seg-group');
+        group.setAttribute('role', 'radiogroup');
+        group.setAttribute('aria-label', t("Color by"));
+    }
 
     const modelLabel = groupLabel(t("Model"));
     const modelChips = make('div', 'seg');
     modelChips.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model),
                       colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model));
-    group.append(modelLabel, modelChips);
-
     const layersLabel = groupLabel(t("Layers"));
-    group.append(layersLabel);
-    const many = model.layers.length > MAX_PLAIN_LAYERS;
-    if (many) {
-        const filter = make('input', 'filter');
-        filter.type = 'search';
-        filter.placeholder = t("Filter layers");
-        filter.setAttribute('aria-label', t("Filter layers"));
-        filter.value = model.filter;
-        filter.addEventListener('input', () => {
-            colorFilter = filter.value;
-            renderColorCard(true);
-        });
-        group.append(filter);
-    }
-    const shown = model.layers.filter(layer => !many || layer.label.toLowerCase().includes(model.filter.trim().toLowerCase()));
-    if (shown.length) {
-        const layerChips = make('div', many ? 'seg scroll' : 'seg');
-        layerChips.append(...shown.map(layer => colorChip(layer.id, layer.label, model,
-            layer.lack.length ? t("{n} of {total}", {n: layer.have.length, total: model.count}) : '')));
-        group.append(layerChips);
-    } else if (many) {
-        const none = make('div', 'hint', t("No layer matches."));
-        group.append(none);
-    }
-    nodes.push(group);
+    const choices = layerChoices(model);
+    if (filter) replaceAround(group, filter, [modelLabel, modelChips, layersLabel], choices ? [choices] : []);
+    else group.replaceChildren(modelLabel, modelChips, layersLabel, ...(choices ? [choices] : []));
 
     if (model.count && (!model.layers.length || model.unavailable.length)) {
         const empty = make('div', 'empty-layers');
@@ -597,18 +650,10 @@ function renderColorBody(model) {
         nodes.push(more);
     }
     if (model.legend) nodes.push(cardLegend(model));
-    body.replaceChildren(...nodes);
-    // One tab stop for the group: the chosen chip, or the first.
-    const chips = [...body.querySelectorAll('[role="radio"]')];
-    const current = chips.find(chip => chip.getAttribute('aria-checked') === 'true') || chips[0];
-    for (const chip of chips) chip.tabIndex = chip === current ? 0 : -1;
-    if (filterFocused) {
-        const filter = body.querySelector('.filter');
-        filter.focus();
-        filter.setSelectionRange(filter.value.length, filter.value.length);
-    } else if (focused) {
-        body.querySelector('[data-focus-key="' + focused.replace(/["\\]/g, '\\$&') + '"]')?.focus();
-    }
+    replaceAround(body, group, [], nodes);
+    rovingChips(body);
+    // (The filter, which stayed, keeps the focus by itself.)
+    if (focused && !body.contains(document.activeElement)) keyedControl(body, focused)?.focus();
 }
 
 // Draws the card and the legend on the canvas from the structures as they are; `force` draws even if nothing changed.

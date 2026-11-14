@@ -396,6 +396,9 @@
         .toast.show { display: flex; }
         .toast .icon { width: 14px; height: 14px; }
         .toast.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
+        /* The dark theme's soft red is see-through, and over the canvas the text would take its contrast from the molecule under it
+           (about 2:1 over yellow). Its error is drawn on the card's own color, tinted red: opaque, so the text keeps over 4.5:1. */
+        [data-theme="dark"] .toast.error { background: color-mix(in srgb, var(--danger) 14%, var(--bg-card)); }
         .toast .toast-action { flex: none; background: none; border: 0; color: #a7b0ff; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: none; }
         .toast .toast-action:focus-visible { box-shadow: 0 0 0 1px #a7b0ff; }
 
@@ -538,6 +541,12 @@
         .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }
         .sec-title .icon { color: var(--text-secondary); }
         .sec-title .count { font-weight: 400; color: var(--text-subtle); }
+        /* A card's heading takes the focus when the control that had it went with what it acted on (a structure removed, a failure
+           dismissed, the pin cleared), so that the focus stays in the card; it is no stop of Tab's (tabindex -1). */
+        .sec-title[tabindex]:focus { outline: none; }
+        .sec-title[tabindex]:focus-visible { box-shadow: var(--focus-ring); border-radius: 6px; }
+        /* The skip link puts the focus on the panel itself, for Tab to go on to its first control. */
+        .side:focus { outline: none; }
         .sec-body { padding: 10px 12px 12px; border-top: 1px solid var(--border-color); background: var(--bg-inset); }
         .sec-body.flush { padding: 4px 6px; }
         .hint { font-size: 12px; color: var(--text-subtle); line-height: 1.5; padding: 4px 4px 6px; }
@@ -700,9 +709,13 @@
         .status-badge[hidden] { display: none; }
         #hidden-badge { background: var(--warning-soft); color: var(--warning); }
 
-        /* Dialog, as the Metadata page's help */
-        .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
-        .modal-overlay.open { display: flex; }
+        /* Dialog, as the Metadata page's help: a <dialog> opened with showModal(), so that the page under it is out of reach (inert)
+           while it is open. The dialog is as large as the window and draws nothing of its own: its card (.modal) is what one sees, a
+           click beside the card closes it, and its backdrop dims the page. Only an open dialog is laid out (the closed one is the
+           browser's display: none). */
+        .modal-overlay { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 16px; border: 0; background: transparent; color: inherit; overscroll-behavior: contain; }
+        .modal-overlay[open] { display: flex; align-items: center; justify-content: center; }
+        .modal-overlay::backdrop { background: var(--overlay); overflow: hidden; overscroll-behavior: contain; }
         .modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-card); box-shadow: var(--shadow-dialog); width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 18px 20px 16px; }
         .modal h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
         .modal h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); }
@@ -712,6 +725,10 @@
         .modal td:first-child { white-space: nowrap; padding-right: 14px; color: var(--text-primary); }
         kbd { font-family: var(--font-mono); font-size: 11px; background: var(--bg-muted); border: 1px solid var(--field-border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+        /* A failure of the dialog's own action, said in the dialog (a message over the canvas would be under its backdrop), in the danger
+           color on the card's own (the soft red under it would take its contrast below 4.5:1 in the light theme). */
+        .modal .modal-error { margin: 12px 0 0; color: var(--danger); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+        .modal .modal-error:empty { display: none; }
         .modal-small { width: min(420px, 100%); }
 
         /* Scrollbars */
@@ -923,7 +940,7 @@
                 </div>
                 <div class="side-scroll" id="side-scroll">
                     <section class="sec" data-tab="structures" aria-labelledby="h-structures">
-                        <div class="sec-head"><h2 class="sec-title" id="h-structures"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span data-i18n>Structures</span> <span class="count" id="struct-count"></span></h2></div>
+                        <div class="sec-head"><h2 class="sec-title" id="h-structures" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span data-i18n>Structures</span> <span class="count" id="struct-count"></span></h2></div>
                         <div class="sec-body flush" id="struct-list"></div>
                     </section>
                     <section class="sec" data-tab="color" aria-labelledby="h-color">
@@ -931,7 +948,7 @@
                         <div class="sec-body" id="color-body"></div>
                     </section>
                     <section class="sec" data-tab="residue" aria-labelledby="h-residue">
-                        <div class="sec-head"><h2 class="sec-title" id="h-residue"><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Residue</span></h2></div>
+                        <div class="sec-head"><h2 class="sec-title" id="h-residue" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Residue</span></h2></div>
                         <div class="sec-body" id="residue-body"></div>
                     </section>
                 </div>
@@ -940,7 +957,7 @@
     </div>
     <div class="sr-only" id="live" aria-live="polite"></div>
 
-    <div class="modal-overlay" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <dialog class="modal-overlay" id="help-modal" aria-labelledby="help-title">
         <div class="modal">
             <h3 id="help-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Fold View Help</span></h3>
             <p data-i18n>Structures arrive from the Viewer as they are folded, and each is aligned to the first. The panel lists them; the canvas shows them.</p>
@@ -966,16 +983,17 @@
             <p data-i18n>The sliders button shows Mol*'s own panels (measurements, quick styles, export, TM-align and more). They are English only.</p>
             <div class="modal-actions"><button class="btn btn-primary" id="help-ok" type="button" data-i18n>Got it</button></div>
         </div>
-    </div>
+    </dialog>
 
-    <div class="modal-overlay" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <!-- The question before Clear scene: an alert dialog, whose text (aria-describedby) a screen reader reads out with its title. -->
+    <dialog class="modal-overlay" id="confirm-modal" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
         <div class="modal modal-small">
             <h3 id="confirm-title"></h3>
             <p id="confirm-text"></p>
             <div class="modal-actions"><button class="btn" id="confirm-cancel" type="button" data-i18n>Cancel</button><button class="btn btn-danger" id="confirm-ok" type="button"></button></div>
         </div>
-    </div>
-    <div class="modal-overlay" id="image-modal" role="dialog" aria-modal="true" aria-labelledby="image-title">
+    </dialog>
+    <dialog class="modal-overlay" id="image-modal" aria-labelledby="image-title">
         <div class="modal modal-small">
             <h3 id="image-title"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span data-i18n>Save an image</span></h3>
             <label class="check"><input type="checkbox" id="image-legend" checked><span data-i18n>Include the legend</span></label>
@@ -986,9 +1004,11 @@
                 <option value="2" data-i18n>Twice the window size</option>
                 <option value="4" data-i18n>Four times the window size</option>
             </select>
-            <div class="modal-actions"><button class="btn" id="image-cancel" type="button" data-i18n>Cancel</button><button class="btn btn-primary" id="image-save" type="button" data-i18n>Save image</button></div>
+            <!-- Why the picture could not be saved: said here, by the button, as the dialog stays open for another try. -->
+            <p class="modal-error" id="image-error" role="alert"></p>
+            <div class="modal-actions"><button class="btn" id="image-cancel" type="button" data-i18n>Cancel</button><button class="btn btn-primary" id="image-save" type="button" aria-describedby="image-error" data-i18n>Save image</button></div>
         </div>
-    </div>
+    </dialog>
     <input type="file" id="open-structure-input" accept=".pdb,.ent,.cif,.mmcif" multiple hidden>
     <input type="file" id="open-session-input" accept=".molj,.molx,.json" hidden>
 

@@ -10,7 +10,8 @@
  * circular and the unrooted tree have one scale. Double-click a clade to bring it to fill the view. A square at a
  * clade's root folds the clade up into one shape, and a click on the shape opens it again. What is under the pointer
  * is found by going down the tree only into the clades whose box holds the pointer, so a look-up costs what is
- * near the pointer and not the size of the tree.
+ * near the pointer and not the size of the tree. The keys reach what the pointer does: they move and zoom the view,
+ * pin a node and walk the pin through the tree, and zoom to, fold and select the pinned node (TV.keyText says which).
  */
 window.TreeView = window.TreeView || {};
 
@@ -420,6 +421,24 @@ window.TreeView = window.TreeView || {};
         TV.requestDraw();
     };
 
+    // Move the view the least that puts node i's point inside it, a margin in from its edges; a node in view leaves the
+    // view where it is. A rectangular tree keeps more room at the right, for the names and the clade that grow there,
+    // and the ruler: the room focusLeaf keeps.
+    TV.bringIntoView = function (i) {
+        const { layout, view } = state;
+        if (!layout || !TV.canvas || i < 0) return;
+        const width = TV.canvas.clientWidth;
+        const height = TV.canvas.clientHeight;
+        const margin = 40;
+        const right = width - (layout.kind === "rectangular" ? TV.RULER_WIDTH + Math.min(300, width * 0.3) : margin);
+        const bottom = height - margin;
+        const px = view.ox + layout.x[i] * view.sx;
+        const py = view.oy + layout.y[i] * view.sy;
+        const dx = px < margin ? margin - px : px > right ? right - px : 0;
+        const dy = py < margin ? margin - py : py > bottom ? bottom - py : 0;
+        if (dx || dy) TV.pan(dx, dy);
+    };
+
     // ---- Folding clades up ----------------------------------------------------------------------------------
 
     // Which leaves are inside a folded clade, from the clades folded.
@@ -480,6 +499,70 @@ window.TreeView = window.TreeView || {};
     // Whether node d is inside the clade of node i (its own subtree is the block of nodes that ends at i).
     TV.isInside = function (d, i) {
         return d < i && d > i - state.model.size[i];
+    };
+
+    // ---- The tree as the keys walk it ----------------------------------------------------------------------
+    //
+    // The keys walk the tree that is drawn: a pass-through point is no node of it (its stretch belongs to the clade or
+    // leaf below it), a node the Viewer hides is not there, and a folded clade has no children to go to.
+
+    // The clade drawn above node i: the first of its ancestors that is not a pass-through point; -1 above the top.
+    TV.shownParent = function (i) {
+        const { model, layout, collapsed } = state;
+        for (let a = model.parent[i]; a >= 0; a = model.parent[a]) if (!TV.isThrough(layout, collapsed, a)) return a;
+        return -1;
+    };
+
+    // The children drawn below node i, in order: none for a leaf or a folded clade.
+    TV.shownChildren = function (i) {
+        const { model, layout, collapsed } = state;
+        if (model.childCount[i] === 0 || TV.foldedNow(layout, collapsed, i)) return [];
+        const live = layout.live;
+        const children = [];
+        for (let k = model.childStart[i]; k < model.childStart[i + 1]; k++) {
+            const child = model.childList[k];
+            if (!live || live[child]) children.push(TV.cladeBelow(child));
+        }
+        return children;
+    };
+
+    // The node drawn nearest the middle of the view: what is looked at, where a walk with the keys starts. A node inside
+    // a folded clade is not drawn, and is not found.
+    TV.nodeAtMiddle = function () {
+        const { model, layout, view, collapsed } = state;
+        if (!model || !layout || !TV.canvas) return -1;
+        const cx = TV.canvas.clientWidth / 2;
+        const cy = TV.canvas.clientHeight / 2;
+        const live = layout.live;
+        let best = -1;
+        let nearest = Infinity;
+        const stack = [model.root];
+        while (stack.length) {
+            const i = stack.pop();
+            if (!TV.isThrough(layout, collapsed, i)) {
+                const distance = Math.hypot(view.ox + layout.x[i] * view.sx - cx, view.oy + layout.y[i] * view.sy - cy);
+                if (distance < nearest) { nearest = distance; best = i; }
+            }
+            if (TV.foldedNow(layout, collapsed, i)) continue;
+            for (let k = model.childStart[i]; k < model.childStart[i + 1]; k++) if (!live || live[model.childList[k]]) stack.push(model.childList[k]);
+        }
+        return best;
+    };
+
+    // Where a step ("parent", "child", "previous" or "next") from node i goes: the clade above it, its first child, or
+    // the child before or after it of the clade above. -1 where there is none, as at the root, a leaf, or the last child.
+    TV.walkFrom = function (i, step) {
+        if (step === "parent") return TV.shownParent(i);
+        if (step === "child") {
+            const children = TV.shownChildren(i);
+            return children.length ? children[0] : -1;
+        }
+        const parent = TV.shownParent(i);
+        if (parent < 0) return -1;
+        const siblings = TV.shownChildren(parent);
+        const at = siblings.indexOf(i);
+        const to = at < 0 ? -1 : at + (step === "next" ? 1 : -1);
+        return to >= 0 && to < siblings.length ? siblings[to] : -1;
     };
 
     // Fold clade i up into one shape, or open it again. The root has no clade to fold. Returns whether it changed.
@@ -941,8 +1024,29 @@ window.TreeView = window.TreeView || {};
         return t("Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.");
     };
 
+    // The arrow keys walk the tree with Ctrl held. macOS keeps Ctrl and the arrows for its own desktops, so there the
+    // Option key walks it too; elsewhere Alt and the left and right arrows are the browser's Back and Forward.
+    const MAC = /Mac/.test(navigator.platform || "");
+    const WALK_KEYS = { ArrowLeft: "parent", ArrowRight: "child", ArrowUp: "previous", ArrowDown: "next" };
+
+    function walkModifier(event) {
+        if (event.shiftKey || event.metaKey) return false;
+        return (event.ctrlKey && !event.altKey) || (MAC && event.altKey && !event.ctrlKey);
+    }
+
+    // What the keys do on the drawing: the canvas's description, which the hint at the foot of the page shows while
+    // the drawing has the keyboard.
+    TV.keyText = function () {
+        const modifier = MAC ? "Option" : "Ctrl";
+        if (state.layout && state.layout.uniform) {
+            return t("Arrow keys: move. + and -: zoom. Home: show the whole tree. Enter: pin the search match, or the node in the middle. {modifier}+Left and Right: go to the parent and the first child; {modifier}+Up and Down: to the previous and next sibling. Z: zoom to the pinned node. S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it. C: fold it up or open it. Esc: let it go.", { modifier });
+        }
+        return t("Arrow keys: move. + and -: zoom the rows; [ and ]: the width. Home: show the whole tree. Enter: pin the search match, or the node in the middle. {modifier}+Left and Right: go to the parent and the first child; {modifier}+Up and Down: to the previous and next sibling. Z: zoom to the pinned node. S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it. C: fold it up or open it. Esc: let it go.", { modifier });
+    };
+
     // Attach the page's pointer, wheel and key handling to the canvas. `ui` holds what the page does in answer:
-    // tooltip (the element), onPin(node, options) to say what the status line shows (options.click: a click that takes the click focus off).
+    // tooltip (the element), onPin(node, options) to say what the status line shows (options.click: a click that takes the click focus off;
+    // options.key: a key pinned it, and the keys may go on walking).
     TV.attachNavigation = function (canvas, ui) {
         let drag = null;
         let hoverPoint = null;
@@ -1144,13 +1248,58 @@ window.TreeView = window.TreeView || {};
             if (hit) TV.zoomToNode(hit.node); else TV.fitView();
         });
 
+        // ---- The keys that do what the pointer does to a node ------------------------------------------------
+        //
+        // The keys pin a node as a click does, and say what it is in the status line (ui.onPin with key: true, which
+        // the page says a moment after the keys stop): Enter pins the search's match, or else what is pinned stays,
+        // or else the node nearest the middle of the view; Ctrl and an arrow walk the pin through the tree; Z zooms to
+        // the pinned node as a double-click does; S selects it in the network as a right-click does (Shift toggles it),
+        // and with nothing pinned clears the network's selection as a right-click on empty canvas does. The view
+        // moves as little as it can to keep the pinned node in it.
+        function pinByKey(node) {
+            if (node < 0) return false;
+            state.pinned = node;
+            TV.bringIntoView(node);
+            ui.onPin(node, { click: true, key: true });
+            TV.requestDraw();
+            return true;
+        }
+
+        function pinWithEnter() {
+            const { model } = state;
+            const current = state.current >= 0 && state.current < state.matches.length ? state.matches[state.current] : -1;
+            if (current >= 0 && TV.leafIsDrawn(current)) {
+                // A clade folded up since the search went to the match is opened again to show it.
+                const node = model.leafNode[current];
+                TV.expandToShow(node);
+                return pinByKey(node);
+            }
+            return pinByKey(state.pinned >= 0 ? state.pinned : TV.nodeAtMiddle());
+        }
+
+        function walk(step) {
+            if (state.pinned < 0) return pinByKey(TV.nodeAtMiddle());
+            return pinByKey(TV.walkFrom(state.pinned, step));
+        }
+
+        function selectByKey(shift) {
+            if (state.pinned >= 0) TV.selectClade(state.pinned, shift ? "toggle" : "replace");
+            else if (!shift) TV.clearNetworkSelection();
+        }
+
         canvas.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && boxDrag) {
                 cancelBox();
                 event.preventDefault();
                 return;
             }
-            if (!state.layout || event.ctrlKey || event.altKey || event.metaKey) return;
+            if (!state.layout) return;
+            if (WALK_KEYS[event.key] && walkModifier(event)) {
+                if (!boxDrag) walk(WALK_KEYS[event.key]);
+                event.preventDefault();
+                return;
+            }
+            if (event.ctrlKey || event.altKey || event.metaKey) return;
             const width = canvas.clientWidth;
             const height = canvas.clientHeight;
             const step = event.shiftKey ? 400 : 80;
@@ -1166,7 +1315,17 @@ window.TreeView = window.TreeView || {};
                 case "]": TV.zoomAbout(width / 2, height / 2, 1.25, 1); break;
                 case "[": TV.zoomAbout(width / 2, height / 2, 0.8, 1); break;
                 case "Home": case "0": TV.fitView(); break;
-                case "c": case "C": handled = state.pinned >= 0 && TV.toggleFold(state.pinned); break;
+                case "c": case "C":
+                    handled = state.pinned >= 0 && TV.toggleFold(state.pinned);
+                    // What the pinned clade says changes with its fold, as after a click on its square.
+                    if (handled) ui.onPin(state.pinned);
+                    break;
+                case "Enter": handled = pinWithEnter(); break;
+                case "z": case "Z":
+                    handled = state.pinned >= 0;
+                    if (handled) TV.zoomToNode(state.pinned);
+                    break;
+                case "s": case "S": selectByKey(event.shiftKey); break;
                 case "Escape":
                     state.pinned = -1;
                     ui.onPin(-1);

@@ -347,6 +347,51 @@ class CardTests(ColorTestCase):
         self.assertEqual(none["chips"], ["builtin:structure", "plddt"])
         self.assertEqual(none["notes"][0], "Layers such as conservation need an alignment: fold with one loaded in the Viewer.")
 
+    def test_the_layer_filter_stays_the_same_field_and_waits_for_an_ime_to_finish_its_word(self):
+        fixtures.write_structure(self.directory, A, SEQUENCE, sidecar=False)
+        length = len(SEQUENCE)
+        properties = {f"prop_{index}": fixtures.residue_property(
+            f"Property {index}", "", [0, 1], [round(((index + step) % 10) / 10, 1) for step in range(length)], None, "")
+            for index in range(10)}
+        fixtures.write_sidecar(self.directory, A, fixtures.residue_data(A, SEQUENCE, properties=properties))
+        self.open_scene(A)
+        field = """
+            const body = document.getElementById('color-body'), filter = body.querySelector('.filter');
+            return {same: filter === window.__filter, focus: document.activeElement === filter, value: filter.value, caret: filter.selectionStart,
+                    labels: [...body.querySelectorAll('.seg.scroll [role="radio"]')].map(chip => chip.firstChild.textContent).join(', ')};"""
+        everything = ", ".join(f"Property {index}" for index in range(10))
+        self.script("window.__filter = document.querySelector('#color-body .filter'); window.__filter.focus(); return 1")
+        # An IME composing (the pinyin of a word not yet chosen) changes the text, and the filter waits.
+        self.script("""
+            const filter = window.__filter;
+            filter.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true, data: ''}));
+            filter.value = 'property 7';
+            filter.dispatchEvent(new InputEvent('input', {bubbles: true, isComposing: true, inputType: 'insertCompositionText', data: '7'}));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return 1;""")
+        self.assertEqual(self.script(field), {"same": True, "focus": True, "value": "property 7", "caret": 10, "labels": everything})
+        # The composition ends: the filter follows, in the same field.
+        self.script("""
+            window.__filter.dispatchEvent(new CompositionEvent('compositionend', {bubbles: true, data: '7'}));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return 1;""")
+        self.assertEqual(self.script(field), {"same": True, "focus": True, "value": "property 7", "caret": 10, "labels": "Property 7"})
+        # Typing as such (no IME) filters at once, in the same field.
+        self.script("""
+            const filter = window.__filter;
+            filter.value = 'property 1';
+            filter.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText', data: '1'}));
+            return 1;""")
+        self.assertEqual(self.script(field)["labels"], "Property 1")
+        # The card drawn again (as any change of the structures draws it) leaves the field as it is: the focus, the text and the caret.
+        self.script("window.__filter.setSelectionRange(3, 3); await renderColorCard(true); return 1")
+        self.assertEqual(self.script(field), {"same": True, "focus": True, "value": "property 1", "caret": 3, "labels": "Property 1"})
+        # And so does another coloring chosen: the card is drawn again with the filter where it was.
+        self.choose("prop_1")
+        self.assertEqual(self.script(field)["same"], True)
+        self.assertEqual(self.script("return card().selected"), "prop_1")
+        self.assertEqual(self.console_errors(), [])
+
     def test_the_buttons_are_one_radio_group_with_one_tab_stop_and_arrow_keys(self):
         self.write_with(A, "information_content", "same_residue_pct")
         self.open_scene(A)

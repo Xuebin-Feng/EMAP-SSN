@@ -364,6 +364,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Assistant replied</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Stopped. Commands that had already run were not undone.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2026,18 +2030,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color by</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Model</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Layers</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Filter layers</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2047,6 +2039,18 @@ Command-line usage:
     </message>
     <message>
         <source>No layer matches.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color by</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2259,6 +2263,10 @@ Command-line usage:
     </message>
     <message>
         <source>Clear scene</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{action} is available.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6936,6 +6944,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>This column takes numbers only. Type a number, or leave the cell empty to clear it; Esc cancels the edit.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Metadata Spreadsheet Help</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9442,6 +9454,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Wheel: zoom the rows. Shift+wheel: zoom the width. Drag: move. Double-click a clade: zoom to it. Click its square to fold it up. Right-click or right-drag: select in the network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arrow keys: move. + and -: zoom. Home: show the whole tree. Enter: pin the search match, or the node in the middle. {modifier}+Left and Right: go to the parent and the first child; {modifier}+Up and Down: to the previous and next sibling. Z: zoom to the pinned node. S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it. C: fold it up or open it. Esc: let it go.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arrow keys: move. + and -: zoom the rows; [ and ]: the width. Home: show the whole tree. Enter: pin the search match, or the node in the middle. {modifier}+Left and Right: go to the parent and the first child; {modifier}+Up and Down: to the previous and next sibling. Z: zoom to the pinned node. S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it. C: fold it up or open it. Esc: let it go.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

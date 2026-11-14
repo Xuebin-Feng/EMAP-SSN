@@ -44,7 +44,9 @@ for folder in (SRC, ROOT):
 
 from http.server import ThreadingHTTPServer
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QPoint, Qt, QUrl
+from PySide6.QtGui import QInputMethodEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
@@ -727,12 +729,39 @@ class MetadataPageTests(WebPageTestCase):
     BADGES = ("JSON.stringify(Array.from(document.querySelectorAll('.tabulator-header-filter'),"
               " filter => getComputedStyle(filter, '::before').content))")
 
-    def open(self, table):
+    def open(self, table, prelude=""):
+        """Open the page and show table; prelude is a script to run before the table is made."""
         self.load("/meta.html", "typeof handleServerEvent === 'function'")
         self.collect()
-        self.js(f"handleServerEvent({{type: 'init', data: {json.dumps(table)}}})")
+        self.js(f"{prelude}handleServerEvent({{type: 'init', data: {json.dumps(table)}}})")
         self.wait_for(f"document.querySelectorAll('.tabulator-header-filter').length === {len(table['columns'])}")
         self.collect()
+
+    def press(self, key, modifier=Qt.NoModifier):
+        """A key pressed on the page, delivered as Qt delivers the user's."""
+        QTest.keyClick(self.view.focusProxy(), key, modifier)
+        QTest.qWait(50)
+
+    def click(self, x, y):
+        """A click at x, y on the page, delivered as Qt delivers the user's."""
+        QTest.mouseClick(self.view.focusProxy(), Qt.LeftButton, Qt.NoModifier, QPoint(round(x), round(y)))
+        QTest.qWait(50)
+
+    def sent(self):
+        """The actions the page has sent, once any request it made has arrived."""
+        settled = time.monotonic() + 0.4
+        while time.monotonic() < settled:
+            self.app.processEvents()
+            time.sleep(0.02)
+        return self.actions
+
+    # What has the keyboard's focus: its id or first class, and its column's field.
+    FOCUSED = """(() => {
+        const element = document.activeElement;
+        const name = element.id || element.className.split(' ')[0] || element.tagName.toLowerCase();
+        const column = element.closest('.tabulator-col');
+        return column ? name + ' ' + column.getAttribute('tabulator-field') : name;
+    })()"""
 
     def test_the_page_its_table_and_help(self):
         self.open(self.TABLE)
@@ -742,7 +771,14 @@ class MetadataPageTests(WebPageTestCase):
         self.run_and_collect("eventSource.onopen()", "eventSource.onerror()",
                              "toggleTheme()", "toggleTheme()",
                              "document.getElementById('help-btn').click()")
-        self.assertEqual(self.js("document.getElementById('help-modal').style.display"), "flex")
+        self.assertTrue(self.js("document.getElementById('help-modal').open"))
+        self.js("document.getElementById('help-modal').close()")
+        # Why a number cell kept its value.
+        self.js("table.getRows()[0].getCell('1').edit(); document.activeElement.value = '1e'")
+        self.press(Qt.Key_Return)
+        self.wait_for("document.getElementById('edit-message').textContent !== ''")
+        self.collect()
+        self.press(Qt.Key_Escape)
         self.js("document.querySelector('.metadata-delete-column').click()")
         self.js("handleServerEvent({type: 'metadata_error'})")
         self.js("handleServerEvent({type: 'metadata_error', message: '9'})")
@@ -839,7 +875,7 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(update(["Node ID", "1", "2", "3"], rows), kept)
         # The input still works after the update: typing in it changes the filter.
         self.js("""(() => { const input = table.getColumn('2').getElement().querySelector('input');
-            input.value = '5'; input.dispatchEvent(new KeyboardEvent('keyup', {key: '5', bubbles: true})); })()""")
+            input.value = '5'; input.dispatchEvent(new InputEvent('input', {data: '5', bubbles: true})); })()""")
         self.wait_for("table.getHeaderFilters()[0].value === '5'")
         self.assertEqual(self.js("table.getRows('active').map(r => r.getData().id).join()"), "0")
         self.js("table.setHeaderFilterValue('2', '8')")
@@ -1019,6 +1055,189 @@ class MetadataPageTests(WebPageTestCase):
         self.collect()
         self.assertIn(pseudo_translate("No network data loaded"), self.shown)
         self.assert_translated()
+
+    def test_the_help_is_a_modal_dialog(self):
+        """The help was a box drawn over the page: the focus stayed on Help, Tab went
+        on through the page behind, Esc did nothing, and closing it left the focus
+        nowhere. It is a modal dialog: the page behind takes no focus, Esc, its
+        buttons and a click outside it close it, and the focus goes back to Help.
+        Where the browser does not close a dialog on a click outside, the page does;
+        a click in the help's own padding is in it."""
+        dialog = "document.getElementById('help-modal')"
+        state = f"JSON.stringify([{dialog}.open, {dialog}.matches(':modal'), document.activeElement.id])"
+        closed = [False, False, "help-btn"]
+        fallback = ("delete HTMLDialogElement.prototype.closedBy;"
+                    " document.getElementById('help-modal').removeAttribute('closedby');")
+        for prelude in ("", fallback):
+            with self.subTest(fallback=bool(prelude)):
+                self.open(self.TABLE, prelude)
+                self.actions.clear()
+                self.assertEqual(self.js(f"{dialog}.tagName"), "DIALOG")
+                self.assertFalse(self.js(f"{dialog}.hasAttribute('role') || {dialog}.hasAttribute('aria-modal')"))
+                self.js("document.getElementById('help-btn').focus()")
+                self.press(Qt.Key_Return)
+                self.assertEqual(json.loads(self.js(state)), [True, True, "close-modal-btn"])
+                self.js("document.getElementById('import-btn').focus()")
+                self.assertEqual(self.js("document.activeElement.id"), "close-modal-btn")
+                self.press(Qt.Key_Escape)
+                self.assertEqual(json.loads(self.js(state)), closed)
+                self.press(Qt.Key_Return)
+                self.js("document.getElementById('close-modal-btn-ok').click()")
+                self.assertEqual(json.loads(self.js(state)), closed)
+
+                self.press(Qt.Key_Return)
+                box = json.loads(self.js(f"JSON.stringify({dialog}.getBoundingClientRect())"))
+                self.click(box["left"] + 4, box["top"] + 100)
+                self.assertTrue(self.js(f"{dialog}.open"))
+                self.click(box["left"] - 10, box["top"] + 100)
+                self.assertEqual(json.loads(self.js(state)), closed)
+                # A press on the help's backdrop does not clear the Viewer's selection.
+                self.assertEqual(self.sent(), [])
+
+    def test_tab_stops_once_at_the_table_where_the_arrow_keys_and_enter_work(self):
+        """Tabulator made the header and each editable cell a stop for Tab, without a
+        focus ring, and took Tab in the table to move its selected cell, so the
+        focus never left it; Enter edited the selected cell, not the focused one.
+        The table's body is the one stop, the table ringed while it has the focus,
+        and Tab leaves the table. The arrow keys move the selected cell, Enter
+        edits it, and in the edit the arrow keys move the caret."""
+        self.open(self.TABLE)
+        self.js("document.getElementById('help-btn').focus()")
+        ring = "getComputedStyle(document.getElementById('spreadsheet-table')).outlineStyle"
+        stops = []
+        for _ in range(6):
+            self.press(Qt.Key_Tab)
+            stops.append([self.js(self.FOCUSED), self.js(ring)])
+        self.assertEqual(stops, [
+            ["input Node ID", "none"], ["metadata-delete-column 1", "none"], ["input 1", "none"],
+            ["metadata-delete-column 2", "none"], ["input 2", "none"], ["tabulator-tableholder", "solid"],
+        ])
+        self.press(Qt.Key_Tab)
+        self.assertFalse(self.js("document.getElementById('spreadsheet-table').contains(document.activeElement)"))
+        cells = "Array.from(document.querySelectorAll('.tabulator-cell'), cell => cell.tabIndex)"
+        self.assertEqual(self.js(f"{cells}.filter(index => index >= 0).length"), 0)
+        self.assertEqual(self.js(f"{cells}.length"), 8)
+        self.js("document.querySelector('.tabulator-cell[tabulator-field=\"2\"]').focus()")
+        self.assertEqual(self.js("getComputedStyle(document.activeElement).outlineStyle"), "solid")
+
+        self.press(Qt.Key_Backtab, Qt.ShiftModifier)
+        self.assertEqual(self.js(self.FOCUSED), "tabulator-tableholder")
+        # From the row numbers of the first row to column 1 of the second.
+        for key in (Qt.Key_Right, Qt.Key_Right, Qt.Key_Down):
+            self.press(key)
+        self.press(Qt.Key_Return)
+        editor = "document.querySelector('.tabulator-cell.tabulator-editing input')"
+        self.assertEqual(json.loads(self.js(f"""JSON.stringify([
+            {editor}.closest('.tabulator-cell').getAttribute('tabulator-field'),
+            {editor}.value, document.activeElement === {editor}])""")), ["1", "7", True])
+        self.js(f"{editor}.value = '75'; {editor}.setSelectionRange(1, 1)")
+        self.press(Qt.Key_Left)
+        self.assertEqual(self.js("document.activeElement.selectionStart"), 0)
+        self.press(Qt.Key_Escape)
+        self.assertEqual(self.js(self.FOCUSED), "tabulator-tableholder")
+        self.assertEqual(self.sent(), [])
+
+        # The cells a Viewer update draws are no stops either.
+        self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(self.TABLE['rows'])},"
+                f" columns: {json.dumps(self.TABLE['columns'])}, types: {json.dumps(self.TABLE['types'])},"
+                " selected_indices: [], visible_mask: [true, true]})")
+        self.wait_for("!isEditingFromVispy")
+        self.assertEqual(self.js(f"{cells}.filter(index => index >= 0).length"), 0)
+
+    def test_a_number_cell_keeps_its_value_when_what_is_typed_is_no_number(self):
+        """A number input reads text it cannot parse, such as "1e" (or "abc" in
+        Firefox), as empty, which emptied the cell and sent the Viewer an empty
+        value. Text that is no number keeps the edit open and the cell's value,
+        says why, and sends nothing, until Esc ends it. A number, inf, and nothing,
+        which empties the cell, still go to the Viewer."""
+        self.open(self.TABLE)
+        cell = "table.getRows()[0].getCell('1')"
+        message = "document.getElementById('edit-message')"
+
+        def commit(text):
+            self.js(f"{cell}.edit(); document.activeElement.value = {json.dumps(text)}")
+            self.press(Qt.Key_Return)
+
+        for text in ("1e", "abc", "0x10", "1,5", "--1"):
+            with self.subTest(text=text):
+                commit(text)
+                self.wait_for(f"{message}.textContent !== ''")
+                self.assertEqual(json.loads(self.js(f"""JSON.stringify([{cell}.getValue(),
+                    document.activeElement.value, document.activeElement.getAttribute('aria-invalid'),
+                    document.activeElement.getAttribute('aria-describedby')])""")), [4, text, "true", "edit-message"])
+                self.press(Qt.Key_Escape)
+                self.assertEqual(json.loads(self.js(f"JSON.stringify([{cell}.getValue(), {message}.textContent,"
+                                                    " document.querySelector('.tabulator-editing') === null])")),
+                                 [4, "", True])
+        self.assertEqual(self.sent(), [])
+
+        for text, value in (("2.5e1", 25), (" -3 ", -3), ("4.", 4), ("inf", "inf"), ("", "")):
+            with self.subTest(text=text):
+                commit(text)
+                self.assertEqual(self.js(f"{cell}.getValue()"), value)
+        edit = {"action": "edit_cell", "row": 0, "column": "1"}
+        self.assertEqual(self.sent(), [{**edit, "value": value} for value in (25, -3, 4, "inf", "")])
+
+    def test_ctrl_z_in_a_field_undoes_its_typing_not_the_viewers_last_command(self):
+        """Ctrl+Z and Ctrl+Y anywhere on the page undid and redid the Viewer's last
+        command, in a column's filter or a cell being edited too, where they undo
+        the typing. Behind the help they do nothing; elsewhere they are the
+        Viewer's."""
+        self.open(self.TABLE)
+        self.actions.clear()
+        self.js("table.getColumn('2').getElement().querySelector('.tabulator-header-filter input').focus()")
+        self.press(Qt.Key_8)
+        self.press(Qt.Key_Z, Qt.ControlModifier)
+        self.assertEqual(self.js("document.activeElement.value"), "")
+        self.press(Qt.Key_Y, Qt.ControlModifier)
+        self.assertEqual(self.js("document.activeElement.value"), "8")
+        self.js("table.getRows()[0].getCell('2').edit()")
+        self.press(Qt.Key_9)
+        self.press(Qt.Key_Z, Qt.ControlModifier)
+        self.assertEqual(self.js("document.activeElement.value"), "5")
+        self.press(Qt.Key_Escape)
+        self.js("document.getElementById('help-btn').click()")
+        self.press(Qt.Key_Z, Qt.ControlModifier)
+        self.press(Qt.Key_Escape)
+        self.assertEqual(self.sent(), [])
+        self.js("document.querySelector('.tabulator-tableholder').focus()")
+        self.press(Qt.Key_Z, Qt.ControlModifier)
+        self.press(Qt.Key_Y, Qt.ControlModifier)
+        self.assertEqual(self.sent(), [{"action": "metadata_undo"}, {"action": "metadata_redo"}])
+
+    def test_a_header_filter_fills_its_column_as_tabulators_own_did(self):
+        """The page's filter input is styled as Tabulator's input editor styles one,
+        so it fills its column's filter, beside the type badge, without widening it."""
+        self.open(self.TABLE)
+        self.assertEqual(json.loads(self.js("""JSON.stringify(Array.from(
+            document.querySelectorAll('.tabulator-header-filter'), filter => {
+                const input = filter.querySelector('input'), style = getComputedStyle(filter);
+                const box = filter.getBoundingClientRect(), field = input.getBoundingClientRect();
+                const left = box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+                const right = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+                return [input.getAttribute('style'), Math.round(right - field.right),
+                        filter.closest('.metadata-typed-column') ? 0 : Math.round(field.left - left)];
+            }))""")), [["padding: 4px; width: 100%; box-sizing: border-box;", 0, 0]] * 3)
+
+    def test_a_header_filter_waits_for_the_input_method_to_finish_a_word(self):
+        """Tabulator filtered the table on each key's release, those of a word an
+        input method is composing too: a pause in pinyin filtered the table on its
+        Latin letters. The table is filtered on the word chosen."""
+        self.open(self.TABLE)
+        self.js("table.getColumn('2').getElement().querySelector('.tabulator-header-filter input').focus()")
+        QApplication.sendEvent(self.view.focusProxy(), QInputMethodEvent("zh", []))
+        # The release of the composition's last key, as the browser delivers it.
+        self.js("document.activeElement.dispatchEvent(new KeyboardEvent('keyup', {key: 'h', bubbles: true}))")
+        QTest.qWait(600)  # Twice the filter's delay.
+        self.assertEqual(json.loads(self.js("""JSON.stringify([document.activeElement.value,
+            table.getHeaderFilters().length, table.getRows('active').length])""")), ["zh", 0, 2])
+        chosen = QInputMethodEvent("", [])
+        chosen.setCommitString("8")
+        QApplication.sendEvent(self.view.focusProxy(), chosen)
+        self.wait_for("table.getHeaderFilters().length === 1")
+        self.assertEqual(json.loads(self.js("""JSON.stringify([document.activeElement.value,
+            table.getHeaderFilters()[0].value, table.getRows('active').map(row => row.getData().id)])""")),
+                         ["8", "8", [1]])
 
 
 class AgentMessageTests(unittest.TestCase):

@@ -33,6 +33,9 @@ from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin, h
 from tests.esmfold_session_fixture import session_before_the_redesign, write_session_structures
 from tests.translation_fixtures import pseudo_language
 
+from PySide6.QtCore import Qt  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtTest import QTest  # noqa: E402
+
 
 class PageTestCase(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
     """The page over a folder of fixture structures, with the Viewer's side of its conversation."""
@@ -252,11 +255,13 @@ class ShellTests(PageTestCase):
         gone = self.script("""
             return {files: loadedStructures().map(structureFile), rows: document.querySelectorAll('#struct-list .srow').length,
                     toast: document.getElementById('toast').textContent, shown: document.getElementById('toast').classList.contains('show'),
-                    undo: !!document.querySelector('#toast .toast-action')};
+                    undo: !!document.querySelector('#toast .toast-action'), live: document.getElementById('live').textContent};
             """)
         self.assertEqual(gone["files"], ["11.pdb"])
         self.assertEqual(gone["rows"], 1)
         self.assertEqual(gone["toast"], "Removed 22.Undo")
+        # A screen reader hears that the message has an Undo, which is only in the message.
+        self.assertEqual(gone["live"], "Removed 22. Undo is available.")
         self.assertTrue(gone["shown"] and gone["undo"])
         self.script("document.querySelector('#toast .toast-action').click(); return 1")
         self.script("await new Promise(resolve => setTimeout(resolve, 800)); await structureQueue; return 1")
@@ -311,10 +316,10 @@ class ShellTests(PageTestCase):
     def test_the_help_dialog_takes_focus_and_gives_it_back(self):
         self.open_page()
         self.js("document.getElementById('help-btn').focus(); document.getElementById('help-btn').click()")
-        opened = self.script("return {open: document.getElementById('help-modal').classList.contains('open'), focus: document.activeElement.id}")
+        opened = self.script("return {open: document.getElementById('help-modal').open, focus: document.activeElement.id}")
         self.assertEqual(opened, {"open": True, "focus": "help-ok"})
         self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
-        closed = self.script("return {open: document.getElementById('help-modal').classList.contains('open'), focus: document.activeElement.id, adv: document.body.dataset.adv}")
+        closed = self.script("return {open: document.getElementById('help-modal').open, focus: document.activeElement.id, adv: document.body.dataset.adv}")
         self.assertEqual(closed, {"open": False, "focus": "help-btn", "adv": "0"})
 
     def test_the_help_dialog_lists_every_way_to_use_the_canvas_the_page_has(self):
@@ -401,6 +406,165 @@ class ShellTests(PageTestCase):
         self.assertEqual(self.script("return loadedStructures().length"), 2)
         self.script("setConnection('connected'); return 1")
         self.assertFalse(self.js(banner))
+
+
+class DialogTests(PageTestCase):
+    """Help, the question before Clear scene and Save an image are <dialog>s opened with showModal(): the page under one is inert."""
+
+    # (the dialog, what opens it, the control that has the focus then, and the control that opened it)
+    DIALOGS = (
+        ("help-modal", "document.getElementById('help-btn').click()", "help-ok", "help-btn"),
+        ("confirm-modal", "chooseItem('clear')", "confirm-cancel", "session-btn"),
+        ("image-modal", "document.getElementById('t-image').click()", "image-legend", "t-image"),
+    )
+    OPENED = """
+        const dialog = document.getElementById(%s);
+        const focus = document.activeElement.id;
+        // What is under the dialog takes no focus: the header's theme button, the toolbar's Advanced button, the Structures card's heading.
+        const reached = ['theme-toggle-btn', 't-adv', 'h-structures'].filter(id => {
+            document.getElementById(id).focus();
+            return document.activeElement.id === id;
+        });
+        document.getElementById(focus).focus();
+        return {tag: dialog.tagName, open: dialog.open, modal: dialog.matches(':modal'), role: dialog.getAttribute('role'),
+                ariaModal: dialog.hasAttribute('aria-modal'), named: !!document.getElementById(dialog.getAttribute('aria-labelledby')),
+                focus, reached, onTop: document.elementFromPoint(4, 4) === dialog,
+                backdrop: getComputedStyle(dialog, '::backdrop').backgroundColor};
+        """
+    CLOSED = """
+        const dialog = document.getElementById(%s);
+        return {open: dialog.open, modal: dialog.matches(':modal'), focus: document.activeElement.id, question: confirmAction};
+        """
+
+    def test_each_dialog_is_modal_and_escape_or_the_browsers_close_request_closes_it_with_the_focus_back(self):
+        self.open_page()
+        target = self.view.focusProxy() or self.view
+        for dialog, opening, first, opener in self.DIALOGS:
+            for closing in ("Escape", "close request"):
+                with self.subTest(dialog=dialog, closing=closing):
+                    # (Without WebGL the page hides the tools; the toolbar is shown here for its image button.)
+                    self.script("document.body.dataset.view = 'ready'; document.getElementById(%s).focus(); %s; return 1"
+                                % (json.dumps(opener), opening))
+                    opened = self.script(self.OPENED % json.dumps(dialog))
+                    self.assertEqual((opened["tag"], opened["open"], opened["modal"], opened["onTop"]), ("DIALOG", True, True, True))
+                    # The native modal says what it is: no role of "dialog" or aria-modal written over it (the question is an alert dialog).
+                    self.assertEqual((opened["role"], opened["ariaModal"]), ("alertdialog" if dialog == "confirm-modal" else None, False))
+                    self.assertTrue(opened["named"])
+                    self.assertEqual((opened["focus"], opened["reached"]), (first, []))
+                    self.assertNotEqual(opened["backdrop"], "rgba(0, 0, 0, 0)")
+                    if closing == "Escape":
+                        # A real key: the page's own Escape closes the dialog before the browser's would.
+                        QTest.keyClick(target, Qt.Key.Key_Escape)
+                    else:
+                        # The browser's close request (a back gesture, say), which the page does not handle: the dialog's own close.
+                        self.script("document.getElementById(%s).requestClose(); return 1" % json.dumps(dialog))
+                    self.pump(0.3)
+                    closed = self.script(self.CLOSED % json.dumps(dialog))
+                    self.assertEqual(closed, {"open": False, "modal": False, "focus": opener, "question": None})
+        # Nothing else answered the Escapes: no tool, no pin, no Advanced view to leave.
+        self.assertEqual(self.script("return document.body.dataset.adv"), "0")
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_click_beside_the_card_closes_the_help_and_one_on_it_does_not(self):
+        self.open_page()
+        self.js("document.getElementById('help-btn').focus(); document.getElementById('help-btn').click()")
+        self.script("document.querySelector('#help-modal .modal').click(); return 1")
+        self.assertTrue(self.js("document.getElementById('help-modal').open"))
+        self.script("document.getElementById('help-modal').click(); return 1")
+        self.assertEqual(self.script("return {open: document.getElementById('help-modal').open, focus: document.activeElement.id}"),
+                         {"open": False, "focus": "help-btn"})
+
+
+class MessageTests(PageTestCase):
+    """The status line over the canvas: what a screen reader hears of it, how long it stays, and how an error reads in the dark theme."""
+
+    SHOWN = "document.getElementById('toast').classList.contains('show')"
+
+    def test_a_message_with_undo_says_so_and_stays_while_its_button_has_the_focus_or_the_pointer_is_on_it(self):
+        self.open_page()
+        found = self.script("""
+            const toast = document.getElementById('toast'), shown = () => %s;
+            const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+            showStatus('Removed 22.', 500, {label: 'Undo', run: () => {}});
+            const live = document.getElementById('live').textContent;
+            // The focus on its Undo keeps it past its time; when the focus leaves, its time starts again.
+            toast.querySelector('.toast-action').focus();
+            await wait(900);
+            const focused = shown();
+            document.getElementById('help-btn').focus();
+            await wait(250);
+            const leftFocus = shown();
+            await wait(600);
+            const afterFocus = shown();
+            // So does the pointer over it.
+            showStatus('Removed 22.', 500, {label: 'Undo', run: () => {}});
+            toast.dispatchEvent(new PointerEvent('pointerenter'));
+            await wait(900);
+            const hovered = shown();
+            toast.dispatchEvent(new PointerEvent('pointerleave'));
+            await wait(250);
+            const leftPointer = shown();
+            await wait(600);
+            const afterPointer = shown();
+            // A message with no button says its text only, and goes in its time.
+            showStatus('Session saved.', 300);
+            const plain = document.getElementById('live').textContent;
+            await wait(600);
+            return {live, focused, leftFocus, afterFocus, hovered, leftPointer, afterPointer, plain, plainAfter: shown()};
+            """ % self.SHOWN)
+        self.assertEqual(found, {"live": "Removed 22. Undo is available.", "focused": True, "leftFocus": True, "afterFocus": False,
+                                 "hovered": True, "leftPointer": True, "afterPointer": False, "plain": "Session saved.", "plainAfter": False})
+
+    def test_a_message_that_comes_while_a_dialog_is_open_waits_for_it_to_close(self):
+        # The page under a dialog is inert, the toast and the live region with it: a fold that ends while the help is open, say.
+        self.open_page()
+        self.js("document.getElementById('help-btn').focus(); document.getElementById('help-btn').click()")
+        held = self.script("""
+            showStatus('Loading structure 22...', 0);
+            showStatus('Loaded and aligned 22.');
+            return {text: document.getElementById('toast').textContent, live: document.getElementById('live').textContent};""")
+        # (The page's own first message may still be there, from before.)
+        self.assertNotIn("22", held["text"])
+        self.assertNotIn("22", held["live"])
+        self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        self.pump(0.3)
+        # The latest one, once the dialog is closed; the focus is back on the help's button, not on the message.
+        self.assertEqual(self.script("""
+            return {shown: %s, text: document.querySelector('#toast span').textContent, live: document.getElementById('live').textContent,
+                    focus: document.activeElement.id};""" % self.SHOWN),
+            {"shown": True, "text": "Loaded and aligned 22.", "live": "Loaded and aligned 22.", "focus": "help-btn"})
+        # A message of the dialog's own, after it closed (Saved fold-view.png., say), is newer than one held for it, and stays.
+        self.js("document.getElementById('help-btn').click()")
+        self.script("showStatus('Loaded 33.'); closeHelp(); showStatus('Saved fold-view.png.'); return 1")
+        self.pump(0.3)
+        self.assertEqual(self.script("return document.querySelector('#toast span').textContent"), "Saved fold-view.png.")
+
+    def test_an_error_in_the_dark_theme_is_opaque_and_its_text_keeps_its_contrast_over_any_molecule(self):
+        self.open_page()
+        found = self.script("""
+            applyTheme('dark', false);
+            showStatus('Could not do that: no canvas', 0, {error: true});
+            // A computed color as red, green, blue (0 to 1) and alpha: rgb() and rgba() count to 255, color(srgb ...) to 1.
+            const parse = value => {
+                const numbers = value.match(/[0-9.]+/g).map(Number);
+                const scale = value.startsWith('color(') ? 1 : 255;
+                return {rgb: numbers.slice(0, 3).map(n => n / scale), alpha: numbers.length > 3 ? numbers[3] : 1};
+            };
+            const luminance = ({rgb}) => {
+                const [r, g, b] = rgb.map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const style = getComputedStyle(document.getElementById('toast'));
+            const background = parse(style.backgroundColor), text = parse(style.color);
+            const [light, dark] = [luminance(text), luminance(background)].sort((a, b) => b - a);
+            const found = {alpha: background.alpha, contrast: (light + 0.05) / (dark + 0.05), danger: style.color};
+            applyTheme('light', false);
+            return found;
+            """)
+        self.assertEqual(found["alpha"], 1, found)
+        self.assertGreaterEqual(found["contrast"], 4.5, found)
+        # The text is the theme's own red, which the page does not change.
+        self.assertEqual(found["danger"], "rgb(248, 113, 113)")
 
 
 class StartFailureChecks:
@@ -533,9 +697,9 @@ class StartFailureTests(StartFailureChecks, PageTestCase):
         self.js("document.getElementById('theme-toggle-btn').click()")
         self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), "dark")
         self.js("document.getElementById('help-btn').click()")
-        self.assertTrue(self.js("document.getElementById('help-modal').classList.contains('open')"))
+        self.assertTrue(self.js("document.getElementById('help-modal').open"))
         self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
-        self.assertFalse(self.js("document.getElementById('help-modal').classList.contains('open')"))
+        self.assertFalse(self.js("document.getElementById('help-modal').open"))
         # A structure file dropped on the page goes nowhere, and the browser does not open it instead.
         dropped = self.script("""
             const transfer = new DataTransfer();

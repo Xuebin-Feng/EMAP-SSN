@@ -91,13 +91,15 @@ sessionMenu.addEventListener('keydown', event => {
 let confirmOpener = null;
 let confirmAction = null;
 
+// A <dialog> opened with showModal() (see Help in esmfold_shell.js): the page under it is inert until it is answered.
 function askToConfirm(title, message, confirmLabel, action) {
     confirmOpener = document.activeElement;
     confirmAction = action;
     byId('confirm-title').textContent = title;
     byId('confirm-text').textContent = message;
     byId('confirm-ok').textContent = confirmLabel;
-    byId('confirm-modal').classList.add('open');
+    const modal = byId('confirm-modal');
+    if (!modal.open) modal.showModal();
     // The safe answer has the focus.
     byId('confirm-cancel').focus();
 }
@@ -105,13 +107,17 @@ function askToConfirm(title, message, confirmLabel, action) {
 // Closes the dialog if it is open, and says whether it was.
 function closeConfirm() {
     const modal = byId('confirm-modal');
-    if (!modal.classList.contains('open')) return false;
-    modal.classList.remove('open');
+    if (!modal.open) return false;
+    modal.close();
     confirmAction = null;
     if (confirmOpener && confirmOpener.isConnected) confirmOpener.focus();
     return true;
 }
 
+// Closed by the browser itself (its own close request, as a back gesture is), the question goes unanswered all the same.
+byId('confirm-modal').addEventListener('close', () => {
+    if (!byId('confirm-modal').open) confirmAction = null;
+});
 byId('confirm-cancel').addEventListener('click', closeConfirm);
 byId('confirm-modal').addEventListener('click', event => {
     if (event.target.id === 'confirm-modal') closeConfirm();

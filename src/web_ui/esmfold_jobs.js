@@ -138,18 +138,20 @@ function jobRows() {
         const actions = make('div', 'row-actions');
         if (failure.run) {
             // The Viewer opens it in the system's text viewer, from the run's id: a Viewer with no window has none to open it in.
-            const open = make('button', 'btn btn-sm withwindow', t("Open log"));
+            const open = focusable(make('button', 'btn btn-sm withwindow', t("Open log")), 'failure:' + failure.id + ':log');
             open.type = 'button';
             open.addEventListener('click', () => openLog(failure.run));
             actions.append(open);
         }
         if (failure.log) {
-            const copy = make('button', 'btn btn-sm', t("Copy log path"));
+            const copy = focusable(make('button', 'btn btn-sm', t("Copy log path")), 'failure:' + failure.id + ':copy');
             copy.type = 'button';
             copy.addEventListener('click', () => copyText(failure.log));
             actions.append(copy);
         }
-        const dismiss = focusable(make('button', 'btn btn-sm', t("Dismiss")), 'failure:' + failure.id);
+        // Dismissed, the row goes, and the focus with it goes to the next failure's Dismiss, else the one before's, else the card's
+        // heading (renderStructures).
+        const dismiss = focusable(make('button', 'btn btn-sm', t("Dismiss")), 'failure:' + failure.id + ':dismiss');
         dismiss.type = 'button';
         dismiss.addEventListener('click', () => {
             failures = failures.filter(item => item.id !== failure.id);

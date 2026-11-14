@@ -201,6 +201,64 @@ class StructureDetailsTests(StructuresTestCase):
             self.assertEqual(kinds[kind], 1, kind)
         self.assertNotIn("transform-structure-conformation", kinds)
 
+    def test_a_removed_structures_remove_gives_the_focus_to_the_next_rows_then_the_one_before_then_the_heading(self):
+        self.open_with(3)
+        # Where the focus is: the row it is in (counted from 1) and the control it is on, or an element's id.
+        where = """
+            const node = document.activeElement, row = node.closest('#struct-list .srow');
+            return {names: [...document.querySelectorAll('#struct-list .srow-name')].map(name => name.textContent),
+                    row: row ? [...row.parentNode.children].indexOf(row) + 1 : null,
+                    control: node.dataset.focusKey ? node.dataset.focusKey.slice(node.dataset.focusKey.lastIndexOf(':')) : node.id};"""
+        for number, names, focus in ((1, ["22", "33"], (1, ":remove")),  # the first of three: the next row's, now the first
+                                     (2, ["22"], (1, ":remove")),  # the last: the one before's
+                                     (1, [], (None, "h-structures"))):  # the only one: the card's heading
+            with self.subTest(removed=number, left=names):
+                self.script("""
+                    const remove = document.querySelector(%s + ' [data-focus-key$=":remove"]');
+                    remove.focus();
+                    remove.click();
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    return 1;""" % json.dumps(self.row(number)))
+                found = self.script(where)
+                self.assertEqual((found["names"], (found["row"], found["control"])), (names, focus))
+        self.assertEqual(self.console_errors(), [])
+
+    def undo_from_the_message(self):
+        """Press the message's Undo as a person does (the button has the focus), and wait for the scene to come back."""
+        self.script("""
+            const undo = document.querySelector('#toast .toast-action');
+            undo.focus();
+            undo.click();
+            await structureQueue;
+            await new Promise(resolve => setTimeout(resolve, 800));
+            return 1;""")
+        return self.script("""
+            const node = document.activeElement;
+            return {names: [...document.querySelectorAll('#struct-list .srow-name')].map(name => name.textContent),
+                    key: node.dataset.focusKey || node.id, toast: document.getElementById('toast').classList.contains('show')};""")
+
+    def test_undo_from_the_message_gives_the_focus_to_the_structure_it_brought_back_or_to_the_control_that_asked(self):
+        self.open_with(3)
+        # Remove, undone: the focus goes back to the structure's own Remove, in its row again.
+        key = self.script("""
+            const remove = document.querySelector('#struct-list .srow:nth-child(2) [data-focus-key$=":remove"]');
+            remove.focus();
+            remove.click();
+            await new Promise(resolve => setTimeout(resolve, 800));
+            return remove.dataset.focusKey;""")
+        self.assertEqual(self.undo_from_the_message(), {"names": ["11", "22", "33"], "key": key, "toast": False})
+        # Clear scene, undone: the focus goes back to the Session button, whose menu cleared it.
+        self.script("document.getElementById('session-btn').focus(); return 1")
+        self.js("document.getElementById('session-btn').click()")
+        self.click("#session-menu [data-action='clear']", 100)
+        self.click("#confirm-ok", 800)
+        self.assertEqual(self.script("return [loadedStructures().length, document.activeElement.id]"), [0, "session-btn"])
+        self.assertEqual(self.undo_from_the_message(), {"names": ["11", "22", "33"], "key": "session-btn", "toast": False})
+        # A message whose action names nothing and came with the focus nowhere: the Structures card's heading.
+        self.script("document.activeElement.blur(); showStatus('Something happened.', 6000, {label: 'Undo', run: () => {}}); return 1")
+        self.assertEqual(self.undo_from_the_message()["key"], "h-structures")
+        self.assertEqual(self.console_errors(), [])
+
 
 class AlignmentTests(StructuresTestCase):
     def test_a_restored_session_gets_its_alignment_measured(self):
@@ -376,13 +434,13 @@ class SessionMenuTests(StructuresTestCase):
         self.js("document.getElementById('session-btn').click()")
         self.click("#session-menu [data-action='clear']", 100)
         asked = self.script("""
-            return {open: document.getElementById('confirm-modal').classList.contains('open'), focus: document.activeElement.id,
+            return {open: document.getElementById('confirm-modal').open, focus: document.activeElement.id,
                     title: document.getElementById('confirm-title').textContent, ok: document.getElementById('confirm-ok').textContent,
                     n: loadedStructures().length};
             """)
         self.assertEqual(asked, {"open": True, "focus": "confirm-cancel", "title": "Clear the scene?", "ok": "Clear scene", "n": 2})
         self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
-        self.assertEqual(self.script("return {open: document.getElementById('confirm-modal').classList.contains('open'), n: loadedStructures().length, focus: document.activeElement.id}"),
+        self.assertEqual(self.script("return {open: document.getElementById('confirm-modal').open, n: loadedStructures().length, focus: document.activeElement.id}"),
                          {"open": False, "n": 2, "focus": "session-btn"})
         self.js("document.getElementById('session-btn').click()")
         self.click("#session-menu [data-action='clear']", 100)

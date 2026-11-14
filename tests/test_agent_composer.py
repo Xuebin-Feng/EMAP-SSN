@@ -17,7 +17,7 @@ import unittest
 # before Qt WebEngine starts Chromium.
 os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEngineScript
@@ -405,6 +405,154 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(report['keyButton'], 'Hide')
         for glyph in '🤖🌙☀⚙✕×💾✓☰⏳▾▴▶▼':
             self.assertNotIn(glyph, report['text'])
+
+    def press(self, key, modifier=Qt.NoModifier):
+        """A key pressed on the page, delivered as Qt delivers the user's."""
+        QTest.keyClick(self.view.focusProxy(), key, modifier)
+        QTest.qWait(50)
+
+    def active(self):
+        return self.js("document.activeElement.id || document.activeElement.className")
+
+    def keydown(self, target, init, key_code=None):
+        """Dispatch a keydown on target; whether the page let it do what it does by default."""
+        code = f"Object.defineProperty(event, 'keyCode', {{value: {key_code}}});" if key_code else ''
+        return self.js(f"(() => {{ const event = new KeyboardEvent('keydown', {{bubbles: true, cancelable: true, ...{init}}}); {code}"
+                       f" return {target}.dispatchEvent(event); }})()")
+
+    def test_an_enter_that_confirms_an_input_method_candidate_does_not_send(self):
+        field = "document.getElementById('chat-input-field')"
+        self.js(f"{field}.value = 'ni hao'; {field}.focus()")
+        # Pinyin's Enter that confirms a candidate: composing, or keyCode 229 where the
+        # composition ended first (Safari). The IME has it, so the page leaves it be.
+        for init, key_code in (("{key: 'Enter', isComposing: true}", None), ("{key: 'Enter'}", 229)):
+            with self.subTest(init=init, key_code=key_code):
+                self.assertTrue(self.keydown(field, init, key_code))
+                self.assertTrue(self.js('pendingSubmission === null'))
+        # Shift+Enter is a new line, the page's to leave alone too; Enter alone sends.
+        self.assertTrue(self.keydown(field, "{key: 'Enter', shiftKey: true}"))
+        self.assertTrue(self.js('pendingSubmission === null'))
+        self.press(Qt.Key_Return)
+        self.wait_for('pendingSubmission !== null')
+        self.assertEqual(self.js('pendingSubmission.query'), 'ni hao')
+
+    def test_tab_moves_on_from_the_custom_options_field(self):
+        self.js("document.getElementById('models-panel-btn').click(); document.querySelector('.model-card-header').click()")
+        options = "document.querySelector('.card-options')"
+        self.js(f"{options}.value = '{{\"top_p\": 1}}'; {options}.focus()")
+        for init in ("{key: 'Tab'}", "{key: 'Tab', shiftKey: true}"):
+            with self.subTest(init=init):
+                self.assertTrue(self.keydown(options, init))
+        self.press(Qt.Key_Tab)
+        self.assertNotEqual(self.active(), 'card-options')
+        self.js(f"{options}.focus()")
+        self.press(Qt.Key_Backtab, Qt.ShiftModifier)
+        self.assertNotEqual(self.active(), 'card-options')
+        self.assertEqual(self.js(f'{options}.value'), '{"top_p": 1}')
+
+    def test_the_thought_process_is_a_disclosure_the_keyboard_opens(self):
+        self.js("appendAgentMsg('Done', '', null, '', '<b>Because</b>')")
+        state = """JSON.stringify((() => {
+            const box = document.querySelector('.thought-box'), summary = box.querySelector('summary');
+            const content = box.querySelector('.thought-box-content');
+            return {tag: box.localName, first: box.firstElementChild === summary, name: summary.textContent, open: box.open,
+                    shown: content.checkVisibility(), text: content.textContent, bold: content.querySelectorAll('b').length,
+                    chevron: getComputedStyle(summary.querySelector('.thought-box-toggle')).transform};
+        })())"""
+        closed = json.loads(self.js(state))
+        self.assertEqual({key: closed[key] for key in ('tag', 'first', 'name', 'open', 'shown')},
+                         {'tag': 'details', 'first': True, 'name': 'Thought Process', 'open': False, 'shown': False})
+        # The model's text is shown as text.
+        self.assertEqual((closed['text'], closed['bold']), ('<b>Because</b>', 0))
+        self.assertNotEqual(closed['chevron'], 'none')
+        # A summary is in the Tab order, and Enter or Space opens and closes it.
+        self.js("document.querySelector('.thought-box summary').focus()")
+        self.assertEqual(self.active(), 'thought-box-header')
+        self.press(Qt.Key_Return)
+        opened = json.loads(self.js(state))
+        self.assertEqual((opened['open'], opened['shown']), (True, True))
+        self.wait_for("getComputedStyle(document.querySelector('.thought-box-toggle')).transform === 'none'")
+        self.press(Qt.Key_Space)
+        self.assertEqual(json.loads(self.js(state))['open'], False)
+
+    def test_the_closed_models_panel_is_out_of_reach(self):
+        panel = """JSON.stringify((() => {
+            const panel = document.getElementById('models-panel'), button = document.getElementById('models-panel-btn');
+            return {inert: panel.inert, expanded: button.getAttribute('aria-expanded'), controls: button.getAttribute('aria-controls'),
+                    role: panel.getAttribute('role'), name: document.getElementById(panel.getAttribute('aria-labelledby')).textContent.trim(),
+                    active: document.activeElement.id};
+        })())"""
+        closed = json.loads(self.js(panel))
+        self.assertEqual(closed, {'inert': True, 'expanded': 'false', 'controls': 'models-panel', 'role': 'region',
+                                  'name': 'Model Cards', 'active': ''})
+        # Its controls take no focus, so Tab passes them by.
+        self.assertFalse(self.js("document.getElementById('add-card-btn').focus(); document.activeElement.id === 'add-card-btn'"))
+        self.js("document.getElementById('models-panel-btn').focus()")
+        self.press(Qt.Key_Return)
+        opened = json.loads(self.js(panel))
+        self.assertEqual((opened['inert'], opened['expanded'], opened['active']), (False, 'true', 'models-panel-title'))
+        self.press(Qt.Key_Tab)
+        self.assertEqual(self.active(), 'close-panel-btn')
+        self.press(Qt.Key_Return)
+        closed = json.loads(self.js(panel))
+        # Closed from inside, it gives the keyboard back to the button that opens it.
+        self.assertEqual((closed['inert'], closed['expanded'], closed['active']), (True, 'false', 'models-panel-btn'))
+        # So does the Models button, which closes it as well.
+        self.press(Qt.Key_Return)
+        self.assertEqual(self.active(), 'models-panel-title')
+        self.js("document.getElementById('models-panel-btn').click()")
+        self.assertEqual(json.loads(self.js(panel))['active'], 'models-panel-btn')
+        # Closed while the keyboard is elsewhere, it leaves the keyboard there.
+        self.js("document.getElementById('models-panel-btn').click(); document.getElementById('chat-input-field').focus();"
+                "document.getElementById('close-panel-btn').click()")
+        self.assertTrue(json.loads(self.js(panel))['inert'])
+        self.assertEqual(self.active(), 'chat-input-field')
+
+    def test_replies_errors_and_the_connection_are_announced(self):
+        announcer = "document.getElementById('chat-announcer')"
+        region = json.loads(self.js(f"""JSON.stringify({{role: {announcer}.getAttribute('role'), live: {announcer}.getAttribute('aria-live'),
+            width: {announcer}.getBoundingClientRect().width, badge: document.getElementById('connection-status').getAttribute('role')}})"""))
+        self.assertEqual((region['role'], region['live'], region['badge']), ('status', 'polite', 'status'))
+        self.assertLessEqual(region['width'], 1)  # Read, not drawn.
+
+        # The history a page draws as it opens is not announced.
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', "
+                "llm_history:[{role:'user', content:'q'}, {role:'assistant', explanation:'Old answer'}]}})")
+        QTest.qWait(300)
+        self.assertEqual(self.js(f'{announcer}.textContent'), '')
+        # A reply is, in a few words and not read whole.
+        self.js("handleServerEvent({type:'agent_response', explanation:'A long answer'})")
+        self.wait_for(f"{announcer}.textContent === 'Assistant replied'")
+        # An error is an alert, read as it is added.
+        self.js("handleServerEvent({type:'agent_error', error:'The server refused.'})")
+        self.assertEqual(self.js("document.querySelector('#chat-log .msg-error').getAttribute('role')"), 'alert')
+
+        # The badge says what changed, once: a retry that fails again does not repeat it.
+        self.js("eventSource.onopen()")
+        self.assertEqual(self.js("document.getElementById('connection-status').textContent"), 'Connected')
+        self.js("eventSource.onerror(); window.badgeText = document.getElementById('connection-status').firstChild; eventSource.onerror()")
+        self.assertTrue(self.js("document.getElementById('connection-status').firstChild === window.badgeText"))
+        self.assertEqual(self.js("document.getElementById('connection-status').textContent"), 'Reconnecting...')
+
+    def test_the_token_count_is_legible_in_either_theme(self):
+        self.js("appendAgentMsg('Done', '', {total: 12, prompt: 10, completion: 2}, '', '')")
+        # The contrast of its text with its own background, by WCAG's relative luminance.
+        contrast = """(() => {
+            const info = document.querySelector('.token-info');
+            const luminance = colour => {
+                const [r, g, b] = colour.match(/\\d+/g).slice(0, 3).map(value => {
+                    const channel = value / 255;
+                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+                });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const [text, back] = [getComputedStyle(info).color, getComputedStyle(info).backgroundColor].map(luminance);
+            return (Math.max(text, back) + 0.05) / (Math.min(text, back) + 0.05);
+        })()"""
+        for theme in ('light', 'dark'):
+            with self.subTest(theme=theme):
+                self.js(f"document.documentElement.dataset.theme = '{theme}'")
+                self.assertGreaterEqual(self.js(contrast), 4.5)
 
 
 class ModelCardFixtureHandler(FixtureHandler):

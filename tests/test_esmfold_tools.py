@@ -174,7 +174,7 @@ class ImageDialogTests(ToolTestCase):
         self.script("document.body.dataset.view = 'ready'; document.getElementById('t-image').focus(); return 1")
         self.click("#t-image", 200)
         opened = self.script("""
-            return {open: document.getElementById('image-modal').classList.contains('open'), focus: document.activeElement.id,
+            return {open: document.getElementById('image-modal').open, focus: document.activeElement.id,
                     legend: document.getElementById('image-legend').checked, transparent: document.getElementById('image-transparent').checked,
                     size: document.getElementById('image-size').value,
                     sizes: [...document.getElementById('image-size').options].map(o => [o.value, o.textContent]),
@@ -186,21 +186,39 @@ class ImageDialogTests(ToolTestCase):
         self.assertEqual(opened["sizes"], [["1", "Window size"], ["2", "Twice the window size"], ["4", "Four times the window size"]])
         self.assertEqual(opened["title"], "Save an image")
         self.escape()
-        closed = self.script("return {open: document.getElementById('image-modal').classList.contains('open'), focus: document.activeElement.id}")
+        closed = self.script("return {open: document.getElementById('image-modal').open, focus: document.activeElement.id}")
         self.assertEqual(closed, {"open": False, "focus": "t-image"})
         self.click("#t-image", 200)
         self.click("#image-cancel", 200)
-        self.assertFalse(self.script("return document.getElementById('image-modal').classList.contains('open')"))
+        self.assertFalse(self.script("return document.getElementById('image-modal').open"))
         self.click("#t-image", 200)
         self.script("document.getElementById('image-modal').click(); return 1")
-        self.assertFalse(self.script("return document.getElementById('image-modal').classList.contains('open')"))
+        self.assertFalse(self.script("return document.getElementById('image-modal').open"))
 
-    def test_with_no_canvas_saving_says_it_could_not(self):
+    def test_with_no_canvas_saving_says_it_could_not_in_the_dialog_which_stays_open(self):
         self.two()
+        self.script("document.body.dataset.view = 'ready'; document.getElementById('t-image').focus(); return 1")
         self.click("#t-image", 200)
+        self.script("document.getElementById('image-save').focus(); return 1")
         self.click("#image-save", 800)
-        self.assertTrue(self.toast_text().startswith("Could not do that: "), self.toast_text())
-        self.assertFalse(self.script("return document.getElementById('image-save').disabled"))
+        # A message over the canvas would be under the dialog's backdrop: the failure is said in the dialog, by the button it describes.
+        found = self.script("""
+            const error = document.getElementById('image-error'), save = document.getElementById('image-save');
+            return {open: document.getElementById('image-modal').open, text: error.textContent, role: error.getAttribute('role'),
+                    shown: getComputedStyle(error).display !== 'none', describes: save.getAttribute('aria-describedby'),
+                    disabled: save.disabled, focus: document.activeElement.id, toast: document.getElementById('toast').classList.contains('show')
+                        && document.getElementById('toast').textContent.includes('Could not do that')};""")
+        self.assertTrue(found["text"].startswith("Could not do that: "), found["text"])
+        self.assertEqual({key: found[key] for key in ("open", "role", "shown", "describes", "disabled", "focus", "toast")},
+                         {"open": True, "role": "alert", "shown": True, "describes": "image-error", "disabled": False,
+                          "focus": "image-save", "toast": False})
+        # Closed and opened again, the dialog starts with no message.
+        self.escape()
+        self.assertEqual(self.script("return document.activeElement.id"), "t-image")
+        self.click("#t-image", 200)
+        self.assertEqual(self.script("""
+            const error = document.getElementById('image-error');
+            return [error.textContent, getComputedStyle(error).display];"""), ["", "none"])
 
 
 if __name__ == "__main__":

@@ -708,6 +708,88 @@ class RightClickTests(SelectionCase):
             self.assertIn("Right-click or right-drag: select in the network.", self.state("TreeView.hintText()"))
 
 
+class KeyboardSelectionTests(SelectionCase):
+    """S selects the pinned node's clade in the network as a right-click on it does (Shift toggles it), and with nothing
+    pinned clears the selection as a right-click on empty canvas does; the pin stays. A leaf the keys pin is focused in the
+    network as a clicked one is, once the keys stop."""
+
+    RIGHT = RightClickTests.RIGHT
+    start_right = RightClickTests.start_right
+    right = RightClickTests.right
+    under = RightClickTests.under
+    internal = RightClickTests.internal
+
+    def press(self, key, shift=False, expect=1):
+        """Press ``key`` on the drawing; wait until the Viewer has run ``expect`` more actions."""
+        before = len(self.viewer.action_results)
+        self.script(f"fire.key({json.dumps(key)}, {{shiftKey: {json.dumps(shift)}}}); return 1")
+        deadline = time.monotonic() + 10
+        while len(self.viewer.action_results) < before + expect and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.pump(0.1)
+        self.assertEqual(len(self.viewer.action_results), before + expect)
+
+    def test_s_selects_the_pinned_clade_as_a_right_click_does_and_keeps_the_pin(self):
+        self.start_right()
+        self.choose("rectangular")
+        clade = self.state(f"(() => {{ const [x, y] = window.stem({self.internal()}); return TreeView.hitTest(x, y).node; }})()")
+        self.assertGreater(self.state(f"TreeView.state.model.childCount[{clade}]"), 0)
+        self.right(f"window.stem({clade})")
+        clicked = self.state("window.__bodies.at(-1)")
+        self.assertEqual(sorted(self.viewer.selected_indices), self.under(clade))
+        self.select([])
+        self.script(f"TreeView.state.pinned = {clade}; window.__bodies.length = 0; return 1")
+        self.press("s")
+        self.assertEqual(self.state("window.__bodies"), [clicked])
+        self.assertEqual(sorted(self.viewer.selected_indices), self.under(clade))
+        self.assertEqual(self.state("TreeView.state.pinned"), clade)
+        # Shift toggles the pinned node's nodes, as Shift and a right-click do.
+        leaf = 30
+        self.script(f"TreeView.state.pinned = TreeView.state.model.leafNode[{leaf}]; return 1")
+        self.press("S", shift=True)
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(set(self.under(clade)) ^ set(self.nodes_of([leaf]))))
+        self.assertEqual(self.state("window.__bodies.at(-1)"), {"action": "tree_select", "indices": self.nodes_of([leaf]), "mode": "toggle"})
+        # Nothing pinned: S clears the selection, and Shift+S changes nothing.
+        self.script("fire.key('Escape'); return 1")
+        self.press("S", shift=True, expect=0)
+        self.assertNotEqual(self.viewer.selected_indices, [])
+        self.press("s")
+        self.assertEqual(self.viewer.selected_indices, [])
+        self.assertEqual(self.state("window.__bodies.at(-1)"), {"action": "tree_select", "indices": [], "mode": "replace"})
+        # Only selections were asked for.
+        self.assertEqual({name for name, _ in self.viewer.action_results}, {"tree_select"})
+
+    def test_a_leaf_the_keys_pin_is_focused_in_the_network_once_the_keys_stop(self):
+        self.start_right()
+        self.choose("rectangular")
+        # A leaf that is not the first leaf of its grandparent, so that a walk up two and down to the first leaf ends elsewhere.
+        start, end = self.state("""(() => { const m = TreeView.state.model;
+            for (let k = 0; k < m.leafCount; k++) {
+                const up = m.parent[m.parent[m.leafNode[k]]];
+                if (up >= 0 && m.firstLeaf[up] !== k) return [k, m.firstLeaf[up]];
+            }
+            return null; })()""")
+        self.script(f"TreeView.runSearch({json.dumps(chr(34))} + TreeView.state.model.labels[{start}] + {json.dumps(chr(34))}); TreeView.stepMatch(1); return 1")
+        # Asked a moment after the key, not at once.
+        self.assertEqual(self.script("window.__bodies.length = 0; fire.key('Enter'); return window.__bodies"), [])
+        deadline = time.monotonic() + 10
+        while self.viewer.selected_node_idx is None and time.monotonic() < deadline:
+            self.pump(0.02)
+        self.assertEqual(self.viewer.selected_node_idx, self.nodes_of([start])[0])
+        self.wait_for(f"TreeView.state.selection.focus === {start}")
+        # A walk through clades to another leaf asks once, for the leaf it stops at.
+        asked = self.script("""window.__bodies.length = 0;
+            fire.key('ArrowLeft', {ctrlKey: true}); fire.key('ArrowLeft', {ctrlKey: true});
+            for (let n = 0; n < 40 && TreeView.state.model.childCount[TreeView.state.pinned] > 0; n++) fire.key('ArrowRight', {ctrlKey: true});
+            return window.__bodies.length""")
+        self.assertEqual(asked, 0)
+        self.assertEqual(self.state("TreeView.state.pinned"), self.state(f"TreeView.state.model.leafNode[{end}]"))
+        self.wait_for(f"TreeView.state.selection.focus === {end}")
+        self.pump(0.3)
+        self.assertEqual(self.state("window.__bodies"), [{"action": "tree_focus", "index": self.nodes_of([end])[0]}])
+        self.assertEqual(self.viewer.selected_node_idx, self.nodes_of([end])[0])
+
+
 class BoxSelectionTests(SelectionCase):
     """Dragging with the right button draws a box that selects the leaves whose tips are in it, as the Viewer's does."""
 

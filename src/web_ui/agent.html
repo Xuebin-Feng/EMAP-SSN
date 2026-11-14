@@ -493,6 +493,12 @@
             gap: 14px;
         }
 
+        /* What screen readers are told of the conversation (#chat-announcer), never drawn. */
+        .visually-hidden {
+            position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+            overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+        }
+
         .msg-wrapper { display: flex; width: 100%; animation: fadeInUp 0.18s ease-out; }
         @keyframes fadeInUp { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 
@@ -694,6 +700,7 @@
             width: 100%;
             overflow: hidden;
         }
+        /* A <details>: its <summary> is the header, and the chevron stands for the browser's marker. */
         .thought-box-header {
             display: flex;
             justify-content: space-between;
@@ -706,22 +713,27 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
             user-select: none;
+            list-style: none;
+            border-radius: calc(var(--radius) - 1px);
             transition: background-color 0.15s;
         }
+        .thought-box-header::-webkit-details-marker { display: none; }
+        .thought-box[open] .thought-box-header { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
         .thought-box-header:hover {
             background: var(--bg-muted);
         }
+        /* Inside the box, which clips anything drawn outside it. */
+        .thought-box-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .thought-box-toggle {
             display: inline-flex;
             transform: rotate(-90deg);
             transition: transform 0.2s ease;
         }
         .thought-box-toggle .icon { width: 14px; height: 14px; }
-        .thought-box.expanded .thought-box-toggle {
+        .thought-box[open] .thought-box-toggle {
             transform: none;
         }
         .thought-box-content {
-            display: none;
             padding: 16px 14px; /* Increased top/bottom padding */
             border-top: 1px solid var(--code-border);
             font-family: var(--font-mono);
@@ -731,12 +743,9 @@
             word-wrap: break-word;
             line-height: 1.5;
         }
-        .thought-box.expanded .thought-box-content {
-            display: block;
-        }
 
         .token-info {
-            font-size: 11px; color: var(--text-subtle);
+            font-size: 11px; color: var(--text-secondary);
             margin-top: 8px; display: inline-block;
             background: var(--bg-muted);
             padding: 2px 8px; border-radius: 6px;
@@ -807,6 +816,8 @@
 
         .panel-title { display: inline-flex; align-items: center; gap: 8px; }
         .panel-title .icon { color: var(--text-secondary); }
+        /* The panel's title takes the focus when it opens. */
+        .panel-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
         .cards-list {
             flex: 1;
@@ -1045,7 +1056,7 @@
         <h1><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>EMAP-SSN Agent (Beta)</span></h1>
         <div class="header-actions">
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
-            <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
+            <div id="connection-status" class="status-badge" role="status" data-i18n>Connecting...</div>
         </div>
     </header>
 
@@ -1062,11 +1073,12 @@
                         <span class="ios-toggle-track"><span class="ios-toggle-thumb"></span></span>
                     </label>
                     <select id="model-selector" title="Select model card"></select>
-                    <button class="btn" id="models-panel-btn" title="Manage model cards"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Models</span></button>
+                    <button class="btn" id="models-panel-btn" title="Manage model cards" aria-expanded="false" aria-controls="models-panel"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Models</span></button>
                     <button class="btn btn-ghost btn-icon" id="clear-chat-btn" aria-label="Clear Chat" title="Clear Chat"><svg class="icon" aria-hidden="true"><use href="#i-brush-cleaning"/></svg></button>
                 </div>
             </div>
             <div id="chat-log"></div>
+            <div id="chat-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
           </div>
             <div id="chat-composer">
               <div id="attachment-tray" aria-label="Pending image attachments"></div>
@@ -1080,10 +1092,11 @@
             </div>
         </div>
 
-        <!-- Right panel: Model Cards Manager -->
-        <div id="models-panel" class="models-panel">
+        <!-- Right panel: Model Cards Manager. Closed, it is inert, so its
+             controls are out of the Tab order and hidden from screen readers. -->
+        <div id="models-panel" class="models-panel" role="region" aria-labelledby="models-panel-title" inert>
             <div class="panel-header">
-                <span class="panel-title"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></span>
+                <span class="panel-title" id="models-panel-title" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></span>
                 <button id="close-panel-btn" class="btn btn-ghost btn-icon" title="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div id="cards-list" class="cards-list">
@@ -1525,17 +1538,6 @@
                     }
                 }
             });
-            optArea.addEventListener("keydown", (e) => {
-                if (e.key === "Tab") {
-                    e.preventDefault();
-                    const start = optArea.selectionStart;
-                    const end = optArea.selectionEnd;
-                    const val = optArea.value;
-                    optArea.value = val.substring(0, start) + "  " + val.substring(end);
-                    optArea.selectionStart = optArea.selectionEnd = start + 2;
-                    optArea.dispatchEvent(new Event("input"));
-                }
-            });
             optDiv.appendChild(optLbl);
             optDiv.appendChild(optArea);
             body.appendChild(optDiv);
@@ -1640,6 +1642,9 @@
             sendBtn.addEventListener("click", sendAgentQuery);
             inputField.addEventListener("keydown", (e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
+                    // An Enter that confirms an input method's candidate (pinyin, kana) is the IME's, not a
+                    // send; keyCode 229 catches it where the composition has already ended (Safari).
+                    if (e.isComposing || e.keyCode === 229) return;
                     e.preventDefault();
                     sendAgentQuery();
                 }
@@ -1685,16 +1690,29 @@
             });
 
             panelBtn.addEventListener("click", () => {
-                document.getElementById("models-panel").classList.toggle("open");
+                setModelsPanelOpen(!document.getElementById("models-panel").classList.contains("open"));
             });
 
-            closeBtn.addEventListener("click", () => {
-                document.getElementById("models-panel").classList.remove("open");
-            });
+            closeBtn.addEventListener("click", () => setModelsPanelOpen(false));
 
             addCardBtn.addEventListener("click", addCard);
 
             saveCardsBtn.addEventListener("click", () => saveModelCards(true));
+        }
+
+        // The closed panel is only narrowed to nothing, so it is made inert as well. Opening it
+        // takes the keyboard to its title; closing it gives the keyboard back to the Models button.
+        function setModelsPanelOpen(open) {
+            const panel = document.getElementById("models-panel");
+            const panelBtn = document.getElementById("models-panel-btn");
+            // Read before inert takes the focus away from a control in the panel.
+            const focusInPanel = panel.contains(document.activeElement);
+            panel.classList.toggle("open", open);
+            panel.inert = !open;
+            panelBtn.setAttribute("aria-expanded", String(open));
+            // Without preventScroll, the panel, still narrow, would be scrolled to show its title.
+            if (open) document.getElementById("models-panel-title").focus({ preventScroll: true });
+            else if (focusInPanel) panelBtn.focus();
         }
 
         // ─── SSE ──────────────────────────────────────────────────────────────────
@@ -1702,14 +1720,15 @@
             const statusBadge = document.getElementById("connection-status");
             eventSource = new EventSource("/api/events?client=agent");
 
-            eventSource.onopen = () => {
-                statusBadge.innerText = t("Connected");
-                statusBadge.dataset.state = "connected";
+            // The badge is a status region: a state set again, as each failed retry
+            // sets "reconnecting", is not read out again.
+            const setState = (state, text) => {
+                if (statusBadge.dataset.state === state) return;
+                statusBadge.textContent = text;
+                statusBadge.dataset.state = state;
             };
-            eventSource.onerror = () => {
-                statusBadge.innerText = t("Reconnecting...");
-                statusBadge.dataset.state = "reconnecting";
-            };
+            eventSource.onopen = () => setState("connected", t("Connected"));
+            eventSource.onerror = () => setState("reconnecting", t("Reconnecting..."));
             eventSource.onmessage = (event) => handleServerEvent(JSON.parse(event.data));
         }
 
@@ -1982,6 +2001,7 @@
                     setTurnActive(false);
                     appendAgentMsg(event.explanation, event.commands, event.tokens, event.terminal_output, event.reasoning);
                     enableInput(true);
+                    announce(t("Assistant replied"));
                     break;
                 case "agent_error":
                     if (!finishSubmission(event, true)) break;
@@ -2185,25 +2205,21 @@
             wrapper.appendChild(hdr);
 
             if (reasoning) {
-                const thoughtBox = document.createElement("div");
+                // A native disclosure: its summary is a control the keyboard reaches and
+                // opens, and says whether it is open.
+                const thoughtBox = document.createElement("details");
                 thoughtBox.className = "thought-box";
-                
-                const thoughtHdr = document.createElement("div");
+
+                const thoughtHdr = document.createElement("summary");
                 thoughtHdr.className = "thought-box-header";
                 thoughtHdr.innerHTML = `<span>${escapeHtml(t("Thought Process"))}</span><span class="thought-box-toggle"></span>`;
                 thoughtHdr.querySelector(".thought-box-toggle").appendChild(icon("chevron-down"));
-                
+
                 const thoughtContent = document.createElement("div");
                 thoughtContent.className = "thought-box-content";
                 thoughtContent.textContent = reasoning;
-                
-                thoughtBox.appendChild(thoughtHdr);
-                thoughtBox.appendChild(thoughtContent);
-                
-                thoughtHdr.addEventListener("click", () => {
-                    thoughtBox.classList.toggle("expanded");
-                });
-                
+
+                thoughtBox.append(thoughtHdr, thoughtContent);
                 wrapper.appendChild(thoughtBox);
             }
 
@@ -2267,9 +2283,23 @@
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-error";
-            wrapper.innerHTML = `<div class="msg msg-error">${t("<b>Error:</b> {error}", {error: escapeHtml(err)})}</div>`;
+            // An alert is read out as it is added. Errors are not part of the history a
+            // page redraws as it opens or reconnects, so no backlog of them is read.
+            wrapper.innerHTML = `<div class="msg msg-error" role="alert">${t("<b>Error:</b> {error}", {error: escapeHtml(err)})}</div>`;
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        // The page's one polite announcer: a short note that something arrived, never the
+        // reply itself, which a screen reader finds in the log. Cleared first and filled a
+        // moment later, so the same note twice running is read twice, and after the focus
+        // has gone back to the message box.
+        let announceTimer = null;
+        function announce(message) {
+            const announcer = document.getElementById("chat-announcer");
+            announcer.textContent = "";
+            clearTimeout(announceTimer);
+            announceTimer = setTimeout(() => { announcer.textContent = message; }, 150);
         }
 
         function renderHistory(history) {

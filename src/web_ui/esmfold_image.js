@@ -13,17 +13,20 @@
 
 let imageOpener = null;
 
+// A <dialog> opened with showModal() (see Help in esmfold_shell.js): the page under it is inert while it is open.
 function openImageDialog() {
     imageOpener = document.activeElement;
-    byId('image-modal').classList.add('open');
+    byId('image-error').textContent = '';
+    const modal = byId('image-modal');
+    if (!modal.open) modal.showModal();
     byId('image-legend').focus();
 }
 
 // Closes the dialog if it is open, and says whether it was.
 function closeImage() {
     const modal = byId('image-modal');
-    if (!modal.classList.contains('open')) return false;
-    modal.classList.remove('open');
+    if (!modal.open) return false;
+    modal.close();
     if (imageOpener && imageOpener.isConnected) imageOpener.focus();
     return true;
 }
@@ -168,11 +171,20 @@ byId('image-modal').addEventListener('click', event => {
 });
 byId('image-save').addEventListener('click', () => {
     const button = byId('image-save');
+    const error = byId('image-error');
+    error.textContent = '';
     button.disabled = true;
     saveImage().then(() => {
         closeImage();
         showStatus(t("Saved fold-view.png."));
-    }).catch(err => reportFailure("Could not save the image:", err)).finally(() => {
+    }).catch(err => {
+        // Said in the dialog (an alert, and the Save button's description), which stays open for another try: a smaller size, say.
+        console.warn("Could not save the image:", err);
+        error.textContent = failureText(err);
+    }).finally(() => {
         button.disabled = false;
+        // A button that was disabled may have lost the focus: it takes it back while the dialog is open, unless another of its controls has it.
+        const card = byId('image-modal').querySelector('.modal');
+        if (byId('image-modal').open && !card.contains(document.activeElement)) button.focus();
     });
 });

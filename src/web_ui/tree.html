@@ -236,7 +236,8 @@
         }
         .search input:hover { border-color: var(--field-border-hover); }
         .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        .search input::placeholder { color: var(--text-disabled); }
+        /* A placeholder is text to read, so it is drawn in the subtle text colour (4.5:1), not the disabled one. */
+        .search input::placeholder { color: var(--text-subtle); }
         .search input:disabled { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
         .search input:disabled:hover { border-color: var(--field-border); }
         .search .clear { position: absolute; right: 2px; width: 26px; height: 26px; border: none; background: transparent; color: var(--text-subtle); border-radius: 6px; cursor: pointer; display: none; align-items: center; justify-content: center; }
@@ -303,6 +304,9 @@
         .stage canvas.dragging { cursor: grabbing; }
         .stage canvas.pointing { cursor: pointer; }
         .stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+        /* Read out, not shown: what the keys do on the drawing, which describes the canvas. */
+        .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
         /* The legend of the colours, at the other corner */
         .legend {
@@ -670,7 +674,10 @@
     </div>
 
     <main class="stage" id="stage">
-        <canvas id="tree-canvas" tabindex="0" role="img" aria-label="Tree beside the network"></canvas>
+        <!-- The drawing answers keys of its own (tree_nav.js), so it is an application to a screen reader, which passes the keys
+             on; what they do is its description, which the page writes (TreeView.keyText). -->
+        <canvas id="tree-canvas" tabindex="0" role="application" aria-label="Tree beside the network" aria-describedby="tree-keys"></canvas>
+        <p class="sr-only" id="tree-keys"></p>
         <canvas class="minimap" id="minimap" hidden title="The whole tree. Press or drag to move there." aria-label="Overview of the whole tree"></canvas>
         <aside class="legend" id="legend" aria-label="The colours of the network">
             <button class="legend-head" id="legend-toggle" aria-expanded="true" title="Show or hide the list of colours"><span data-i18n>Colours</span><svg class="icon" id="legend-icon" aria-hidden="true"><use href="#i-chevron-up"/></svg></button>
@@ -707,7 +714,8 @@
     </main>
 
     <div class="statusbar">
-        <span id="summary"></span>
+        <!-- What is pinned, or the counts: said when it changes, as a key or a click pins another node. -->
+        <span id="summary" aria-live="polite" aria-atomic="true"></span>
         <span id="hints"></span>
     </div>
 

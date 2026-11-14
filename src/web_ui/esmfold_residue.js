@@ -314,7 +314,10 @@ async function renderResidueCard() {
     if (!residue || !structureByRef(residue.ref)) {
         if (pinnedResidue && !structureByRef(pinnedResidue.ref)) pinnedResidue = null;
         const hint = make('div', 'hint', t("Hover a residue to see its values here. Click it to pin it; Escape clears the pin."));
+        // The card's buttons go with the residue (its Clear, pressed): the focus goes to the card's heading.
+        const place = focusPlace(body);
         body.replaceChildren(hint);
+        restoreFocus(body, place, byId('h-residue'));
         refreshSequenceMarks();
         refreshTools();
         return;
@@ -367,18 +370,21 @@ async function renderResidueCard() {
         parts.push(caution);
     }
     const foot = make('div', 'res-foot');
-    const zoom = make('button', 'btn btn-sm', t("Zoom to"));
+    const zoom = focusable(make('button', 'btn btn-sm', t("Zoom to")), 'residue:zoom');
     zoom.type = 'button';
     zoom.addEventListener('click', () => zoomToResidue(residue));
     foot.append(zoom);
     if (pinnedResidue) {
-        const clear = make('button', 'btn btn-sm', t("Clear"));
+        const clear = focusable(make('button', 'btn btn-sm', t("Clear")), 'residue:clear');
         clear.type = 'button';
         clear.addEventListener('click', clearPin);
         foot.append(clear);
     }
     parts.push(foot);
+    // The card is drawn again whenever the structures are: the focus stays on the button it was on, or goes to the heading if that went.
+    const place = focusPlace(body);
     body.replaceChildren(...parts);
+    restoreFocus(body, place, byId('h-residue'));
     refreshSequenceMarks();
     refreshTools();
 }

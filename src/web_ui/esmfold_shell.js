@@ -65,32 +65,141 @@ function iconButton(label, drawing, onClick, className = '') {
 }
 
 // ---- Messages: a toast over the canvas, and a polite live region -----------
+// A message goes a while after it is shown (its duration), but not while the pointer is over it or the focus is in it (on its Undo, say):
+// its time starts again once both have left it. A person reading it, or about to press its button, keeps it.
 let toastTimer = null;
+let toastDuration = 0;
+let toastHovered = false;
+let toastFocused = false;
 
 function hideStatus() {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+    // Nothing holds a message that is not shown (the next one starts afresh).
+    toastHovered = false;
+    toastFocused = false;
     byId('toast').classList.remove('show');
 }
 
-// `duration` 0 keeps the message until the next one. `options`: {error, label, run}, an action button.
-function showStatus(text, duration = 3000, options = {}) {
-    const toast = byId('toast');
+function startToastTimer() {
     clearTimeout(toastTimer);
+    toastTimer = null;
+    if (toastDuration > 0 && !toastHovered && !toastFocused && byId('toast').classList.contains('show')) {
+        toastTimer = setTimeout(hideStatus, toastDuration);
+    }
+}
+
+// While a dialog is open the page under it is inert, the toast and the live region with it: a message would be under the dialog's backdrop
+// and unheard. It waits for the dialog to close (the latest one only, as the toast shows only the latest), and is shown and said then.
+let heldStatus = null;
+
+// `duration` 0 keeps the message until the next one. `options`: {error, label, run, focus}, an action button: `run` does it (and may return
+// a promise of its end), and `focus` names the control that takes the focus once it is done (see focusAfterAction).
+function showStatus(text, duration = 3000, options = {}) {
+    if (document.querySelector('dialog[open]')) {
+        heldStatus = [text, duration, options];
+        return;
+    }
+    // (A message held for a dialog is older than this one.)
+    heldStatus = null;
+    const toast = byId('toast');
     toast.className = 'toast show' + (options.error ? ' error' : '');
     const symbol = icon("info");
     setIcon(symbol, options.error ? "triangle-alert" : "info");
     const message = make('span', undefined, text);
     toast.replaceChildren(symbol, message);
+    // (The focus was on the message before, if it was in the toast at all.)
+    toastFocused = false;
     if (options.run) {
+        // What had the focus as the message came: the control whose doing it reports (the Session button, for Clear scene).
+        const origin = document.activeElement;
         const action = make('button', 'toast-action', options.label);
         action.type = 'button';
         action.addEventListener('click', () => {
+            const focused = toast.contains(document.activeElement);
             hideStatus();
-            options.run();
+            const done = Promise.resolve(options.run());
+            if (focused) done.then(() => focusAfterAction(options.focus, origin));
         });
         toast.append(action);
     }
-    byId('live').textContent = text;
-    if (duration > 0) toastTimer = setTimeout(hideStatus, duration);
+    // A screen reader is told the message's text and that its button is there (it is in the message, which goes after a while).
+    byId('live').textContent = options.run ? text + ' ' + t("{action} is available.", {action: options.label}) : text;
+    toastDuration = duration;
+    startToastTimer();
+}
+
+for (const dialog of document.querySelectorAll('dialog')) {
+    dialog.addEventListener('close', () => {
+        if (!heldStatus || document.querySelector('dialog[open]')) return;
+        const [text, duration, options] = heldStatus;
+        heldStatus = null;
+        showStatus(text, duration, options);
+    });
+}
+
+// A message's button goes with the message, and the focus it had would drop to the page. Once its action is done (an Undo, which brings a
+// structure back), the focus goes to the control the action names (`choose`: the structure's own Remove, back in its row), else to what had
+// it when the message came (`origin`), else to the Structures card's heading: unless the person has gone on to something else meanwhile.
+function focusAfterAction(choose, origin) {
+    const now = document.activeElement;
+    if (now && now !== document.body && !byId('toast').contains(now)) return;
+    for (const target of [choose?.(), origin, byId('h-structures')]) {
+        if (!target || !target.isConnected || target === document.body || byId('toast').contains(target)) continue;
+        target.focus();
+        if (document.activeElement === target) return;
+    }
+}
+
+byId('toast').addEventListener('pointerenter', () => {
+    toastHovered = true;
+    clearTimeout(toastTimer);
+});
+byId('toast').addEventListener('pointerleave', () => {
+    toastHovered = false;
+    startToastTimer();
+});
+byId('toast').addEventListener('focusin', () => {
+    toastFocused = true;
+    clearTimeout(toastTimer);
+});
+byId('toast').addEventListener('focusout', event => {
+    if (byId('toast').contains(event.relatedTarget)) return;
+    toastFocused = false;
+    startToastTimer();
+});
+
+// ---- The focus, when a part of the page is drawn again ------------------------------------------------------
+// A list or a card drawn again gives the focus back to the control that had it, found by the key the control carries (data-focus-key,
+// focusable() in esmfold_structures.js). A control that went with what it acted on (a structure's Remove, a failure's Dismiss, the pin's
+// Clear) has nothing to go back to: the focus goes to the same control of the row that took its place, else of the row before it, else to
+// the card's heading, so that it stays where the person was and never drops to the page.
+function focusPlace(container) {
+    const node = document.activeElement;
+    if (!node || node === document.body || !container.contains(node)) return null;
+    const row = node.closest('.srow');
+    return { key: node.dataset.focusKey || null, row: row ? [...container.querySelectorAll('.srow')].indexOf(row) : -1 };
+}
+
+function keyedControl(container, key) {
+    return container.querySelector('[data-focus-key="' + key.replace(/["\\]/g, '\\$&') + '"]');
+}
+
+// `place` is what focusPlace(container) said before the container was drawn again; `heading` takes the focus when nothing else can.
+function restoreFocus(container, place, heading) {
+    if (!place || container.contains(document.activeElement)) return;
+    let target = place.key ? keyedControl(container, place.key) : null;
+    // The same control of another row is the one whose key ends as this one's does (":remove", ":dismiss").
+    const action = place.key && place.key.includes(':') ? place.key.slice(place.key.lastIndexOf(':')) : null;
+    if (!target && action && place.row >= 0) {
+        const rows = [...container.querySelectorAll('.srow')];
+        for (const row of [rows[place.row], rows[place.row - 1]]) {
+            target = row ? [...row.querySelectorAll('[data-focus-key]')].find(node => node.dataset.focusKey.endsWith(action)) : null;
+            if (target) break;
+        }
+    }
+    target?.focus();
+    if (!target || document.activeElement !== target) heading?.focus();
 }
 
 // ---- Connection to the Viewer --------------------------------------------
@@ -491,10 +600,26 @@ byId('t-adv').addEventListener('click', () => setAdvanced(document.body.dataset.
 byId('adv-back').addEventListener('click', () => setAdvanced(false));
 
 // ---- The panel: beside the canvas, a drawer on a narrow window, a strip on a phone ----
+// The drawer (a window of 701 to 1040 px, the one layout that shows the Scene button, #panel-toggle) lies over the canvas. Closed, it is
+// out of sight, and inert, so that Tab and a screen reader pass it by; open, it covers the toolbar over the canvas, which is inert while
+// it does. Beside the canvas and in a phone's strip the panel is always in view, and nothing is inert. Which layout it is follows the
+// page's width (esmfold.html's container queries), so this is worked out again whenever that changes.
+function panelIsDrawer() {
+    return getComputedStyle(byId('panel-toggle')).display !== 'none';
+}
+
+function syncPanelInert() {
+    const drawer = panelIsDrawer();
+    const open = document.body.dataset.panel === '1';
+    byId('side').inert = drawer && !open;
+    document.querySelector('.view-toolbar').inert = drawer && open;
+}
+
 function setPanel(open) {
     document.body.dataset.panel = open ? '1' : '0';
     byId('panel-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
     byId('side-grip').setAttribute('aria-expanded', open ? 'true' : 'false');
+    syncPanelInert();
     if (plugin) setTimeout(() => viewerInstance.handleResize(), 220);
 }
 byId('panel-toggle').addEventListener('click', () => setPanel(document.body.dataset.panel !== '1'));
@@ -503,6 +628,19 @@ byId('side-grip').addEventListener('click', () => setPanel(document.body.dataset
     const width = byId('app').clientWidth;
     setPanel(!(width <= 1040 && width > 700));
 })();
+new ResizeObserver(syncPanelInert).observe(byId('app'));
+
+// The skip link goes to the panel. A closed drawer is inert, so the link opens it first. The panel takes the focus (Tab goes on from there
+// to its first control) without scrolling to it: the drawer slides in over the canvas, and the workspace under it must not scroll.
+document.querySelector('.skip-link').addEventListener('click', event => {
+    event.preventDefault();
+    if (panelIsDrawer() && document.body.dataset.panel !== '1') setPanel(true);
+    const side = byId('side');
+    side.tabIndex = -1;
+    side.focus({ preventScroll: true });
+});
+// The panel is a place to land, not a stop of Tab's.
+byId('side').addEventListener('blur', () => byId('side').removeAttribute('tabindex'));
 
 // ---- The panel's width: beside the canvas a handle on its left edge makes it wider ----
 // Beside the canvas (a window wider than 1040 px) the panel is 340 px wide, and can be made wider, up to half the window and
@@ -642,16 +780,24 @@ for (const tab of document.querySelectorAll('.side-tabs [role="tab"]')) {
 setTab('structures');
 
 // ---- Help ---------------------------------------------------------------------
+// The page's dialogs (Help here, the question in esmfold_session.js, Save an image in esmfold_image.js) are <dialog>s opened with
+// showModal(): the page under one is inert until it closes. Each puts the focus on its first control as it opens, and gives it back to
+// what opened it as it closes (the browser does so too; a dialog says so itself, in case the browser's choice has gone from the page).
 let helpOpener = null;
 
+// Closes the help if it is open, and says whether it was.
 function closeHelp() {
-    byId('help-modal').classList.remove('open');
-    if (helpOpener) helpOpener.focus();
+    const modal = byId('help-modal');
+    if (!modal.open) return false;
+    modal.close();
+    if (helpOpener && helpOpener.isConnected) helpOpener.focus();
+    return true;
 }
 
 byId('help-btn').addEventListener('click', () => {
     helpOpener = byId('help-btn');
-    byId('help-modal').classList.add('open');
+    const modal = byId('help-modal');
+    if (!modal.open) modal.showModal();
     byId('help-ok').focus();
 });
 byId('help-ok').addEventListener('click', closeHelp);
@@ -659,13 +805,13 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
-// Escape closes the layer on top: a menu, a question, the help, a tool, the pinned residue, then the Advanced view.
+// Escape closes the layer on top: a menu, a question, the help, a tool, the pinned residue, then the Advanced view. (An open dialog's
+// Escape would be the browser's too, after this: this closes the dialog first, as its buttons do, and leaves the browser nothing to close.)
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (closeSessionMenu() || closeConfirm() || closeImage()) return;
-    if (byId('help-modal').classList.contains('open')) closeHelp();
-    else if (leaveTool() || clearPin()) return;
-    else if (document.body.dataset.adv === '1') setAdvanced(false);
+    if (closeSessionMenu() || closeConfirm() || closeImage() || closeHelp()) return;
+    if (leaveTool() || clearPin()) return;
+    if (document.body.dataset.adv === '1') setAdvanced(false);
 });
 
 // ---- Start ----------------------------------------------------------------------

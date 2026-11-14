@@ -476,9 +476,9 @@ class LayoutTests(PanelTestCase):
         self.assertIn(["Left Right Home", "On the handle of the panel: make it wider or narrower, or restore its width"], keyboard)
         for width in (1300, 600):
             self.at_width(width)
-            self.script("document.getElementById('help-modal').classList.add('open'); return 1")
+            self.script("document.getElementById('help-modal').showModal(); return 1")
             self.assertEqual(self.overflowing("#help-modal .modal"), [])
-            self.script("document.getElementById('help-modal').classList.remove('open'); return 1")
+            self.script("document.getElementById('help-modal').close(); return 1")
 
     def test_the_handle_and_its_help_come_in_simplified_chinese(self):
         from desktop.Desktop_App import install_translations
@@ -665,6 +665,72 @@ class LookTests(PanelTestCase):
         self.settle(300)
         look = self.look()
         self.assertAlmostEqual(look["workspaceRight"] - look["stageRight"], 14, delta=0.01)
+
+
+class DrawerTests(PanelTestCase):
+    """The drawer of a narrow window: closed, it is out of sight and inert; open, it covers the toolbar, which is inert while it does."""
+
+    STATE = """
+        const side = document.getElementById('side');
+        // A control of the panel (the Structures card's heading) and one of the toolbar (Advanced): can they take the focus?
+        const takes = id => { document.getElementById(id).focus(); const took = document.activeElement.id === id; document.activeElement.blur(); return took; };
+        return {panel: document.body.dataset.panel, side: side.inert, toolbar: document.querySelector('.view-toolbar').inert,
+                sideFocus: takes('h-structures'), toolbarFocus: takes('t-adv')};
+        """
+
+    def drawer(self):
+        return self.script(self.STATE)
+
+    def test_a_closed_drawer_is_inert_and_an_open_one_makes_the_toolbar_under_it_inert(self):
+        self.open_two()
+        # Beside the canvas the panel is always in view: nothing is inert.
+        self.assertEqual(self.drawer(), {"panel": "1", "side": False, "toolbar": False, "sideFocus": True, "toolbarFocus": True})
+        # A drawer: open (as the panel was), it covers the toolbar.
+        self.at_width(900)
+        self.assertEqual(self.drawer(), {"panel": "1", "side": False, "toolbar": True, "sideFocus": True, "toolbarFocus": False})
+        self.js("document.getElementById('panel-toggle').click()")
+        self.settle(300)
+        self.assertEqual(self.drawer(), {"panel": "0", "side": True, "toolbar": False, "sideFocus": False, "toolbarFocus": True})
+        self.js("document.getElementById('panel-toggle').click()")
+        self.settle(300)
+        self.assertEqual(self.drawer(), {"panel": "1", "side": False, "toolbar": True, "sideFocus": True, "toolbarFocus": False})
+        # A phone's strip is under the canvas, and its grip opens it: nothing is inert, open or closed.
+        self.at_width(600)
+        for open_ in (False, True):
+            self.script("setPanel(%s); return 1" % json.dumps(open_))
+            self.settle(300)
+            state = self.drawer()
+            self.assertEqual((state["side"], state["toolbar"], state["toolbarFocus"]), (False, False, True), open_)
+        # Closed in a narrow window, and the window made wide: the panel is beside the canvas, and in reach again.
+        self.at_width(900)
+        self.script("setPanel(false); return 1")
+        self.settle(300)
+        self.assertTrue(self.drawer()["side"])
+        self.at_width(1300)
+        self.assertEqual(self.drawer(), {"panel": "0", "side": False, "toolbar": False, "sideFocus": True, "toolbarFocus": True})
+        self.assertEqual(self.console_errors(), [])
+
+    def test_the_skip_link_opens_a_closed_drawer_and_takes_the_focus_into_the_panel(self):
+        self.open_two()
+        target = self.view.focusProxy() or self.view
+        for window in (900, 1300):
+            with self.subTest(window=window):
+                self.at_width(window)
+                self.script("setPanel(false); await new Promise(resolve => setTimeout(resolve, 300)); return 1")
+                self.script("const link = document.querySelector('.skip-link'); link.focus(); link.click(); return 1")
+                self.settle(300)
+                found = self.script("""
+                    return {panel: document.body.dataset.panel, inert: document.getElementById('side').inert, focus: document.activeElement.id,
+                            scrolled: document.querySelector('.workspace').scrollLeft, hash: location.hash};""")
+                # The drawer opens; beside the canvas the panel is in view whatever data-panel says, and is left as it was.
+                self.assertEqual(found, {"panel": "1" if window == 900 else "0", "inert": False, "focus": "side", "scrolled": 0, "hash": ""})
+                # Tab goes on from there to the panel's first control, and the panel is no stop of Tab's after that.
+                QTest.keyClick(target, Qt.Key.Key_Tab)
+                self.pump(0.2)
+                after = self.script("""
+                    const side = document.getElementById('side');
+                    return {inside: side.contains(document.activeElement) && document.activeElement !== side, tabindex: side.getAttribute('tabindex')};""")
+                self.assertEqual(after, {"inside": True, "tabindex": None})
 
 
 if __name__ == "__main__":

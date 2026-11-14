@@ -345,7 +345,7 @@ window.TreeView = window.TreeView || {};
         $("phylogram-btn").disabled = !model.hasLengths;
         $("cladogram-btn").disabled = !model.hasLengths && !lengths;
         $("unfold-btn").disabled = !state.collapsedCount;
-        $("hints").textContent = TV.hintText();
+        showHints();
     }
 
     // What the page does when something is folded up or opened.
@@ -568,15 +568,47 @@ window.TreeView = window.TreeView || {};
         return shown + " · " + selected;
     }
 
-    // The status line: what is pinned, else the counts.
+    // The status line: what is pinned, else the counts. It is a live region, so it is written only when what it says
+    // changes, and a screen reader says each change once.
     function showPinned(node) {
         if (!state.model) return;
+        let text;
         if (node < 0) {
-            $("summary").textContent = summaryText(state.model);
+            text = summaryText(state.model);
+        } else {
+            const description = TV.describeNode(node);
+            text = [description.title, ...description.lines].join(" · ");
+        }
+        if ($("summary").textContent !== text) $("summary").textContent = text;
+    }
+
+    // A key that pins a node is answered a moment after the keys stop (KEY_PIN_MS), so that walking the tree says the
+    // node it stops at, not every node on the way, and asks the network to focus on that one only. A click is answered
+    // at once, and takes the place of a key's answer that is waiting.
+    const KEY_PIN_MS = 200;
+    let keyPinTimer = 0;
+    function pinChanged(node, options) {
+        clearTimeout(keyPinTimer);
+        if (options && options.key) {
+            keyPinTimer = setTimeout(() => {
+                showPinned(state.pinned);
+                syncFocus(state.pinned, true);
+            }, KEY_PIN_MS);
             return;
         }
-        const description = TV.describeNode(node);
-        $("summary").textContent = [description.title, ...description.lines].join(" · ");
+        showPinned(node);
+        syncFocus(node, options && options.click);
+    }
+
+    // The hint at the foot of the page: what the keys do while the drawing has the keyboard's focus, else what the
+    // pointer does. The keys are the canvas's description too, which a screen reader reads when it comes to it.
+    function showHints() {
+        const keys = TV.keyText();
+        const canvas = TV.canvas;
+        const keyboard = !!canvas && document.activeElement === canvas && canvas.matches(":focus-visible");
+        const hint = keyboard ? keys : TV.hintText();
+        if ($("tree-keys").textContent !== keys) $("tree-keys").textContent = keys;
+        if ($("hints").textContent !== hint) $("hints").textContent = hint;
     }
 
     // ---- The network's selection and focus, and the stability of the splits ------------------------------------
@@ -1059,9 +1091,11 @@ window.TreeView = window.TreeView || {};
         supportWords.tip = $("support-btn").title;
         TV.canvas = $("tree-canvas");
         state.palette = TV.readPalette();
-        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: (node, options) => { showPinned(node); syncFocus(node, options && options.click); } });
+        TV.attachNavigation(TV.canvas, { tooltip: $("tooltip"), onPin: pinChanged });
         showSupportRamp();
-        $("hints").textContent = TV.hintText();
+        showHints();
+        // A key pressed on a drawing that a click focused shows its focus ring from then on, and the keys' hint with it.
+        for (const type of ["focus", "blur", "keydown"]) TV.canvas.addEventListener(type, showHints);
         show("loading");
 
         TV.attachMinimap($("minimap"));
@@ -1100,13 +1134,25 @@ window.TreeView = window.TreeView || {};
             search("");
             $("search-input").focus();
         });
+        // Typing searches a moment after the last key. While an input method composes a word (pinyin, kana), what is in
+        // the box is not the word yet: the search waits for the composition to end, and the keys that confirm or cancel
+        // the composition (Enter, Esc) are the input method's, not the search's.
+        const searchSoon = (value) => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => search(value), 150);
+        };
         $("search-input").addEventListener("input", (event) => {
             const value = event.target.value;
             $("search-box").classList.toggle("has-text", value.length > 0);
-            clearTimeout(searchTimer);
-            searchTimer = setTimeout(() => search(value), 150);
+            if (event.isComposing) {
+                clearTimeout(searchTimer);
+                return;
+            }
+            searchSoon(value);
         });
+        $("search-input").addEventListener("compositionend", (event) => searchSoon(event.target.value));
         $("search-input").addEventListener("keydown", (event) => {
+            if (event.isComposing || event.keyCode === 229) return;
             if (event.key === "Enter") {
                 event.preventDefault();
                 clearTimeout(searchTimer);
@@ -1118,7 +1164,7 @@ window.TreeView = window.TreeView || {};
             }
         });
         document.addEventListener("keydown", (event) => {
-            if (event.key === "Escape" && $("mismatch-card").classList.contains("shown")) TV.showMismatch(false);
+            if (event.key === "Escape" && !event.isComposing && $("mismatch-card").classList.contains("shown")) TV.showMismatch(false);
         });
         document.addEventListener("keydown", (event) => {
             if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !$("search-input").disabled
