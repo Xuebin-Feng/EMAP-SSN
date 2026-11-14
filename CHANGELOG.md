@@ -270,6 +270,9 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **The theme's red is darker,** #b91c1c in place of #dc2626, in the web pages, the
+  documentation and the Qt windows: error text on the pages' pink tint is 5.9:1, where it
+  was 4.4:1.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
@@ -366,6 +369,31 @@ still change before version 1.0.0.
     and `+` are shapes, not wildcards.
 
 ### Fixed
+
+- **The Viewer's web pages work from the keyboard, with input methods and with screen
+  readers** (first round of a modern-web-guidance audit of the Agent, Fold View, Meta Data
+  and Tree View pages).
+  - **Input methods:** an Enter that confirms a Chinese or Japanese candidate no longer
+    sends an Agent message or runs a Tree View search, and the Meta Data filters and the
+    Fold View layer filter wait for the word to be finished.
+  - **Dialogs:** Help in Fold View and Meta Data, Clear scene and Save image are real modal
+    dialogs. Esc closes them, the page behind them can't take the focus, and closing one
+    gives the focus back to its button. A failed image save says so in its dialog.
+  - **Focus:** Tab leaves the Agent's Custom Options box. The closed Models panel and the
+    closed Fold View drawer are out of the Tab order. Remove, Dismiss, Clear and Undo in
+    Fold View hand the focus to the next control instead of dropping it. The Meta Data
+    table is one Tab stop with a visible ring, and Tab leaves it.
+  - **Tree View keys:** Enter pins the search match or the node in the middle of the view,
+    Ctrl+arrows (Option on a Mac) walk to the parent, child and siblings, Z zooms to the
+    pinned node, and S selects it in the network (Shift+S adds or removes it). The pinned
+    node's description is read out.
+  - **Screen readers** hear the Agent's replies and errors, and its connection state; the
+    Thought Process box is a disclosure they can open.
+  - **Meta Data:** Ctrl+Z in a filter or a cell being edited undoes the typing, not the
+    Viewer's last command. A number cell given something that isn't a number keeps its value
+    and says why; it used to be emptied, and the empty value sent to the Viewer.
+  - **Contrast:** the Agent's token line, Tree View's search placeholder, the names of tree
+    leaves outside the network, and Fold View's dark error message are 4.5:1 or more.
 
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
