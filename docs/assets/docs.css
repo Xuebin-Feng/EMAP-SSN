@@ -32,8 +32,8 @@
     --bg-muted: #f4f4f5;
     --bg-inset: #fafafa;
     --border-color: #e4e4e7;
-    --field-border: #8a8a92;
-    --field-border-hover: #71717a;
+    --field-border: #dcdce0;
+    --field-border-hover: #d4d4d8;
     --text-primary: #09090b;
     --text-soft: #3f3f46;
     --text-secondary: #52525b;
@@ -55,8 +55,8 @@
     --code-text: #18181b;
     --code-inline-bg: #f4f4f5;
     --code-inline-text: #18181b;
-    --scroll: #8a8a92;
-    --scroll-hover: #71717a;
+    --scroll: #d4d4d8;
+    --scroll-hover: #a1a1aa;
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     /* From Studio_Theme.TOKENS (Purple): the tab bar's track, the hint card
        and muted buttons, and the lines between sections */
@@ -73,7 +73,7 @@
     --warning: #b45309;
     --warning-soft: #fffbeb;
     --warning-border: #fde68a;
-    --danger: #b91c1c;
+    --danger: #dc2626;
     --danger-soft: #fef2f2;
     --danger-border: #fecaca;
     --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
@@ -101,8 +101,8 @@
     --bg-muted: #27272a;
     --bg-inset: #111113;
     --border-color: #27272a;
-    --field-border: #71717a;
-    --field-border-hover: #8e8e96;
+    --field-border: #3f3f46;
+    --field-border-hover: #52525b;
     --text-primary: #fafafa;
     --text-soft: #d4d4d8;
     --text-secondary: #a1a1aa;
@@ -124,8 +124,8 @@
     --code-text: #e4e4e7;
     --code-inline-bg: #27272a;
     --code-inline-text: #fafafa;
-    --scroll: #71717a;
-    --scroll-hover: #8e8e96;
+    --scroll: #3f3f46;
+    --scroll-hover: #52525b;
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     /* The windows have no dark mode: these keep the light ones' roles (docs) */
     --track: #111113;

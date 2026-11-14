@@ -141,9 +141,6 @@ window.TreeView = window.TreeView || {};
             branch: get("--text-secondary", "#52525b"),
             faded: get("--text-disabled", "#a1a1aa"),
             label: get("--text-primary", "#09090b"),
-            // The name of a leaf that is no node of the network: faded as its branch is, but a text, so in the subtle
-            // text colour, which a name can be read in (4.5:1).
-            fadedLabel: get("--text-subtle", "#71717a"),
             accent: get("--accent", "#5b5bd6"),
             selection: get("--selection", "rgba(91, 91, 214, 0.1)"),
             // What the search and the legend mark is drawn in the theme colour. The nodes the network has selected, and
@@ -614,7 +611,7 @@ window.TreeView = window.TreeView || {};
             ctx.font = Math.min(13, Math.max(9, detail.size * 0.8)).toFixed(1) + "px " + palette.font;
             ctx.textBaseline = "middle";
             for (const [text, x, y, inNetwork, direction] of names) {
-                ctx.fillStyle = inNetwork ? palette.label : palette.fadedLabel;
+                ctx.fillStyle = inNetwork ? palette.label : palette.faded;
                 const offset = dotRadius + 4;
                 if (rectangular) {
                     ctx.textAlign = "left";

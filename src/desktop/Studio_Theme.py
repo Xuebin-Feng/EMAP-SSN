@@ -87,8 +87,7 @@ TINTED_SHADES = {
     "text_muted": (0.442, 0.045),
     "text_subtle": (0.552, 0.045),
     "text_disabled": (0.712, 0.035),
-    "scroll": (0.636, 0.035),
-    "scroll_hover": (0.552, 0.045),
+    "scroll": (0.871, 0.028),
 }
 
 GEOMETRY = {
@@ -273,7 +272,7 @@ QTabWidget > QStackedWidget {{
 QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport, QScrollArea > QWidget > QWidget {{
     background: transparent; border: none;
 }}
-{scroll_bar_rules(t['scroll'], t['scroll_hover'])}
+{scroll_bar_rules(t['scroll'], t['text_disabled'])}
 
 QSplitter::handle {{ background: transparent; }}
 

@@ -149,7 +149,7 @@ SCHEME_TOKENS = {
     "surface": "surface", "panel": "surface_muted", "border": "border", "text": "text", "text_soft": "text_soft",
     "muted": "text_muted", "subtle": "text_subtle", "track": "border", "accent": "accent", "field_border": "field_border",
     "danger": "danger", "warning": "warning", "hover": "surface_muted", "accent_soft": "accent_soft",
-    "scroll": "scroll", "scroll_hover": "scroll_hover",  # the section's scroll bars, as the windows' (scroll_bar_rules)
+    "scroll": "scroll", "scroll_hover": "text_disabled",  # the section's scroll bars, as the windows' (scroll_bar_rules)
 }
 
 

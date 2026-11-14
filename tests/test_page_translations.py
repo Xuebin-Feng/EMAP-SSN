@@ -1118,8 +1118,11 @@ class MetadataPageTests(WebPageTestCase):
         name, a button, and its delete button come before its filter, each
         ringed while it has the focus."""
         self.open(self.TABLE)
-        self.js("document.getElementById('help-btn').focus()")
         ring = "getComputedStyle(document.getElementById('spreadsheet-table')).outlineStyle"
+        # The range selection gives the table the focus as the page opens, which
+        # the browser counts as visible; no key has moved it, so no ring shows.
+        self.assertEqual([self.js(self.FOCUSED), self.js(ring)], ["tabulator-tableholder", "none"])
+        self.js("document.getElementById('help-btn').focus()")
         # A name's ring goes round its header's title row, which shows the whole of it.
         own_ring = """(() => {
             const element = document.activeElement;
@@ -1166,8 +1169,13 @@ class MetadataPageTests(WebPageTestCase):
         self.press(Qt.Key_Left)
         self.assertEqual(self.js("document.activeElement.selectionStart"), 0)
         self.press(Qt.Key_Escape)
-        self.assertEqual(self.js(self.FOCUSED), "tabulator-tableholder")
+        self.assertEqual([self.js(self.FOCUSED), self.js(ring)], ["tabulator-tableholder", "solid"])
         self.assertEqual(self.sent(), [])
+        # A click in the table, as a mouse user's, takes the ring away.
+        cell = json.loads(self.js("JSON.stringify(document.querySelector("
+                                  "'.tabulator-cell[tabulator-field=\"2\"]').getBoundingClientRect())"))
+        self.click(cell["x"] + cell["width"] / 2, cell["y"] + cell["height"] / 2)
+        self.assertEqual([self.js(self.FOCUSED), self.js(ring)], ["tabulator-tableholder", "none"])
 
         # The cells a Viewer update draws are no stops either.
         self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(self.TABLE['rows'])},"
@@ -1332,9 +1340,9 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(self.sent(), [])
 
     def test_each_header_filter_is_named_for_its_column(self):
-        """The filters were named only by Tabulator's placeholder, "filter column...",
-        the same in every column and in English. Each is named for its column, its
-        placeholder is the page's own, and no spelling check marks what is typed."""
+        """The filters had no name. Each is named for its column, keeps the
+        empty box it always had (Tabulator's "filter column..." is not set), and
+        no spelling check marks what is typed."""
         self.open(self.TABLE)
         filters = json.loads(self.js("""JSON.stringify(table.getColumns().slice(1).map(column => {
             const input = column.getElement().querySelector('.tabulator-header-filter input');
@@ -1347,9 +1355,7 @@ class MetadataPageTests(WebPageTestCase):
         # One wording, each with its column's name.
         self.assertEqual([label.replace(name, "{}") for name, label in zip(names, labels)], [labels[2].replace("2", "{}")] * 3)
         self.assertEqual(len(set(labels)), 3)
-        placeholders = {placeholder for _, _, placeholder, _ in filters}
-        self.assertEqual(len(placeholders), 1)
-        self.assertNotIn(placeholders.pop(), ("", "filter column..."))
+        self.assertEqual({placeholder for _, _, placeholder, _ in filters}, {""})
         self.assertEqual([spellcheck for _, _, _, spellcheck in filters], [False] * 3)
 
     def test_a_header_button_with_the_focus_keeps_it_through_a_viewer_update(self):
@@ -1410,10 +1416,10 @@ class MetadataPageTests(WebPageTestCase):
         self.assertRegex(source, r"@media \(prefers-reduced-motion: no-preference\) \{\s*\.modal-content \{ animation")
 
     def test_the_header_wraps_rather_than_cut_off_help_and_the_status(self):
-        """The header was one row 56 px high, in px, in a page that does not scroll:
-        at 200% zoom, or with the browser's text twice its size, it cut off Help and
-        the connection's status. Its buttons wrap onto more rows, which grow with
-        their text, and the table takes the height left below them."""
+        """The header was one row 56 px high in a page that does not scroll: at 200%
+        zoom, or in a window about 900 px wide, it cut off Help and the connection's
+        status. Its buttons wrap onto more rows, and the table takes the height left
+        below them."""
         self.addCleanup(self.view.setZoomFactor, 1.0)
         self.open(self.TABLE)
         geometry = """JSON.stringify((() => {
@@ -1437,13 +1443,6 @@ class MetadataPageTests(WebPageTestCase):
         zoomed = json.loads(self.js(geometry))
         self.assertEqual({key: zoomed[key] for key in shown}, shown)
         self.assertGreater(zoomed["header"], normal["header"])
-        self.view.setZoomFactor(1.0)
-        self.wait_for("innerWidth > 1000")
-        self.js("document.documentElement.style.fontSize = '32px'")
-        larger = json.loads(self.js(geometry))
-        self.assertEqual({key: larger[key] for key in shown}, shown)
-        self.assertGreater(larger["header"], normal["header"])
-        self.assertGreater(larger["button"], 30)
 
     def test_the_connection_status_is_read_out_once_for_each_change(self):
         """The badge's text changed without a screen reader hearing it. It is a

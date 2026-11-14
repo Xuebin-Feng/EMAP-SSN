@@ -239,8 +239,8 @@ class ShellTests(PageTestCase):
         self.script("await new Promise(resolve => setTimeout(resolve, 300)); return 1")
         hidden = self.rows()[1]
         self.assertTrue(hidden["hidden"])
-        # One label whatever the state: the pressed state says that it is hidden.
-        self.assertEqual(hidden["buttons"][0][:3], ["Hide 22", "Hide 22", "true"])
+        # One label whatever the state: the pressed state says that it is hidden. The tooltip says what a click does, as it always has.
+        self.assertEqual(hidden["buttons"][0][:3], ["Show 22", "Hide 22", "true"])
         self.assertEqual(hidden["buttons"][0][3], "#i-eye-off")
         self.assertFalse(self.rows()[0]["hidden"])
         # A change made in Mol* itself shows in the list too.
@@ -317,7 +317,6 @@ class ShellTests(PageTestCase):
         self.assertEqual(self.script(theme)[0], "dark")
         self.script("followSystemTheme(false); return 1")
         self.assertEqual(self.script(theme)[0], "dark")
-        self.assertEqual(self.script("return document.querySelector('meta[name=color-scheme]').content"), "light dark")
         self.assertEqual(self.console_errors(), [])
 
     def test_the_canvas_is_in_the_one_main_landmark_and_the_cards_are_no_landmarks_of_their_own(self):
@@ -513,7 +512,7 @@ class DialogTests(PageTestCase):
 
 
 class MessageTests(PageTestCase):
-    """The status line over the canvas: what a screen reader hears of it, how long it stays, and how an error reads in the dark theme."""
+    """The status line over the canvas: what a screen reader hears of it, how long it stays, and how an error is drawn."""
 
     SHOWN = "document.getElementById('toast').classList.contains('show')"
 
@@ -596,32 +595,22 @@ class MessageTests(PageTestCase):
         self.pump(0.3)
         self.assertEqual(self.script("return document.querySelector('#toast span').textContent"), "Saved fold-view.png.")
 
-    def test_an_error_in_the_dark_theme_is_opaque_and_its_text_keeps_its_contrast_over_any_molecule(self):
+    def test_an_error_is_drawn_in_the_themes_own_soft_red_in_both_themes(self):
         self.open_page()
         found = self.script("""
-            applyTheme('dark', false);
-            showStatus('Could not do that: no canvas', 0, {error: true});
-            // A computed color as red, green, blue (0 to 1) and alpha: rgb() and rgba() count to 255, color(srgb ...) to 1.
-            const parse = value => {
-                const numbers = value.match(/[0-9.]+/g).map(Number);
-                const scale = value.startsWith('color(') ? 1 : 255;
-                return {rgb: numbers.slice(0, 3).map(n => n / scale), alpha: numbers.length > 3 ? numbers[3] : 1};
-            };
-            const luminance = ({rgb}) => {
-                const [r, g, b] = rgb.map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            };
-            const style = getComputedStyle(document.getElementById('toast'));
-            const background = parse(style.backgroundColor), text = parse(style.color);
-            const [light, dark] = [luminance(text), luminance(background)].sort((a, b) => b - a);
-            const found = {alpha: background.alpha, contrast: (light + 0.05) / (dark + 0.05), danger: style.color};
+            const found = {};
+            for (const theme of ['light', 'dark']) {
+                applyTheme(theme, false);
+                showStatus('Could not do that: no canvas', 0, {error: true});
+                const style = getComputedStyle(document.getElementById('toast'));
+                found[theme] = [style.backgroundColor, style.color, style.borderTopColor];
+            }
             applyTheme('light', false);
             return found;
             """)
-        self.assertEqual(found["alpha"], 1, found)
-        self.assertGreaterEqual(found["contrast"], 4.5, found)
-        # The text is the theme's own red, which the page does not change.
-        self.assertEqual(found["danger"], "rgb(248, 113, 113)")
+        # The theme's own danger tokens, as the error has always been drawn (in the dark theme the soft red is see-through).
+        self.assertEqual(found, {"light": ["rgb(254, 242, 242)", "rgb(220, 38, 38)", "rgb(254, 202, 202)"],
+                                 "dark": ["rgba(239, 68, 68, 0.12)", "rgb(248, 113, 113)", "rgba(239, 68, 68, 0.35)"]})
 
 
 class MarkupTests(PageTestCase):

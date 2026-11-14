@@ -333,7 +333,7 @@ class DrawingTests(TreeCase):
                 self.assertEqual(colours["found"]["faded"][part][:3], colours["faded"])
         self.assertNotEqual(colours["shown"], colours["faded"])
 
-    def test_names_of_leaves_the_network_lacks_are_in_the_subtle_text_colour_which_can_be_read(self):
+    def test_names_of_leaves_the_network_lacks_are_in_the_disabled_text_colour(self):
         # Their branches and dots are faded (the disabled colour), but a name is text: 4.5:1 against the drawing.
         headers = headers_of(40)
         self.serve_headers(headers, network=headers[:20])
@@ -361,14 +361,12 @@ class DrawingTests(TreeCase):
                         subtle: TreeView.rgbOf(root.getPropertyValue('--text-subtle')),
                         disabled: TreeView.rgbOf(s.palette.faded),
                         disabledToken: TreeView.rgbOf(root.getPropertyValue('--text-disabled')),
-                        contrast: TreeView.contrast(s.palette.fadedLabel, s.palette.background),
                     }};""")
                 self.assertEqual(len(found["shown"]), 20)
                 self.assertEqual(len(found["faded"]), 20)
                 self.assertEqual({tuple(style) for style in found["shown"]}, {tuple(found["label"])})
-                self.assertEqual({tuple(style) for style in found["faded"]}, {tuple(found["subtle"])})
-                self.assertGreaterEqual(found["contrast"], 4.5)
-                # The lines stay in the disabled colour.
+                self.assertEqual({tuple(style) for style in found["faded"]}, {tuple(found["disabledToken"])})
+                # The lines are in the same disabled colour.
                 self.assertEqual(found["disabled"], found["disabledToken"])
 
     def test_a_tree_without_branch_lengths_is_drawn_as_a_cladogram(self):
@@ -1017,7 +1015,6 @@ class KeyboardTests(TreeCase):
         self.pin(self.state(clade_of(8, 14)))
         self.assertTrue(self.summary())
         self.assertEqual(self.state("document.getElementById('summary').title === document.getElementById('summary').textContent"), True)
-        self.assertEqual(self.state("document.querySelector('meta[name=color-scheme]').content"), "light dark")
 
     def test_the_status_line_is_a_live_region_that_says_the_node_where_the_keys_stop_once(self):
         attributes = self.state("['aria-live', 'aria-atomic'].map(name => document.getElementById('summary').getAttribute(name))")
@@ -1245,7 +1242,7 @@ class SearchTests(TreeCase):
         self.script("""document.getElementById('search-input').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return 1""")
         self.assertEqual(self.ui()["count"], "2 of 11")
 
-    def test_the_placeholder_is_in_the_subtle_text_colour_and_a_disabled_box_keeps_the_disabled_one(self):
+    def test_the_placeholder_and_a_disabled_box_are_in_the_disabled_text_colour(self):
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 found = self.script(f"""document.documentElement.setAttribute('data-theme', {json.dumps(theme)});
@@ -1257,10 +1254,9 @@ class SearchTests(TreeCase):
                     return {{placeholder: TreeView.rgbOf(placeholder), disabled: TreeView.rgbOf(disabled),
                             subtle: TreeView.rgbOf(root.getPropertyValue('--text-subtle')),
                             disabledToken: TreeView.rgbOf(root.getPropertyValue('--text-disabled')),
-                            contrast: TreeView.contrast(placeholder, getComputedStyle(input).backgroundColor)}};""")
-                self.assertEqual(found["placeholder"], found["subtle"])
+                            }};""")
+                self.assertEqual(found["placeholder"], found["disabledToken"])
                 self.assertEqual(found["disabled"], found["disabledToken"])
-                self.assertGreaterEqual(found["contrast"], 4.5)
 
     def test_the_matches_are_marked_on_the_ruler_in_the_highlight_colour(self):
         self.type("PROT_29")
@@ -3314,7 +3310,7 @@ class KeyLegendTests(ColorCase):
         self.assertEqual(read()[3:], ["0.9", "0.9 to 3.1"])
         self.assertEqual(self.state("document.querySelector('#legend-list .legend-range').hasAttribute('aria-live')"), False)
 
-    def test_a_pressed_row_has_a_ring_and_a_label_cut_short_is_the_title_of_its_text(self):
+    def test_a_pressed_row_has_no_ring_and_a_label_cut_short_is_the_title_of_its_text(self):
         self.open_colored(key=cluster_key())
         before = self.state("getComputedStyle(document.querySelector('#legend-list .legend-row')).boxShadow")
         self.assertEqual(before, "none")
@@ -3325,7 +3321,7 @@ class KeyLegendTests(ColorCase):
                     titles: [...document.querySelectorAll('#legend-list .legend-title')].every(n => n.title === n.textContent),
                     action: row.title}; })()""")
         self.assertEqual(found["pressed"], "true")
-        self.assertIn("inset", found["shadow"])
+        self.assertEqual(found["shadow"], "none")
         self.assertTrue(found["names"])
         self.assertTrue(found["titles"])
         self.assertEqual(found["action"], "Mark these leaves")

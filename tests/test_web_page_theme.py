@@ -171,5 +171,16 @@ class PageFallbackTests(unittest.TestCase):
                 self.assertEqual(sorted(properties - pages), [])
 
 
+class PageSizeTests(unittest.TestCase):
+    """The pages give their sizes in px, as Apple's and GitHub's sites do, and grow with the
+    browser's zoom. With their text in rem and the rest in px, a larger browser text size grew
+    the text but not the boxes, gaps and icons around it."""
+
+    def test_no_page_sizes_anything_by_the_browsers_text_size(self):
+        for page in THEMED:
+            with self.subTest(page=page):
+                self.assertEqual(re.findall(r"\d*\.?\d+rem\b", (PAGES / page).read_text(encoding="utf-8")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

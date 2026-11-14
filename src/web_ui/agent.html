@@ -19,7 +19,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="color-scheme" content="light dark">
     <title data-i18n>EMAP-SSN Agent (Beta)</title>
     <!-- Fonts and marked are vendored under src/resources so the agent panel
          works offline. See THIRD_PARTY_LICENSES.md section 1. -->
@@ -43,8 +42,8 @@
             --bg-muted: #f4f4f5;
             --bg-inset: #fafafa;
             --border-color: #e4e4e7;
-            --field-border: #8a8a92;
-            --field-border-hover: #71717a;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
             --text-primary: #09090b;
             --text-soft: #3f3f46;
             --text-secondary: #52525b;
@@ -67,7 +66,7 @@
             --success-fill-text: #ffffff;
             --warning: #b45309;
             --warning-soft: #fffbeb;
-            --danger: #b91c1c;
+            --danger: #dc2626;
             --danger-soft: #fef2f2;
             --danger-border: #fecaca;
             --bg-bubble-user: #f4f4f5;
@@ -79,15 +78,15 @@
             --code-text: #18181b;
             --code-inline-bg: #f4f4f5;
             --code-inline-text: #18181b;
-            --switch-off: #8a8a92;
-            --switch-off-hover: #71717a;
+            --switch-off: #d4d4d8;
+            --switch-off-hover: #a1a1aa;
             --switch-on: #5b5bd6;
             --switch-on-hover: #4e4bc5;
             --switch-thumb: #ffffff;
             --switch-thumb-on: #ffffff;
             --switch-thumb-shadow: rgba(9, 9, 11, 0.18);
-            --scroll: #8a8a92;
-            --scroll-hover: #71717a;
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
             --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
             --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
             --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -95,7 +94,6 @@
             --radius-card: 12px;
             --font-family: 'Noto Sans', 'EMAP-SSN Language', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
-            scrollbar-color: var(--scroll) transparent;
         }
 
         [data-theme="dark"] {
@@ -105,8 +103,8 @@
             --bg-muted: #27272a;
             --bg-inset: #111113;
             --border-color: #27272a;
-            --field-border: #71717a;
-            --field-border-hover: #8e8e96;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
             --text-primary: #fafafa;
             --text-soft: #d4d4d8;
             --text-secondary: #a1a1aa;
@@ -141,15 +139,15 @@
             --code-text: #e4e4e7;
             --code-inline-bg: #27272a;
             --code-inline-text: #fafafa;
-            --switch-off: #71717a;
-            --switch-off-hover: #8e8e96;
+            --switch-off: #3f3f46;
+            --switch-off-hover: #52525b;
             --switch-on: #8289ff;
             --switch-on-hover: #98a1ff;
             --switch-thumb: #fafafa;
             --switch-thumb-on: #fafafa;
             --switch-thumb-shadow: rgba(0, 0, 0, 0.4);
-            --scroll: #71717a;
-            --scroll-hover: #8e8e96;
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
             --shadow-control: none;
             --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -160,7 +158,7 @@
         body {
             margin: 0; padding: 0;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -203,7 +201,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 0.9375rem;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text-primary);
         }
@@ -220,7 +218,7 @@
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 0.75rem;
+            font-size: 12px;
             white-space: nowrap;
         }
         .status-badge::before {
@@ -278,7 +276,7 @@
         /* An <h2>, drawn as the title text it was. */
         .pane-title {
             margin: 0;
-            font-size: 0.875rem;
+            font-size: 14px;
             font-weight: 600;
             color: var(--text-primary);
             white-space: nowrap;
@@ -350,7 +348,7 @@
             padding: 0 30px 0 10px;
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--text-primary);
             background: var(--input-bg) var(--select-chevron) no-repeat right 9px center / 14px 14px;
             -webkit-appearance: none;
@@ -366,7 +364,7 @@
 
         /* Model status label (left of toggle) */
         #active-model-badge {
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--text-subtle);
             white-space: nowrap;
             max-width: 180px;
@@ -390,7 +388,7 @@
             background-color: var(--bg-card);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 0.8125rem;
+            font-size: 13px;
             font-weight: 400;
             color: var(--text-primary);
             cursor: pointer;
@@ -447,21 +445,21 @@
             border-radius: var(--radius);
             background-color: var(--bg-inset);
             padding: 8px 12px 10px;
-            font-size: 0.78125rem;
+            font-size: 12.5px;
         }
         .command-request-title {
-            font-size: 0.6875rem; font-weight: 600; color: var(--text-subtle);
+            font-size: 11px; font-weight: 600; color: var(--text-subtle);
             text-transform: uppercase; letter-spacing: 0.05em;
             margin-bottom: 6px;
         }
         .command-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
         .command-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
         .command-text {
-            font-family: var(--font-mono); font-size: 0.75rem; color: var(--code-text);
+            font-family: var(--font-mono); font-size: 12px; color: var(--code-text);
             overflow-wrap: anywhere; min-width: 0;
         }
         .command-status {
-            font-size: 0.71875rem; line-height: 1.125rem; padding: 0 8px; border-radius: 6px;
+            font-size: 11.5px; line-height: 18px; padding: 0 8px; border-radius: 6px;
             background: var(--bg-muted); color: var(--text-secondary); white-space: nowrap;
         }
         .command-item[data-status="succeeded"] .command-status { background: var(--success-soft); color: var(--success); }
@@ -485,7 +483,7 @@
 
         .command-approval code {
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             background: var(--code-inline-bg);
             border-radius: max(6px, 0.6em);
             padding: 1px 0.4em;
@@ -495,7 +493,6 @@
         /* ── Chat log ────────────────────────────────────── */
         #chat-log {
             flex: 1;
-            scrollbar-color: var(--scroll) transparent;
             overflow-y: auto;
             background-color: var(--bg-card);
             padding: 16px;
@@ -529,7 +526,7 @@
             padding: 8px 12px;
             border-radius: var(--radius-card);
             word-wrap: break-word;
-            font-size: 0.84375rem;
+            font-size: 13.5px;
             line-height: 1.55;
         }
 
@@ -539,7 +536,7 @@
             gap: 6px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 0.75rem;
+            font-size: 12px;
             line-height: 1.45;
             border-radius: var(--radius);
             text-align: center;
@@ -558,7 +555,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 0.6875rem;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -580,15 +577,15 @@
         .msg-agent p { margin: 0 0 9px 0; }
         .msg-agent p:last-child { margin-bottom: 0; }
         .msg-agent h1, .msg-agent h2, .msg-agent h3, .msg-agent h4 { margin: 14px 0 7px 0; color: var(--text-primary); font-weight: 600; }
-        .msg-agent h1 { font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
-        .msg-agent h2 { font-size: 0.875rem; }
-        .msg-agent h3 { font-size: 0.8125rem; }
+        .msg-agent h1 { font-size: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
+        .msg-agent h2 { font-size: 14px; }
+        .msg-agent h3 { font-size: 13px; }
         .msg-agent ul, .msg-agent ol { margin: 0 0 9px 0; padding-left: 20px; }
         .msg-agent li { margin-bottom: 3px; }
         .msg-agent a { color: var(--accent); text-underline-offset: 2px; }
         .msg-agent code {
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             background: var(--code-inline-bg);
             color: var(--code-inline-text);
             padding: 1px 0.4em;
@@ -602,11 +599,11 @@
             overflow-x: auto;
             margin: 7px 0 11px 0;
         }
-        .msg-agent pre code { padding:0; background:transparent; color:var(--code-text); font-size:0.75rem; }
+        .msg-agent pre code { padding:0; background:transparent; color:var(--code-text); font-size:12px; }
         .msg-agent strong { color: var(--text-primary); }
         .msg-agent em { font-style: italic; }
         .msg-agent blockquote { border-left:2px solid var(--field-border-hover); margin:0 0 9px 0; padding-left:11px; color:var(--text-secondary); font-style:italic; }
-        .msg-agent table { border-collapse: collapse; margin: 0 0 9px 0; font-size: 0.78125rem; }
+        .msg-agent table { border-collapse: collapse; margin: 0 0 9px 0; font-size: 12.5px; }
         .msg-agent th, .msg-agent td { border: 1px solid var(--border-color); padding: 4px 8px; }
         .msg-agent th { background: var(--bg-muted); font-weight: 600; }
 
@@ -616,7 +613,7 @@
             border-radius: var(--radius);
             padding: 8px 12px;
             max-width: 86%;
-            font-size: 0.78125rem;
+            font-size: 12.5px;
             line-height: 1.5;
             overflow-wrap: anywhere;
         }
@@ -628,11 +625,11 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-inset);
             padding: 12px 14px;
-            font-size: 0.8125rem;
+            font-size: 13px;
             line-height: 1.5;
         }
         .data-use-notice:focus { outline: 2px solid transparent; box-shadow: 0 0 0 2px var(--accent); }
-        .data-use-title { font-weight: 600; font-size: 0.875rem; margin-bottom: 6px; }
+        .data-use-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
         .data-use-notice p { margin: 6px 0; overflow-wrap: anywhere; }
         .data-use-notice ul { margin: 4px 0 6px; padding-left: 20px; }
         .data-use-notice .card-note { margin: 8px 0; }
@@ -653,7 +650,7 @@
             border-radius: var(--radius);
             padding: 8px 12px 10px;
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             color: var(--code-text);
             margin-top: 11px;
             white-space: pre-wrap;
@@ -671,7 +668,7 @@
             padding-bottom: 5px;
             min-height: 22px;
             font-family: var(--font-family);
-            font-size: 0.6875rem;
+            font-size: 11px;
             font-weight: 600;
             color: var(--text-subtle);
             text-transform: uppercase;
@@ -684,7 +681,7 @@
             min-height: 22px;
             background: none; border: 1px solid transparent;
             color: var(--text-secondary);
-            cursor: pointer; font-family: var(--font-family); font-size: 0.71875rem; font-weight: 400;
+            cursor: pointer; font-family: var(--font-family); font-size: 11.5px; font-weight: 400;
             text-transform: none; letter-spacing: normal;
             padding: 0 6px; border-radius: 6px; outline: none;
             transition: background-color 0.15s, color 0.15s;
@@ -698,7 +695,7 @@
         .terminal-output-box {
             background: var(--code-bg); border: 1px solid var(--code-border);
             border-radius: var(--radius); padding: 8px 12px 10px;
-            font-family: var(--font-mono); font-size: 0.71875rem; color: var(--code-text);
+            font-family: var(--font-mono); font-size: 11.5px; color: var(--code-text);
             margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;
             line-height: 1.4; width: 100%;
         }
@@ -720,7 +717,7 @@
             align-items: center;
             padding: 8px 12px;
             cursor: pointer;
-            font-size: 0.6875rem;
+            font-size: 11px;
             font-weight: 600;
             color: var(--text-subtle);
             text-transform: uppercase;
@@ -750,7 +747,7 @@
             padding: 16px 14px; /* Increased top/bottom padding */
             border-top: 1px solid var(--code-border);
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             color: var(--text-secondary);
             white-space: pre-wrap;
             word-wrap: break-word;
@@ -758,7 +755,7 @@
         }
 
         .token-info {
-            font-size: 0.6875rem; color: var(--text-secondary);
+            font-size: 11px; color: var(--text-subtle);
             margin-top: 8px; display: inline-block;
             background: var(--bg-muted);
             padding: 2px 8px; border-radius: 6px;
@@ -770,19 +767,27 @@
         }
 
         #chat-input-field {
-            flex: 1; padding: 10px 12px;
+            /* 9 px below, so that one line (13.5 px at 1.4) fits the 40 px of the buttons beside it:
+               with 10 it overflowed by a pixel, and one short line showed a scroll bar. */
+            flex: 1; padding: 10px 12px 9px;
             border: 1px solid var(--field-border);
-            border-radius: var(--radius); font-size: 0.84375rem; outline: none;
+            border-radius: var(--radius); font-size: 13.5px; outline: none;
             background: var(--input-bg); color: var(--input-text);
             box-shadow: var(--shadow-control); transition: border-color 0.15s, box-shadow 0.15s;
             font-family: var(--font-family);
             resize: none;
-            /* The script sizes it to its text, from this height up. */
-            height: 40px;
+            /* It fits its text, from one line up to 200 px, past which it scrolls, wherever the text
+               came from: typing, a draft given back after an error, a paste beside an image, or a
+               narrower window wrapping it. Where the browser lacks field-sizing, fitChatInput grows
+               it as you type instead. */
+            field-sizing: content;
             min-height: 40px;
             max-height: 200px;
             line-height: 1.4;
             overflow-y: auto;
+        }
+        @supports not (field-sizing: content) {
+            #chat-input-field { height: 40px; }
         }
         #chat-input-field::placeholder { color: var(--text-subtle); }
         #chat-input-field:placeholder-shown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -828,7 +833,7 @@
             gap: 4px;
             padding: 9px 10px 9px 16px;
             border-bottom: 1px solid var(--border-color);
-            font-size: 0.875rem;
+            font-size: 14px;
             font-weight: 600;
             white-space: nowrap;
             flex-shrink: 0;
@@ -842,7 +847,6 @@
 
         .cards-list {
             flex: 1;
-            scrollbar-color: var(--scroll) transparent;
             overflow-y: auto;
             padding: 10px 10px 2px;
         }
@@ -878,7 +882,7 @@
 
         .card-name-label {
             flex: 1;
-            font-size: 0.8125rem;
+            font-size: 13px;
             font-weight: 600;
             color: var(--text-primary);
             overflow: hidden;
@@ -889,7 +893,7 @@
         /* A button, so the keyboard reaches it: Up and Down move the card. */
         .drag-handle {
             cursor: grab;
-            color: var(--text-subtle);
+            color: var(--text-disabled);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -947,7 +951,7 @@
 
         .card-field-label {
             display: block;
-            font-size: 0.75rem;
+            font-size: 12px;
             font-weight: 600;
             color: var(--text-soft);
             margin-bottom: 4px;
@@ -962,7 +966,7 @@
             padding: 0 10px;
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 0.8125rem;
+            font-size: 13px;
             background: var(--input-bg);
             color: var(--input-text);
             outline: none;
@@ -973,20 +977,20 @@
             min-height: 64px;
             padding: 6px 10px;
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             resize: vertical;
         }
         .card-field input::placeholder, .card-options::placeholder { color: var(--text-subtle); }
         .card-field input:hover, .card-options:hover { border-color: var(--field-border-hover); }
         .card-field input:focus, .card-options:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .card-options[aria-invalid="true"], .card-options[aria-invalid="true"]:hover { border-color: var(--danger); }
-        .card-field-error, .cards-save-message { font-size: 0.75rem; line-height: 1.45; color: var(--danger); overflow-wrap: anywhere; }
+        .card-field-error, .cards-save-message { font-size: 12px; line-height: 1.45; color: var(--danger); overflow-wrap: anywhere; }
         .card-field-error { margin-top: 4px; }
         .cards-save-message { padding: 8px 12px 0; flex-shrink: 0; }
 
         /* A note under a card's fields: what the Viewer learned about the card, or a warning about it. */
         .card-note {
-            font-size: 0.75rem; line-height: 1.45; color: var(--text-secondary);
+            font-size: 12px; line-height: 1.45; color: var(--text-secondary);
             border-left: 3px solid var(--field-border); padding: 2px 0 2px 9px;
             overflow-wrap: anywhere;
         }
@@ -998,13 +1002,10 @@
         .show-key-btn { flex-shrink: 0; box-shadow: none; }
 
         /* Scrollbars */
-        /* Where scrollbar-color is missing (Safari before 26) */
-        @supports not (scrollbar-color: auto) {
-            ::-webkit-scrollbar { width: 8px; height: 8px; }
-            ::-webkit-scrollbar-track { background: transparent; }
-            ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
-            ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
-        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
 
         /* ── Composer card ───────────────────────────────── */
         #chat-composer {
@@ -1029,10 +1030,10 @@
         #chat-stop-btn[hidden] { display: none; }
         #chat-composer.drag-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
         #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
-        #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; scrollbar-color: var(--scroll) transparent; }
+        #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
         .attachment-tile { position: relative; width: 112px; padding: 5px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-inset); }
         .attachment-tile img { width: 100%; height: 76px; object-fit: contain; }
-        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px; }
+        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
         .attachment-tile button {
             position: absolute; top: 3px; right: 3px;
             display: flex; align-items: center; justify-content: center;
@@ -1045,7 +1046,7 @@
         .attachment-tile button:hover { color: var(--text-primary); background: var(--bg-muted); }
         .attachment-tile button:focus-visible { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .attachment-tile button:disabled { color: var(--text-disabled); cursor: not-allowed; }
-        #attachment-notice { font-size: 0.78125rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+        #attachment-notice { font-size: 12.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
         #attachment-notice:not(:empty) { margin-top: 8px; }
         .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 6px; }
 
@@ -1063,7 +1064,7 @@
         .confirm-dialog:modal { overscroll-behavior: contain; }
         .confirm-dialog::backdrop { background: rgba(9, 9, 11, 0.45); overflow: hidden; overscroll-behavior: contain; }
         [data-theme="dark"] .confirm-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-        .confirm-title { margin: 0 0 8px; font-size: 0.9375rem; font-weight: 600; }
+        .confirm-title { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
         .confirm-text { margin: 0; line-height: 1.5; color: var(--text-soft); overflow-wrap: anywhere; }
         .confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
         /* The button that destroys something: outlined in the danger colour. */
@@ -1857,13 +1858,7 @@
                     sendAgentQuery();
                 }
             });
-            inputField.addEventListener("input", () => {
-                inputField.style.height = "40px";
-                const scrollHeight = inputField.scrollHeight;
-                if (scrollHeight > 40) {
-                    inputField.style.height = (scrollHeight + 2) + "px";
-                }
-            });
+            inputField.addEventListener("input", fitChatInput);
 
             // Clear Chat asks in its dialog first: only the dialog's own Clear Chat button
             // clears, as Cancel and Esc close it without that value.
@@ -2298,6 +2293,16 @@
         }
 
         // ─── Chat helpers ─────────────────────────────────────────────────────────
+        // CSS fits the message box to its text where the browser has field-sizing. Elsewhere this
+        // does it as you type and when the composer opens again, from 40 px up.
+        const BOX_FITS_ITS_TEXT = CSS.supports("field-sizing", "content");
+        function fitChatInput() {
+            if (BOX_FITS_ITS_TEXT) return;
+            const f = document.getElementById("chat-input-field");
+            f.style.height = "40px";
+            if (f.scrollHeight > f.clientHeight) f.style.height = (f.scrollHeight + f.offsetHeight - f.clientHeight) + "px";
+        }
+
         function enableInput(enabled) {
             const f = document.getElementById("chat-input-field");
             const b = document.getElementById("chat-send-btn");
@@ -2305,7 +2310,7 @@
             refreshComposer();
             if (enabled) {
                 f.focus();
-                f.style.height = "40px";
+                fitChatInput();
             }
         }
 

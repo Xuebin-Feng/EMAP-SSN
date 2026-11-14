@@ -119,7 +119,7 @@ class ThemeColorShadeTests(unittest.TestCase):
             "histogram", "separator", "accent_text",
         })
         self.assertEqual(theme_tokens("teal")["text_subtle"], "#71717a")
-        self.assertEqual(theme_tokens("teal")["field_border"], "#8a8a92")
+        self.assertEqual(theme_tokens("teal")["field_border"], "#dcdce0")
         # The lines between sections are thicker than a card's 1 px hairline.
         self.assertGreaterEqual(theme_tokens("teal")["separator_thickness"], 2)
         self.assertIn(f"max-height: {TOKENS['separator_thickness']}px", studio_stylesheet())
@@ -207,8 +207,8 @@ class ThemeColorShadeTests(unittest.TestCase):
             tokens = theme_tokens(color)
             sheet = studio_stylesheet(tokens)
             with self.subTest(color=color):
-                # The handle is the "scroll" token and, under the mouse, "scroll_hover"; the text is written once, here.
-                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["scroll_hover"])), 1)
+                # The handle is the "scroll" token and, under the mouse, "text_disabled"; the text is written once, here.
+                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])), 1)
                 self.assertEqual(sheet.count("QScrollBar::handle"), 4)
                 self.assertEqual(sheet.count("QAbstractScrollArea::corner"), 1)
 
@@ -217,35 +217,23 @@ class ThemeColorShadeTests(unittest.TestCase):
         for kind in ("light", "dark_page"):
             for color in THEME_COLORS:
                 tokens = shade_set(kind, color)
-                rules = scroll_bar_rules(tokens["scroll"], tokens["scroll_hover"])
+                rules = scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])
                 with self.subTest(kind=kind, color=color):
                     # Only the four handle rules carry a colour; everything else is the same text in every theme.
-                    self.assertEqual(rules, template.replace("HANDLE", tokens["scroll"]).replace("HOVER", tokens["scroll_hover"]))
+                    self.assertEqual(rules, template.replace("HANDLE", tokens["scroll"]).replace("HOVER", tokens["text_disabled"]))
                     self.assertEqual(template.count("HANDLE"), 2)
                     self.assertEqual(template.count("HOVER"), 2)
                     self.assertIn(f"QScrollBar::handle:vertical {{ background: {tokens['scroll']}; ", rules)
                     self.assertIn(f"QScrollBar::handle:horizontal {{ background: {tokens['scroll']}; ", rules)
-                    self.assertIn(f"QScrollBar::handle:vertical:hover {{ background: {tokens['scroll_hover']}; }}", rules)
-                    self.assertIn(f"QScrollBar::handle:horizontal:hover {{ background: {tokens['scroll_hover']}; }}", rules)
+                    self.assertIn(f"QScrollBar::handle:vertical:hover {{ background: {tokens['text_disabled']}; }}", rules)
+                    self.assertIn(f"QScrollBar::handle:horizontal:hover {{ background: {tokens['text_disabled']}; }}", rules)
 
-    def test_field_borders_switch_tracks_and_scroll_handles_stand_out_3_to_1_light_and_dark(self):
-        # WCAG 1.4.11: what shows a control and its state, 3:1 against what is next to it.
+    def test_the_hover_the_windows_draw_is_the_pages_scroll_hover_in_light_and_dark(self):
         for color in THEME_COLORS:
-            light, dark = page_tokens(color), page_tokens(color, dark=True)
             with self.subTest(color=color):
-                for ground in (light["surface"], light["window"], light["surface_muted"]):
-                    for token in ("field_border", "switch_off", "scroll", "scroll_hover", "field_border_hover"):
-                        self.assertGreaterEqual(contrast(light[token], ground), 3, (token, ground))
-                self.assertGreaterEqual(contrast(light["switch_thumb"], light["switch_off"]), 3)
-                self.assertGreaterEqual(contrast(light["switch_thumb"], light["switch_off_hover"]), 3)
-                for ground in (dark["surface"], dark["window"], dark["surface_muted"]):
-                    for token in ("field_border", "switch_off", "scroll", "scroll_hover", "field_border_hover"):
-                        self.assertGreaterEqual(contrast(dark[token], ground), 3, (token, ground))
-                self.assertGreaterEqual(contrast(dark["switch_thumb"], dark["switch_off"]), 3)
-                self.assertGreaterEqual(contrast(dark["switch_thumb"], dark["switch_off_hover"]), 3)
-                # The pages' hover is the windows' own, and the dark handle is the dark field border.
-                self.assertEqual(light["scroll_hover"], theme_tokens(color)["scroll_hover"])
-                self.assertEqual(dark["scroll"], "#71717a")
+                self.assertEqual(shade_set("light", color)["text_disabled"], shade_set("light_page", color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["text_disabled"], shade_set("dark_page", color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["scroll"], "#3f3f46")
 
     def test_each_colour_has_a_name(self):
         names = [theme_color_name(color) for color in THEME_COLORS]

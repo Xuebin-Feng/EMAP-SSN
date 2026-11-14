@@ -58,38 +58,37 @@ NEUTRAL_SHADES = {
         "text_disabled": "#a1a1aa",
         # Fields
         "field": "#ffffff",
-        "field_border": "#8a8a92",      # 3:1 or more on white, the window and hover fills (WCAG 1.4.11)
-        "field_border_hover": "#71717a",
+        "field_border": "#dcdce0",      # a touch stronger than a card's hairline
+        "field_border_hover": "#d4d4d8",
         "field_disabled": "#fafafa",
         "primary_disabled": "#9b9ba0",  # a primary button greyed out
         # Switches that are off
-        "switch_off": "#8a8a92",        # 3:1 or more against the white thumb and the card
-        "switch_off_hover": "#71717a",
+        "switch_off": "#d4d4d8",
+        "switch_off_hover": "#a1a1aa",
         # Tooltips
         "tooltip": "#18181b",
         "tooltip_text": "#fafafa",
         # Status texts
         "success": "#15803d",           # 5.0:1 on white
         "warning": "#b45309",           # 5.0:1 on white
-        "danger": "#b91c1c",            # 6.5:1 on white, 5.9:1 on the pages' danger tint
-        # Scroll bars: the handle 3:1 or more against the window and cards
-        "scroll": "#8a8a92",
-        "scroll_hover": "#71717a",
+        "danger": "#dc2626",            # 4.8:1 on white
+        # Scroll bars
+        "scroll": "#d4d4d8",
     },
     "light_page": {
         "inset": "#fafafa", "primary_disabled_text": "#fafafa", "code_text": "#18181b",
-        "switch_thumb": "#ffffff",
+        "switch_thumb": "#ffffff", "scroll_hover": "#a1a1aa",
     },
     "dark_page": {
         "window": "#09090b", "surface": "#18181b", "surface_muted": "#27272a",
         "inset": "#111113", "border": "#27272a",
         "text": "#fafafa", "text_soft": "#d4d4d8", "text_muted": "#a1a1aa",
         "text_subtle": "#8e8e96", "text_disabled": "#52525b",
-        "field_border": "#71717a", "field_border_hover": "#8e8e96",
+        "field_border": "#3f3f46", "field_border_hover": "#52525b",
         "primary_disabled": "#3f3f46", "primary_disabled_text": "#a1a1aa",
         "code_text": "#e4e4e7",
-        "switch_off": "#71717a", "switch_off_hover": "#8e8e96", "switch_thumb": "#fafafa",
-        "scroll": "#71717a", "scroll_hover": "#8e8e96",
+        "switch_off": "#3f3f46", "switch_off_hover": "#52525b", "switch_thumb": "#fafafa",
+        "scroll": "#3f3f46", "scroll_hover": "#52525b",
     },
 }
 

@@ -97,7 +97,7 @@ class ThemeColourSchemeTests(unittest.TestCase):
                 if role not in self.ACCENT_ROLES:
                     with self.subTest(color=color, role=role):
                         self.assertEqual(scheme[role], tokens[token])
-        for role, color in (("danger", "#b91c1c"), ("warning", "#b45309"), ("text", "#09090b"), ("surface", "#ffffff")):
+        for role, color in (("danger", "#dc2626"), ("warning", "#b45309"), ("text", "#09090b"), ("surface", "#ffffff")):
             self.assertEqual({Splash.scheme_for(name)[role] for name in THEME_COLORS}, {color})
 
     def test_the_kicker_and_the_link_stay_readable_in_every_family(self):
@@ -1306,7 +1306,7 @@ class SectionScrollBarTests(WindowCase):
     def scheme(self, dark=False):
         if not dark:
             return Splash.SCHEME
-        return {**Splash.SCHEME, "scroll": self.DARK["scroll"], "scroll_hover": self.DARK["scroll_hover"]}
+        return {**Splash.SCHEME, "scroll": self.DARK["scroll"], "scroll_hover": self.DARK["text_disabled"]}
 
     def show(self, view):
         self.addCleanup(view.deleteLater)
@@ -1358,20 +1358,20 @@ class SectionScrollBarTests(WindowCase):
             scheme, tokens = Splash.scheme_for(color), theme_tokens(color)
             with self.subTest(color=color):
                 self.assertEqual(scheme["scroll"], tokens["scroll"])
-                self.assertEqual(scheme["scroll_hover"], tokens["scroll_hover"])  # what the windows' rule draws under the mouse
-                self.assertEqual((scheme["scroll"], scheme["scroll_hover"]), ("#8a8a92", "#71717a"))
+                self.assertEqual(scheme["scroll_hover"], tokens["text_disabled"])  # what the windows' rule draws under the mouse
+                self.assertEqual((scheme["scroll"], scheme["scroll_hover"]), ("#d4d4d8", "#a1a1aa"))
 
     def test_the_pages_hover_colour_is_the_one_the_windows_draw_in_light_and_dark(self):
         for color in THEME_COLORS:
             with self.subTest(color=color):
-                self.assertEqual(shade_set("light", color)["scroll_hover"], Splash.scheme_for(color)["scroll_hover"])
-                self.assertEqual(shade_set("dark_page", color)["scroll_hover"], "#8e8e96")
+                self.assertEqual(shade_set("light_page", color)["scroll_hover"], Splash.scheme_for(color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["scroll_hover"], shade_set("dark_page", color)["text_disabled"])
 
     def test_the_view_carries_the_windows_scroll_bar_rules_in_every_family(self):
         for color in THEME_COLORS:
             window = self.splash(theme_color=color)
             tokens = theme_tokens(color)
-            rules = scroll_bar_rules(tokens["scroll"], tokens["scroll_hover"])
+            rules = scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])
             sheet = window.details.styleSheet()
             with self.subTest(color=color):
                 self.assertIn(rules, sheet)
@@ -1379,10 +1379,10 @@ class SectionScrollBarTests(WindowCase):
                 for line in (
                     "QScrollBar:vertical { background: transparent; width: 10px; margin: 6px 2px 6px 0px; }",
                     "QScrollBar:horizontal { background: transparent; height: 10px; margin: 0px 6px 2px 6px; }",
-                    "QScrollBar::handle:vertical { background: #8a8a92; border-radius: 4px; min-height: 32px; }",
-                    "QScrollBar::handle:horizontal { background: #8a8a92; border-radius: 4px; min-width: 32px; }",
-                    "QScrollBar::handle:vertical:hover { background: #71717a; }",
-                    "QScrollBar::handle:horizontal:hover { background: #71717a; }",
+                    "QScrollBar::handle:vertical { background: #d4d4d8; border-radius: 4px; min-height: 32px; }",
+                    "QScrollBar::handle:horizontal { background: #d4d4d8; border-radius: 4px; min-width: 32px; }",
+                    "QScrollBar::handle:vertical:hover { background: #a1a1aa; }",
+                    "QScrollBar::handle:horizontal:hover { background: #a1a1aa; }",
                     "QScrollBar::add-line, QScrollBar::sub-line { height: 0px; width: 0px; }",
                     "QScrollBar::add-page, QScrollBar::sub-page { background: none; }",
                     "QAbstractScrollArea::corner { background: transparent; border: none; }",
@@ -1397,8 +1397,8 @@ class SectionScrollBarTests(WindowCase):
                 self.assertIn(scroll_bar_rules(scheme["scroll"], scheme["scroll_hover"]), sheet)
                 self.assertEqual(sheet.count(f"background: {scheme['scroll']};"), 2)
                 self.assertEqual(sheet.count(f"background: {scheme['scroll_hover']};"), 2)
-        self.assertEqual(self.scheme(True)["scroll"], "#71717a")
-        self.assertEqual(self.scheme(True)["scroll_hover"], "#8e8e96")
+        self.assertEqual(self.scheme(True)["scroll"], "#3f3f46")
+        self.assertEqual(self.scheme(True)["scroll_hover"], "#52525b")
 
     def test_the_handles_are_drawn_in_the_scroll_colour_ten_wide_with_no_arrow_buttons_in_every_style(self):
         for dark in (False, True):

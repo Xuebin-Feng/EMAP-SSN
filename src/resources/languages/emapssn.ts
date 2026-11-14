@@ -2542,6 +2542,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Show {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Zoom to {name}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6965,10 +6969,6 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Sequence Header</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Filter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

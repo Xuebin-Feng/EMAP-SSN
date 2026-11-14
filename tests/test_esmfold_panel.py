@@ -77,7 +77,6 @@ window.panelLook = function () {
             workspaceBottom: workspace.bottom, workspaceRight: workspace.right, handleLeft: handle.left, handleRight: handle.right,
             background: side.backgroundColor, edges: [side.borderTopWidth, side.borderRightWidth, side.borderBottomWidth, side.borderLeftWidth],
             shadow: side.boxShadow, padding: scroll.padding, standsOnStage: behind('.stage-card'), standsOnCards: behind('.sec[data-tab="structures"]'),
-            scrollbar: document.getElementById('side-scroll').offsetWidth - document.getElementById('side-scroll').clientWidth,
             page: tokenColor('--bg-main'), card: tokenColor('--bg-card'), accent: tokenColor('--accent')};
 };
 window.press = function (key, options = {}) {
@@ -412,10 +411,8 @@ class LayoutTests(PanelTestCase):
                 state = self.state()
                 self.assertEqual(state["shown"], shown)
                 if width is not None:
-                    # A drawer: 340 px (or what the window allows), over the canvas, which keeps the whole window; wider by what the
-                    # platform's scrollbar takes beyond the 10 px gap, so that the cards are as wide as they are with none.
-                    bar = self.script("const bar = document.getElementById('side-scroll'); return bar.offsetWidth - bar.clientWidth")
-                    self.assertEqual(state["width"], width + max(0, bar - 10))
+                    # A drawer: 340 px (or what the window allows), over the canvas, which keeps the whole window.
+                    self.assertEqual(state["width"], width)
                     self.assertAlmostEqual(state["cardRight"], state["app"] - 10, delta=1)
                 else:
                     # A strip: as wide as the window.
@@ -568,8 +565,7 @@ class LookTests(PanelTestCase):
                 # the cards as round the canvas's card.
                 self.assertAlmostEqual(look["structuresLeft"] - look["stageRight"], 10, delta=0.01)
                 self.assertAlmostEqual(look["colorTop"] - look["structuresBottom"], 10, delta=0.01)
-                # (Or the platform's scrollbar, where that is wider: its room is measured, a classic one is 15 px or more, an overlay one none.)
-                self.assertAlmostEqual(look["workspaceRight"] - look["structuresRight"], max(14, look["scrollbar"]), delta=0.01)
+                self.assertAlmostEqual(look["workspaceRight"] - look["structuresRight"], 14, delta=0.01)
                 self.assertAlmostEqual(look["workspaceBottom"] - look["stageBottom"], 14, delta=0.01)
                 self.assertAlmostEqual(look["handleLeft"], look["stageRight"], delta=0.01)
                 self.assertAlmostEqual(look["handleRight"], look["structuresLeft"], delta=0.01)
@@ -652,7 +648,7 @@ class LookTests(PanelTestCase):
                     self.assertEqual(look["edges"], edges)
                     self.assertNotEqual(look["shadow"], "none")
                     # And the room round their cards, as they were.
-                    self.assertEqual(look["padding"], "10px %dpx 4px 10px" % max(0, 10 - look["scrollbar"]))
+                    self.assertEqual(look["padding"], "10px 2px 4px 10px")
 
     def test_with_no_panel_the_canvas_card_keeps_its_14_px_on_the_right(self):
         # Advanced and the failed view hide the panel and its handle, and with them the gap the handle takes out of the card's space.

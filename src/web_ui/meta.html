@@ -19,7 +19,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="color-scheme" content="light dark">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-i18n>EMAP-SSN Metadata</title>
     <!-- Load local Tabulator CSS -->
@@ -42,8 +41,8 @@
             --bg-muted: #f4f4f5;
             --bg-table-header: #fafafa;
             --border-color: #e4e4e7;
-            --field-border: #8a8a92;
-            --field-border-hover: #71717a;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
             --text-primary: #09090b;
             --text-soft: #3f3f46;
             --text-secondary: #52525b;
@@ -60,7 +59,7 @@
             --success-soft: #f0fdf4;
             --warning: #b45309;
             --warning-soft: #fffbeb;
-            --danger: #b91c1c;
+            --danger: #dc2626;
             --danger-soft: #fef2f2;
             --number-badge-bg: #f0fdf4;
             --number-badge-border: #bbf7d0;
@@ -69,11 +68,10 @@
             --text-badge-border: #c4cbf5;
             --text-badge-text: #4e4ac4;
             --highlight-bg: rgba(245, 158, 11, 0.15);
-            /* 5:1 on the card, as a ring that marks the row must be at least 3:1 */
-            --highlight-ring: #b45309;
+            --highlight-ring: #f59e0b;
             --overlay: rgba(9, 9, 11, 0.45);
-            --scroll: #8a8a92;
-            --scroll-hover: #71717a;
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
             --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
             --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
             --shadow-dialog: 0 16px 40px -8px rgba(9, 9, 11, 0.2), 0 4px 12px rgba(9, 9, 11, 0.06);
@@ -81,8 +79,6 @@
             --radius-card: 12px;
             --font-family: 'Noto Sans', 'EMAP-SSN Language', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
             --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
-            /* Every scrollbar on the page, the table's too: thumb, track */
-            scrollbar-color: var(--scroll) transparent;
         }
 
         /* Dark mode: the Agent page's dark palette (agent.html), with the
@@ -94,8 +90,8 @@
             --bg-muted: #27272a;
             --bg-table-header: #111113;
             --border-color: #27272a;
-            --field-border: #71717a;
-            --field-border-hover: #8e8e96;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
             --text-primary: #fafafa;
             --text-soft: #d4d4d8;
             --text-secondary: #a1a1aa;
@@ -123,8 +119,8 @@
             --highlight-bg: rgba(245, 158, 11, 0.18);
             --highlight-ring: #fbbf24;
             --overlay: rgba(0, 0, 0, 0.6);
-            --scroll: #71717a;
-            --scroll-hover: #8e8e96;
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
             --shadow-control: none;
             --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -134,7 +130,7 @@
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -178,7 +174,7 @@
 
         header h1 {
             margin: 0;
-            font-size: 0.9375rem;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
@@ -204,7 +200,7 @@
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 0.75rem;
+            font-size: 12px;
             white-space: nowrap;
         }
         .status-badge::before {
@@ -242,7 +238,7 @@
             min-height: 30px;
             padding: 0 12px;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             font-weight: 400;
             border-radius: var(--radius);
             border: 1px solid var(--field-border);
@@ -336,6 +332,15 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+        /* Sequence Header's name, straight in its title: a pixel of room
+           each side, which takes no space, keeps the ends of its letters
+           that the title, whose text it was, drew past them. */
+        .tabulator-col-title > .column-title-button {
+            box-sizing: border-box;
+            margin: 0 -1px;
+            max-width: calc(100% + 2px);
+            padding: 0 1px;
+        }
         .column-title-button:focus-visible { outline: none; }
         /* The ring goes round the header's title row: the title itself
            clips what is drawn outside the name. */
@@ -389,7 +394,7 @@
         }
 
         .tabulator-col-title-holder {
-            font-size: 0.8125rem !important;
+            font-size: 13px !important;
             font-weight: 600 !important;
             padding: 8px 10px !important;
             display: flex !important;
@@ -420,7 +425,7 @@
             border-radius: 4px;
             box-sizing: border-box;
             flex: 0 0 auto;
-            font-size: 0.59375rem;
+            font-size: 9.5px;
             font-weight: 600;
             letter-spacing: 0.02em;
             line-height: 1;
@@ -451,7 +456,7 @@
             min-width: 0;
             padding: 2px 8px !important;
             font-family: var(--font-family) !important;
-            font-size: 0.75rem !important;
+            font-size: 12px !important;
             color: var(--text-primary);
             background-color: var(--bg-card);
             border-radius: 6px !important;
@@ -472,11 +477,6 @@
             outline: 2px solid transparent !important;
         }
 
-        .tabulator-header-filter input::placeholder {
-            color: var(--text-subtle);
-            opacity: 1;
-        }
-
         #table-container {
             flex: 1;
             padding: 12px;
@@ -491,7 +491,7 @@
             overflow: hidden;
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 0.8125rem;
+            font-size: 13px;
         }
 
         /* Tabulator's own colours, in the Studio's */
@@ -542,7 +542,7 @@
         }
         .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
             color: var(--text-subtle);
-            font-size: 0.875rem;
+            font-size: 14px;
             font-weight: 400;
         }
         .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range {
@@ -571,7 +571,7 @@
         }
         .tabulator-row .tabulator-cell.tabulator-editing input {
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--text-primary);
             padding: 0 7px;
         }
@@ -587,12 +587,17 @@
            takes off. The table is one stop for Tab, its body, where the
            arrow keys move the selected cell and Enter edits it. The ring goes
            round the whole table: the body's rows would cover one drawn
-           inside it. A cell a script focuses has a ring of its own. */
-        #spreadsheet-table:has(> .tabulator-tableholder:focus-visible) {
+           inside it. A cell a script focuses has a ring of its own. The
+           range selection gives the table the focus from a script too, as
+           the page opens and as the Viewer filters it, which the browser
+           counts as :focus-visible until the first click: the rings wait
+           for data-keyboard, which a key that moves about the page sets
+           and a press of the mouse clears. */
+        :root[data-keyboard] #spreadsheet-table:has(> .tabulator-tableholder:focus-visible) {
             outline: 2px solid var(--accent);
             outline-offset: 2px;
         }
-        #spreadsheet-table .tabulator-cell:focus-visible {
+        :root[data-keyboard] #spreadsheet-table .tabulator-cell:focus-visible {
             outline: 2px solid var(--accent);
             outline-offset: -2px;
         }
@@ -609,7 +614,7 @@
             border-radius: var(--radius);
             background-color: var(--bg-card);
             color: var(--text-primary);
-            font-size: 0.75rem;
+            font-size: 12px;
             line-height: 1.5;
         }
         .edit-message:not(:empty) {
@@ -624,29 +629,26 @@
             overflow: hidden; clip-path: inset(50%); white-space: nowrap;
         }
 
-        /* Scrollbar styles, where the browser has no scrollbar-color (:root
-           sets it), as Safari before 26 */
-        @supports not (scrollbar-color: auto) {
-            ::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
-            }
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
 
-            ::-webkit-scrollbar-track {
-                background: transparent;
-            }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
 
-            ::-webkit-scrollbar-thumb {
-                background: var(--scroll);
-                border: 2px solid transparent;
-                border-radius: 4px;
-                background-clip: content-box;
-            }
+        ::-webkit-scrollbar-thumb {
+            background: var(--scroll);
+            border: 2px solid transparent;
+            border-radius: 4px;
+            background-clip: content-box;
+        }
 
-            ::-webkit-scrollbar-thumb:hover {
-                background: var(--scroll-hover);
-                background-clip: content-box;
-            }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--scroll-hover);
+            background-clip: content-box;
         }
         /* Hide HTML5 spin-buttons on number inputs */
         input::-webkit-outer-spin-button,
@@ -751,7 +753,7 @@
 
         .modal-content h2 {
             margin: 0;
-            font-size: 1rem;
+            font-size: 16px;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
@@ -772,7 +774,7 @@
 
         .modal-intro {
             margin: 10px 32px 0 0;
-            font-size: 0.8125rem;
+            font-size: 13px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
@@ -781,13 +783,13 @@
             margin-top: 20px;
             padding-top: 18px;
             border-top: 1px solid var(--border-color);
-            font-size: 0.8125rem;
+            font-size: 13px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
         .modal-section h3 {
             margin: 0;
-            font-size: 0.875rem;
+            font-size: 14px;
             font-weight: 600;
             color: var(--text-primary);
             display: flex;
@@ -820,7 +822,7 @@
             align-items: center;
             gap: 8px;
             color: var(--text-primary);
-            font-size: 0.84375rem;
+            font-size: 13.5px;
         }
 
         /* Short rules, each led by its name in bold, in two columns */
@@ -842,7 +844,7 @@
 
         .modal-content code {
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             color: var(--text-primary);
             background: var(--bg-muted);
             border-radius: max(6px, 0.6em);
@@ -988,6 +990,18 @@
         document.addEventListener("mouseup", finishPendingNodeNameGesture);
         document.addEventListener("pointercancel", cancelPendingNodeNameGesture);
         window.addEventListener("blur", cancelPendingNodeNameGesture);
+
+        // Keyboard use, which shows the table's focus rings (see its style):
+        // a key that moves about the page, not one typed in a field or
+        // pressed with Ctrl. A press of the mouse ends it.
+        document.addEventListener("keydown", event => {
+            if (["Control", "Shift", "Alt", "Meta"].includes(event.key) || event.ctrlKey || event.metaKey) return;
+            if (event.key !== "Tab" && event.target.closest("input, textarea, select, [contenteditable]")) return;
+            document.documentElement.dataset.keyboard = "";
+        }, true);
+        document.addEventListener("pointerdown", () => {
+            delete document.documentElement.dataset.keyboard;
+        }, true);
 
         // A column's name, a button. Enter or Space sorts by the column as a
         // click on its header does: Tabulator's listener on the header takes
@@ -1198,7 +1212,6 @@
                     titleFormatter: () => columnTitleButton(t("Sequence Header"), false),
                     field: "Node ID",
                     headerFilter: headerFilterInput,
-                    headerFilterPlaceholder: t("Filter"),
                     headerFilterLiveFilter: false,
                     sorter: "string",
                     hozAlign: "left",
@@ -1223,7 +1236,6 @@
                     mutatorEdit: type === "number" ? numberCellValue : undefined,
                     sorter: type === "number" ? "number" : "string",
                     headerFilter: headerFilterInput,
-                    headerFilterPlaceholder: t("Filter"),
                     headerFilterLiveFilter: false,
                     hozAlign: "center",
                     headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
@@ -1248,8 +1260,8 @@
             input.style.padding = "4px";
             input.style.width = "100%";
             input.style.boxSizing = "border-box";
-            // Named for its column: the placeholder, the column's
-            // headerFilterPlaceholder, is the same in every column.
+            // Named for its column, as the boxes, empty as they always were,
+            // look the same in every column.
             input.setAttribute("aria-label", t("Filter {column}", {column: cell.getColumn().getDefinition().title}));
             input.spellcheck = false;
             input.value = cell.getValue();

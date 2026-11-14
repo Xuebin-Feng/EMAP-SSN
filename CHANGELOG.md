@@ -270,13 +270,6 @@ still change before version 1.0.0.
 
 ### Changed
 
-- **The theme's red is darker,** #b91c1c in place of #dc2626, in the web pages, the
-  documentation and the Qt windows: error text on the pages' pink tint is 5.9:1, where it
-  was 4.4:1.
-- **Field borders, switches that are off and scroll handles are darker** in the web pages,
-  the documentation and the Qt windows, so they stand out 3:1 or more from what is around
-  them: a field's border on white was 1.4:1. The key caps in the Viewer's info card and the
-  tip panel's code chips use the field border, so they darken too.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
@@ -396,16 +389,16 @@ still change before version 1.0.0.
   - **Meta Data:** Ctrl+Z in a filter or a cell being edited undoes the typing, not the
     Viewer's last command. A number cell given something that isn't a number keeps its value
     and says why; it used to be emptied, and the empty value sent to the Viewer.
-  - **Contrast:** the Agent's token line, Tree View's search placeholder, the names of tree
-    leaves outside the network, and Fold View's dark error message are 4.5:1 or more.
-- **The Viewer's web pages grow with the text size, show their state in contrast themes,
-  and name every control** (second round of the audit).
-  - **Text size:** the pages follow the browser's font size, and their headers wrap rather
-    than cut off buttons in a narrow or zoomed window.
+- **The Viewer's web pages keep their headers on screen, show their state in contrast
+  themes, and name every control** (second round of the audit).
+  - **Narrow or zoomed windows:** the headers wrap onto another row rather than cut off
+    buttons. The pages stay in px, as most sites do: they grow with the browser's zoom
+    (Ctrl+scroll), not with its font-size setting alone, which would grow the text but not
+    the boxes and icons around it.
   - **Contrast themes:** Windows High Contrast shows the focus ring, the switches, pressed
     buttons and the selected cell, and the Meta Data sort arrows keep their shape.
   - **System theme:** a page whose theme you haven't chosen follows the system's light or
-    dark setting when it changes. The scroll bars are the system's own, at its width.
+    dark setting when it changes.
   - **Agent:** every field and button has a name. Copy says when copying failed. Custom
     Options that aren't a JSON object are refused with a message, where Save used to keep
     the old value silently. The ≡ handle moves a model card with ↑ and ↓.
@@ -418,8 +411,8 @@ still change before version 1.0.0.
     looking saved.
   - **Tree View:** Open a tree file is a button beside the tree chooser, so arrowing through
     the chooser no longer opens the file dialog. The Details and Open cards take the focus
-    and give it back, and Details has Close and Esc. A pressed legend row has a ring, and
-    the legend's range bar is a slider that screen readers read.
+    and give it back, and Details has Close and Esc. The legend's range bar is a slider that
+    screen readers read.
 - **The Viewer's web pages clean model replies more strictly, move less, and say less**
   (third round of the audit).
   - **Agent replies:** the reply's Markdown is cleaned in a separate document where nothing
@@ -439,6 +432,11 @@ still change before version 1.0.0.
     Viewer pushes a new tree.
   - **Tree View:** an unavailable tree says why in the chooser, Copy says when it failed,
     and a hidden tab doesn't redraw. Fold View loads Mol* without holding up the page.
+- **The Agent's message box fits its text.** One short line showed a scroll bar, a draft
+  given back after an error came back squeezed into one line, a narrower window wrapped
+  the text inside a box that kept its height, and the box stayed tall after Send until the
+  reply came. It now fits its text wherever the text came from (`field-sizing: content`),
+  from one line up to 200 px; a browser without `field-sizing` grows it as you type.
 
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above

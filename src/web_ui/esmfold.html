@@ -20,7 +20,6 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
     <title data-i18n>EMAP-SSN Fold View</title>
     <!-- Mol* and its stylesheets are vendored under src/resources/esmfold (THIRD_PARTY_LICENSES.md section 1).
          Mol*'s own panels, which Advanced shows, come in its light or its dark skin. -->
@@ -52,8 +51,8 @@
             --bg-muted: #f4f4f5;
             --bg-inset: #fafafa;
             --border-color: #e4e4e7;
-            --field-border: #8a8a92;
-            --field-border-hover: #71717a;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
             --text-primary: #09090b;
             --text-soft: #3f3f46;
             --text-secondary: #52525b;
@@ -76,7 +75,7 @@
             --success-fill-text: #ffffff;
             --warning: #b45309;
             --warning-soft: #fffbeb;
-            --danger: #b91c1c;
+            --danger: #dc2626;
             --danger-soft: #fef2f2;
             --danger-border: #fecaca;
             --bg-bubble-user: #f4f4f5;
@@ -88,15 +87,15 @@
             --code-text: #18181b;
             --code-inline-bg: #f4f4f5;
             --code-inline-text: #18181b;
-            --switch-off: #8a8a92;
-            --switch-off-hover: #71717a;
+            --switch-off: #d4d4d8;
+            --switch-off-hover: #a1a1aa;
             --switch-on: #5b5bd6;
             --switch-on-hover: #4e4bc5;
             --switch-thumb: #ffffff;
             --switch-thumb-on: #ffffff;
             --switch-thumb-shadow: rgba(9, 9, 11, 0.18);
-            --scroll: #8a8a92;
-            --scroll-hover: #71717a;
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
             --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
             --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
             --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -113,8 +112,8 @@
             --bg-muted: #27272a;
             --bg-inset: #111113;
             --border-color: #27272a;
-            --field-border: #71717a;
-            --field-border-hover: #8e8e96;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
             --text-primary: #fafafa;
             --text-soft: #d4d4d8;
             --text-secondary: #a1a1aa;
@@ -149,15 +148,15 @@
             --code-text: #e4e4e7;
             --code-inline-bg: #27272a;
             --code-inline-text: #fafafa;
-            --switch-off: #71717a;
-            --switch-off-hover: #8e8e96;
+            --switch-off: #3f3f46;
+            --switch-off-hover: #52525b;
             --switch-on: #8289ff;
             --switch-on-hover: #98a1ff;
             --switch-thumb: #fafafa;
             --switch-thumb-on: #fafafa;
             --switch-thumb-shadow: rgba(0, 0, 0, 0.4);
-            --scroll: #71717a;
-            --scroll-hover: #8e8e96;
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
             --shadow-control: none;
             --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -192,7 +191,7 @@
         body {
             margin: 0; padding: 0;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -221,7 +220,7 @@
         }
 
         .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-        /* Above the window by its own height, which grows with the text size. */
+        /* Above the window by its own height, so none of it shows until it has the focus. */
         .skip-link { position: absolute; left: 8px; top: 8px; transform: translateY(calc(-100% - 16px)); z-index: 100; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--accent); border-radius: var(--radius); padding: 6px 10px; text-decoration: none; }
         .skip-link:focus { transform: none; }
 
@@ -246,7 +245,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 0.9375rem;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text-primary);
             white-space: nowrap;
@@ -265,7 +264,7 @@
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 0.75rem;
+            font-size: 12px;
             white-space: nowrap;
         }
         .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -284,7 +283,7 @@
             background-color: var(--bg-card);
             border: 1px solid var(--field-border);
             border-radius: var(--radius);
-            font-size: 0.8125rem;
+            font-size: 13px;
             font-weight: 400;
             color: var(--text-primary);
             cursor: pointer;
@@ -302,14 +301,14 @@
         .btn-ghost { background-color: transparent; border-color: transparent; color: var(--text-secondary); box-shadow: none; }
         .btn-ghost:hover { background-color: var(--bg-muted); color: var(--text-primary); }
         .btn-icon { width: 30px; padding: 0; }
-        .btn-sm { min-height: 26px; padding: 0 8px; font-size: 0.75rem; }
+        .btn-sm { min-height: 26px; padding: 0 8px; font-size: 12px; }
         .btn-icon.btn-sm { width: 26px; padding: 0; }
         .btn-danger-ghost:hover { background: var(--danger-soft); color: var(--danger); }
         .btn[aria-pressed="true"] { background-color: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
         .btn-ghost.btn-icon[aria-pressed="true"] { background-color: transparent; border-color: transparent; color: var(--text-secondary); }
 
         /* The connection to the Viewer is lost */
-        .banner { display: none; align-items: center; gap: 8px; padding: 8px 20px; font-size: 0.78125rem; background: var(--warning-soft); color: var(--warning); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .banner { display: none; align-items: center; gap: 8px; padding: 8px 20px; font-size: 12.5px; background: var(--warning-soft); color: var(--warning); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
         .banner .icon { width: 15px; height: 15px; }
         body[data-offline="1"] .banner { display: flex; }
 
@@ -337,7 +336,7 @@
             gap: 8px;
             flex-shrink: 0;
         }
-        .pane-title { font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+        .pane-title { font-size: 14px; font-weight: 600; white-space: nowrap; }
         .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         #panel-toggle { display: none; }
 
@@ -379,7 +378,7 @@
             display: none; position: absolute; left: 0; top: 0; right: 0; min-height: 46px; z-index: 6;
             align-items: center; gap: 10px; padding: 6px 8px 6px 14px;
             background: var(--bg-card); border-bottom: 1px solid var(--border-color);
-            font-size: 0.78125rem; color: var(--text-secondary);
+            font-size: 12.5px; color: var(--text-secondary);
         }
         .adv-banner span { flex: 1; }
         body[data-adv="1"] .adv-banner { display: flex; }
@@ -395,15 +394,12 @@
             background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
             padding: 6px 8px 6px 10px; border-radius: var(--radius);
             box-shadow: 0 4px 12px var(--tip-shadow);
-            font-size: 0.75rem; line-height: 1.4; overflow-wrap: anywhere;
+            font-size: 12px; line-height: 1.4; overflow-wrap: anywhere;
         }
         .toast.show { display: flex; }
         .toast .icon { width: 14px; height: 14px; }
         .toast.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
-        /* The dark theme's soft red is see-through, and over the canvas the text would take its contrast from the molecule under it
-           (about 2:1 over yellow). Its error is drawn on the card's own color, tinted red: opaque, so the text keeps over 4.5:1. */
-        [data-theme="dark"] .toast.error { background: color-mix(in srgb, var(--danger) 14%, var(--bg-card)); }
-        .toast .toast-action { flex: none; background: none; border: 0; color: #a7b0ff; font-size: 0.75rem; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: 2px solid transparent; }
+        .toast .toast-action { flex: none; background: none; border: 0; color: #a7b0ff; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: 2px solid transparent; }
         .toast .toast-action:focus-visible { box-shadow: 0 0 0 1px #a7b0ff; }
 
         /* What the stage says when there is nothing to draw */
@@ -415,11 +411,11 @@
         .empty-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--bg-muted); color: var(--text-secondary); display: grid; place-items: center; margin: 0 auto 14px; }
         .empty-icon .icon { width: 22px; height: 22px; }
         .empty-icon.warn { background: var(--warning-soft); color: var(--warning); }
-        .empty h2 { margin: 0 0 6px; font-size: 0.9375rem; font-weight: 600; }
-        .empty p { margin: 0 0 12px; font-size: 0.8125rem; line-height: 1.55; color: var(--text-secondary); overflow-wrap: anywhere; }
-        .empty .steps { text-align: left; margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 0.78125rem; color: var(--text-secondary); }
+        .empty h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+        .empty p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); overflow-wrap: anywhere; }
+        .empty .steps { text-align: left; margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
         .empty .steps li { display: flex; gap: 8px; align-items: baseline; }
-        .empty .steps .n { flex: none; width: 18px; min-height: 18px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 0.6875rem; font-weight: 600; display: inline-grid; place-items: center; }
+        .empty .steps .n { flex: none; width: 18px; min-height: 18px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
         .empty .hint { margin: 0; }
         /* Mol* did not start: the technical reason, small and monospaced, one click selects it all to copy; and no
            control of the page that needs Mol* (the panel's cards, the toolbar, the Session menu, a dropped file). */
@@ -429,32 +425,32 @@
         body[data-view="failed"] #viewer, body[data-view="failed"] .view-toolbar, body[data-view="failed"] .side,
         body[data-view="failed"] #panel-toggle, body[data-view="failed"] .skip-link, body[data-view="failed"] .seqbar, body[data-view="failed"] .side-resizer,
         body[data-view="failed"] .drop-hint { display: none !important; }
-        code { font-family: var(--font-mono); font-size: 0.75rem; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
+        code { font-family: var(--font-mono); font-size: 12px; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
 
         /* The canvas's own legend: the chosen coloring in small, bottom left (the axes are bottom right) */
         .canvas-legend {
             position: absolute; left: 12px; bottom: 12px; z-index: 4; display: none; min-width: 150px; max-width: 220px;
             padding: 7px 10px 8px; border: 1px solid var(--border-color); border-radius: 10px;
             background: color-mix(in srgb, var(--bg-card) 94%, transparent); box-shadow: var(--shadow-card);
-            font-size: 0.71875rem; overflow-wrap: anywhere;
+            font-size: 11.5px; overflow-wrap: anywhere;
         }
         body[data-view="ready"] .canvas-legend[data-shown="1"] { display: block; }
         body[data-adv="1"] .canvas-legend { display: none !important; }
-        .canvas-legend .t { font-size: 0.75rem; font-weight: 600; margin-bottom: 5px; }
-        .canvas-legend .t small, .legend .t small { font-weight: 400; color: var(--text-subtle); font-size: 0.6875rem; }
+        .canvas-legend .t { font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+        .canvas-legend .t small, .legend .t small { font-weight: 400; color: var(--text-subtle); font-size: 11px; }
         .canvas-legend .ramp { height: 8px; }
-        .canvas-legend .band { font-size: 0.6875rem; }
+        .canvas-legend .band { font-size: 11px; }
         .canvas-legend .compact-keys { gap: 2px; }
 
         /* Color by */
         .seg { display: flex; flex-wrap: wrap; gap: 6px; }
-        .seg-btn { position: relative; user-select: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 0 8px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 0.78125rem; color: var(--text-primary); cursor: pointer; outline: 2px solid transparent; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
+        .seg-btn { position: relative; user-select: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 0 8px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 12.5px; color: var(--text-primary); cursor: pointer; outline: 2px solid transparent; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
         .seg-btn:hover { background: var(--bg-muted); }
         /* The chip is a label round a native radio, which covers it and is not seen: the browser's own radio keys and Tab stop. */
         .seg-btn input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; appearance: none; cursor: pointer; }
         .seg-btn:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
         .seg-btn:has(input:focus-visible) { border-color: var(--accent); box-shadow: var(--focus-ring); }
-        .seg-btn .cov { font-size: 0.65625rem; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; flex: none; }
+        .seg-btn .cov { font-size: 10.5px; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; flex: none; }
         /* The chosen chip's text is bold, which is wider. The same text, bold and unseen, makes every chip as wide as it is when
            chosen, so choosing a coloring never moves another chip to the next line or back. A label too long for the card is cut
            with an ellipsis (the whole text is the chip's tooltip). */
@@ -462,9 +458,9 @@
         .seg-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
         .seg-label::after { content: attr(data-text); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
         .seg.scroll { max-height: 188px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px; margin: -2px; }
-        .group-label { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); margin: 10px 0 6px; }
+        .group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); margin: 10px 0 6px; }
         .group-label:first-child { margin-top: 0; }
-        .more-toggle { display: flex; align-items: center; gap: 4px; margin-top: 10px; background: none; border: 0; padding: 2px 4px 2px 0; color: var(--text-secondary); font-size: 0.75rem; cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
+        .more-toggle { display: flex; align-items: center; gap: 4px; margin-top: 10px; background: none; border: 0; padding: 2px 4px 2px 0; color: var(--text-secondary); font-size: 12px; cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
         .more-toggle:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
         .more-toggle .icon { width: 14px; height: 14px; transition: transform 0.2s ease; }
         .more-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
@@ -472,18 +468,18 @@
         /* What a legend says comes from the data (a file name, a structure's name, a layer's own words), and a name has no
            spaces to break at: all of it breaks anywhere to stay inside the card. */
         .legend { overflow-wrap: anywhere; margin-top: 12px; padding: 10px 10px 9px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); }
-        .legend .t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 0.78125rem; font-weight: 600; margin-bottom: 6px; }
+        .legend .t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
         .legend .t small { flex: none; white-space: nowrap; }
         .ramp { height: 10px; border-radius: 5px; }
-        .ticks { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--text-subtle); margin-top: 3px; font-variant-numeric: tabular-nums; }
+        .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-subtle); margin-top: 3px; font-variant-numeric: tabular-nums; }
         .bands { display: grid; gap: 4px; }
-        .band { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; }
+        .band { display: flex; align-items: center; gap: 8px; font-size: 12px; }
         .band i { width: 14px; height: 10px; border-radius: 3px; flex: none; background: var(--bc); border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); }
         .band span { flex: 1; }
         .legend .band-nodata { margin-top: 6px; }
-        .legend .caution { margin-top: 8px; font-size: 0.71875rem; line-height: 1.45; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
-        .legend-note { font-size: 0.75rem; color: var(--text-secondary); line-height: 1.45; }
-        .legend .src { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 0.71875rem; color: var(--text-subtle); line-height: 1.45; }
+        .legend .caution { margin-top: 8px; font-size: 11.5px; line-height: 1.45; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
+        .legend-note { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+        .legend .src { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 11.5px; color: var(--text-subtle); line-height: 1.45; }
         .legend .src summary { display: flex; gap: 6px; align-items: center; cursor: pointer; list-style: none; border-radius: 6px; outline: 2px solid transparent; }
         .legend .src summary::-webkit-details-marker { display: none; }
         .legend .src summary:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
@@ -505,16 +501,16 @@
         .legend .src button.note-row:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
         .legend .src .note-row[aria-expanded="true"] .chev { transform: rotate(180deg); }
         .legend .src .note-watch { position: absolute; left: 0; right: 0; top: 0; height: 0; pointer-events: none; }
-        .legend .nodata { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.71875rem; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
+        .legend .nodata { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
         .legend .nodata i { width: 14px; height: 10px; border-radius: 3px; background: #dcdcdc; border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); flex: none; }
-        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 0.75rem; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
-        .filter { min-height: 28px; margin: 0 0 8px; width: 100%; padding: 0 10px; border: 1px solid var(--field-border); border-radius: var(--radius); background: var(--input-bg); color: var(--input-text); font-size: 0.78125rem; outline: 2px solid transparent; }
+        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
+        .filter { min-height: 28px; margin: 0 0 8px; width: 100%; padding: 0 10px; border: 1px solid var(--field-border); border-radius: var(--radius); background: var(--input-bg); color: var(--input-text); font-size: 12.5px; outline: 2px solid transparent; }
         .filter:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
         .chip.warn { background: var(--warning-soft); color: var(--warning); }
 
         /* The panel's tabs, on a phone: Structures and Color take turns in the strip */
         .side-tabs { display: none; padding: 8px 10px 0; gap: 4px; border-bottom: 1px solid var(--border-color); }
-        .side-tabs button { flex: 1; min-height: 32px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 0.8125rem; cursor: pointer; outline: 2px solid transparent; }
+        .side-tabs button { flex: 1; min-height: 32px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; outline: 2px solid transparent; }
         .side-tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
         .side-tabs button:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; }
 
@@ -534,23 +530,21 @@
         .side-resizer:hover::after, body[data-resizing="1"] .side-resizer::after { background: var(--accent); }
         .side-resizer:focus-visible::after { background: var(--accent); box-shadow: var(--focus-ring); }
         body[data-resizing="1"] { cursor: col-resize; user-select: none; }
-        /* A scrollbar that comes and goes takes its width from the cards', and the text in them wraps differently: the chips of
+        /* A scrollbar that comes and goes takes its 8 px from the cards' width, and the text in them wraps differently: the chips of
            the Color by card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
-           always there (scrollbar-gutter), and the padding beside it is smaller by as much, so the cards are as wide as they always were
-           without one. The bar's width is the platform's (a classic one 15 px or more, an overlay one none): esmfold_shell.js measures it
-           into --sb; where it is wider than the gap, the gap is the bar. */
-        .side-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px max(0px, 10px - var(--sb, 0px)) 4px 10px; }
+           always there, and the padding beside it is smaller by as much, so the cards are as wide as they always were without one. */
+        .side-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 2px 4px 10px; }
         /* Beside the canvas the panel is no panel to look at: it has no background and no edge line, so its cards stand on the page's own
            background in a row with the Structure View card (the handle, left of it, is the gap between them). The cards start at the Structure
-           View card's top and have the same 14 px of space under them and to their right (what the scrollbar's room leaves of it). The drawer
+           View card's top and have the same 14 px of space under them and to their right (6 px, and the 8 px of the scrollbar's room). The drawer
            and the strip lie over the canvas, so they keep their background and their edge (and the drawer its shadow, set below). */
         @container app (width > 1040px) {
             .side { background: none; border-left: 0; }
-            .side-scroll { padding: 14px max(0px, 14px - var(--sb, 0px)) 4px 0; }
+            .side-scroll { padding: 14px 6px 4px 0; }
         }
         .sec { border: 1px solid var(--border-color); border-radius: var(--radius-card); margin-bottom: 10px; overflow: hidden; background: var(--bg-card); }
         .sec-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; min-height: 40px; }
-        .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8125rem; font-weight: 600; margin: 0; min-width: 0; }
+        .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }
         .sec-title .icon { color: var(--text-secondary); }
         .sec-title .count { font-weight: 400; color: var(--text-subtle); }
         /* A card's heading takes the focus when the control that had it went with what it acted on (a structure removed, a failure
@@ -561,17 +555,17 @@
         .side:focus { outline: 2px solid transparent; }
         .sec-body { padding: 10px 12px 12px; border-top: 1px solid var(--border-color); background: var(--bg-inset); }
         .sec-body.flush { padding: 4px 6px; }
-        .hint { font-size: 0.75rem; color: var(--text-subtle); line-height: 1.5; padding: 4px 4px 6px; }
+        .hint { font-size: 12px; color: var(--text-subtle); line-height: 1.5; padding: 4px 4px 6px; }
 
         .srow + .srow { border-top: 1px solid var(--border-color); }
         .srow-main { display: flex; align-items: center; gap: 4px; padding: 6px 2px 6px 4px; }
         .srow-swatch { width: 10px; height: 26px; border-radius: 4px; flex: none; margin: 0 4px 0 2px; background: var(--sw, var(--border-color)); }
         .srow-text { flex: 1; min-width: 0; line-height: 1.3; padding: 2px 0; }
-        .srow-name { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .srow-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .srow.expanded .srow-name { white-space: normal; overflow-wrap: anywhere; }
-        .srow-sub { font-size: 0.71875rem; color: var(--text-subtle); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; margin-top: 1px; }
+        .srow-sub { font-size: 11.5px; color: var(--text-subtle); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; margin-top: 1px; }
         .srow.hidden-structure .srow-text { opacity: 0.55; }
-        .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 18px; padding: 0 7px; border-radius: 9999px; background: var(--bg-muted); color: var(--text-secondary); font-size: 0.6875rem; font-weight: 400; white-space: nowrap; flex: none; }
+        .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 18px; padding: 0 7px; border-radius: 9999px; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; flex: none; }
         .chip.pivot { background: var(--accent-soft); color: var(--accent); }
         .chip.ok { background: var(--success-soft); color: var(--success); }
 
@@ -579,12 +573,12 @@
         .srow .exp-btn .icon { transition: transform 0.2s ease; }
         .srow.expanded .exp-btn .icon { transform: rotate(180deg); }
         .srow-body { padding: 4px 8px 10px 20px; display: flex; flex-direction: column; gap: 10px; }
-        .field-label { font-size: 0.75rem; font-weight: 600; color: var(--text-soft); margin-bottom: 4px; display: block; }
+        .field-label { font-size: 12px; font-weight: 600; color: var(--text-soft); margin-bottom: 4px; display: block; }
         .field-value { font-weight: 400; color: var(--text-subtle); }
         .select {
             width: 100%; min-height: 30px; padding: 0 30px 0 10px;
             border: 1px solid var(--field-border); border-radius: var(--radius);
-            font-size: 0.8125rem; color: var(--text-primary);
+            font-size: 13px; color: var(--text-primary);
             background: var(--input-bg) var(--select-chevron) no-repeat right 9px center / 14px 14px;
             -webkit-appearance: none; appearance: none; outline: 2px solid transparent; cursor: pointer; box-shadow: var(--shadow-control);
         }
@@ -593,7 +587,7 @@
         input[type="range"] { width: 100%; accent-color: var(--accent); height: 18px; margin: 0; }
         input[type="range"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
         /* A name in a term ("Aligned to <name>") breaks anywhere and leaves the room a value needs: a value stays whole. */
-        .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 0.75rem; margin: 0; }
+        .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; margin: 0; }
         .kv dt { color: var(--text-subtle); overflow-wrap: anywhere; }
         .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -607,9 +601,9 @@
             box-shadow: var(--shadow-dialog); padding: 4px; display: none;
         }
         .menu.open { display: block; }
-        .menu-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--text-secondary); font-size: 0.75rem; }
+        .menu-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--text-secondary); font-size: 12px; }
         .menu-note .icon { width: 14px; height: 14px; color: var(--success); }
-        .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 10px; background: none; border: 0; border-radius: 6px; color: var(--text-primary); font-size: 0.8125rem; text-align: left; cursor: pointer; outline: 2px solid transparent; }
+        .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 10px; background: none; border: 0; border-radius: 6px; color: var(--text-primary); font-size: 13px; text-align: left; cursor: pointer; outline: 2px solid transparent; }
         .menu-item:hover, .menu-item:focus-visible { background: var(--bg-muted); }
         .menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
         .menu-item .icon { color: var(--text-secondary); }
@@ -618,7 +612,7 @@
         .menu-item.danger, .menu-item.danger .icon { color: var(--danger); }
         .menu-item.danger:disabled, .menu-item.danger:disabled .icon { color: var(--text-disabled); }
         .menu-sep { height: 1px; background: var(--border-color); border: 0; margin: 4px 0; }
-        .saved-note { color: var(--text-subtle); font-size: 0.75rem; }
+        .saved-note { color: var(--text-subtle); font-size: 12px; }
         .saved-note:empty { display: none; }
         .btn-danger { background-color: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
         .btn-danger:hover { background-color: var(--danger); border-color: var(--danger); filter: brightness(0.92); }
@@ -633,7 +627,7 @@
         .stage.dropping .drop-hint { display: flex; }
 
         /* The tooltip: what the pointer is over, at the pointer, drawn as the windows' tips are */
-        .tip { position: absolute; z-index: 8; pointer-events: none; min-width: 200px; max-width: min(360px, calc(100% - 16px)); padding: 8px 10px; border-radius: var(--radius); background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); box-shadow: 0 4px 12px var(--tip-shadow); font-size: 0.75rem; line-height: 1.4; display: none; }
+        .tip { position: absolute; z-index: 8; pointer-events: none; min-width: 200px; max-width: min(360px, calc(100% - 16px)); padding: 8px 10px; border-radius: var(--radius); background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); box-shadow: 0 4px 12px var(--tip-shadow); font-size: 12px; line-height: 1.4; display: none; }
         .tip.show { display: block; }
         body[data-adv="1"] .tip { display: none !important; }
         /* The residue ("Val 185") never breaks. The structure's name, which has no spaces to break at in a name such as
@@ -647,16 +641,16 @@
         .tip td:first-child { color: var(--tip-muted); padding-right: 12px; overflow-wrap: anywhere; }
         .tip td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .tip .swatch-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -0.5px; }
-        .tip .pinned-note { margin-top: 5px; color: var(--tip-muted); font-size: 0.6875rem; }
+        .tip .pinned-note { margin-top: 5px; color: var(--tip-muted); font-size: 11px; }
 
         /* The Residue card */
-        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 0.8125rem; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
-        .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 0.75rem; }
-        .res-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
+        .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 12px; }
+        .res-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         /* No text of the table wraps, but a layer's name in its header, which breaks at its spaces (it is the data's, and as long as the
            data says), unless the strip, as wide as the window, has the room. A structure's name takes the room the values leave (a width
            of 100% with max-width 0, the way a table cell is made to shrink) and is cut with an ellipsis; the swatch stays beside it. */
-        .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 0.6875rem; line-height: 1.25; vertical-align: bottom; white-space: nowrap; }
+        .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; line-height: 1.25; vertical-align: bottom; white-space: nowrap; }
         .res-table th:not(:first-child), .res-table td:not(:first-child) { text-align: right; padding-left: 8px; }
         /* A layer's name breaks at its spaces; a name with none, such as a Chinese term, stays whole as a Latin word does,
            instead of breaking after every character in the narrow column. */
@@ -665,7 +659,7 @@
         .res-table td:first-child { color: var(--text-secondary); }
         .res-table td.res-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .res-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
-        .res-note { margin-top: 8px; font-size: 0.71875rem; color: var(--text-subtle); line-height: 1.5; overflow-wrap: anywhere; }
+        .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; overflow-wrap: anywhere; }
         .res-foot { display: flex; gap: 6px; margin-top: 10px; }
 
         /* The sequence strip: residues in blocks of ten, each with a bar in its color in 3D */
@@ -675,14 +669,14 @@
         .seq-head .btn { padding: 0 6px 0 4px; font-weight: 600; color: var(--text-primary); }
         .seq-head .btn .icon { transition: transform 0.2s ease; }
         .seqbar[data-open="0"] .seq-head .btn .icon { transform: rotate(-90deg); }
-        .seq-select { width: auto; max-width: 260px; min-height: 26px; font-size: 0.75rem; margin-left: auto; }
+        .seq-select { width: auto; max-width: 260px; min-height: 26px; font-size: 12px; margin-left: auto; }
         .seq-select[hidden] { display: none; }
-        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px max(0px, 14px - var(--sb, 0px)) 10px 14px; max-height: 132px; overflow-y: auto; scrollbar-gutter: stable; font-family: var(--font-mono); }
+        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px 6px 10px 14px; max-height: 132px; overflow-y: auto; scrollbar-gutter: stable; font-family: var(--font-mono); }
         .seqbar[data-open="0"] .seq-body { display: none; }
         .seq-block { display: flex; flex-direction: column; }
-        .seq-num { font-size: 0.59375rem; color: var(--text-subtle); line-height: 1.1; min-height: 11px; padding-left: 1px; }
+        .seq-num { font-size: 9.5px; color: var(--text-subtle); line-height: 1.1; min-height: 11px; padding-left: 1px; }
         .seq-letters { display: flex; }
-        .seq-res { position: relative; width: 12px; min-height: 18px; padding: 0 0 4px; border: 0; background: none; color: var(--text-primary); font: 0.75rem/14px var(--font-mono); cursor: pointer; border-radius: 3px; outline: 2px solid transparent; }
+        .seq-res { position: relative; width: 12px; min-height: 18px; padding: 0 0 4px; border: 0; background: none; color: var(--text-primary); font: 12px/14px var(--font-mono); cursor: pointer; border-radius: 3px; outline: 2px solid transparent; }
         .seq-res::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 3px; border-radius: 1.5px; background: var(--rc, var(--border-color)); }
         .seq-res:hover, .seq-res.hover { background: var(--bg-muted); }
         .seq-res.pinned { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
@@ -694,7 +688,7 @@
         body[data-tool="measure"] #viewer canvas, body[data-tool="label"] #viewer canvas { cursor: crosshair; }
         .view-toolbar .btn[aria-disabled="true"] { opacity: 0.4; background: transparent; }
         .view-toolbar [hidden] { display: none; }
-        .check { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 0.8125rem; cursor: pointer; }
+        .check { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; cursor: pointer; }
         .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
         .modal .select { margin-bottom: 4px; }
 
@@ -729,35 +723,30 @@
         .modal-overlay[open] { display: flex; align-items: center; justify-content: center; }
         .modal-overlay::backdrop { background: var(--overlay); overflow: hidden; overscroll-behavior: contain; }
         .modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-card); box-shadow: var(--shadow-dialog); width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 18px 20px 16px; }
-        .modal h3 { margin: 0 0 10px; font-size: 0.9375rem; display: flex; align-items: center; gap: 8px; }
-        .modal h4 { margin: 14px 0 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); }
+        .modal h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .modal h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); }
         .modal p { margin: 0 0 8px; color: var(--text-secondary); line-height: 1.55; }
-        .modal table { border-collapse: collapse; width: 100%; font-size: 0.78125rem; }
+        .modal table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
         .modal td { padding: 4px 0; border-top: 1px solid var(--border-color); color: var(--text-secondary); }
         .modal td:first-child { white-space: nowrap; padding-right: 14px; color: var(--text-primary); }
-        kbd { font-family: var(--font-mono); font-size: 0.6875rem; background: var(--bg-muted); border: 1px solid var(--field-border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+        kbd { font-family: var(--font-mono); font-size: 11px; background: var(--bg-muted); border: 1px solid var(--field-border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
         /* A failure of the dialog's own action, said in the dialog (a message over the canvas would be under its backdrop), in the danger
            color on the card's own (the soft red under it would take its contrast below 4.5:1 in the light theme). */
-        .modal .modal-error { margin: 12px 0 0; color: var(--danger); font-size: 0.78125rem; line-height: 1.45; overflow-wrap: anywhere; }
+        .modal .modal-error { margin: 12px 0 0; color: var(--danger); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
         .modal .modal-error:empty { display: none; }
         .modal-small { width: min(420px, 100%); }
 
-        /* Scrollbars: the standard properties, and the WebKit pseudo-elements only where those are missing. scrollbar-gutter keeps
-           the room of the bar, as it was with the WebKit one. */
-        :root { scrollbar-color: var(--scroll) transparent; }
-        .seg.scroll, .side-scroll, .seq-body, .modal { scrollbar-color: var(--scroll) transparent; }
-        @supports not (scrollbar-color: auto) {
-            ::-webkit-scrollbar { width: 8px; height: 8px; }
-            ::-webkit-scrollbar-track { background: transparent; }
-            ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
-            ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
-        }
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
 
         /* ── A narrow window: the panel is a drawer, and on a phone a strip under the canvas ── */
         @container app (max-width: 1040px) {
             .side-resizer { display: none; }
-            .side { position: absolute; right: 0; top: 0; bottom: 0; z-index: 20; width: min(calc(340px + max(0px, var(--sb, 0px) - 10px)), 92%); box-shadow: var(--shadow-dialog); transform: translateX(105%); transition: transform 0.2s ease; }
+            .side { position: absolute; right: 0; top: 0; bottom: 0; z-index: 20; width: min(340px, 92%); box-shadow: var(--shadow-dialog); transform: translateX(105%); transition: transform 0.2s ease; }
             body[data-panel="1"] .side { transform: none; }
             #panel-toggle { display: inline-flex; }
             /* The open drawer covers the Scene button, so it has a Close of its own at its top (Escape closes it too). */
@@ -767,7 +756,7 @@
         @container app (max-width: 700px) {
             header { padding: 0 12px; gap: 6px; }
             header .btn-label { display: none; }
-            header h1 { font-size: 0.875rem; gap: 6px; }
+            header h1 { font-size: 14px; gap: 6px; }
             .header-actions { gap: 2px; }
             .stage-container { padding: 8px 8px 0; }
             .pane-header { display: none; }
@@ -776,7 +765,7 @@
             .side { position: relative; inset: auto; z-index: 1; width: 100%; height: 46%; flex: none; border-left: 0; border-top: 1px solid var(--border-color); border-radius: 16px 16px 0 0; transform: none; box-shadow: 0 -6px 18px rgba(9, 9, 11, 0.06); transition: none; }
             body[data-panel="0"] .side { height: 38px; }
             body[data-panel="0"] .side .side-scroll { display: none; }
-            .side-grip { display: flex; min-height: 38px; flex: none; align-items: center; justify-content: center; border: 0; background: none; cursor: pointer; color: var(--text-subtle); gap: 8px; font-size: 0.75rem; outline: 2px solid transparent; border-radius: 16px 16px 0 0; position: relative; }
+            .side-grip { display: flex; min-height: 38px; flex: none; align-items: center; justify-content: center; border: 0; background: none; cursor: pointer; color: var(--text-subtle); gap: 8px; font-size: 12px; outline: 2px solid transparent; border-radius: 16px 16px 0 0; position: relative; }
             .side-grip:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
             .side-grip::before { content: ""; position: absolute; top: 7px; width: 36px; height: 4px; border-radius: 2px; background: var(--field-border); }
             .toast { top: 8px; bottom: auto; left: 8px; transform: none; max-width: calc(100% - 170px); }
@@ -790,7 +779,7 @@
             .view-toolbar .narrow-hide { display: none; }
             header .saved-note { display: none; }
             .empty { padding: 16px; }
-            .empty h2 { font-size: 0.875rem; }
+            .empty h2 { font-size: 14px; }
             #panel-toggle { display: none; }
             .side-close { display: none; }
         }

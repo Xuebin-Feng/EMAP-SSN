@@ -255,7 +255,6 @@ function applyTheme(theme, remember = true) {
     byId('theme-toggle-label').textContent = dark ? t("Light Mode") : t("Dark Mode");
     setIcon(themeIcon, dark ? "sun" : "moon");
     syncCanvasProps();
-    measureScrollbar();
 }
 
 byId('theme-toggle-btn').addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
@@ -779,18 +778,6 @@ sideResizer.addEventListener('keydown', event => {
     event.preventDefault();
 });
 new ResizeObserver(showSideWidth).observe(byId('app'));
-
-// ---- The platform's scrollbar: its width is taken from the room round the panel's cards (--sb, esmfold.html) ----
-// A classic bar is 15 px or more, an overlay one has none; scrollbar-gutter keeps the room, so it is measured whether or not the panel scrolls.
-// (Not while the panel is not drawn, as in the phone's closed strip: the last width stays.)
-function measureScrollbar() {
-    const scroller = byId('side-scroll');
-    if (scroller.offsetWidth === 0) return;
-    byId('app').style.setProperty('--sb', (scroller.offsetWidth - scroller.clientWidth) + 'px');
-}
-new ResizeObserver(measureScrollbar).observe(byId('side-scroll'));
-window.addEventListener('resize', measureScrollbar);
-measureScrollbar();
 (() => {
     let stored = null;
     try {

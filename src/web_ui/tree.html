@@ -19,7 +19,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="color-scheme" content="light dark">
     <title data-i18n>EMAP-SSN Tree View</title>
     <link rel="stylesheet" href="/fonts/fonts.css">
     <!-- t() fills in this page's texts, which the Viewer serves in its
@@ -32,14 +31,13 @@
            here; the Viewer's web server adds the Viewer's theme colour after them. */
         :root {
             color-scheme: light;
-            scrollbar-color: var(--scroll) transparent;
             --bg-main: #fafafa;
             --bg-card: #ffffff;
             --bg-muted: #f4f4f5;
             --bg-inset: #fafafa;
             --border-color: #e4e4e7;
-            --field-border: #8a8a92;
-            --field-border-hover: #71717a;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
             --text-primary: #09090b;
             --text-soft: #3f3f46;
             --text-secondary: #52525b;
@@ -59,10 +57,10 @@
             --success-soft: #f0fdf4;
             --warning: #b45309;
             --warning-soft: #fffbeb;
-            --danger: #b91c1c;
+            --danger: #dc2626;
             --danger-soft: #fef2f2;
-            --scroll: #8a8a92;
-            --scroll-hover: #71717a;
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
             --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
             --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
             --shadow-dialog: 0 16px 40px -8px rgba(9, 9, 11, 0.2), 0 4px 12px rgba(9, 9, 11, 0.06);
@@ -79,8 +77,8 @@
             --bg-muted: #27272a;
             --bg-inset: #111113;
             --border-color: #27272a;
-            --field-border: #71717a;
-            --field-border-hover: #8e8e96;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
             --text-primary: #fafafa;
             --text-soft: #d4d4d8;
             --text-secondary: #a1a1aa;
@@ -102,8 +100,8 @@
             --warning-soft: rgba(245, 158, 11, 0.14);
             --danger: #f87171;
             --danger-soft: rgba(239, 68, 68, 0.12);
-            --scroll: #71717a;
-            --scroll-hover: #8e8e96;
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
             --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
             --shadow-control: none;
             --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -115,7 +113,7 @@
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -156,7 +154,7 @@
         }
         header h1 {
             margin: 0;
-            font-size: 0.9375rem;
+            font-size: 15px;
             font-weight: 600;
             display: flex;
             align-items: center;
@@ -176,7 +174,7 @@
             border-radius: 9999px;
             background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 0.75rem;
+            font-size: 12px;
             white-space: nowrap;
         }
         .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -192,7 +190,7 @@
             min-height: 30px;
             padding: 0 12px;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             border-radius: var(--radius);
             border: 1px solid var(--field-border);
             background-color: var(--bg-card);
@@ -232,7 +230,7 @@
             width: 300px;
             padding: 0 30px 0 30px;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
@@ -241,24 +239,23 @@
         }
         .search input:hover { border-color: var(--field-border-hover); }
         .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-        /* A placeholder is text to read, so it is drawn in the subtle text colour (4.5:1), not the disabled one. */
-        .search input::placeholder { color: var(--text-subtle); }
+        .search input::placeholder { color: var(--text-disabled); }
         .search input:disabled, .search input[aria-disabled="true"] { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
         .search input:disabled:hover, .search input[aria-disabled="true"]:hover { border-color: var(--field-border); }
         .search .clear { position: absolute; right: 2px; width: 26px; height: 26px; border: none; background: transparent; color: var(--text-subtle); border-radius: 6px; cursor: pointer; display: none; align-items: center; justify-content: center; }
         .search .clear:hover { background-color: var(--bg-muted); color: var(--text-primary); }
         .search.has-text .clear { display: inline-flex; }
-        .match-count { min-width: 76px; color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap; }
+        .match-count { min-width: 76px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
         .toolbar .spacer { flex: 1; }
         .toolbar .divider { width: 1px; height: 20px; background-color: var(--border-color); margin: 0 4px; }
 
         /* The layout, a select as the page's other fields are */
-        .field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 0.75rem; white-space: nowrap; }
+        .field { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
         .field select {
             min-height: 30px;
             padding: 0 28px 0 10px;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
@@ -268,7 +265,7 @@
         }
         /* A select is as wide as its longest option, and an unavailable tree's option says why: the list,
            open, shows it whole, so the closed box keeps about its old width. */
-        #source-select { max-width: 16rem; }
+        #source-select { max-width: 256px; }
         .field select:hover { border-color: var(--field-border-hover); }
         .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .field select:disabled, .field select[aria-disabled="true"] { background-color: var(--input-disabled-bg); color: var(--text-disabled); cursor: default; }
@@ -336,7 +333,7 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 0.75rem;
+            font-size: 12px;
         }
         .legend.shown { display: flex; }
         .legend-head {
@@ -358,7 +355,7 @@
         .legend-list[hidden] { display: none; }
         .legend-rows { list-style: none; margin: 0; padding: 0; }
         .legend-group + .legend-group { margin-top: 6px; border-top: 1px solid var(--border-color); padding-top: 4px; }
-        .legend-title { margin: 0; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; }
+        .legend-title { margin: 0; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
         .legend-scheme { padding: 0 6px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft); }
         .legend-scale { padding: 2px 6px 4px; }
         .legend-bar {
@@ -394,8 +391,7 @@
             cursor: pointer;
         }
         .legend-row:hover { background-color: var(--bg-muted); }
-        /* On is not only a tint (1.2:1 against the card): an inset ring in the theme colour says it too. */
-        .legend-row[aria-pressed="true"] { background-color: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+        .legend-row[aria-pressed="true"] { background-color: var(--accent-soft); }
         .legend-row .swatch { flex: none; width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; }
         .legend-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         /* A label cut short is shown whole while the row is under the pointer or has the keyboard (its title says it too). */
@@ -413,7 +409,7 @@
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
-            font-size: 0.75rem;
+            font-size: 12px;
             color: var(--text-secondary);
         }
         .support-legend[hidden], .support-legend .body[hidden] { display: none; }
@@ -475,7 +471,7 @@
             background-color: var(--bg-card);
             color: var(--text-primary);
             box-shadow: var(--shadow-dialog);
-            font-size: 0.75rem;
+            font-size: 12px;
             line-height: 1.45;
             pointer-events: none;
         }
@@ -494,7 +490,7 @@
             background-color: var(--bg-card);
             box-shadow: var(--shadow-card);
         }
-        .empty-card h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
+        .empty-card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
         .empty-card p { margin: 0 0 12px; line-height: 1.55; color: var(--text-soft); overflow-wrap: anywhere; }
         .empty-card .path {
             display: block;
@@ -504,7 +500,7 @@
             border-radius: var(--radius);
             background-color: var(--bg-inset);
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 12px;
             line-height: 1.5;
             overflow-wrap: anywhere;
         }
@@ -531,12 +527,12 @@
             box-shadow: var(--shadow-dialog);
         }
         .details.shown { display: block; }
-        .details h2 { margin: 0 0 8px; font-size: 0.875rem; font-weight: 600; }
-        .details dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.75rem; }
+        .details h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+        .details dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12px; }
         .details dt { color: var(--text-subtle); }
         .details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-soft); }
-        .details .note { margin: 0 0 6px; font-size: 0.75rem; color: var(--text-soft); }
-        .details .group-title { margin: 12px 0 6px; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+        .details .note { margin: 0 0 6px; font-size: 12px; color: var(--text-soft); }
+        .details .group-title { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 
         .statusbar {
             display: flex;
@@ -548,7 +544,7 @@
             border-top: 1px solid var(--border-color);
             background-color: var(--bg-card);
             color: var(--text-subtle);
-            font-size: 0.75rem;
+            font-size: 12px;
             flex-shrink: 0;
             white-space: nowrap;
             overflow: hidden;
@@ -574,7 +570,7 @@
             margin: 0 0 12px;
             padding: 4px;
             font-family: var(--font-family);
-            font-size: 0.8125rem;
+            font-size: 13px;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);
@@ -589,10 +585,10 @@
         /* A card takes the focus when it opens (and gives it back when it closes): its ring shows for the keyboard only. */
         .details:focus { outline: 2px solid transparent; }
         .details:focus-visible { box-shadow: var(--shadow-dialog), 0 0 0 2px var(--accent); }
-        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 0.75rem; color: var(--text-soft); }
-        .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 0.75rem; }
-        .report-lists h3 { margin: 0 0 4px; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
-        .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-soft); overflow-wrap: anywhere; }
+        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 12px; color: var(--text-soft); }
+        .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 12px; }
+        .report-lists h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+        .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-soft); overflow-wrap: anywhere; }
         .report-lists li { padding: 1px 0; }
         .report textarea, .empty-card textarea {
             width: 100%;
@@ -601,7 +597,7 @@
             margin: 4px 0 6px;
             padding: 6px 8px;
             font-family: var(--font-mono);
-            font-size: 0.6875rem;
+            font-size: 11px;
             color: var(--input-text);
             background-color: var(--input-bg);
             border: 1px solid var(--field-border);

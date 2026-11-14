@@ -273,6 +273,47 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(capture['names'], ['Capture Viewer', 'Capture Viewer'])
             self.assertGreater(capture['input'], 600 if width == 1000 else 180)
 
+    def test_the_message_box_fits_its_text_wherever_the_text_came_from(self):
+        """The box was 40 px, which one line overflowed by a pixel, so a short line showed a scroll
+        bar. It grew only as you typed: a draft given back after an error came back in one line's
+        height, a narrower window wrapped the text inside a box that kept its height, and a box
+        emptied by Send stayed as tall as the message until the reply."""
+        box = """JSON.stringify((() => {
+            const field = document.getElementById('chat-input-field');
+            return {height: Math.round(field.getBoundingClientRect().height), fits: field.scrollHeight <= field.clientHeight,
+                    send: Math.round(document.getElementById('chat-send-btn').getBoundingClientRect().height)};
+        })())"""
+        self.addCleanup(self.view.resize, 1000, 800)
+        self.view.resize(1000, 800)
+        self.wait_for('window.innerWidth === 1000')
+        self.js("document.getElementById('chat-input-field').focus()")
+        QTest.keyClicks(self.view.focusProxy(), 'select cluster 1')
+        QTest.qWait(50)
+        self.assertEqual(json.loads(self.js(box)), {'height': 40, 'fits': True, 'send': 40})
+
+        # Text the page puts in, with no input event, and the same text wrapped by a narrower window.
+        text = 'Fold the selected sequences with ESMFold and colour them by pLDDT. ' * 2
+        self.js(f"document.getElementById('chat-input-field').value = {json.dumps(text)}")
+        wide = json.loads(self.js(box))
+        self.view.resize(390, 800)
+        self.wait_for('window.innerWidth === 390')
+        QTest.qWait(250)  # Allow Chromium's compositor to present the new size.
+        narrow = json.loads(self.js(box))
+        self.assertTrue(wide['fits'] and narrow['fits'])
+        self.assertGreater(narrow['height'], wide['height'])
+        self.assertEqual(narrow['send'], narrow['height'])
+
+        self.view.resize(1000, 800)
+        self.wait_for('window.innerWidth === 1000')
+        self.js("document.getElementById('chat-input-field').value = 'First line\\nSecond line\\nThird line\\nFourth line'; sendAgentQuery()")
+        self.wait_for('pendingSubmission !== null')
+        self.js("handleServerEvent({type:'agent_accepted',submission_id:pendingSubmission.submission_id})")
+        self.assertEqual(json.loads(self.js(box))['height'], 40)
+        self.js("handleServerEvent({type:'agent_error',submission_id:pendingSubmission.submission_id,error:'stopped'})")
+        returned = json.loads(self.js(box))
+        self.assertTrue(returned['fits'])
+        self.assertGreater(returned['height'], 90)
+
     def sanitizer_paths(self):
         """The page's two ways of cleaning a reply, each a wrapper for a JavaScript expression: the
         Sanitizer API's setHTML where the browser has it, and the page's own sanitiser where it does not."""
@@ -783,25 +824,22 @@ class ComposerTests(unittest.TestCase):
         self.assertTrue(self.js("document.getElementById('connection-status').firstChild === window.badgeText"))
         self.assertEqual(self.js("document.getElementById('connection-status').textContent"), 'Reconnecting...')
 
-    def test_the_token_count_is_legible_in_either_theme(self):
+    def test_the_token_count_keeps_its_subtle_text(self):
         self.js("appendAgentMsg('Done', '', {total: 12, prompt: 10, completion: 2}, '', '')")
-        # The contrast of its text with its own background, by WCAG's relative luminance.
-        contrast = """(() => {
-            const info = document.querySelector('.token-info');
-            const luminance = colour => {
-                const [r, g, b] = colour.match(/\\d+/g).slice(0, 3).map(value => {
-                    const channel = value / 255;
-                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-                });
-                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            };
-            const [text, back] = [getComputedStyle(info).color, getComputedStyle(info).backgroundColor].map(luminance);
-            return (Math.max(text, back) + 0.05) / (Math.min(text, back) + 0.05);
-        })()"""
+        # The page's subtle text colour, in either theme, as it always had.
+        colours = """JSON.stringify((() => {
+            const info = document.querySelector('.token-info'), probe = document.createElement('span');
+            probe.style.color = 'var(--text-subtle)';
+            info.parentNode.appendChild(probe);
+            const pair = [getComputedStyle(info).color, getComputedStyle(probe).color];
+            probe.remove();
+            return pair;
+        })())"""
         for theme in ('light', 'dark'):
             with self.subTest(theme=theme):
                 self.js(f"document.documentElement.dataset.theme = '{theme}'")
-                self.assertGreaterEqual(self.js(contrast), 4.5)
+                info, subtle = json.loads(self.js(colours))
+                self.assertEqual(info, subtle)
 
 
 class ModelCardFixtureHandler(FixtureHandler):
@@ -1736,20 +1774,21 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertEqual(self.js(f"document.activeElement === {handle(2)}"), True)
         self.press(Qt.Key_Up)
         self.assertEqual(self.js('modelCards.map(c => c.name).join()'), 'Beta,Alpha,Gamma')
-        # The handle is a visible control: its icon is at least 3:1 against the card, in either theme.
+        # As a button, the handle is drawn as the plain handle was: its icon in the disabled-text colour, in either theme.
         for theme in ('light', 'dark'):
             self.js(f"document.documentElement.dataset.theme = '{theme}'; true")
-            ratio = self.js("""(() => {
-                const luminance = colour => {
-                    const [r, g, b] = colour.match(/\\d+/g).slice(0, 3).map(v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
-                    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                };
-                const handle = document.querySelector('.drag-handle');
-                const [a, b] = [getComputedStyle(handle).color, getComputedStyle(handle.closest('.model-card')).backgroundColor].map(luminance);
-                return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-            })()""")
+            colours = json.loads(self.js("""JSON.stringify((() => {
+                const handle = document.querySelector('.drag-handle'), probe = document.createElement('span');
+                probe.style.color = 'var(--text-disabled)';
+                handle.parentNode.appendChild(probe);
+                const style = getComputedStyle(handle);
+                const look = [style.color, getComputedStyle(probe).color, style.backgroundColor, style.borderTopColor];
+                probe.remove();
+                return look;
+            })())"""))
             with self.subTest(theme=theme):
-                self.assertGreaterEqual(ratio, 3)
+                self.assertEqual(colours[0], colours[1])
+                self.assertEqual(colours[2:], ['rgba(0, 0, 0, 0)'] * 2)
 
 
 if __name__ == '__main__':

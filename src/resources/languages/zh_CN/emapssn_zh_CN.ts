@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+1127"/>
+        <location filename="../../../web_ui/agent.html" line="+1128"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1145"/>
+        <location line="+1139"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-1144"/>
+        <location line="-1138"/>
         <location line="+1"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
@@ -249,8 +249,8 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1398"/>
-        <location line="+1101"/>
+        <location line="-1400"/>
+        <location line="+1103"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
@@ -416,7 +416,7 @@
         <translation type="unfinished">要清空对话吗？所有对话记录（包括已保存的图片）都将丢失，待发送的附件也会被移除。此操作无法撤销。</translation>
     </message>
     <message>
-        <location line="+733"/>
+        <location line="+727"/>
         <source>Chat history and context memory cleared.</source>
         <translation type="unfinished">已清空对话记录和上下文记忆。</translation>
     </message>
@@ -440,7 +440,7 @@
         <translation type="obsolete">查看器命令：{status}</translation>
     </message>
     <message>
-        <location line="-440"/>
+        <location line="-434"/>
         <source>Move {name}</source>
         <translation type="unfinished">移动 {name}</translation>
     </message>
@@ -465,7 +465,7 @@
         <translation type="unfinished">自定义选项必须是 JSON 对象。</translation>
     </message>
     <message>
-        <location line="+284"/>
+        <location line="+278"/>
         <location line="+4"/>
         <source>The agent wants to run {command}</source>
         <translation type="unfinished">智能体想要运行 {command}</translation>
@@ -537,8 +537,8 @@
         <translation type="unfinished">继续</translation>
     </message>
     <message>
-        <location line="-926"/>
-        <location line="+930"/>
+        <location line="-920"/>
+        <location line="+924"/>
         <source>Cancel</source>
         <translation type="unfinished">取消</translation>
     </message>
@@ -579,7 +579,7 @@
         <translation type="unfinished">已启用智能体：{model}</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+32"/>
         <source>{model} (Analyzing results)</source>
         <translation type="unfinished">{model}（正在分析结果）</translation>
     </message>
@@ -3251,7 +3251,7 @@ Command-line usage:
         <translation type="unfinished">{file} 没有图层 {layer}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="+98"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="+101"/>
         <source>Structure color</source>
         <translation type="unfinished">结构颜色</translation>
     </message>
@@ -3346,7 +3346,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+176"/>
-        <location filename="../../../web_ui/esmfold.html" line="+980"/>
+        <location filename="../../../web_ui/esmfold.html" line="+970"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3415,7 +3415,7 @@ Command-line usage:
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+81"/>
         <source>Mol* initialized. Connecting to the Viewer...</source>
         <translation type="unfinished">Mol* 已初始化。正在连接查看器…</translation>
     </message>
@@ -3424,7 +3424,7 @@ Command-line usage:
         <translation type="obsolete">Mol* 无法启动：{reason}</translation>
     </message>
     <message>
-        <location line="-209"/>
+        <location line="-208"/>
         <source>{action} is available.</source>
         <translation type="unfinished">可以{action}。</translation>
     </message>
@@ -3434,7 +3434,7 @@ Command-line usage:
         <translation type="unfinished">3D 视图不可用</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+132"/>
         <source>Mol* loaded without its viewer.</source>
         <translation type="unfinished">Mol* 已加载，但缺少其查看器。</translation>
     </message>
@@ -3755,16 +3755,17 @@ Command-line usage:
         <translation type="unfinished">{n} 个残基</translation>
     </message>
     <message>
+        <location line="+13"/>
         <source>Show {name}</source>
-        <translation type="obsolete">显示 {name}</translation>
+        <translation type="unfinished">显示 {name}</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-8"/>
         <source>Hide {name}</source>
         <translation type="unfinished">隐藏 {name}</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Zoom to {name}</source>
         <translation type="unfinished">缩放到 {name}</translation>
     </message>
@@ -3877,8 +3878,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-841"/>
-        <location line="+836"/>
+        <location filename="../../../web_ui/esmfold.html" line="-832"/>
+        <location line="+827"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -9797,7 +9798,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>MetadataPage</name>
     <message>
-        <location filename="../../../web_ui/meta.html" line="+24"/>
+        <location filename="../../../web_ui/meta.html" line="+23"/>
         <source>EMAP-SSN Metadata</source>
         <translation type="unfinished">EMAP-SSN 元数据</translation>
     </message>
@@ -9810,7 +9811,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+880"/>
+        <location line="+883"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
@@ -9847,18 +9848,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+43"/>
-        <location line="+968"/>
+        <location line="+978"/>
         <source>NUM</source>
         <translation type="unfinished">数值</translation>
     </message>
     <message>
-        <location line="-967"/>
-        <location line="+957"/>
+        <location line="-977"/>
+        <location line="+967"/>
         <source>TXT</source>
         <translation type="unfinished">文本</translation>
     </message>
     <message>
-        <location line="-866"/>
+        <location line="-864"/>
         <location line="+1"/>
         <source>Delete metadata column {column}</source>
         <translation type="unfinished">删除元数据列 {column}</translation>
@@ -9875,7 +9876,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列标题</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+267"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -9899,7 +9900,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">🔍 搜索过滤规则</translation>
     </message>
     <message>
-        <location line="-656"/>
+        <location line="-666"/>
         <source>EMAP-SSN Metadata Spreadsheet</source>
         <translation type="unfinished">EMAP-SSN 元数据电子表格</translation>
     </message>
@@ -9925,17 +9926,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+535"/>
+        <location line="+545"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-534"/>
+        <location line="-544"/>
         <source>Help</source>
         <translation type="unfinished">帮助</translation>
     </message>
     <message>
-        <location line="+534"/>
+        <location line="+544"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
@@ -9951,18 +9952,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="-875"/>
+        <location line="-873"/>
         <source>Moved {column} to column {place} of {count}.</source>
         <translation type="unfinished">已将 {column} 移到第 {place} 列（共 {count} 列）。</translation>
     </message>
     <message>
-        <location line="+173"/>
-        <location line="+25"/>
         <source>Filter</source>
-        <translation type="unfinished">筛选</translation>
+        <translation type="obsolete">筛选</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+223"/>
         <source>Filter {column}</source>
         <translation type="unfinished">筛选 {column}</translation>
     </message>
@@ -14063,7 +14062,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/tree.html" line="+663"/>
+        <location filename="../../../web_ui/tree.html" line="+662"/>
         <location line="+1"/>
         <source>Open a tree file</source>
         <translation type="unfinished">打开树文件</translation>

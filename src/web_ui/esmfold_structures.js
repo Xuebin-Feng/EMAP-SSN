@@ -425,6 +425,8 @@ function structureRow(structure, index, pivot) {
         plugin.managers.structure.component.toggleVisibility(current.components);
     })), ref + ':eye');
     eye.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    // The tooltip says what a click does, as it always has: Show, for a hidden structure.
+    if (hidden) eye.title = t("Show {name}", {name});
     const zoom = focusable(iconButton(t("Zoom to {name}", {name}), icon("crosshair"), onLive(ref, zoomToStructure)), ref + ':zoom');
     const details = focusable(iconButton(t("Details of {name}", {name}), icon("chevron-down"), () => toggleRow(ref), 'exp-btn'), ref + ':details');
     details.setAttribute('aria-expanded', open ? 'true' : 'false');
