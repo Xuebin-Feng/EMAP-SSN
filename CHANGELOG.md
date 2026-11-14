@@ -420,6 +420,25 @@ still change before version 1.0.0.
     the chooser no longer opens the file dialog. The Details and Open cards take the focus
     and give it back, and Details has Close and Esc. A pressed legend row has a ring, and
     the legend's range bar is a slider that screen readers read.
+- **The Viewer's web pages clean model replies more strictly, move less, and say less**
+  (third round of the audit).
+  - **Agent replies:** the reply's Markdown is cleaned in a separate document where nothing
+    loads or runs, with the browser's Sanitizer API where it has one. Links may only be
+    http, https or mailto, and images only ones the reply carries itself (`data:`), so a
+    reply can't make the browser request anything. Clear Chat asks in the page's own dialog
+    instead of the browser's.
+  - **Reduced motion:** with less motion asked for, the pages stop what slides and turns but
+    keep their colour fades, and spinners slow down instead of stopping.
+  - **Screen readers:** Fold View reads outcomes, not each "Loading…" step, and Tree View
+    reads a warning once when it appears, not each time the layout changes. Headings,
+    names and tab panels are marked up as such, and a residue button's name starts with
+    the letter it shows.
+  - **Keyboard:** Fold View's colouring chips are radio buttons with their own Tab stops,
+    and a mouse click on Session no longer moves the focus into its menu. Esc hides the
+    canvas tooltip in Fold View and Tree View. A Tree View control keeps the focus when the
+    Viewer pushes a new tree.
+  - **Tree View:** an unavailable tree says why in the chooser, Copy says when it failed,
+    and a hidden tab doesn't redraw. Fold View loads Mol* without holding up the page.
 
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
