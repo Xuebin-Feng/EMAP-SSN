@@ -889,7 +889,7 @@ class ResponsiveTextBrowser(QWebEngineView):
         }
         .help-card::-webkit-scrollbar-thumb:vertical { border-right-width: 2px; min-height: 32px; }
         .help-card::-webkit-scrollbar-thumb:horizontal { border-bottom-width: 2px; min-width: 32px; }
-        .help-card::-webkit-scrollbar-thumb:hover { background-color: __TEXT_DISABLED__; }
+        .help-card::-webkit-scrollbar-thumb:hover { background-color: __SCROLL_HOVER__; }
         /* The page wraps to the pane however narrow it is: an over-long word, such
            as a script name, breaks rather than widening the page past the pane. */
         .help-page {

@@ -1154,10 +1154,19 @@ class ChipTests(WithApplication):
             return all(abs(a - b) <= 10 for a, b in ((pixel.red(), wanted.red()), (pixel.green(), wanted.green()),
                                                      (pixel.blue(), wanted.blue())))
 
+        def covering(pixel, name, under):
+            """Whether ``pixel`` is ``name`` laid over ``under`` at half its strength or more, in every channel alike."""
+            shares = [(c - p) / (c - w) for p, w, c in zip(pixel.getRgb()[:3], QColor(name).getRgb()[:3],
+                                                           QColor(under).getRgb()[:3]) if abs(c - w) > 16]
+            return bool(shares) and 0.5 <= min(shares) and max(shares) <= 1.15 and max(shares) - min(shares) <= 0.1
+
         # Below the baseline, where no glyph reaches, the edges and the fill are all there is.
         row = int(offset.y() + rect.bottom()) - KEY_CAP_BOTTOM - 3
-        self.assertTrue(near(image.pixelColor(int(offset.x() + rect.left() + 0.5), row), border))  # the border, 1 px
-        self.assertTrue(near(image.pixelColor(int(offset.x() + rect.left()) + 1 + 2, row), fill))  # the fill inside
+        left = int(offset.x() + rect.left())
+        # The border, 1 px: at a fractional x it is smoothed over the two pixels it straddles, the inner one over the fill.
+        self.assertTrue(any(covering(image.pixelColor(x, row), border, fill) for x in (left, left + 1)),
+                        [image.pixelColor(x, row).name() for x in (left, left + 1)])
+        self.assertTrue(near(image.pixelColor(left + 1 + 2, row), fill))  # the fill inside
         centre_x = int(offset.x() + rect.left() + rect.width() / 2)
         self.assertTrue(near(image.pixelColor(centre_x, int(offset.y() + rect.bottom()) - 1), bottom))  # the bottom edge
 
