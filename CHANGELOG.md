@@ -267,6 +267,20 @@ still change before version 1.0.0.
     `ALIASES = ('colour',)`, which is read from the source without importing it. A
     command's own name always wins over an alias, and an alias two commands declare is
     used by neither, with a note on stderr.
+- **High contrast mode.** A contrast button in the footer of Config, VR Config and Tools,
+  between the language dropdown and the theme colour circle, turns it on and off. It draws
+  field edges, outlined buttons, switches that are off and scroll handles darker, 3:1 or
+  more against what is around them (#8a8a92 where #dcdce0 on white was 1.4:1), and red text
+  darker (#b91c1c, 6.5:1 on white).
+  - It is one setting for every window, `HIGH_CONTRAST` in `app_settings.json`. The window
+    where it is switched redraws at once, keeping everything it shows; other open windows
+    take it when they next start. While it is on, the button sits on a soft square of the
+    theme colour.
+  - The Viewer takes it when it starts, with Config's theme colour, and its web server gives
+    it to the Agent, Fold View, Meta Data and Tree View pages, light and dark: their dark
+    mode takes lighter greys (#71717a, 3.7:1 on the cards). The pages also darken a reply's
+    token line, Tree View's search placeholder and Meta Data's found-row ring, and Fold
+    View's dark error toast gets an opaque background.
 
 ### Changed
 
