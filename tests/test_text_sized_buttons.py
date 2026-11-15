@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from desktop.Desktop_App import (
     BUTTON_TEXT_PADDING,
     TOGGLE_SWITCH_HEIGHT,
+    HighContrastButton,
     ToggleSwitch,
     button_icon_room,
     clipped_button_text,
@@ -81,9 +82,12 @@ class TextSizedTestCase(unittest.TestCase):
         self.assertEqual(clipped_button_text(button), 0, button.text())
 
     def assert_switches_fit_both_texts(self, window):
-        """Every checkable button is a ToggleSwitch whose size fits both its texts."""
+        """Every checkable button with text is a ToggleSwitch whose size fits both its texts.
+
+        The high contrast button is an icon with no text, so it has none to fit.
+        """
         switches = [button for button in window.findChildren(QPushButton)
-                    if button.isCheckable()]
+                    if button.isCheckable() and not isinstance(button, HighContrastButton)]
         self.assertTrue(switches)
         for switch in switches:
             with self.subTest(switch=switch.objectName() or switch.text()):

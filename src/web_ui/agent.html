@@ -153,6 +153,12 @@
             --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
         }
 
+        /* High contrast mode (the windows' contrast button): the Viewer's web server marks the html element
+           data-contrast="high" and gives the theme's darker field edges, switches and scroll handles; these
+           are the page's own colours it darkens too. */
+        :root[data-contrast="high"]:not([data-theme="dark"]) { --danger: #b91c1c; }
+        :root[data-contrast="high"] .token-info { color: var(--text-secondary); }
+
         * { box-sizing: border-box; }
 
         body {

@@ -840,13 +840,13 @@ class ShippedCommandLineTests(unittest.TestCase):
             return [call.lineno for call in ast.walk(init) if isinstance(call, ast.Call)
                     and name in (getattr(call.func, "attr", None), getattr(call.func, "id", None))]
 
-        self.assertLess(lines("create_hud")[0], lines("apply_studio_theme")[0])
-        self.assertTrue([line for line in lines("_color_command_box") if line > lines("apply_studio_theme")[0]])
+        self.assertLess(lines("create_hud")[0], lines("apply_saved_theme")[0])
+        self.assertTrue([line for line in lines("_color_command_box") if line > lines("apply_saved_theme")[0]])
         # So does the hidden-node count, in case the session opens with nodes hidden.
-        self.assertTrue([line for line in lines("_color_hidden_count") if line > lines("apply_studio_theme")[0]])
+        self.assertTrue([line for line in lines("_color_hidden_count") if line > lines("apply_saved_theme")[0]])
         # And the right-drag selection box, drawn with the network before the HUD.
         self.assertLess(lines("draw_network")[0], lines("create_hud")[0])
-        self.assertTrue([line for line in lines("_color_selection_box") if line > lines("apply_studio_theme")[0]])
+        self.assertTrue([line for line in lines("_color_selection_box") if line > lines("apply_saved_theme")[0]])
 
     def test_the_selection_box_takes_the_theme_colour(self):
         from vispy.color import Color

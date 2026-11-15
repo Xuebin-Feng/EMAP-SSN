@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+1128"/>
+        <location filename="../../../web_ui/agent.html" line="+1134"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -249,8 +249,8 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1400"/>
-        <location line="+1103"/>
+        <location line="-1406"/>
+        <location line="+1109"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
@@ -665,7 +665,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2618"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2769"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -678,7 +678,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2501"/>
+        <location line="-2648"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -765,23 +765,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4011"/>
+        <location line="+4028"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-4010"/>
+        <location line="-4027"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4645"/>
+        <location line="+4662"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4637"/>
+        <location line="-4654"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -822,7 +822,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+721"/>
+        <location line="+724"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -871,12 +871,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3651"/>
+        <location line="+3665"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3648"/>
+        <location line="-3662"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -901,7 +901,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+240"/>
+        <location line="+243"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -917,12 +917,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2405"/>
+        <location line="+2416"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2324"/>
+        <location line="-2335"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -939,7 +939,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {error}</translation>
     </message>
     <message>
-        <location line="+176"/>
+        <location line="+187"/>
         <source>Running Consistency Check...</source>
         <translation type="unfinished">正在运行一致性检查…</translation>
     </message>
@@ -1000,14 +1000,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1181"/>
+        <location line="-1195"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1222"/>
+        <location line="+1236"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1669,7 +1669,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2417"/>
+        <location line="-2431"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1680,12 +1680,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2643"/>
+        <location line="+2657"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3183"/>
+        <location line="-3197"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1716,7 +1716,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">无缩放和侧边栏动画：</translation>
     </message>
     <message>
-        <location line="-616"/>
+        <location line="-619"/>
         <source>Update Colors After Mouse Release:</source>
         <translation type="unfinished">松开鼠标后再更新颜色：</translation>
     </message>
@@ -1731,7 +1731,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">显示帧率（FPS）：</translation>
     </message>
     <message>
-        <location line="+615"/>
+        <location line="+618"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
         <translation type="unfinished">较短序列长度</translation>
@@ -1831,7 +1831,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2547"/>
+        <location line="+2561"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1943,12 +1943,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-4013"/>
+        <location line="-4030"/>
         <source>No Zoom Animation:</source>
         <translation type="unfinished">无缩放动画：</translation>
     </message>
     <message>
-        <location line="+656"/>
+        <location line="+659"/>
         <source>Metric: EFI alignment score</source>
         <translation type="unfinished">指标：EFI 比对得分</translation>
     </message>
@@ -2046,7 +2046,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1271"/>
+        <location line="+1285"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -3346,7 +3346,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+176"/>
-        <location filename="../../../web_ui/esmfold.html" line="+970"/>
+        <location filename="../../../web_ui/esmfold.html" line="+977"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3878,8 +3878,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-832"/>
-        <location line="+827"/>
+        <location filename="../../../web_ui/esmfold.html" line="-839"/>
+        <location line="+834"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -4540,9 +4540,46 @@ Command-line usage:
     </message>
 </context>
 <context>
+    <name>HighContrastSwitch</name>
+    <message>
+        <location filename="../../../desktop/Desktop_App.py" line="+2521"/>
+        <source>High contrast mode</source>
+        <translation type="unfinished">高对比度模式</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>High contrast mode: on</source>
+        <translation type="unfinished">高对比度模式：开</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>High contrast mode: off</source>
+        <translation type="unfinished">高对比度模式：关</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Other open windows and the Viewer take it when they next start.</source>
+        <translation type="unfinished">其他已打开的窗口和查看器将在下次启动时采用该设置。</translation>
+    </message>
+    <message>
+        <location line="+48"/>
+        <source>High Contrast Mode Not Saved</source>
+        <translation type="unfinished">高对比度模式未保存</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>High contrast mode could not be saved, so it stays as it was.
+
+{error}</source>
+        <translation type="unfinished">无法保存高对比度模式设置，因此保持不变。
+
+{error}</translation>
+    </message>
+</context>
+<context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1909"/>
+        <location line="-670"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -7202,7 +7239,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4975"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4992"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -7244,7 +7281,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1502"/>
+        <location line="+1508"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -9811,7 +9848,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+883"/>
+        <location line="+888"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
@@ -10346,7 +10383,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ThemeColorSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+115"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+119"/>
         <source>Purple</source>
         <translation type="unfinished">紫色</translation>
     </message>
@@ -10469,7 +10506,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="-783"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-787"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -10688,7 +10725,7 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="+206"/>
+        <location line="+209"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -11362,7 +11399,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1883"/>
+        <location line="-1886"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11386,7 +11423,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message numerus="yes">
-        <location line="+753"/>
+        <location line="+756"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
@@ -12617,12 +12654,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1210"/>
+        <location line="+1213"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1205"/>
+        <location line="-1208"/>
         <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -13018,17 +13055,17 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">将鼠标悬停在某个输入项上或使其获得焦点，即可查看其说明。</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+50"/>
         <source>Exit</source>
         <translation type="unfinished">退出</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-20"/>
         <source>Script Description</source>
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+62"/>
         <source>Tools Settings Not Loaded</source>
         <translation type="unfinished">工具设置未加载</translation>
     </message>
@@ -13257,13 +13294,13 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <location line="+10"/>
         <location line="+13"/>
         <location line="+1554"/>
-        <location line="+465"/>
+        <location line="+476"/>
         <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2057"/>
+        <location line="-2068"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -13418,7 +13455,7 @@ Start the benchmark?</source>
 是否开始基准测试？</translation>
     </message>
     <message>
-        <location line="+166"/>
+        <location line="+177"/>
         <source>Enter a name for the exported settings file.</source>
         <translation type="unfinished">请输入导出设置文件的名称。</translation>
     </message>
@@ -13580,15 +13617,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="obsolete">已将配置保存到 JSON 并启动 {tool}。</translation>
     </message>
     <message>
-        <location line="-465"/>
-        <location line="+491"/>
+        <location line="-476"/>
+        <location line="+502"/>
         <source>Failed to run {path}:
 {error}</source>
         <translation type="unfinished">无法运行 {path}：
 {error}</translation>
     </message>
     <message>
-        <location line="-5133"/>
+        <location line="-5150"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -13715,7 +13752,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">插补的序列对参与每棵重复树，并在最终矩阵中替换为各重复树平均的树距离。</translation>
     </message>
     <message>
-        <location line="+366"/>
+        <location line="+369"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -13798,7 +13835,7 @@ Fedora / RHEL：
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>
     <message>
-        <location line="+1018"/>
+        <location line="+1021"/>
         <location line="+175"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
@@ -13840,7 +13877,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1992"/>
+        <location line="+2003"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
@@ -14062,7 +14099,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/tree.html" line="+662"/>
+        <location filename="../../../web_ui/tree.html" line="+668"/>
         <location line="+1"/>
         <source>Open a tree file</source>
         <translation type="unfinished">打开树文件</translation>
@@ -14949,8 +14986,8 @@ Fedora / RHEL：
         <translation type="unfinished">复制路径</translation>
     </message>
     <message>
-        <location line="-719"/>
-        <location line="+629"/>
+        <location line="-725"/>
+        <location line="+635"/>
         <source>EMAP-SSN Tree View</source>
         <translation type="unfinished">EMAP-SSN 树视图</translation>
     </message>

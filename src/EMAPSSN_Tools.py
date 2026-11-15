@@ -604,23 +604,25 @@ from desktop.Desktop_App import (
     WEB_MONOSPACE_FONT_STACK,
     WEB_UI_FONT_STACK,
     add_combo_options,
-    apply_studio_theme,
+    apply_saved_theme,
     combo_value,
     configure_qt_application_fonts,
+    choose_high_contrast,
     choose_language,
     choose_theme_color,
-    configured_theme_color,
     install_translations,
     installed_language,
     language_selector_row,
     language_web_font_css,
     LanguageFollower,
     LanguageSelector,
+    redraw_in_high_contrast,
     redraw_in_language,
     redraw_in_theme_color,
     select_combo_value,
     startup_language,
     SteadyPopupComboBox,
+    HighContrastButton,
     ThemeColorButton,
     TOOLS_THEME_SETTING,
 )
@@ -647,6 +649,7 @@ from desktop.Studio_Theme import (
     CardShadows,
     IconLabel,
     add_hint_icon,
+    high_contrast,
     icon_button,
     icon_svg,
     prepare_tab_widget,
@@ -889,7 +892,7 @@ class ResponsiveTextBrowser(QWebEngineView):
         }
         .help-card::-webkit-scrollbar-thumb:vertical { border-right-width: 2px; min-height: 32px; }
         .help-card::-webkit-scrollbar-thumb:horizontal { border-bottom-width: 2px; min-width: 32px; }
-        .help-card::-webkit-scrollbar-thumb:hover { background-color: __TEXT_DISABLED__; }
+        .help-card::-webkit-scrollbar-thumb:hover { background-color: __SCROLL_HOVER__; }
         /* The page wraps to the pane however narrow it is: an over-long word, such
            as a script name, breaks rather than widening the page past the pane. */
         .help-page {
@@ -3144,12 +3147,15 @@ class ToolsGUI(QMainWindow):
         self.language_follower = LanguageFollower(self)
         self.theme_switch = ThemeColorButton(TOOLS_THEME_SETTING, color=theme_color())
         self.theme_switch.color_chosen.connect(lambda color: choose_theme_color(self, color))
+        self.contrast_switch = HighContrastButton()
+        self.contrast_switch.high_contrast_chosen.connect(lambda on: choose_high_contrast(self, on))
         # Exit fills the row under the help card up to the Language dropdown, so
         # the tip panel reaches the window's bottom.
         self.btn_exit = QPushButton(translate("Tools", "Exit"))
         self.btn_exit.clicked.connect(self.close)
         self.right_panel.addLayout(
-            language_selector_row(self.language_selector, self.theme_switch, leading=self.btn_exit)
+            language_selector_row(self.language_selector, self.theme_switch, leading=self.btn_exit,
+                                  contrast_switch=self.contrast_switch)
         )
 
         self.script_data = {} 
@@ -4979,6 +4985,17 @@ class ToolsGUI(QMainWindow):
         carried = self.language_carry_over()
         return redraw_in_theme_color(self, color, lambda: type(self)(carried=carried))
 
+    def switch_high_contrast(self, on):
+        """Redraw this window with high contrast mode on or off, keeping all it shows.
+
+        The new window carries over what a language redraw does, at this
+        one's place and view. Returns the window that shows the mode.
+        """
+        if bool(on) == high_contrast():
+            return self
+        carried = self.language_carry_over()
+        return redraw_in_high_contrast(self, on, lambda: type(self)(carried=carried))
+
     def language_carry_over(self):
         """What a redraw in another language keeps beyond the view."""
         document = {"DIRECTORIES": self._current_directory_settings()}
@@ -5498,7 +5515,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        apply_studio_theme(app, configured_theme_color(TOOLS_THEME_SETTING))
+        apply_saved_theme(app, TOOLS_THEME_SETTING)
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")

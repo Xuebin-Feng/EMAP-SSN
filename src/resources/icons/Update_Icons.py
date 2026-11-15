@@ -43,8 +43,9 @@ LUCIDE_VERSION = "1.47.0"
 
 # Every icon the windows and web pages use, by its Lucide name.
 ICONS = (
-    # Fields, panels and tab bars (the stylesheet's arrows, the hint card, the language row)
-    "chevron-down", "chevron-left", "chevron-right", "chevron-up", "folder-open", "globe", "info",
+    # Fields, panels and tab bars (the stylesheet's arrows, the hint card, the language row and its
+    # high contrast button)
+    "chevron-down", "chevron-left", "chevron-right", "chevron-up", "contrast", "folder-open", "globe", "info",
     # Tools cards and help headings
     "dna", "file-input", "file-output", "file-text", "scissors", "search", "settings",
     "sparkles", "timer", "trending-down", "triangle-alert", "wrench",

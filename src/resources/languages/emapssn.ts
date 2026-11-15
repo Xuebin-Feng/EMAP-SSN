@@ -2975,6 +2975,35 @@ Command-line usage:
     </message>
 </context>
 <context>
+    <name>HighContrastSwitch</name>
+    <message>
+        <source>High contrast mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>High contrast mode: on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>High contrast mode: off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other open windows and the Viewer take it when they next start.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>High Contrast Mode Not Saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>High contrast mode could not be saved, so it stays as it was.
+
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>LanguageSelector</name>
     <message>
         <source>System default ({language})</source>

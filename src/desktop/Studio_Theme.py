@@ -25,7 +25,11 @@ focus rings, slider fills and selection.
   (set_theme_color). studio_stylesheet() turns them into the application
   stylesheet, and studio_palette() into the palette, so the parts Qt draws
   natively (popups, selection, disabled text) match. web_theme_css() gives
-  the Viewer's Agent and Meta Data pages the same family, light and dark.
+  the Viewer's themed pages the same family, light and dark.
+* High contrast mode (set_theme_color's high_contrast, the windows' contrast
+  button) puts HIGH_CONTRAST_SHADES over the greys: darker field edges,
+  switches that are off, scroll handles and red text, in the windows and the
+  Viewer's pages alike.
 * A widget opts into a variant through its "role" property (set_role). The
   stylesheet styles QPushButton[role="primary"] and so on, so no window sets
   colours on its widgets. The roles are listed in ROLES.
@@ -58,6 +62,7 @@ from desktop.Theme_Colors import (
     ACCENT_SHADES,
     BLACK_ACCENTS,
     DEFAULT_THEME_COLOR,
+    HIGH_CONTRAST_SHADES,
     NEUTRAL_SHADES,
     THEME_COLORS,
     oklch_hex,
@@ -88,6 +93,13 @@ TINTED_SHADES = {
     "text_subtle": (0.552, 0.045),
     "text_disabled": (0.712, 0.035),
     "scroll": (0.871, 0.028),
+    "scroll_hover": (0.712, 0.035),
+}
+
+# The same in high contrast mode: the handle as dark as the pane's other 3:1 greys (HIGH_CONTRAST_SHADES).
+HIGH_CONTRAST_TINTS = {
+    "scroll": (0.636, 0.035),
+    "scroll_hover": (0.552, 0.045),
 }
 
 GEOMETRY = {
@@ -99,24 +111,26 @@ GEOMETRY = {
 
 
 @lru_cache(maxsize=None)
-def _tokens(color):
-    return {**shade_set("light", color), **GEOMETRY}
+def _tokens(color, high_contrast=False):
+    return {**shade_set("light", color, high_contrast=high_contrast), **GEOMETRY}
 
 
-def theme_tokens(color=DEFAULT_THEME_COLOR):
-    """The windows' tokens (as TOKENS holds them) in the theme colour named ``color``."""
-    return dict(_tokens(color))
+def theme_tokens(color=DEFAULT_THEME_COLOR, *, high_contrast=False):
+    """The windows' tokens (as TOKENS holds them) in the theme colour named ``color``, in high contrast mode or not."""
+    return dict(_tokens(color, bool(high_contrast)))
 
 
-def page_tokens(color=DEFAULT_THEME_COLOR, *, dark=False):
+def page_tokens(color=DEFAULT_THEME_COLOR, *, dark=False, high_contrast=False):
     """The web pages' colours in ``color``: the windows' and a few more, or the dark mode's."""
     if dark:
-        return shade_set("dark_page", color)
-    return {**shade_set("light", color), **shade_set("light_page", color)}
+        return shade_set("dark_page", color, high_contrast=high_contrast)
+    return {**shade_set("light", color, high_contrast=high_contrast),
+            **shade_set("light_page", color, high_contrast=high_contrast)}
 
 
 TOKENS = theme_tokens()
 _current_theme_color = DEFAULT_THEME_COLOR
+_current_high_contrast = False
 
 
 def theme_color():
@@ -124,30 +138,42 @@ def theme_color():
     return _current_theme_color
 
 
-def set_theme_color(color):
+def high_contrast():
+    """Whether TOKENS holds high contrast mode's greys (HIGH_CONTRAST_SHADES)."""
+    return _current_high_contrast
+
+
+def set_theme_color(color, *, high_contrast=None):
     """Put the theme colour named ``color`` (a THEME_COLORS name) in TOKENS.
 
-    TOKENS changes in place, so every module that imported it sees the new
-    colours. What was built before keeps its colours: apply_studio_theme
-    restyles the application, and a window redraws itself for the rest.
+    high_contrast turns high contrast mode on or off with it; None keeps it
+    as it is. TOKENS changes in place, so every module that imported it sees
+    the new colours. What was built before keeps its colours:
+    apply_studio_theme restyles the application, and a window redraws itself
+    for the rest.
     """
-    global _current_theme_color
-    tokens = theme_tokens(color)
+    global _current_theme_color, _current_high_contrast
+    contrast = _current_high_contrast if high_contrast is None else bool(high_contrast)
+    tokens = theme_tokens(color, high_contrast=contrast)
     TOKENS.clear()
     TOKENS.update(tokens)
     _current_theme_color = color
+    _current_high_contrast = contrast
 
 
 def tinted_tokens(color=None):
     """TOKENS in ``color`` (TOKENS' own by default), their greys tinted in its hue (TINTED_SHADES).
 
-    Tools' help pane takes these. Black has no hue, so its greys stay grey.
+    Tools' help pane takes these, in high contrast mode when TOKENS is. Black
+    has no hue, so its greys stay grey.
     """
     color = color or theme_color()
-    tokens = theme_tokens(color)
+    contrast = high_contrast()
+    tokens = theme_tokens(color, high_contrast=contrast)
     hue = THEME_COLORS[color]
     if hue is not None:
-        tokens.update({name: oklch_hex(*shade, hue) for name, shade in TINTED_SHADES.items()})
+        shades = {**TINTED_SHADES, **(HIGH_CONTRAST_TINTS if contrast else {})}
+        tokens.update({name: oklch_hex(*shade, hue) for name, shade in shades.items()})
     return tokens
 
 # The variants a widget can ask for with set_role(widget, role).
@@ -272,7 +298,7 @@ QTabWidget > QStackedWidget {{
 QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport, QScrollArea > QWidget > QWidget {{
     background: transparent; border: none;
 }}
-{scroll_bar_rules(t['scroll'], t['text_disabled'])}
+{scroll_bar_rules(t['scroll'], t['scroll_hover'])}
 
 QSplitter::handle {{ background: transparent; }}
 
@@ -503,16 +529,17 @@ def studio_palette(t=None):
     return palette
 
 
-def apply_studio_theme(app, color=None):
+def apply_studio_theme(app, color=None, *, high_contrast=None):
     """Give a Qt application the Studio look: Fusion, the palette and the stylesheet.
 
-    color names the theme colour to set first (set_theme_color); None keeps
-    the one TOKENS holds. Call it before the first window is built: the
-    layouts measure their controls with the stylesheet's padding. The fonts
-    stay as they were (widget_class_fonts).
+    color names the theme colour to set first (set_theme_color), and
+    high_contrast turns high contrast mode on or off; None keeps what TOKENS
+    holds. Call it before the first window is built: the layouts measure
+    their controls with the stylesheet's padding. The fonts stay as they were
+    (widget_class_fonts).
     """
-    if color is not None:
-        set_theme_color(color)
+    if color is not None or high_contrast is not None:
+        set_theme_color(theme_color() if color is None else color, high_contrast=high_contrast)
     fonts = widget_class_fonts()
     app.setStyle("Fusion")
     app.setPalette(studio_palette())
@@ -635,12 +662,14 @@ WEB_PAGE_PROPERTIES = (
 )
 
 
-def web_page_properties(color=None, *, dark=False):
+def web_page_properties(color=None, *, dark=False, high_contrast=None):
     """The theme colour's values of WEB_PAGE_PROPERTIES, light or dark, by property.
 
-    color names the theme colour, the one TOKENS holds by default.
+    color names the theme colour, and high_contrast whether high contrast
+    mode is on; by default, as TOKENS holds them.
     """
-    tokens = page_tokens(theme_color() if color is None else color, dark=dark)
+    contrast = _current_high_contrast if high_contrast is None else high_contrast
+    tokens = page_tokens(theme_color() if color is None else color, dark=dark, high_contrast=contrast)
     column = 2 if dark else 1
     return {
         entry[0]: entry[column](tokens) if callable(entry[column]) else tokens[entry[column]]
@@ -648,16 +677,18 @@ def web_page_properties(color=None, *, dark=False):
     }
 
 
-def web_theme_css(color=None):
-    """CSS giving the Agent and Meta Data pages the theme colour, light and dark.
+def web_theme_css(color=None, high_contrast=None):
+    """CSS giving the Viewer's themed pages the theme colour, light and dark.
 
     The Viewer's web server adds it at the end of each page's head, after the
-    page's own values (which are Purple's), so it wins.
+    page's own values (which are Purple's), so it wins. color and
+    high_contrast are as web_page_properties takes them.
     """
     blocks = []
     for selector, dark in ((":root", False), ('[data-theme="dark"]', True)):
         lines = "\n".join(
-            f"    {name}: {value};" for name, value in web_page_properties(color, dark=dark).items()
+            f"    {name}: {value};"
+            for name, value in web_page_properties(color, dark=dark, high_contrast=high_contrast).items()
         )
         blocks.append(f"{selector} {{\n{lines}\n}}")
     return "\n".join(blocks)
@@ -1026,6 +1057,8 @@ __all__ = [
     "KEY_CAP_BOTTOM",
     "KEY_CAP_PADDING",
     "KEY_CAP_RADIUS",
+    "HIGH_CONTRAST_SHADES",
+    "HIGH_CONTRAST_TINTS",
     "NEUTRAL_SHADES",
     "LUCIDE_DIR",
     "QSS_ICON_DIR",
@@ -1060,6 +1093,7 @@ __all__ = [
     "studio_stylesheet",
     "switch_label",
     "switch_track_rect",
+    "high_contrast",
     "theme_color",
     "theme_tokens",
     "tinted_tokens",

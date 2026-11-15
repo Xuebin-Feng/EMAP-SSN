@@ -107,6 +107,12 @@
             --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
         }
 
+        /* High contrast mode (the windows' contrast button): the Viewer's web server marks the html element
+           data-contrast="high" and gives the theme's darker field edges, switches and scroll handles; these
+           are the page's own colours it darkens too. */
+        :root[data-contrast="high"]:not([data-theme="dark"]) { --danger: #b91c1c; }
+        :root[data-contrast="high"] .search input::placeholder { color: var(--text-subtle); }
+
         * { box-sizing: border-box; }
 
         body {

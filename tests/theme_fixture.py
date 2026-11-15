@@ -9,7 +9,8 @@ The windows measure their controls under the Studio stylesheet
 under it. The stylesheet belongs to the whole QApplication, which every test
 module in a run shares, so the class gets the previous style, palette,
 stylesheet and theme colour back when it ends, and later modules measure as
-before. The class itself runs in the default theme colour.
+before. The class itself runs in the default theme colour, without high
+contrast mode.
 
 Not collected by unittest; import with ``from tests.theme_fixture import ...``.
 """
@@ -25,6 +26,7 @@ from PySide6.QtGui import QPalette  # noqa: E402
 from desktop.Studio_Theme import (  # noqa: E402
     DEFAULT_THEME_COLOR,
     apply_studio_theme,
+    high_contrast,
     set_theme_color,
     theme_color,
 )
@@ -43,13 +45,13 @@ def contrast(first, second):
 def apply_theme_for_class(test_class, app):
     """Apply the window theme, in the default colour, to ``app`` until ``test_class`` finishes."""
     style, palette, sheet = app.style().name(), QPalette(app.palette()), app.styleSheet()
-    color = theme_color()
+    color, contrast_mode = theme_color(), high_contrast()
 
     def restore():
-        set_theme_color(color)
+        set_theme_color(color, high_contrast=contrast_mode)
         app.setStyleSheet(sheet)
         app.setStyle(style)
         app.setPalette(palette)
 
-    apply_studio_theme(app, DEFAULT_THEME_COLOR)
+    apply_studio_theme(app, DEFAULT_THEME_COLOR, high_contrast=False)
     test_class.addClassCleanup(restore)

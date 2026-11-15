@@ -10,6 +10,11 @@ VR Config and Tools each keep their own colour in app_settings.json, chosen
 with a circle at the end of the language row that opens a palette; choosing
 one saves it and redraws that window in it at once, keeping everything it
 shows. The Viewer takes Config's colour when it starts.
+
+High contrast mode is one setting for every window (HIGH_CONTRAST), turned on
+and off with a button before the circle. It darkens field edges, switches that
+are off, scroll handles and red text; the window where it is switched redraws
+at once, and the Viewer takes it, with its pages, when it starts.
 """
 
 import ast
@@ -33,28 +38,40 @@ from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QTextBrowser, QVB
 from desktop import Desktop_App  # noqa: E402
 from desktop.Desktop_App import (  # noqa: E402
     CONFIG_THEME_SETTING,
+    HIGH_CONTRAST_SETTING,
     TOOLS_THEME_SETTING,
+    HighContrastButton,
     ThemeColorButton,
     ThemeColorPalette,
+    apply_saved_theme,
+    choose_high_contrast,
     choose_theme_color,
+    configured_high_contrast,
     configured_theme_color,
+    redraw_in_high_contrast,
     redraw_in_theme_color,
     theme_color_name,
 )
 from desktop.Studio_Theme import (  # noqa: E402
     ACCENT_SHADES,
+    HIGH_CONTRAST_SHADES,
+    HIGH_CONTRAST_TINTS,
     NEUTRAL_SHADES,
     DEFAULT_THEME_COLOR,
     THEME_COLORS,
     TOKENS,
     apply_studio_theme,
+    high_contrast,
+    icon_svg,
     page_tokens,
     qss_icon_path,
     set_theme_color,
     studio_stylesheet,
     theme_color,
     theme_tokens,
+    tinted_tokens,
     web_page_properties,
+    web_theme_css,
 )
 from desktop.Theme_Colors import scroll_bar_rules, shade_set  # noqa: E402
 from utilities.App_Settings import read_app_settings  # noqa: E402
@@ -207,8 +224,8 @@ class ThemeColorShadeTests(unittest.TestCase):
             tokens = theme_tokens(color)
             sheet = studio_stylesheet(tokens)
             with self.subTest(color=color):
-                # The handle is the "scroll" token and, under the mouse, "text_disabled"; the text is written once, here.
-                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])), 1)
+                # The handle is the "scroll" token and, under the mouse, "scroll_hover"; the text is written once, here.
+                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["scroll_hover"])), 1)
                 self.assertEqual(sheet.count("QScrollBar::handle"), 4)
                 self.assertEqual(sheet.count("QAbstractScrollArea::corner"), 1)
 
@@ -229,11 +246,17 @@ class ThemeColorShadeTests(unittest.TestCase):
                     self.assertIn(f"QScrollBar::handle:horizontal:hover {{ background: {tokens['text_disabled']}; }}", rules)
 
     def test_the_hover_the_windows_draw_is_the_pages_scroll_hover_in_light_and_dark(self):
+        self.addCleanup(set_theme_color, DEFAULT_THEME_COLOR, high_contrast=False)
         for color in THEME_COLORS:
             with self.subTest(color=color):
-                self.assertEqual(shade_set("light", color)["text_disabled"], shade_set("light_page", color)["scroll_hover"])
+                # The windows and the light pages share one scroll_hover, the disabled text's grey; so does dark mode.
+                self.assertEqual(theme_tokens(color)["scroll_hover"], page_tokens(color)["scroll_hover"])
+                self.assertEqual(shade_set("light", color)["scroll_hover"], shade_set("light", color)["text_disabled"])
                 self.assertEqual(shade_set("dark_page", color)["text_disabled"], shade_set("dark_page", color)["scroll_hover"])
                 self.assertEqual(shade_set("dark_page", color)["scroll"], "#3f3f46")
+                # The help pane in Tools draws its handle's hover as before: in the tint of the disabled text.
+                set_theme_color(color, high_contrast=False)
+                self.assertEqual(tinted_tokens()["scroll_hover"], tinted_tokens()["text_disabled"])
 
     def test_each_colour_has_a_name(self):
         names = [theme_color_name(color) for color in THEME_COLORS]
@@ -511,19 +534,313 @@ class WindowThemeColorTests(unittest.TestCase):
 
 
 class StartupThemeColorTests(unittest.TestCase):
-    """Each window starts in its own saved colour; the Viewer in Config's."""
+    """Each window starts in its own saved colour and the saved high contrast mode; the Viewer in Config's colour."""
 
     def test_each_window_starts_in_its_colour(self):
         for script, setting in (("EMAPSSN_Config.py", "CONFIG_THEME_SETTING"),
                                 ("EMAPSSN_Tools.py", "TOOLS_THEME_SETTING"),
                                 ("EMAPSSN_Viewer.py", "CONFIG_THEME_SETTING")):
             with self.subTest(script=script):
-                tree = ast.parse((SRC / script).read_text(encoding="utf-8"))
-                calls = [ast.unparse(node) for node in ast.walk(tree)
-                         if isinstance(node, ast.Call) and ast.unparse(node.func) == "apply_studio_theme"]
+                source = (SRC / script).read_text(encoding="utf-8")
+                calls = [ast.unparse(node) for node in ast.walk(ast.parse(source))
+                         if isinstance(node, ast.Call) and ast.unparse(node.func) == "apply_saved_theme"]
                 self.assertEqual(len(calls), 1, calls)
-                self.assertTrue(calls[0].endswith(f", configured_theme_color({setting}))"), calls[0])
+                self.assertTrue(calls[0].endswith(f", {setting})"), calls[0])
+                self.assertNotIn("apply_studio_theme(", source)
 
+    def test_the_colour_and_the_mode_come_from_one_reading_of_the_settings(self):
+        app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(type(self), app)
+        self.addCleanup(apply_studio_theme, app, DEFAULT_THEME_COLOR, high_contrast=False)
+        with mock.patch.object(Desktop_App, "read_app_settings",
+                               return_value={"CONFIG_THEME_COLOR": "teal", "HIGH_CONTRAST": True}) as read:
+            apply_saved_theme(app, CONFIG_THEME_SETTING)
+        read.assert_called_once_with()
+        self.assertEqual((theme_color(), high_contrast()), ("teal", True))
+        self.assertIn(HIGH_CONTRAST_SHADES["light"]["field_border"], app.styleSheet())
+        apply_saved_theme(app, TOOLS_THEME_SETTING, {})
+        self.assertEqual((theme_color(), high_contrast()), (DEFAULT_THEME_COLOR, False))
+        self.assertNotIn(HIGH_CONTRAST_SHADES["light"]["field_border"], app.styleSheet())
+
+
+class HighContrastShadeTests(unittest.TestCase):
+    """High contrast mode's greys: edges 3:1 or more in every colour, light and dark, and nothing else changed."""
+
+    def tearDown(self):
+        set_theme_color(DEFAULT_THEME_COLOR, high_contrast=False)
+
+    def test_off_is_the_look_as_it_was(self):
+        self.assertFalse(high_contrast())
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                self.assertEqual(theme_tokens(color), theme_tokens(color, high_contrast=False))
+                for kind in ("light", "light_page", "dark_page"):
+                    self.assertEqual(shade_set(kind, color), shade_set(kind, color, high_contrast=False))
+
+    def test_only_the_edges_switches_scroll_handles_and_red_change(self):
+        for color in THEME_COLORS:
+            for kind in ("light", "light_page", "dark_page"):
+                normal, high = shade_set(kind, color), shade_set(kind, color, high_contrast=True)
+                with self.subTest(color=color, kind=kind):
+                    self.assertEqual(set(high), set(normal))
+                    self.assertEqual({name for name in normal if normal[name] != high[name]},
+                                     set(HIGH_CONTRAST_SHADES[kind]))
+
+    def test_edges_switches_and_scroll_handles_stand_out_three_to_one_in_every_colour(self):
+        for color in THEME_COLORS:
+            light = page_tokens(color, high_contrast=True)
+            dark = page_tokens(color, dark=True, high_contrast=True)
+            with self.subTest(color=color):
+                for background in (light["surface"], light["window"], light["surface_muted"]):
+                    self.assertGreaterEqual(contrast(light["field_border"], background), 3)
+                self.assertGreaterEqual(contrast(light["switch_off"], light["switch_thumb"]), 3)
+                self.assertGreaterEqual(contrast(light["switch_off"], light["surface"]), 3)
+                self.assertGreaterEqual(contrast(light["scroll"], light["window"]), 3)
+                for background in (dark["surface"], dark["window"], dark["surface_muted"]):
+                    self.assertGreaterEqual(contrast(dark["field_border"], background), 3)
+                self.assertGreaterEqual(contrast(dark["switch_off"], dark["switch_thumb"]), 3)
+                self.assertGreaterEqual(contrast(dark["switch_off"], dark["surface"]), 3)
+                self.assertGreaterEqual(contrast(dark["scroll"], dark["surface"]), 3)
+                # Red text on white and on the pages' light danger tint.
+                self.assertGreaterEqual(contrast(light["danger"], "#ffffff"), 4.5)
+                self.assertGreaterEqual(contrast(light["danger"], "#fef2f2"), 4.5)
+                # Under the mouse, each stands out further still.
+                for tokens in (light, dark):
+                    for rest, hover in (("field_border", "field_border_hover"), ("switch_off", "switch_off_hover"),
+                                        ("scroll", "scroll_hover")):
+                        self.assertGreater(contrast(tokens[hover], tokens["surface"]),
+                                           contrast(tokens[rest], tokens["surface"]))
+
+    def test_the_windows_stylesheet_draws_the_darker_greys(self):
+        for color in THEME_COLORS:
+            tokens = theme_tokens(color, high_contrast=True)
+            sheet = studio_stylesheet(tokens)
+            with self.subTest(color=color):
+                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["scroll_hover"])), 1)
+                self.assertIn(tokens["field_border"], sheet)
+                self.assertNotIn(theme_tokens(color)["field_border"], sheet)
+
+    def test_the_help_pane_of_tools_takes_a_darker_handle_in_its_tint(self):
+        self.assertEqual(set(HIGH_CONTRAST_TINTS), {"scroll", "scroll_hover"})
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                set_theme_color(color, high_contrast=False)
+                normal = tinted_tokens()
+                set_theme_color(color, high_contrast=True)
+                tinted = tinted_tokens()
+                self.assertGreaterEqual(contrast(tinted["scroll"], tinted["surface"]), 3)
+                self.assertGreater(contrast(tinted["scroll"], tinted["surface"]), contrast(normal["scroll"], normal["surface"]))
+                self.assertGreater(contrast(tinted["scroll_hover"], tinted["surface"]),
+                                   contrast(tinted["scroll"], tinted["surface"]))
+
+    def test_a_colour_keeps_the_mode_and_the_mode_keeps_the_colour(self):
+        set_theme_color("teal", high_contrast=True)
+        self.assertEqual(TOKENS, theme_tokens("teal", high_contrast=True))
+        set_theme_color("green")
+        self.assertTrue(high_contrast())
+        self.assertEqual(TOKENS, theme_tokens("green", high_contrast=True))
+        set_theme_color("green", high_contrast=False)
+        self.assertEqual(TOKENS, theme_tokens("green"))
+
+    def test_the_pages_take_the_darker_greys_light_and_dark(self):
+        for dark, kind in ((False, "light"), (True, "dark_page")):
+            properties = web_page_properties("teal", dark=dark, high_contrast=True)
+            with self.subTest(dark=dark):
+                for prop, token in (("--field-border", "field_border"), ("--field-border-hover", "field_border_hover"),
+                                    ("--switch-off", "switch_off"), ("--switch-off-hover", "switch_off_hover"),
+                                    ("--scroll", "scroll"), ("--scroll-hover", "scroll_hover")):
+                    self.assertEqual(properties[prop], HIGH_CONTRAST_SHADES[kind][token])
+        self.assertNotEqual(web_theme_css("teal", high_contrast=True), web_theme_css("teal", high_contrast=False))
+        set_theme_color("teal", high_contrast=True)
+        self.assertEqual(web_theme_css(), web_theme_css("teal", high_contrast=True))
+
+
+class HighContrastButtonTests(unittest.TestCase):
+    """The setting and the button that turns it on and off."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.settings = Path(folder.name) / "app_settings.json"
+        patcher = mock.patch.dict(os.environ, {"SSN_APP_SETTINGS_PATH": str(self.settings)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.host = QWidget()
+        self.addCleanup(self.host.deleteLater)
+        self.host.setGeometry(300, 300, 400, 200)
+        self.addCleanup(set_theme_color, DEFAULT_THEME_COLOR, high_contrast=False)
+
+    def test_the_saved_mode_is_off_unless_it_is_true(self):
+        self.assertFalse(configured_high_contrast())
+        self.assertTrue(configured_high_contrast({HIGH_CONTRAST_SETTING: True}))
+        self.assertFalse(configured_high_contrast({HIGH_CONTRAST_SETTING: False}))
+        with mock.patch.object(Desktop_App, "_warn_once") as warn:
+            self.assertFalse(configured_high_contrast({HIGH_CONTRAST_SETTING: "yes"}))
+        warn.assert_called_once()
+        self.settings.write_text("{not json", encoding="utf-8")
+        with mock.patch.object(Desktop_App, "_warn_once") as warn:
+            self.assertFalse(configured_high_contrast())
+        warn.assert_called_once()
+
+    def test_the_button_shows_the_mode_and_says_what_it_does(self):
+        off = HighContrastButton(self.host)
+        self.assertFalse(off.isChecked())
+        self.assertEqual(off.text(), "")
+        self.assertEqual(off.accessibleName(), "High contrast mode")
+        self.assertEqual(off.toolTip(),
+                         "High contrast mode: off\nOther open windows and the Viewer take it when they next start.")
+        set_theme_color(DEFAULT_THEME_COLOR, high_contrast=True)
+        on = HighContrastButton(self.host)
+        self.assertTrue(on.isChecked())
+        self.assertTrue(on.toolTip().startswith("High contrast mode: on\n"))
+        self.assertFalse(HighContrastButton(self.host, on=False).isChecked())
+        self.assertIn("lucide-contrast", icon_svg("contrast"))
+
+    def test_a_click_or_space_turns_it_over_and_asks_for_the_new_mode(self):
+        button = HighContrastButton(self.host)
+        button.move(300, 150)
+        self.host.show()
+        flush(self.app)
+        chosen = []
+        button.high_contrast_chosen.connect(chosen.append)
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        self.assertEqual(chosen, [True])
+        self.assertTrue(button.isChecked())
+        QTest.keyClick(button, Qt.Key.Key_Space)
+        self.assertEqual(chosen, [True, False])
+        self.assertFalse(button.isChecked())
+
+    def test_while_on_it_sits_on_a_soft_square_of_the_theme_colour(self):
+        set_theme_color("teal", high_contrast=False)
+        squares = {}
+        for on in (False, True):
+            image = HighContrastButton(self.host, on=on).grab().toImage()
+            ratio = image.devicePixelRatio()
+            # Inside the square, left of the icon.
+            squares[on] = image.pixelColor(round(3 * ratio), image.height() // 2).name()
+        self.assertEqual(squares[True], TOKENS["accent_soft"])
+        self.assertNotEqual(squares[False], TOKENS["accent_soft"])
+
+    def test_the_button_sits_between_the_dropdown_and_the_circle(self):
+        selector = Desktop_App.LanguageSelector(self.host)
+        circle = ThemeColorButton(CONFIG_THEME_SETTING, self.host)
+        button = HighContrastButton(self.host)
+        row = Desktop_App.language_selector_row(selector, circle, contrast_switch=button)
+        widgets = [row.itemAt(index).widget() for index in range(row.count())]
+        self.assertEqual([widget for widget in widgets if widget is not None][-3:], [selector, button, circle])
+
+
+class WindowHighContrastTests(unittest.TestCase):
+    """Config and Tools: the button, saving the mode for every window, and a redraw with it."""
+
+    setUpClass = classmethod(WindowThemeColorTests.setUpClass.__func__)
+    track = WindowThemeColorTests.track
+    open_config = WindowThemeColorTests.open_config
+    open_tools = WindowThemeColorTests.open_tools
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.settings = Path(folder.name) / "app_settings.json"
+        patcher = mock.patch.dict(os.environ, {"SSN_APP_SETTINGS_PATH": str(self.settings)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(apply_studio_theme, self.app, DEFAULT_THEME_COLOR, high_contrast=False)
+
+    def click(self, window, button):
+        with mock.patch.object(self.namespace["ConfigGUI"], "_read_custom_settings", return_value={}):
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        flush(self.app)
+
+    def test_the_button_sits_between_the_language_dropdown_and_the_circle(self):
+        for window in (self.open_config(), self.open_tools()):
+            with self.subTest(window=type(window).__name__):
+                button, language, circle = window.contrast_switch, window.language_selector, window.theme_switch
+                self.assertFalse(button.isChecked())
+
+                def left(widget):
+                    return widget.mapTo(window, QPoint(0, 0)).x()
+
+                self.assertGreater(left(button), left(language) + language.width())
+                self.assertGreater(left(circle), left(button) + button.width())
+                self.assertAlmostEqual(button.mapTo(window, button.rect().center()).y(),
+                                       circle.mapTo(window, circle.rect().center()).y(), delta=1)
+
+    def test_turning_it_on_saves_it_for_every_window_and_redraws_keeping_the_fields(self):
+        self.settings.write_text('{"TOOLS_THEME_COLOR": "green"}', encoding="utf-8")
+        window = self.open_config()
+        window.inputs["ALIGNMENT_REFERENCE"].setText("REF_7")
+        window.tabs.setCurrentIndex(1)
+        self.click(window, window.contrast_switch)
+        self.assertEqual(read_app_settings(), {"TOOLS_THEME_COLOR": "green", HIGH_CONTRAST_SETTING: True})
+        self.assertFalse(window.isVisible())
+        replacement = self.track(Desktop_App._redrawn_windows[-1])
+        self.assertIsNot(replacement, window)
+        self.assertEqual((theme_color(), high_contrast()), (DEFAULT_THEME_COLOR, True))
+        self.assertTrue(replacement.contrast_switch.isChecked())
+        self.assertEqual(replacement.inputs["ALIGNMENT_REFERENCE"].text(), "REF_7")
+        self.assertEqual(replacement.tabs.currentIndex(), 1)
+        self.assertIn(HIGH_CONTRAST_SHADES["light"]["field_border"], self.app.styleSheet())
+        # And off again.
+        self.click(replacement, replacement.contrast_switch)
+        self.assertIs(read_app_settings()[HIGH_CONTRAST_SETTING], False)
+        again = self.track(Desktop_App._redrawn_windows[-1])
+        self.assertFalse(high_contrast())
+        self.assertFalse(again.contrast_switch.isChecked())
+        self.assertNotIn(HIGH_CONTRAST_SHADES["light"]["field_border"], self.app.styleSheet())
+
+    def test_tools_saves_the_same_setting(self):
+        window = self.open_tools()
+        QTest.mouseClick(window.contrast_switch, Qt.MouseButton.LeftButton)
+        flush(self.app)
+        self.assertEqual(read_app_settings(), {HIGH_CONTRAST_SETTING: True})
+        replacement = self.track(Desktop_App._redrawn_windows[-1])
+        self.assertTrue(replacement.contrast_switch.isChecked())
+        self.assertEqual(replacement.theme_switch.theme_setting, TOOLS_THEME_SETTING)
+
+    def test_a_new_colour_keeps_high_contrast_mode(self):
+        apply_studio_theme(self.app, DEFAULT_THEME_COLOR, high_contrast=True)
+        window = self.open_config()
+        self.assertTrue(window.contrast_switch.isChecked())
+        with mock.patch.object(self.namespace["ConfigGUI"], "_read_custom_settings", return_value={}):
+            window.theme_switch.color_chosen.emit("teal")
+        replacement = self.track(Desktop_App._redrawn_windows[-1])
+        self.assertEqual((theme_color(), high_contrast()), ("teal", True))
+        self.assertTrue(replacement.contrast_switch.isChecked())
+
+    def test_the_same_mode_needs_no_redraw(self):
+        window = self.open_config()
+        self.assertIs(window.switch_high_contrast(False), window)
+        self.assertTrue(window.isVisible())
+
+    def test_a_mode_that_cannot_be_saved_changes_nothing(self):
+        window = self.open_config()
+        self.settings.write_text("{not json", encoding="utf-8")
+        window.contrast_switch.setChecked(True)  # as a click leaves it
+        with mock.patch.object(Desktop_App.QMessageBox, "critical") as critical:
+            self.assertIs(choose_high_contrast(window, True), window)
+        critical.assert_called_once()
+        self.assertTrue(window.isVisible())
+        self.assertFalse(window.contrast_switch.isChecked())
+        self.assertFalse(high_contrast())
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), "{not json")
+
+    def test_a_redraw_that_fails_keeps_the_window_and_its_mode(self):
+        window = self.open_config()
+
+        def broken():
+            raise RuntimeError("cannot build")
+
+        with self.assertRaisesRegex(RuntimeError, "cannot build"):
+            redraw_in_high_contrast(window, True, broken)
+        self.assertTrue(window.isVisible())
+        self.assertFalse(high_contrast())
+        self.assertNotIn(HIGH_CONTRAST_SHADES["light"]["field_border"], self.app.styleSheet())
 
 if __name__ == "__main__":
     unittest.main()

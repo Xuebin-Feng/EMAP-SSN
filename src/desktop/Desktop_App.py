@@ -34,6 +34,7 @@ from PySide6.QtGui import (
     QTextLength,
     QTextTable,
 )
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
@@ -73,6 +74,9 @@ from desktop.Studio_Theme import (
     IconLabel,
     SwitchFocusRing,
     apply_studio_theme,
+    coloured_svg,
+    high_contrast,
+    icon_svg,
     paint_switch,
     switch_label,
     theme_color,
@@ -2161,8 +2165,8 @@ class LanguageFollower(QtCore.QObject):
         return shown
 
 
-def language_selector_row(selector, theme_switch=None, leading=None):
-    """A row that ends in the Language dropdown, after a globe, and then theme_switch if given.
+def language_selector_row(selector, theme_switch=None, leading=None, contrast_switch=None):
+    """A row that ends in the Language dropdown, after a globe, then contrast_switch and theme_switch if given.
 
     leading, if given, starts the row and takes all the room the rest leaves.
     """
@@ -2177,8 +2181,12 @@ def language_selector_row(selector, theme_switch=None, leading=None):
     globe.setBuddy(selector)
     row.addWidget(globe)
     row.addWidget(selector)
-    if theme_switch is not None:
+    if contrast_switch is not None:
         row.addSpacing(8)
+        row.addWidget(contrast_switch)
+    if theme_switch is not None:
+        # Beside the contrast button, the two round controls read as a pair.
+        row.addSpacing(4 if contrast_switch is not None else 8)
         row.addWidget(theme_switch)
     return row
 
@@ -2454,17 +2462,26 @@ def redraw_in_theme_color(window, color, build):
     The application takes the colour first, and gets the previous one back
     if build() fails. The language stays as installed.
     """
+    return _redraw_in_theme(window, build, color=color)
+
+
+def redraw_in_high_contrast(window, on, build):
+    """Replace window with a copy with high contrast mode on or off, as redraw_in_theme_color does."""
+    return _redraw_in_theme(window, build, contrast=bool(on))
+
+
+def _redraw_in_theme(window, build, color=None, contrast=None):
     app = QApplication.instance()
-    previous = theme_color()
+    previous = (theme_color(), high_contrast())
     installed = _installed_translations
-    apply_studio_theme(app, color)
+    apply_studio_theme(app, color, high_contrast=contrast)
     try:
         if installed is None:
             return redraw_in_language(window, None, build)
         return redraw_in_language(window, installed.language, build,
                                   installed.catalog_dir, installed.extra_catalogs)
     except BaseException:
-        apply_studio_theme(app, previous)
+        apply_studio_theme(app, previous[0], high_contrast=previous[1])
         raise
 
 
@@ -2561,7 +2578,141 @@ def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR, extra
 
 
 # =====================================================================
-# 10. The Colour Picker
+# 10. High Contrast Mode
+# =====================================================================
+
+# One setting for every window, as the language is: high contrast mode draws
+# field edges, switches that are off, scroll handles and red text darker
+# (Studio_Theme's HIGH_CONTRAST_SHADES). The window where it is switched
+# redraws at once; other open windows and the Viewer take it when they next
+# start, and the Viewer passes it on to its pages.
+HIGH_CONTRAST_SETTING = "HIGH_CONTRAST"
+
+
+def configured_high_contrast(settings=None):
+    """Whether the saved HIGH_CONTRAST setting turns high contrast mode on.
+
+    settings stands in for app_settings.json. A file that can't be read, or
+    a value that is not true or false, counts as off, with a warning.
+    """
+    if settings is None:
+        try:
+            settings = read_app_settings()
+        except AppSettingsError as error:
+            _warn_once(f"{error} The windows start without high contrast mode.")
+            settings = {}
+    value = settings.get(HIGH_CONTRAST_SETTING, False)
+    if isinstance(value, bool):
+        return value
+    _warn_once(f"The {HIGH_CONTRAST_SETTING} setting {value!r} is not true or false; high contrast mode stays off.")
+    return False
+
+
+def apply_saved_theme(app, theme_setting, settings=None):
+    """Give app the Studio look in the window's saved theme colour and the saved high contrast mode.
+
+    theme_setting names the window's colour setting (CONFIG_THEME_SETTING and
+    so on); app_settings.json is read once for both, or settings stands in for it.
+    """
+    if settings is None:
+        try:
+            settings = read_app_settings()
+        except AppSettingsError as error:
+            _warn_once(f"{error} The windows take the default theme colour, without high contrast mode.")
+            settings = {}
+    apply_studio_theme(app, configured_theme_color(theme_setting, settings),
+                       high_contrast=configured_high_contrast(settings))
+
+
+class HighContrastButton(QPushButton):
+    """A window's high contrast switch: Lucide's contrast icon, on a soft square of the theme colour while on.
+
+    A click turns it over and emits high_contrast_chosen with the new state,
+    for choose_high_contrast to save.
+    """
+
+    high_contrast_chosen = QtCore.Signal(bool)
+    SIZE = 28       # as tall as a field, and the colour circle beside it
+    ICON = 16       # as large as the language row's globe
+    RADIUS = 7
+
+    def __init__(self, parent=None, *, on=None):
+        super().__init__(parent)
+        self.setObjectName("highContrastButton")
+        self.setCheckable(True)
+        self.setChecked(high_contrast() if on is None else bool(on))
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # It paints itself; the stylesheet only clears the button's frame.
+        self.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0px; }")
+        self.setAccessibleName(QtCore.QCoreApplication.translate("HighContrastSwitch", "High contrast mode"))
+        self._renderers = {}
+        self.toggled.connect(self._show_state)
+        self.clicked.connect(lambda checked: self.high_contrast_chosen.emit(bool(checked)))
+        self._show_state(self.isChecked())
+
+    def _show_state(self, on):
+        state = (QtCore.QCoreApplication.translate("HighContrastSwitch", "High contrast mode: on") if on
+                 else QtCore.QCoreApplication.translate("HighContrastSwitch", "High contrast mode: off"))
+        later = QtCore.QCoreApplication.translate(
+            "HighContrastSwitch", "Other open windows and the Viewer take it when they next start.")
+        self.setToolTip(f"{state}\n{later}")
+        self.update()
+
+    def _renderer(self, color):
+        renderer = self._renderers.get(color)
+        if renderer is None:
+            data = coloured_svg(icon_svg("contrast"), color).encode("utf-8")
+            renderer = self._renderers[color] = QSvgRenderer(QtCore.QByteArray(data))
+        return renderer
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if not self.isEnabled():
+            painter.setOpacity(0.45)
+        box = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        on = self.isChecked()
+        if on or (self.underMouse() and self.isEnabled()):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(TOKENS["accent_soft" if on else "surface_muted"]))
+            painter.drawRoundedRect(box, self.RADIUS, self.RADIUS)
+        if self.hasFocus():
+            pen = QPen(QColor(TOKENS["accent"]))
+            pen.setWidthF(2.0)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box, self.RADIUS, self.RADIUS)
+        offset = (self.SIZE - self.ICON) / 2
+        self._renderer(TOKENS["accent" if on else "text_subtle"]).render(
+            painter, QRectF(offset, offset, self.ICON, self.ICON))
+        painter.end()
+
+
+def choose_high_contrast(window, on):
+    """Save high contrast mode on or off for every window, then redraw window with it.
+
+    window has a contrast_switch (a HighContrastButton) and a
+    switch_high_contrast(on) method. If the setting can't be saved, a message
+    says why and nothing changes. Returns the window that shows the mode.
+    """
+    try:
+        save_app_setting(HIGH_CONTRAST_SETTING, bool(on))
+    except (AppSettingsError, OSError) as error:
+        window.contrast_switch.setChecked(high_contrast())
+        QMessageBox.critical(
+            window,
+            QtCore.QCoreApplication.translate("HighContrastSwitch", "High Contrast Mode Not Saved"),
+            QtCore.QCoreApplication.translate(
+                "HighContrastSwitch", "High contrast mode could not be saved, so it stays as it was.\n\n{error}"
+            ).format(error=error),
+        )
+        return window
+    return window.switch_high_contrast(on)
+
+
+# =====================================================================
+# 11. The Colour Picker
 # =====================================================================
 
 # The picker's preset colours, in two rows: black, greys and white, then the
@@ -2969,6 +3120,12 @@ __all__ = [
     "configured_theme_color",
     "redraw_in_theme_color",
     "theme_color_name",
+    "HIGH_CONTRAST_SETTING",
+    "HighContrastButton",
+    "apply_saved_theme",
+    "choose_high_contrast",
+    "configured_high_contrast",
+    "redraw_in_high_contrast",
     "choose_language",
     "LanguageFollower",
     "language_selector_row",

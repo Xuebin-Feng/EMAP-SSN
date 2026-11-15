@@ -32,7 +32,7 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QStyleFactory  # noq
 
 from desktop import Desktop_App, Splash  # noqa: E402
 from desktop.Splash import SplashWindow, StatusFeed, tail_lines  # noqa: E402
-from desktop.Studio_Theme import TOKENS, studio_stylesheet, theme_tokens  # noqa: E402
+from desktop.Studio_Theme import TOKENS, page_tokens, studio_stylesheet, theme_tokens  # noqa: E402
 from desktop.Theme_Colors import (  # noqa: E402
     BLACK_ACCENTS, DEFAULT_THEME_COLOR, THEME_COLORS, scroll_bar_rules, shade_set,
 )
@@ -1364,7 +1364,7 @@ class SectionScrollBarTests(WindowCase):
     def test_the_pages_hover_colour_is_the_one_the_windows_draw_in_light_and_dark(self):
         for color in THEME_COLORS:
             with self.subTest(color=color):
-                self.assertEqual(shade_set("light_page", color)["scroll_hover"], Splash.scheme_for(color)["scroll_hover"])
+                self.assertEqual(page_tokens(color)["scroll_hover"], Splash.scheme_for(color)["scroll_hover"])
                 self.assertEqual(shade_set("dark_page", color)["scroll_hover"], shade_set("dark_page", color)["text_disabled"])
 
     def test_the_view_carries_the_windows_scroll_bar_rules_in_every_family(self):

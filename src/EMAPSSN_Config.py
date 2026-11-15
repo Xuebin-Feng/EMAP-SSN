@@ -724,9 +724,9 @@ if __name__ == "__main__":
         add_combo_options,
         combo_value,
         configure_qt_application_fonts,
-        configured_theme_color,
         fit_buttons_to_text,
-        apply_studio_theme,
+        apply_saved_theme,
+        choose_high_contrast,
         choose_language,
         choose_theme_color,
         install_translations,
@@ -739,9 +739,11 @@ if __name__ == "__main__":
         mark_name_item,
         open_color_picker,
         qt_monospace_font,
+        redraw_in_high_contrast,
         redraw_in_language,
         redraw_in_theme_color,
         CONFIG_THEME_SETTING,
+        HighContrastButton,
         ThemeColorButton,
         select_combo_value,
         show_window_in_front,
@@ -754,6 +756,7 @@ if __name__ == "__main__":
         TOKENS,
         CardShadows,
         add_hint_icon,
+        high_contrast,
         icon_button,
         prepare_tab_widget,
         set_role,
@@ -1551,7 +1554,10 @@ if __name__ == "__main__":
             self.language_follower = LanguageFollower(self)
             self.theme_switch = ThemeColorButton(CONFIG_THEME_SETTING, color=theme_color())
             self.theme_switch.color_chosen.connect(lambda color: choose_theme_color(self, color))
-            self.right_layout.addLayout(language_selector_row(self.language_selector, self.theme_switch))
+            self.contrast_switch = HighContrastButton()
+            self.contrast_switch.high_contrast_chosen.connect(lambda on: choose_high_contrast(self, on))
+            self.right_layout.addLayout(language_selector_row(
+                self.language_selector, self.theme_switch, contrast_switch=self.contrast_switch))
             
             self.main_split.addWidget(self.right_panel)
             self.main_split.setStretchFactor(0, 6) 
@@ -2159,6 +2165,17 @@ if __name__ == "__main__":
                 return self
             carried = self.language_carry_over()
             return redraw_in_theme_color(self, color, lambda: type(self)(carried=carried))
+
+        def switch_high_contrast(self, on):
+            """Redraw this window with high contrast mode on or off, keeping all it shows.
+
+            The new window carries over what a language redraw does, at this
+            one's place and view. Returns the window that shows the mode.
+            """
+            if bool(on) == high_contrast():
+                return self
+            carried = self.language_carry_over()
+            return redraw_in_high_contrast(self, on, lambda: type(self)(carried=carried))
 
         def show_statistics(self, report):
             """Show report, what run_statistics found, in the statistics panel, in the window's language.
@@ -5383,7 +5400,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        apply_studio_theme(app, configured_theme_color(CONFIG_THEME_SETTING))
+        apply_saved_theme(app, CONFIG_THEME_SETTING)
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")

@@ -72,12 +72,13 @@ NEUTRAL_SHADES = {
         "success": "#15803d",           # 5.0:1 on white
         "warning": "#b45309",           # 5.0:1 on white
         "danger": "#dc2626",            # 4.8:1 on white
-        # Scroll bars
+        # Scroll bars: the handle, and under the mouse
         "scroll": "#d4d4d8",
+        "scroll_hover": "#a1a1aa",
     },
     "light_page": {
         "inset": "#fafafa", "primary_disabled_text": "#fafafa", "code_text": "#18181b",
-        "switch_thumb": "#ffffff", "scroll_hover": "#a1a1aa",
+        "switch_thumb": "#ffffff",
     },
     "dark_page": {
         "window": "#09090b", "surface": "#18181b", "surface_muted": "#27272a",
@@ -89,6 +90,28 @@ NEUTRAL_SHADES = {
         "code_text": "#e4e4e7",
         "switch_off": "#3f3f46", "switch_off_hover": "#52525b", "switch_thumb": "#fafafa",
         "scroll": "#3f3f46", "scroll_hover": "#52525b",
+    },
+}
+
+# High contrast mode (the windows' contrast button, app_settings.json HIGH_CONTRAST) draws a few greys and the
+# red darker, by set, over NEUTRAL_SHADES: field edges, switches that are off and scroll handles stand out 3:1 or
+# more against what is around them (WCAG 1.4.11), and red text 6.5:1 on white. The dark pages' take lighter
+# greys instead, for the same contrast against their dark cards.
+HIGH_CONTRAST_SHADES = {
+    "light": {
+        "field_border": "#8a8a92",      # 3.4:1 on white, 3.3:1 on the window
+        "field_border_hover": "#71717a",
+        "switch_off": "#8a8a92",        # 3.4:1 against the white knob
+        "switch_off_hover": "#71717a",
+        "scroll": "#8a8a92",            # 3.3:1 on the window
+        "scroll_hover": "#71717a",
+        "danger": "#b91c1c",            # 6.5:1 on white, 5.9:1 on the pages' danger tint
+    },
+    "light_page": {},
+    "dark_page": {
+        "field_border": "#71717a", "field_border_hover": "#8e8e96",   # 3.7:1 on the cards
+        "switch_off": "#71717a", "switch_off_hover": "#8e8e96",
+        "scroll": "#71717a", "scroll_hover": "#8e8e96",
     },
 }
 
@@ -204,10 +227,11 @@ def oklch_hex(lightness, chroma, hue):
     return "#" + "".join(f"{round(_encode_srgb(channel) * 255):02x}" for channel in channels)
 
 
-def shade_set(kind, color):
+def shade_set(kind, color, *, high_contrast=False):
     """One set of colours ("light", "light_page" or "dark_page") in ``color``: the greys and its accents.
 
-    ``color`` is a THEME_COLORS name; any other raises ValueError.
+    ``color`` is a THEME_COLORS name; any other raises ValueError. With
+    high_contrast, HIGH_CONTRAST_SHADES replaces some of the greys and the red.
     """
     if color not in THEME_COLORS:
         raise ValueError(
@@ -221,12 +245,13 @@ def shade_set(kind, color):
             name: shade if isinstance(shade, str) else oklch_hex(*shade, hue)
             for name, shade in ACCENT_SHADES[kind].items()
         }
-    return {**NEUTRAL_SHADES[kind], **accents}
+    contrast = HIGH_CONTRAST_SHADES[kind] if high_contrast else {}
+    return {**NEUTRAL_SHADES[kind], **accents, **contrast}
 
 
 def scroll_bar_rules(handle, hover):
     """The stylesheet rules that draw the Studio scroll bar, as Qt stylesheet text: ``handle`` is the handle's colour
-    and ``hover`` its colour under the mouse (the windows give the "scroll" and "text_disabled" tokens).
+    and ``hover`` its colour under the mouse (the windows give the "scroll" and "scroll_hover" tokens).
 
     A slim bar (10 px) with no track, no arrow buttons and no page fill, a rounded handle, and no corner where
     two bars meet, so a card's rounded corner shows. Studio_Theme puts them in the application stylesheet; the

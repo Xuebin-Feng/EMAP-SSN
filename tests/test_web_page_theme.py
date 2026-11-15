@@ -7,7 +7,9 @@
 Each page sets its own values of the properties that take the theme colour
 (desktop.Studio_Theme.WEB_PAGE_PROPERTIES), which are Purple's, and the
 Viewer's web server ends the page's head with the theme colour's
-(web_ui.Web_Server.page_in_theme_color), in any language. The Fold View page
+(web_ui.Web_Server.page_in_theme_color), in any language; in high contrast
+mode those carry the darker greys, and the page's <html> is marked
+data-contrast="high" for the page's own few rules. The Fold View page
 draws Mol*'s canvas inside the same Studio look; Mol*'s own panels, which
 the Advanced view shows, keep Mol*'s look.
 """
@@ -36,6 +38,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from desktop.Desktop_App import install_translations  # noqa: E402
 from desktop.Studio_Theme import (  # noqa: E402
     DEFAULT_THEME_COLOR,
+    HIGH_CONTRAST_SHADES,
     WEB_PAGE_PROPERTIES,
     set_theme_color,
     web_page_properties,
@@ -108,9 +111,22 @@ class ServedPageThemeTests(unittest.TestCase):
         for page in THEMED:
             with self.subTest(page=page):
                 body = self.assert_themed(page)
+                self.assertIn(b'<html lang="', body)
+                self.assertNotIn(b"<html data-contrast", body)
                 # An inline style leaves the policy as the page's own bytes have it.
                 self.assertEqual(content_security_policy(str(PAGES / page), body),
                                  content_security_policy(str(PAGES / page), (PAGES / page).read_bytes()))
+
+    def test_in_high_contrast_mode_the_pages_are_marked_and_take_the_darker_greys(self):
+        set_theme_color("teal", high_contrast=True)
+        self.addCleanup(set_theme_color, DEFAULT_THEME_COLOR, high_contrast=False)
+        for page in THEMED:
+            with self.subTest(page=page):
+                shown = self.assert_themed(page).decode("utf-8")
+                self.assertEqual(len(re.findall(r'<html data-contrast="high" lang="[^"]+">', shown)), 1)
+                head = shown.partition("</head>")[0]
+                self.assertIn(f"--field-border: {HIGH_CONTRAST_SHADES['light']['field_border']};", head)
+                self.assertIn(f"--field-border: {HIGH_CONTRAST_SHADES['dark_page']['field_border']};", head)
 
     def test_a_page_in_another_language_takes_the_theme_colour_too(self):
         for language in ("pseudo", "zh_CN"):
@@ -169,6 +185,21 @@ class PageFallbackTests(unittest.TestCase):
             with self.subTest(block=selector):
                 pages = set().union(*(declared(page, selector) for page in THEMED))
                 self.assertEqual(sorted(properties - pages), [])
+
+
+class PageHighContrastTests(unittest.TestCase):
+    """Each page darkens its own red in high contrast mode, as the windows do; dark mode keeps its own."""
+
+    RULE = ':root[data-contrast="high"]:not([data-theme="dark"]) {'
+
+    def test_each_page_darkens_its_own_red(self):
+        for page in THEMED:
+            source = (PAGES / page).read_text(encoding="utf-8")
+            with self.subTest(page=page):
+                self.assertEqual(source.count(self.RULE), 1)
+                start = source.index(self.RULE) + len(self.RULE)
+                block = dict(re.findall(r"(--[a-z0-9-]+)\s*:\s*([^;]+);", source[start:source.index("}", start)]))
+                self.assertEqual(block["--danger"], HIGH_CONTRAST_SHADES["light"]["danger"])
 
 
 class PageSizeTests(unittest.TestCase):

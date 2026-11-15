@@ -183,8 +183,7 @@ from desktop.Desktop_App import (
     VISPY_FALLBACK_FACE,
     configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
-    configured_theme_color,
-    apply_studio_theme,
+    apply_saved_theme,
     fit_buttons_to_text,
     install_translations,
     installed_language,
@@ -1222,10 +1221,11 @@ class MainViewer:
         self.update_edges()
 
         # The shared window theme, on the QApplication managed by Vispy, in
-        # Config's theme colour as it is now; the Agent and Meta Data pages take it too.
+        # Config's theme colour and the high contrast mode as they are now; the
+        # web server gives both to the Viewer's pages.
         if qapp:
             try:
-                apply_studio_theme(qapp, configured_theme_color(CONFIG_THEME_SETTING))
+                apply_saved_theme(qapp, CONFIG_THEME_SETTING)
                 # The network and the HUD were drawn before the theme colour was known.
                 self._color_command_box()
                 self._color_selection_box()

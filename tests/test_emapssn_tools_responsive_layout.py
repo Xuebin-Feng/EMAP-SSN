@@ -42,9 +42,12 @@ class ResponsiveToolsTests(unittest.TestCase):
             self.app.processEvents()
 
     def resize_panel(self, width):
-        self.window.resize(width + 360, 850)
+        # The right column (help and footer) four pixels over its narrowest, so the footer's
+        # contents set it, not this test.
+        right = self.window.splitter.widget(1).minimumSizeHint().width() + 4
+        self.window.resize(width + right + 34, 850)
         # QTabWidget adds four pixels outside its scroll page.
-        self.window.splitter.setSizes([width + 4, 326])
+        self.window.splitter.setSizes([width + 4, right])
         self.flush()
         delta = width - self.window.tabs.currentWidget().width()
         left, right = self.window.splitter.sizes()

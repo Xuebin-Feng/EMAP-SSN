@@ -1852,9 +1852,10 @@ class EntryPointTests(WindowCase):
         from PySide6.QtWidgets import QHBoxLayout
 
         # The Console is the Viewer's (its command and the button at the foot of its window); Config and Tools
-        # show what they print on the start-up splash, and their windows keep the footer they always had.
+        # show what they print on the start-up splash, and their footers hold no Console button (the high
+        # contrast button is the one they have besides the theme switch).
         self.assertEqual(list(inspect.signature(Desktop_App.language_selector_row).parameters),
-                         ["selector", "theme_switch", "leading"])
+                         ["selector", "theme_switch", "leading", "contrast_switch"])
         host = QWidget()
         self.addCleanup(host.deleteLater)
         selector = Desktop_App.LanguageSelector(host)

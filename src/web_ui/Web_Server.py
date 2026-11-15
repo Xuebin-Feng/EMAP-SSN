@@ -32,7 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
 from desktop.Desktop_App import installed_language, language_web_font_css, translate
-from desktop.Studio_Theme import web_theme_css
+from desktop.Studio_Theme import high_contrast, web_theme_css
 from desktop.Viewer_Inspection import (
     INSPECTION_ACTIONS,
     ViewerInspectionError,
@@ -361,19 +361,26 @@ def page_in_viewer_language(filepath, body, pages=None):
 
 
 HEAD_END = re.compile(rb"</head\s*>", re.IGNORECASE)
+HTML_START = re.compile(rb"<html\b", re.IGNORECASE)
+HIGH_CONTRAST_MARK = b' data-contrast="high"'
 
 
 def page_in_theme_color(filepath, body, pages=None):
-    """body, the bytes of a file to serve, in the Viewer's theme colour.
+    """body, the bytes of a file to serve, in the Viewer's theme colour and high contrast mode.
 
     A page whose plugin declared it themed ends its head with the theme
     colour's custom properties (desktop/Studio_Theme.py web_theme_css), after
-    the page's own, which are Purple's; any other file comes as it is.
+    the page's own, which are Purple's; in high contrast mode those carry the
+    darker greys, and its <html> is marked data-contrast="high" for the
+    page's own rules. Any other file comes as it is.
     """
     if not _page_registry(pages).is_themed(filepath):
         return body
     styles = f"<style>\n{web_theme_css()}\n</style>\n".encode("utf-8")
-    return HEAD_END.sub(lambda match: styles + match.group(0), body, count=1)
+    body = HEAD_END.sub(lambda match: styles + match.group(0), body, count=1)
+    if high_contrast():
+        body = HTML_START.sub(lambda match: match.group(0) + HIGH_CONTRAST_MARK, body, count=1)
+    return body
 
 
 def event_client_from_path(path):
