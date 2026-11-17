@@ -31,6 +31,7 @@ from vispy import app as vispy_app, scene  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from desktop import Viewer_Markers  # noqa: E402
 from desktop.Viewer_Markers import HoverMarkers, marker_layout_problem, uniform_symbol  # noqa: E402
+from tests.gl_window_environment import native_display_scale  # noqa: E402
 from tests.timer_fixtures import FakeTimer  # noqa: E402
 
 SHAPES = ["disc", "square", "diamond", "triangle_up", "star", "ring", "cross", "x", "clobber", "arrow"]
@@ -1087,7 +1088,7 @@ class HoverPixelTests(unittest.TestCase):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 output = run_gl_script(self, _HOVER_SCRIPT, scale)
-                self.assertIn(f"SCALE {float(scale)}", output)
+                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
                 result = next(line.split()[1:] for line in output.splitlines() if line.startswith("RESULT"))
                 patched, differing, pictures = map(int, result)
                 self.assertEqual(patched, 9, output)
@@ -1111,7 +1112,7 @@ class PickPixelTests(unittest.TestCase):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 output = run_gl_script(self, _PICK_SCRIPT, scale)
-                self.assertIn(f"SCALE {float(scale)}", output)
+                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
                 grids = [line.split()[1:] for line in output.splitlines() if line.startswith("GRID ")]
                 self.assertEqual([grid[0] for grid in grids], ["mixed", "discs"], output)
                 for kind, points, on_nodes, wrong, ties, background_picks, far in grids:

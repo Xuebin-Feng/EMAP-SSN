@@ -33,6 +33,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import EMAPSSN_Config as cfg  # noqa: E402
+from tests.gl_window_environment import native_display_scale  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from Viewer_Visual_State import edge_stages, edges_follow_selection  # noqa: E402
 from desktop import Viewer_Edges  # noqa: E402
@@ -1880,7 +1881,7 @@ class EdgeStencilLimitPixelTests(unittest.TestCase):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 lines, output = self.run_script(scale)
-                self.assertEqual(float(lines["SCALE"][0]), scale)
+                self.assertEqual(float(lines["SCALE"][0]), scale * native_display_scale())
                 self.assertEqual(lines["BITS"], ["0", "8"])
                 cases, inexact, engaged, contrasting, printed_differ = map(int, lines["STENCIL"])
                 self.assertEqual(cases, 64)
@@ -2137,7 +2138,7 @@ class EdgeOpacityPixelTests(unittest.TestCase):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 output = run_gl_script(self, _OPACITY_SCRIPT, scale)
-                self.assertIn(f"SCALE {float(scale)}", output)
+                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
                 # The lowest score is 15 % (255 * 0.85 = 217), the highest 85 % (38), the rest between.
                 levels = self.rows(output, "levels")
                 self.assertEqual(len(levels), 8, output)

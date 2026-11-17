@@ -15,6 +15,7 @@ runs and a canvas cannot even render. Windows and macOS keep Qt's own choice.
 Not collected by unittest; import with ``from tests.gl_window_environment import ...``.
 """
 import os
+import subprocess
 import sys
 import unittest
 
@@ -40,3 +41,33 @@ def gl_window_environment():
             environment["DISPLAY"] = ":0"
         environment["QT_QPA_PLATFORM"] = "xcb"
     return environment
+
+
+_NATIVE_SCALE = []
+
+
+def native_display_scale():
+    """The factor a real window's canvas has at QT_SCALE_FACTOR=1 with QT_ENABLE_HIGHDPI_SCALING=0: 1.0 everywhere but macOS.
+
+    A Retina Mac gives its windows a device pixel ratio of 2 whatever those variables say, so a canvas
+    the test asks to run at display scale 2 reports a pixel_scale of 4 there. The tests multiply the scale
+    they ask for by this, read from Qt on the real screen; on Windows and Linux it is 1.0 without asking.
+    """
+    if not _NATIVE_SCALE:
+        value = 1.0
+        if sys.platform == "darwin":
+            environment = dict(os.environ)
+            environment.pop("QT_QPA_PLATFORM", None)
+            environment.update(QT_ENABLE_HIGHDPI_SCALING="0", QT_SCALE_FACTOR="1")
+            code = ("from PySide6.QtGui import QGuiApplication\n"
+                    "app = QGuiApplication([])\n"
+                    "print('NATIVE', app.primaryScreen().devicePixelRatio())\n")
+            try:
+                result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                                        encoding="utf-8", errors="replace", env=environment, timeout=60)
+                found = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("NATIVE ")]
+                value = float(found[0]) if found else 1.0
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                value = 1.0
+        _NATIVE_SCALE.append(value)
+    return _NATIVE_SCALE[0]
