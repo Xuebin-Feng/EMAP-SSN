@@ -92,6 +92,40 @@ print(json.dumps({{
 """
 
 
+class QtBackendTests(unittest.TestCase):
+    """macOS gets matplotlib's Qt backend for a shown chart; nothing else changes."""
+
+    def setUp(self):
+        import matplotlib
+
+        self.matplotlib = matplotlib
+        self.use = mock.patch.object(matplotlib, "use").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def pin(self, platform_name="darwin", environment=None, chosen=None):
+        with mock.patch.object(self.matplotlib.rcParams, "_get_backend_or_none", return_value=chosen, create=True):
+            return Tool_Charts.use_qt_backend(
+                environment={} if environment is None else environment, platform_name=platform_name)
+
+    def test_macos_with_no_backend_chosen_is_given_qtagg(self):
+        self.assertTrue(self.pin())
+        self.use.assert_called_once_with("QtAgg")
+
+    def test_other_platforms_are_left_alone(self):
+        for name in ("win32", "linux"):
+            self.assertFalse(self.pin(platform_name=name))
+        self.use.assert_not_called()
+
+    def test_an_explicit_choice_is_respected(self):
+        self.assertFalse(self.pin(environment={"MPLBACKEND": "Agg"}))
+        self.assertFalse(self.pin(chosen="Agg"))
+        self.use.assert_not_called()
+
+    def test_no_qt_binding_leaves_matplotlibs_own_pick(self):
+        self.use.side_effect = ImportError("no Qt")
+        self.assertFalse(self.pin())
+
+
 class ToolChartsTests(unittest.TestCase):
     def test_the_setting_name_is_the_tools_windows(self):
         source = (SRC / "desktop" / "Desktop_App.py").read_text(encoding="utf-8")

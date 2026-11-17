@@ -349,6 +349,7 @@ def plot_length_distribution(lengths, bounds=()):
 
 def _plot_length_distribution(lengths, bounds, language):
     """plot_length_distribution's chart, its texts in language with the translator installed."""
+    Tool_Charts.use_qt_backend()
     import matplotlib.pyplot as plt
     from matplotlib.patches import BoxStyle, FancyBboxPatch
     from matplotlib.path import Path

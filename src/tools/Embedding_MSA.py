@@ -1852,6 +1852,7 @@ def plot_regression_fit(iso_reg, x, y, rho, r2, pairs):
 
 def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language):
     """plot_regression_fit's chart, its texts in language with the translator installed."""
+    Tool_Charts.use_qt_backend()
     import matplotlib.pyplot as plt
     from matplotlib import patheffects
     from matplotlib.colors import LinearSegmentedColormap, LogNorm

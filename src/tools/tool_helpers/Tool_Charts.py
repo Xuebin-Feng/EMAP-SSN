@@ -141,6 +141,32 @@ def chart_style(tokens, families):
     }
 
 
+def use_qt_backend(environment=None, platform_name=None):
+    """On macOS, have matplotlib draw its chart windows with Qt; True when it was set.
+
+    Call it before the first matplotlib.pyplot figure of a chart that is shown. matplotlib's own pick on
+    macOS is "macosx", whose window is no QMainWindow: style_chart_window would leave it unstyled. Windows
+    and Linux already get QtAgg when PySide6 is importable, and are left as they are. A backend that was
+    chosen is respected: MPLBACKEND, or one set in matplotlibrc or by matplotlib.use (Agg in a test run).
+    """
+    import sys
+
+    if (sys.platform if platform_name is None else platform_name) != "darwin":
+        return False
+    if (os.environ if environment is None else environment).get("MPLBACKEND"):
+        return False
+    try:
+        import matplotlib
+
+        chosen = getattr(matplotlib.rcParams, "_get_backend_or_none", None)
+        if chosen is not None and chosen() is not None:
+            return False
+        matplotlib.use("QtAgg")
+    except ImportError:  # no Qt binding for matplotlib: its own pick stays
+        return False
+    return True
+
+
 def show_chart(figure, color, project_root):
     """Show figure as a pop-up window in the Tools window's look until it is closed, then close it.
 
