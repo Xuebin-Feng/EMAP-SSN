@@ -4012,6 +4012,13 @@ class ToolsGUI(QMainWindow):
                         execution_combo,
                         allow_mps=script_name == "Align_Similarity_Matrix.py",
                     )
+                    # The tooltip lists the options the dropdown holds: without Tiled (no accelerator
+                    # here) it must not list it, as the tip panel, built from the dropdown, does not.
+                    entry = self.tip_db.get(execution_combo)
+                    if isinstance(entry, FieldTip) and execution_combo.toolTip() in (
+                        "", execution_combo.property("registeredTooltip")
+                    ):
+                        set_tip_tooltip(execution_combo, entry)
 
                 device_combo.currentIndexChanged.connect(
                     update_execution_options

@@ -1766,6 +1766,22 @@ class ToolsWindowTipTests(WithApplication):
         self.assertEqual(batch.toolTip(), tip_plain(self.window.tip_db[batch]))
         self.assertIn("Warning: Larger values improve throughput but require more RAM.", batch.toolTip())
 
+    def test_on_a_cpu_only_computer_the_tooltip_does_not_list_the_tiled_option_the_dropdown_lacks(self):
+        from utilities import Hardware_Acceleration
+
+        real = Hardware_Acceleration.get_available_devices
+        with mock.patch.object(Hardware_Acceleration, "get_available_devices",
+                               lambda *a, **k: [d for d in real(*a, **k) if d.is_cpu]):
+            window = self.tools.ToolsGUI()
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        for path, data in window.script_data.items():
+            if os.path.basename(path) == "Align_Similarity_Matrix.py":
+                combo = data["inputs"]["EXECUTION_MODE"]["widget"]
+        self.assertLess(combo.findData("tiled"), 0)
+        self.assertEqual(combo.toolTip(), tip_plain(window.tip_db[combo]))
+        self.assertNotIn("Tiled", combo.toolTip())
+
     def test_the_options_follow_the_dropdown(self):
         combo = self.widget("Align_Similarity_Matrix.py", "EXECUTION_MODE")
         def listed():
