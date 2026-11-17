@@ -711,34 +711,53 @@ def other_emapssn_processes():
     except psutil.Error:
         pass
     found = []
-    for process in psutil.process_iter(["pid", "name", "cmdline"]):
-        try:
-            if process.info["pid"] in mine or "python" not in (process.info.get("name") or "").lower():
+    try:
+        # The iteration itself can raise where the system forbids listing processes; the field is
+        # only informational, so what was found until then is reported.
+        for process in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                if process.info["pid"] in mine or "python" not in (process.info.get("name") or "").lower():
+                    continue
+                # The script a Python process runs is its first argument that names a .py file;
+                # code passed with -c is not a script, whatever it mentions.
+                script = next((part for part in (process.info.get("cmdline") or [])[1:]
+                               if part.lower().endswith(".py")), None)
+            except (psutil.Error, TypeError):
                 continue
-            # The script a Python process runs is its first argument that names a .py file;
-            # code passed with -c is not a script, whatever it mentions.
-            script = next((part for part in (process.info.get("cmdline") or [])[1:]
-                           if part.lower().endswith(".py")), None)
-        except (psutil.Error, TypeError):
-            continue
-        if script is None:
-            continue
-        path = Path(script)
-        if (path.name.startswith("EMAPSSN_") or path.name in ("Layout_Cache_Generator.py", "Run_Benchmark.py")
-                or path.parent.name == "tools"):
-            found.append(path.name)
+            if script is None:
+                continue
+            path = Path(script)
+            if (path.name.startswith("EMAPSSN_") or path.name in ("Layout_Cache_Generator.py", "Run_Benchmark.py")
+                    or path.parent.name == "tools"):
+                found.append(path.name)
+    except (OSError, psutil.Error):
+        pass
     return sorted(set(found))
+
+
+def _count_files(paths):
+    """How many paths a listing yields; a folder that cannot be read stops the count where it is."""
+    count = 0
+    try:
+        for _ in paths:
+            count += 1
+    except OSError:
+        pass
+    return count
 
 
 def warm_caches():
     """Whether compiled kernels from earlier runs exist, which makes a run faster."""
-    numba_files = sum(1 for _ in SRC_DIR.glob("**/__pycache__/*.nbi"))
+    numba_files = _count_files(SRC_DIR.glob("**/__pycache__/*.nbi"))
     gpu_folder = os.environ.get("SSN_LAYOUT_GPU_KERNEL_CACHE")
     if not gpu_folder:
         base = os.environ.get("LOCALAPPDATA") if sys.platform == "win32" else os.environ.get("XDG_CACHE_HOME")
         base = base or str(Path.home() / (".cache" if sys.platform != "win32" else "AppData/Local"))
         gpu_folder = str(Path(base) / "EMAP-SSN" / "gpu_kernels")
-    gpu_files = sum(1 for path in Path(gpu_folder).glob("**/*") if path.is_file()) if Path(gpu_folder).exists() else 0
+    try:
+        gpu_files = _count_files(path for path in Path(gpu_folder).glob("**/*") if path.is_file()) if Path(gpu_folder).exists() else 0
+    except OSError:
+        gpu_files = 0
     return {"numba_cache_files": numba_files, "gpu_kernel_cache_files": gpu_files}
 
 
@@ -759,7 +778,10 @@ def describe_machine():
     except Exception as error:
         capabilities = {"status": "unavailable", "errors": [{"reason": f"{type(error).__name__}: {error}"}]}
     memory = psutil.virtual_memory()
-    battery = psutil.sensors_battery() if hasattr(psutil, "sensors_battery") else None
+    try:
+        battery = psutil.sensors_battery() if hasattr(psutil, "sensors_battery") else None
+    except (OSError, psutil.Error):
+        battery = None
     devices = []
     for device in capabilities.get("devices") or []:
         memory_info = device.get("memory") or {}

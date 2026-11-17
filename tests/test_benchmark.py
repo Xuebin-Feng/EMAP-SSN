@@ -344,6 +344,27 @@ class BenchmarkStageTableTests(unittest.TestCase):
                 benchmark.select_stages(text)
 
 
+class BenchmarkConditionProbeTests(unittest.TestCase):
+    """The start-of-run condition probes are informational: a system that forbids one never stops the run."""
+
+    def test_a_process_listing_that_fails_gives_what_was_found(self):
+        def listing(_attributes):
+            yield SimpleNamespace(info={"pid": 1, "name": "python.exe", "cmdline": ["python", "EMAPSSN_Tools.py"]})
+            raise PermissionError(13, "Permission denied")
+
+        with mock.patch.object(benchmark.psutil, "process_iter", side_effect=listing):
+            self.assertEqual(benchmark.other_emapssn_processes(), ["EMAPSSN_Tools.py"])
+        with mock.patch.object(benchmark.psutil, "process_iter", side_effect=benchmark.psutil.AccessDenied(1)):
+            self.assertEqual(benchmark.other_emapssn_processes(), [])
+
+    def test_unreadable_cache_folders_count_what_could_be_listed(self):
+        def listing():
+            yield Path("a")
+            raise PermissionError(13, "Permission denied")
+
+        self.assertEqual(benchmark._count_files(listing()), 1)
+
+
 class BenchmarkBlastCheckTests(unittest.TestCase):
     """The BLAST stage's readiness check asks the lookup the tool itself uses, with a blank BLASTP_DIR."""
 
