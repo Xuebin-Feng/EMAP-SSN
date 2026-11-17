@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import argparse
+import contextlib
 import getpass
 import json
 import os
@@ -250,6 +251,22 @@ def can_ask():
         return bool(sys.stdin) and sys.stdin.isatty()
     except (AttributeError, ValueError):
         return False
+
+
+@contextlib.contextmanager
+def never_ask():
+    """Within the block nothing is asked of anyone, whatever the input is: a caller that is no Viewer (a tool run by a person or an agent) says so.
+
+    A Biohub token that is rejected ends the run with BiohubAuthenticationError, as under --noninteractive,
+    instead of prompting in the terminal.
+    """
+    global _portal_noninteractive
+    previous = _portal_noninteractive
+    _portal_noninteractive = True
+    try:
+        yield
+    finally:
+        _portal_noninteractive = previous
 
 
 def portal_pause(message):

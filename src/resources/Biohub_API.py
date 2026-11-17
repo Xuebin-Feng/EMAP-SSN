@@ -133,6 +133,31 @@ def read_api_settings(path=API_SETTINGS_FILE) -> dict[str, str] | None:
         raise BiohubSettingsError(f"Invalid Biohub API settings in '{path}': {error}") from error
 
 
+def credentials_state(path=API_SETTINGS_FILE, environ=None):
+    """What a run through Biohub has for credentials, without asking anyone: ("saved", None), ("missing", None) or ("invalid", error).
+
+    Saved means a settings file that holds a token, or ESM_API_KEY in the environment. A settings file that
+    is there but unusable is not "missing": asking for a token would overwrite what the user wrote in it.
+    The token itself is not returned.
+    """
+    try:
+        if read_api_settings(path) is not None:
+            return ("saved", None)
+    except BiohubSettingsError as error:
+        return ("invalid", error)
+    token = (os.environ if environ is None else environ).get("ESM_API_KEY")
+    return ("saved", None) if isinstance(token, str) and token.strip() else ("missing", None)
+
+
+def remote_model_name(path=API_SETTINGS_FILE) -> str:
+    """The ESM3 model a run through Biohub uses: the saved settings' ESM3_MODEL, else the default."""
+    try:
+        settings = read_api_settings(path)
+    except BiohubSettingsError:
+        settings = None
+    return (settings or {}).get("ESM3_MODEL", DEFAULT_ESM3_MODEL)
+
+
 def write_api_settings(settings: Mapping, path=API_SETTINGS_FILE) -> dict[str, str]:
     """Validate and atomically publish settings without logging credentials."""
     normalized = validate_api_settings(settings)

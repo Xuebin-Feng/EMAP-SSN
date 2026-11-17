@@ -681,11 +681,7 @@ def _model_suffix(is_large):
     if not is_large:
         return None
     from resources import Biohub_API
-    try:
-        settings = Biohub_API.read_api_settings()
-    except Biohub_API.BiohubSettingsError:
-        settings = None
-    return (settings or {}).get("ESM3_MODEL", Biohub_API.DEFAULT_ESM3_MODEL)
+    return Biohub_API.remote_model_name()
 
 
 def _credentials_state():
@@ -695,13 +691,7 @@ def _credentials_state():
     is there but unusable is not "missing": asking for a token would overwrite what the user wrote in it.
     """
     from resources import Biohub_API
-    try:
-        if Biohub_API.read_api_settings(Biohub_API.API_SETTINGS_FILE) is not None:
-            return ("saved", None)
-    except Biohub_API.BiohubSettingsError as error:
-        return ("invalid", error)
-    token = os.environ.get("ESM_API_KEY")
-    return ("saved", None) if isinstance(token, str) and token.strip() else ("missing", None)
+    return Biohub_API.credentials_state(Biohub_API.API_SETTINGS_FILE)
 
 
 def _ask_for_token(viewer):
