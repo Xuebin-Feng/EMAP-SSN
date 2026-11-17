@@ -2791,6 +2791,44 @@ class UndoDuringDragTests(GestureTestCase):
                 self.assertEqual(released["history"], cancelled["history"])      # the release adds no step
                 self.assertEqual(released["selection"], [1, 2])
 
+    def undone_viewer(self):
+        """A Viewer with no gesture open and one step undone (node 3 back at 400, 500 waits in the redo stack)."""
+        viewer = self.make_viewer(selected=[1, 2])
+        viewer.console_mode = False
+        viewer._refresh_after_history = mock.Mock()
+        viewer._save_state()
+        viewer.pos[3, 0] = 400.0
+        viewer._save_state()
+        viewer.pos[3, 0] = 500.0
+        viewer.undo_by_hand()
+        return viewer
+
+    def test_shift_z_cancels_a_gesture_and_redoes_outside_one(self):
+        """Shift is the 8-direction lock in a gesture, so there Ctrl/Cmd+Shift+Z cancels as Ctrl+Z does; elsewhere it redoes."""
+        for modifier in ("Control", "Meta"):
+            for case in self.CASES:
+                with self.subTest(modifier=modifier, case=case):
+                    _, by_esc = self.cancelled_by(case, "esc")
+                    viewer = self.setup_gesture(case)
+                    viewer.redo_by_hand = mock.Mock()
+                    ev = self.ctrl_key("Z", [modifier, "Shift"])
+                    viewer.on_key_press(ev)
+                    self.assertTrue(ev.handled)
+                    viewer.redo_by_hand.assert_not_called()
+                    after = self.shape([self.state(viewer)])[0]
+                    self.assert_same_state(self.shape(by_esc)[0], after)
+            with self.subTest(modifier=modifier, case="none"):
+                viewer = self.undone_viewer()
+                self.assertEqual(len(viewer.redo_stack), 1)
+                viewer.on_key_press(self.ctrl_key("Z", [modifier, "Shift"]))
+                self.assertEqual(len(viewer.redo_stack), 0)
+                self.assertEqual(viewer.pos[3, 0], 500.0)
+            with self.subTest(modifier=modifier, case="plain z"):
+                viewer = self.undone_viewer()
+                viewer.redo_by_hand = mock.Mock()
+                viewer.on_key_press(self.ctrl_key("Z", [modifier]))
+                viewer.redo_by_hand.assert_not_called()
+
     def test_ctrl_z_puts_the_nodes_back(self):
         for case in ("drag", "turn"):
             with self.subTest(case=case):

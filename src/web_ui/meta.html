@@ -911,7 +911,7 @@
             <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n>Export</span></button>
             <div class="btn-group">
                 <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)" aria-keyshortcuts="Control+Z Meta+Z"><svg class="icon" aria-hidden="true"><use href="#i-undo-2"/></svg><span data-i18n>Undo</span></button>
-                <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" aria-keyshortcuts="Control+Y Meta+Y"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
+                <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" aria-keyshortcuts="Control+Y Meta+Y Control+Shift+Z Meta+Shift+Z"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
             </div>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <button class="btn btn-ghost" id="help-btn"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Help</span></button>
@@ -1772,7 +1772,9 @@
                 if (e.ctrlKey || e.metaKey) {
                     if (e.key.toLowerCase() === "z") {
                         e.preventDefault();
-                        sendAction({ action: "metadata_undo" });
+                        // Shift+Z redoes (Cmd+Shift+Z on a Mac), as Y does.
+                        if (e.shiftKey) sendAction({ action: "metadata_redo" });
+                        else sendAction({ action: "metadata_undo" });
                     } else if (e.key.toLowerCase() === "y") {
                         e.preventDefault();
                         sendAction({ action: "metadata_redo" });

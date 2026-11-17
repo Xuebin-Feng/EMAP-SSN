@@ -1244,6 +1244,10 @@ class MetadataPageTests(WebPageTestCase):
         self.press(Qt.Key_Z, Qt.ControlModifier)
         self.press(Qt.Key_Y, Qt.ControlModifier)
         self.assertEqual(self.sent(), [{"action": "metadata_undo"}, {"action": "metadata_redo"}])
+        self.actions.clear()
+        self.press(Qt.Key_Z, Qt.ControlModifier | Qt.ShiftModifier)     # Ctrl+Shift+Z (Cmd+Shift+Z) redoes
+        self.press(Qt.Key_Z, Qt.MetaModifier | Qt.ShiftModifier)
+        self.assertEqual(self.sent(), [{"action": "metadata_redo"}, {"action": "metadata_redo"}])
 
     def test_a_header_filter_fills_its_column_as_tabulators_own_did(self):
         """The page's filter input is styled as Tabulator's input editor styles one,
@@ -1407,7 +1411,7 @@ class MetadataPageTests(WebPageTestCase):
         self.assertTrue(found["close"][0])
         self.assertEqual(found["close"][0], found["close"][1])
         self.assertEqual(found["undo"], "Control+Z Meta+Z")
-        self.assertEqual(found["redo"], "Control+Y Meta+Y")
+        self.assertEqual(found["redo"], "Control+Y Meta+Y Control+Shift+Z Meta+Shift+Z")
         self.assertTrue(found["viewport"])
         # Offscreen Qt gives no-preference, so the animation is there; the rule
         # sits inside the media query, not on the dialog itself.

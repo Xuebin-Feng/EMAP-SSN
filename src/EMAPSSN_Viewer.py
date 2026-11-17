@@ -3295,7 +3295,14 @@ class MainViewer:
             
             # Handle Undo / Redo
             if (key_name.lower() == 'z') and is_modifier_active:
-                self.undo_by_hand()
+                # Shift+Z redoes (Cmd+Shift+Z on a Mac), except while a drag or a box is open: Shift is the
+                # 8-direction lock there, and Ctrl+Z cancels the gesture whether or not it is held.
+                gesture_open = (getattr(self, 'is_multi_dragging', False)
+                                or getattr(self, 'is_box_selecting', False))
+                if 'Shift' in event.modifiers and not gesture_open:
+                    self.redo_by_hand()
+                else:
+                    self.undo_by_hand()
                 event.handled = True
                 return
             if (key_name.lower() == 'y') and is_modifier_active:
