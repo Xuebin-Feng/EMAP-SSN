@@ -1539,7 +1539,7 @@ class BlastDirectoryInScriptModeTests(unittest.TestCase):
         self.assertIn("blastp", output)
         self.assertIn("makeblastdb", output)
         self.assertEqual(self.commands, [])
-        self.assertEqual(os.listdir(self.folder), ["empty", "fastas", "ncbi", "settings.json"])
+        self.assertEqual(sorted(os.listdir(self.folder)), ["empty", "fastas", "ncbi", "settings.json"])
         self.assertFalse(self.network_dir.exists())
 
     def test_a_relative_blastp_directory_is_read_against_the_project_root(self):
