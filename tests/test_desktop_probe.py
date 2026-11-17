@@ -1035,6 +1035,62 @@ class ActionTests(ProbeCase):
         bad = self.ask({"action": "key", "keys": "NotAKey"})
         self.assertFalse(bad["ok"])
 
+    def test_a_key_with_no_target_goes_to_the_windows_focus_widget_or_fails_and_says_so(self):
+        # As on a Mac, where the window system has not activated the window: the application has no focus
+        # widget, though the window knows which of its widgets takes the keys once it is active.
+        returned = []
+
+        def build(window, layout):
+            edit = QtWidgets.QLineEdit()
+            edit.setObjectName("name")
+            edit.returnPressed.connect(lambda: returned.append(1))
+            layout.addWidget(edit)
+            layout.addWidget(QtWidgets.QLineEdit())
+            edit.setFocus()
+
+        def build_without_focus(window, layout):
+            layout.addWidget(QtWidgets.QLabel("nothing here takes keys"))
+
+        window = self.make_window("Focus window", build)
+        silent = self.make_window("Silent window", build_without_focus)
+        self.pump()
+        self.assertIs(window.focusWidget(), window.findChild(QtWidgets.QLineEdit, "name"))
+        self.assertIsNone(silent.focusWidget())
+        with mock.patch.object(QtWidgets.QApplication, "focusWidget", return_value=None):
+            result = self.ok({"action": "key", "keys": "Return", "window": "Focus window"})
+            self.assertEqual(result["to"], "QLineEdit name")
+            self.assertEqual(returned, [1])
+            # Nowhere for the key to go: it is not reported as sent. The answer says how to name a target.
+            failed = self.ask({"action": "key", "keys": "Return", "window": "Silent window"})
+            self.assertFalse(failed["ok"], failed)
+            self.assertIn("name the widget", failed["error"])
+            self.assertEqual(failed["detail"]["window"], "Silent window")
+            self.assertEqual(returned, [1])
+            # Named, it goes there.
+            self.ok({"action": "key", "keys": "Return", "window": "Focus window", "widget": "name"})
+            self.assertEqual(returned, [1, 1])
+
+    def test_a_key_goes_to_the_focus_widget_of_the_window_the_request_names(self):
+        typed = {"one": [], "two": []}
+
+        def building(name):
+            def build(window, layout):
+                edit = QtWidgets.QLineEdit()
+                edit.setObjectName(name)
+                edit.returnPressed.connect(lambda: typed[name].append(1))
+                layout.addWidget(edit)
+                edit.setFocus()
+            return build
+
+        first = self.make_window("First window", building("one"))
+        second = self.make_window("Second window", building("two"))
+        self.pump()
+        second.activateWindow()
+        self.pump()
+        self.ok({"action": "key", "keys": "Return", "window": "First window"})
+        self.assertEqual((typed["one"], typed["two"]), ([1], []))
+        self.assertIsNotNone(first)
+
     def test_a_key_sequence_reaches_a_shortcut(self):
         fired = []
 

@@ -322,14 +322,29 @@ class Actions:
                 "target_under_pointer": under is widget or (under is not None and widget.isAncestorOf(under))}
 
     def _focus_target(self, request):
-        """The widget keys go to: the one the request names, else the one with the keyboard focus."""
+        """The widget keys go to, and a note when it is not the window system's own choice.
+
+        The widget the request names; else the widget with the keyboard focus (in the window the request
+        names, if it names one); else the focus widget of the window the request names or, with none named,
+        the active or newest one, which is what takes the keys once that window is active (a window the
+        window system has not activated, as on macOS, has no application focus widget). A window with no
+        focus widget has nowhere to take a key, so the request fails and says to name a widget: a key sent
+        to the bare window reached nothing there, and was still reported as done.
+        """
         if request.get("widget") is not None:
-            return self._target(request)[0].widget
+            return self._target(request)[0].widget, None
         focused = QtWidgets.QApplication.focusWidget()
-        if targets.alive(focused):
-            return focused
+        if targets.alive(focused) and (request.get("window") is None or focused.window() is self._window(request)[0]):
+            return focused, None
         window, _ = self._window(request)
-        return window
+        inner = window.focusWidget()
+        if targets.alive(inner):
+            return inner, (None if window.isActiveWindow() else
+                           "the window is not active, so the key went to the widget that has the focus once it is")
+        raise ActionError("no widget has the keyboard focus, and the window has none to give it to; name the widget "
+                          "that takes the key with \"widget\"",
+                          window=targets.window_title(window) or type(window).__name__,
+                          hint="`tree` lists the window's widgets (the Viewer's canvas is one of them)")
 
     # --- the actions: reading
     def do_ping(self, request):
@@ -514,13 +529,18 @@ class Actions:
             if sequence.count() != 1 or sequence[0].key() == Qt.Key.Key_unknown:
                 raise ActionError(f"cannot read the key {name!r}", hint="names as in QKeySequence: Return, Esc, Tab, Ctrl+A, F5")
             combinations.append(sequence[0])
-        widget = self._focus_target(request)
+        widget, note = self._focus_target(request)
 
         def run():
             target = widget if targets.alive(widget) else QtWidgets.QApplication.focusWidget()
+            if not targets.alive(target):
+                raise ActionError("the widget the keys were for is gone, and nothing else has the keyboard focus")
             for combination in combinations:
                 self._qtest().keyClick(target, combination.key(), combination.keyboardModifiers())
-            return {"keys": [str(name) for name in keys], "to": f"{type(target).__name__} {target.objectName()}".strip()}
+            answer = {"keys": [str(name) for name in keys], "to": f"{type(target).__name__} {target.objectName()}".strip()}
+            if note:
+                answer["note"] = note
+            return answer
 
         return self._deferred(request, run, after=self._after_ui)
 

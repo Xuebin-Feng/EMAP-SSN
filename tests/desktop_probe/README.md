@@ -142,7 +142,7 @@ never lands on a guess.
 | `click` | a real mouse press and release through the window, at the widget's centre (focus follows as for a user); `button`, `double`, `modifiers`; `link="text or href"` for a link in a QLabel | `do --kind splash click widget="Show details"` |
 | `hover` | move the pointer there (tooltips appear; `capture window={"class":"QTipLabel"}`) | `do --kind config hover widget="Compute Network Statistics"` |
 | `type` | key events into the named field (clicked first) or the focused one; any characters; `clear=true` first | `do --kind config type widget='{"class":"QLineEdit","index":0}' text="héllo" clear=true` |
-| `key` | key presses: `Return`, `Esc`, `Tab`, `Ctrl+A`, a list of them (shortcuts fire) | `do --kind viewer key keys='["Ctrl+A","Delete"]'` |
+| `key` | key presses: `Return`, `Esc`, `Tab`, `Ctrl+A`, a list of them (shortcuts fire). They go to `widget` if named, else to the widget with the keyboard focus, else (a window the window system has not activated, as on macOS, has none) to the focus widget of the window named by `window` (the active or newest one if none is named); the answer's `to` says which. A window with no focus widget fails with `ok: false` and says to name a `widget`: a key sent to the bare window reached nothing, so it is never reported as sent | `do --kind viewer key keys='["Ctrl+A","Delete"]'` |
 | `set_value` | combo (by text or index), spin box, slider, check box and toggle switch (clicked if different), line edit, tab bar | `do --kind config set_value 'widget={"class":"NoScrollComboBox","index":2}' value=UMAP` |
 | `close` | like the title-bar x (`accepted` says whether the window let itself close) | `do --kind viewer close window=Console` |
 | `resize` | to `width`/`height`, or `to_minimum=true` (Qt clamps to what the layout allows; the answer says what it is) | `do --kind config resize to_minimum=true` |
@@ -218,7 +218,10 @@ instead of screenshots.
   compositor's drawing, native menus and native file dialogs. `click` and `key` are Qt events delivered through
   the window (the way Qt's own tests do), so the program sees what it sees for a user, but a Wayland compositor
   never sees them. Window position (`geometry` x, y) is 0, 0 on native Wayland.
-* `activate`/focus: a click does not raise or activate the window; `windows` says which is active.
+* `activate`/focus: a click does not raise or activate the window; `windows` says which is active. On macOS a
+  program started from a terminal is often not the active application, so no widget has the application focus
+  and a `key` goes to the window's own focus widget (see `key`); name the `widget` when that is not the one you
+  mean (the Viewer's canvas, for its key handler).
 * The probe cannot be loaded into a process started with `python -S`, and sees only this clone's venv.
 * Cost, measured on Windows (a laptop with Defender running): gate off, one `stat` per interpreter start (no
   difference measurable). Gate on: about 10 ms later for an entry point's first line (the rest of the start-up
