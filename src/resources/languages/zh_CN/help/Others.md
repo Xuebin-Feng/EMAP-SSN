@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 e0bae1522a7e9675c93ec958976d245fed336635c7d42528efaa5817ca028e9c -->
+<!-- Translation of Others.md, sha256 acaf439656351f839850f6497b7e60be02dfcb6547973cc529768f1efa05113c -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -154,7 +154,7 @@
 
 # 结构预测 (`Predict_Structures.py`)
 
-该脚本使用 ESM3 预测蛋白质序列的三维结构，并将每个结构保存为 PDB 文件。它不需要查看器（Viewer）、网络文件或 embedding，只需要序列：可以是键入或粘贴的一条序列，也可以是一个 FASTA 文件。
+该脚本使用 ESM3 预测蛋白质序列的三维结构，并将每个结构保存为 PDB 文件。它不需要查看器（Viewer）、相似性网络文件或 embedding，只需要序列：可以是键入或粘贴的一条序列，也可以是一个 FASTA 文件。
 
 ### 输入
 

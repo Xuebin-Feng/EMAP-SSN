@@ -239,7 +239,7 @@
     },
     "predict_structures": {
       "stage": "predict structures",
-      "purpose": "Predict the 3D structure of one typed protein sequence (BATCH_INPUT false, the default: SEQUENCE, optionally named by SEQUENCE_NAME) or of every sequence of a FASTA (BATCH_INPUT true: INPUT_FASTA) with ESM3, and save each as a PDB file. Needs no Viewer, no network and no embeddings. The switch decides: the input it does not choose is ignored, and the chosen one missing fails validation.",
+      "purpose": "Predict the 3D structure of one typed protein sequence (BATCH_INPUT false, the default: SEQUENCE, optionally named by SEQUENCE_NAME) or of every sequence of a FASTA (BATCH_INPUT true: INPUT_FASTA) with ESM3, and save each as a PDB file. Needs no Viewer, no similarity-network file and no embeddings. The switch decides: the input it does not choose is ignored, and the chosen one missing fails validation.",
       "inputs": {
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA to fold when BATCH_INPUT is true: an absolute path anywhere on the computer, or a name inside FASTA_DIR (the Tools window picks it with Browse and does not save it)"}
       },

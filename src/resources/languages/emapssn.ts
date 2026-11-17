@@ -9188,6 +9188,11 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Automatic (First Accelerator)</source>
+        <comment>device selection</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Maximum Sequences:</source>
         <translation type="unfinished"></translation>
     </message>

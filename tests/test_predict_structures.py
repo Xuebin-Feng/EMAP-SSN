@@ -772,6 +772,14 @@ class ToolsWindowTests(unittest.TestCase):
                          ("remote", "n", 7))
         self.assertEqual(collected["DEVICE_SELECTION"], "auto")
 
+    def test_the_device_dropdown_says_what_auto_does_for_this_tool_and_the_others_are_unchanged(self):
+        window, path, _ = self.window()
+        combo = window.script_data[path]["inputs"]["DEVICE_SELECTION"]["widget"]
+        self.assertEqual((combo.itemText(0), combo.itemData(0)), ("Automatic (First Accelerator)", "auto"))
+        other = next(p for p in window.script_data if Path(p).name == "Generate_Embeddings.py")
+        other_combo = window.script_data[other]["inputs"]["DEVICE_SELECTION"]["widget"]
+        self.assertEqual((other_combo.itemText(0), other_combo.itemData(0)), ("Auto Benchmark", "auto"))
+
     def test_the_directories_tab_has_the_folded_structure_folder(self):
         window, _, _ = self.window()
         self.assertIn("STRUCTURE_DIR", window.dir_inputs)

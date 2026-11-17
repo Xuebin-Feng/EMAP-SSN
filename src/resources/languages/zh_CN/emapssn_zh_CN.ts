@@ -12626,7 +12626,13 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">计算残基得分矩阵时使用的硬件。</translation>
     </message>
     <message>
-        <location line="+1676"/>
+        <location line="+898"/>
+        <source>Automatic (First Accelerator)</source>
+        <comment>device selection</comment>
+        <translation type="unfinished">自动（第一个加速器）</translation>
+    </message>
+    <message>
+        <location line="+780"/>
         <source>Select FASTA File</source>
         <translation type="unfinished">选择 FASTA 文件</translation>
     </message>
@@ -12635,7 +12641,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
     </message>
     <message>
-        <location line="-1667"/>
+        <location line="-1669"/>
         <source>Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).</source>
         <translation type="unfinished">只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。</translation>
     </message>
@@ -12692,12 +12698,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+272"/>
         <location line="+117"/>
         <location line="+238"/>
-        <location line="+67"/>
+        <location line="+68"/>
         <source>Device:</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-781"/>
+        <location line="-782"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -12732,12 +12738,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1268"/>
+        <location line="+1269"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1263"/>
+        <location line="-1264"/>
         <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -13223,7 +13229,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">模型：</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Maximum Sequences:</source>
         <translation type="unfinished">最大序列数：</translation>
     </message>
@@ -13323,14 +13329,14 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+10"/>
-        <location line="+509"/>
+        <location line="+510"/>
         <location line="+1137"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1643"/>
-        <location line="+527"/>
+        <location line="-1644"/>
+        <location line="+528"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
@@ -13361,7 +13367,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../../EMAPSSN_Tools.py" line="-506"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="-507"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
@@ -13472,14 +13478,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1601"/>
+        <location line="+1602"/>
         <location line="+480"/>
         <location line="+41"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2134"/>
+        <location line="-2135"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -13541,7 +13547,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">不可用的已保存模型 [{model}]</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -13804,7 +13810,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5313"/>
+        <location line="-5315"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -14029,7 +14035,7 @@ Fedora / RHEL：
         <translation type="unfinished">FASTA 文件：</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+199"/>
         <location line="+177"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
@@ -14066,12 +14072,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+156"/>
-        <location line="+1467"/>
+        <location line="+1468"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1452"/>
+        <location line="-1453"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -14085,7 +14091,7 @@ Fedora / RHEL：
         <translation type="obsolete">（无）</translation>
     </message>
     <message>
-        <location line="+2069"/>
+        <location line="+2070"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

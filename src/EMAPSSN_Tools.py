@@ -3162,6 +3162,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
+                            "auto_label": translate("Tools", "Automatic (First Accelerator)", "device selection"),
                             "display": translate("Tools", "Device:")
                         },
                         {
@@ -3863,7 +3864,8 @@ class ToolsGUI(QMainWindow):
                 ui_element = NoScrollComboBox()
                 for display, spec in Hardware_Utils.device_selection_options():
                     if spec == Hardware_Utils.AUTO_DEVICE:
-                        ui_element.addItem(translate("Tools", "Auto Benchmark"), spec)
+                        # A tool that runs no benchmark says what Auto does for it (auto_label).
+                        ui_element.addItem(s_def.get("auto_label") or translate("Tools", "Auto Benchmark"), spec)
                     else:
                         ui_element.addItem(display, spec)
                         mark_name_item(ui_element, ui_element.count() - 1)

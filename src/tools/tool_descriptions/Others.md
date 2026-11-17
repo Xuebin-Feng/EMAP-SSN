@@ -153,7 +153,7 @@ This script queries a single sequence against an entire database using residue-l
 
 # Predict Structures (`Predict_Structures.py`)
 
-This script predicts the 3D structure of protein sequences with ESM3 and saves each as a PDB file. It needs no Viewer, no network file and no embeddings: only the sequences. Give it one sequence, typed or pasted in, or a FASTA file.
+This script predicts the 3D structure of protein sequences with ESM3 and saves each as a PDB file. It needs no Viewer, no similarity-network file and no embeddings: only the sequences. Give it one sequence, typed or pasted in, or a FASTA file.
 
 ### Input
 

@@ -17,8 +17,8 @@
 
 This is the engine of the Predict Structures tool, with no window and no Viewer. The model
 runs in the Viewer's fold worker (``resources.esmfold.esmfold_worker.run_predictions``), so
-a structure is written exactly as the Viewer's ``esmfold`` command writes it, and Fold View
-and ``esmfold`` find it.
+a structure is written exactly as the Viewer's ``esmfold`` command writes it, into the tool's
+own folder.
 
 ``predict_structures`` takes ``(name, sequence)`` pairs and returns one StructureRecord for
 each; a caller that has sequences already (rather than a FASTA) gives them directly. It

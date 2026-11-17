@@ -17,7 +17,7 @@
 File: Predict_Structures.py
 ===================================
 Description:
-Predicts the 3D structure of protein sequences with ESM3, with no Viewer and no network file.
+Predicts the 3D structure of protein sequences with ESM3, with no Viewer and no similarity-network file.
 
 BATCH_INPUT chooses the input:
 - Off (the default): SEQUENCE, one amino acid sequence typed or pasted in, with an optional
