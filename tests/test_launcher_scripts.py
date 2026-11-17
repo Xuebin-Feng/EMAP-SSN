@@ -99,6 +99,31 @@ class LauncherScriptPolicyTests(unittest.TestCase):
                 # Windows delayed expansion would strip a literal "!" from the probe.
                 self.assertNotIn("!", probe)
 
+    def test_every_launcher_and_the_installer_clear_pythonsafepath(self):
+        # With PYTHONSAFEPATH set, `python src/x.py` no longer finds the modules next to the script.
+        for path in (
+            INSTALLER,
+            SRC_DIR / "bin" / "EMAPSSN.bat",
+            SRC_DIR / "bin" / "EMAPSSN_Tools.bat",
+            SRC_DIR / "bin" / "EMAPSSN_Desktop_Launcher.bat",
+            SRC_DIR / "bin" / "Launcher.cs",
+        ):
+            with self.subTest(path=path.name):
+                self.assertIn("PYTHONSAFEPATH", path.read_text(encoding="utf-8"))
+        # install.sh clears it in the sanitizer and in the generated macOS app launcher.
+        self.assertEqual(INSTALLER.read_text(encoding="utf-8").count("PYTHONPATH PYTHONSAFEPATH"), 2)
+
+    def test_the_managed_venv_is_made_on_uvs_own_python_first_with_the_local_python_as_fallback(self):
+        for name in MANAGED_LAUNCHERS:
+            source = (SRC_DIR / "bin" / name).read_text(encoding="utf-8")
+            with self.subTest(launcher=name):
+                self.assertEqual(source.count("UV_PYTHON_PREFERENCE=only-managed"), 1)
+                self.assertEqual(source.count("venv --clear --python 3.13"), 2)
+                self.assertIn("found on this computer", source)
+                if name.endswith(".bat"):
+                    self.assertIn('set "UV_PYTHON_PREFERENCE=only-managed"', source)
+                    self.assertIn("endlocal", source)
+
     def test_launchers_probe_for_existing_windows_before_validation(self):
         paths = (
             SRC_DIR / "bin" / "EMAPSSN_Desktop_Launcher.bat",
@@ -174,6 +199,7 @@ class PosixSetupLockTests(unittest.TestCase):
             {
                 "PYTHONHOME": "/external/python",
                 "PYTHONPATH": "/external/modules",
+                "PYTHONSAFEPATH": "1",
                 "QT_PLUGIN_PATH": "/external/qt/plugins",
                 "QT_QPA_PLATFORM_PLUGIN_PATH": "/external/qt/platforms",
                 "QML_IMPORT_PATH": "/external/qml",
@@ -186,6 +212,7 @@ class PosixSetupLockTests(unittest.TestCase):
         removed = (
             "PYTHONHOME",
             "PYTHONPATH",
+            "PYTHONSAFEPATH",
             "QT_PLUGIN_PATH",
             "QT_QPA_PLATFORM_PLUGIN_PATH",
             "QML_IMPORT_PATH",
@@ -1191,6 +1218,123 @@ class LinuxInstallerEntryWarningTests(unittest.TestCase):
                     self.assertEqual(done.stdout, "")
                 else:
                     self.assertEqual((done.returncode, done.stdout.strip()), (0, expected))
+
+
+# A uv that records how it was called and makes a real environment; SSN_TEST_MANAGED_FAILS=1 makes its
+# own-Python attempt fail the way a blocked download does.
+_STUB_UV_SH = """\
+#!/bin/sh
+echo "uv $* preference=${UV_PYTHON_PREFERENCE-}" >>"$SSN_LAUNCHER_TEST_LOG"
+if [ "${UV_PYTHON_PREFERENCE-}" = "only-managed" ] && [ "${SSN_TEST_MANAGED_FAILS-}" = "1" ]; then
+    exit 1
+fi
+mkdir -p .venv/bin
+printf '#!/bin/sh\\n[ "$1" = "-c" ] && exit 0\\nexec %s "$@"\\n' "$SSN_TEST_PYTHON" >.venv/bin/python
+chmod +x .venv/bin/python
+"""
+
+
+class _ManagedPythonMixin:
+    """Run the launchers' setup with no environment and a stub uv: uv's own Python first, then the local one."""
+
+    LAUNCHER = ""
+    FIRST = "uv venv --clear --python 3.13 preference=only-managed"
+    SECOND = "uv venv --clear --python 3.13 preference="
+    FALLBACK_LINE = "using a Python 3.13 found on this computer"
+
+    @classmethod
+    def _prepare(cls):
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        cls.root = Path(temporary.name)
+        (cls.root / "src" / "bin").mkdir(parents=True)
+        (cls.root / "src" / "desktop").mkdir()
+        (cls.root / "stub-bin").mkdir()
+        (cls.root / "src" / "bin" / cls.LAUNCHER).write_bytes((SRC_DIR / "bin" / cls.LAUNCHER).read_bytes())
+        (cls.root / "src" / "Install_Dependencies.py").write_text(_STUB_INSTALLER, encoding="utf-8")
+        (cls.root / "src" / "desktop" / "Single_Instance_Probe.py").write_text(
+            _STUB_INSTANCE_PROBE, encoding="utf-8")
+
+    def _setup(self, *, managed_fails):
+        shutil.rmtree(self.root / ".venv", ignore_errors=True)
+        log = self.root / "launcher.log"
+        log.unlink(missing_ok=True)
+        environment = os.environ.copy()
+        environment["PATH"] = str(self.root / "stub-bin") + os.pathsep + environment["PATH"]
+        environment["SSN_LAUNCHER_TEST_LOG"] = str(log)
+        environment["SSN_LAUNCHER_TEST_CHECK_EXIT"] = "10"
+        environment["SSN_TEST_PYTHON"] = sys.executable
+        environment["SSN_TEST_MANAGED_FAILS"] = "1" if managed_fails else "0"
+        environment.pop("UV_PYTHON_PREFERENCE", None)
+        result = subprocess.run(
+            self._command(), cwd=self.root, env=environment, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, errors="replace", timeout=180)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        return output, [line.strip() for line in log.read_text(encoding="utf-8").splitlines()]
+
+    def test_uvs_own_python_is_asked_for_first(self):
+        output, calls = self._setup(managed_fails=False)
+        self.assertEqual(calls, [self.FIRST, "install"], output)
+        self.assertNotIn(self.FALLBACK_LINE, output)
+
+    def test_a_failed_own_python_falls_back_to_the_local_one_and_says_so(self):
+        output, calls = self._setup(managed_fails=True)
+        self.assertEqual(calls, [self.FIRST, self.SECOND, "install"], output)
+        self.assertEqual(output.count(self.FALLBACK_LINE), 1, output)
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixManagedPythonTests(_ManagedPythonMixin, unittest.TestCase):
+    LAUNCHER = "EMAPSSN.sh"
+
+    @classmethod
+    def setUpClass(cls):
+        cls._prepare()
+        (cls.root / "install.sh").write_text(
+            f". {shlex.quote(str(INSTALLER))}\n"
+            "ssn_require_linux_gui_dependencies() { return 0; }\n",
+            encoding="utf-8",
+        )
+        uv = cls.root / "stub-bin" / "uv"
+        uv.write_text(_STUB_UV_SH, encoding="utf-8")
+        uv.chmod(0o755)
+
+    def _command(self):
+        return ["/bin/bash", str(self.root / "src" / "bin" / self.LAUNCHER), "--setup-only"]
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixSyncedFolderWarningTests(unittest.TestCase):
+    def _warning(self, project, home="/Users/someone"):
+        program = f". {shlex.quote(str(INSTALLER))}\nssn_warn_if_in_synced_folder {shlex.quote(project)} {shlex.quote(home)}"
+        return subprocess.run(["/bin/bash", "-c", program], capture_output=True, text=True, check=False)
+
+    def test_folders_that_icloud_syncs_get_the_warning(self):
+        for project in ("/Users/someone/Desktop/EMAP-SSN", "/Users/someone/Documents/work/EMAP-SSN",
+                        "/Users/someone/Library/Mobile Documents/com~apple~CloudDocs/EMAP-SSN",
+                        "/Users/someone/Desktop"):
+            with self.subTest(project=project):
+                done = self._warning(project)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertIn("Move the EMAP-SSN folder to a folder that is not synced", done.stdout)
+
+    def test_other_folders_get_none(self):
+        for project in ("/Users/someone/EMAP-SSN", "/Users/someone/Desktop2/EMAP-SSN", "/opt/EMAP-SSN"):
+            with self.subTest(project=project):
+                done = self._warning(project)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertEqual(done.stdout, "")
+
+
+class MacOSInstallerMessageTests(unittest.TestCase):
+    def test_the_macos_closing_message_says_what_was_done_and_that_the_first_start_sets_up(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        macos = source[source.index("ssn_install_macos() {"):source.index("ssn_desktop_entry_folder() {")]
+        self.assertNotIn("Setup Complete", macos)
+        self.assertIn("the first start of either app sets up the Python environment", macos)
+        self.assertIn("chflags -R nohidden", macos)
+        self.assertIn("ssn_warn_if_in_synced_folder", macos)
 
 
 if __name__ == "__main__":

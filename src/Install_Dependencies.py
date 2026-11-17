@@ -188,6 +188,43 @@ def backend_specs(report: dict[str, Any]) -> list[BackendSpec]:
     return specs
 
 
+def hidden_environment_files(venv: Path, platform_name: str | None = None, stat_function=os.stat) -> list[Path]:
+    """The sentinel files of the environment that macOS has marked hidden (UF_HIDDEN), else an empty list.
+
+    iCloud sets that flag on files in the folders it syncs (Desktop, Documents). Qt skips hidden plugin files and
+    Python skips hidden .pth files, so no window can start, and nothing else notices. Only macOS has the flag;
+    a file that cannot be read counts as not hidden, because the readiness check reports missing files itself.
+    """
+    if (sys.platform if platform_name is None else platform_name) != "darwin":
+        return []
+    import stat
+
+    hidden_flag = getattr(stat, "UF_HIDDEN", 0x8000)
+    site_packages = sorted(venv.glob("lib/python*/site-packages"))
+    sentinels = [venv / "pyvenv.cfg"]
+    for folder in site_packages:
+        sentinels.extend(sorted(folder.glob("*.pth")))
+        sentinels.append(folder / "PySide6" / "Qt" / "plugins" / "platforms" / "libqcocoa.dylib")
+    hidden = []
+    for path in sentinels:
+        try:
+            flags = getattr(stat_function(path), "st_flags", 0)
+        except OSError:
+            continue
+        if flags & hidden_flag:
+            hidden.append(path)
+    return hidden
+
+
+HIDDEN_ENVIRONMENT_EXIT = 11
+HIDDEN_ENVIRONMENT_MESSAGE = (
+    "macOS has marked this folder's Python environment as hidden, so no window can start. "
+    "This happens when the EMAP-SSN folder is inside a folder that iCloud syncs, such as Desktop or Documents. "
+    "Move the EMAP-SSN folder to a folder that is not synced, for example your home folder, "
+    "then run ./install.sh again."
+)
+
+
 def venv_python(venv: Path) -> Path:
     for candidate in (venv / "Scripts" / "python.exe", venv / "bin" / "python"):
         if candidate.is_file():
@@ -1467,6 +1504,10 @@ def main(argv: list[str] | None = None) -> int:
     if _refuse_unsupported_host(quiet=args.check_only):
         return SETUP_REQUIRED_EXIT if args.check_only else 1
     try:
+        if args.check_only and hidden_environment_files(args.venv.resolve()):
+            # Setup cannot repair this, so the launchers stop on this code instead of starting it.
+            print(HIDDEN_ENVIRONMENT_MESSAGE, file=sys.stderr)
+            return HIDDEN_ENVIRONMENT_EXIT
         if args.check_only:
             ready = environment_is_ready(
                 project_root=project_root,

@@ -1776,6 +1776,85 @@ class SupportedHostTests(unittest.TestCase):
         install.assert_called_once()
 
 
+class HiddenEnvironmentTests(unittest.TestCase):
+    """macOS marks files of an iCloud-synced folder hidden (UF_HIDDEN); Qt and .pth processing then skip them."""
+
+    HIDDEN = 0x8000
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.venv = Path(temporary.name) / ".venv"
+        site_packages = self.venv / "lib" / "python3.13" / "site-packages"
+        plugins = site_packages / "PySide6" / "Qt" / "plugins" / "platforms"
+        plugins.mkdir(parents=True)
+        self.files = {
+            "cfg": self.venv / "pyvenv.cfg",
+            "pth": site_packages / "_virtualenv.pth",
+            "qt": plugins / "libqcocoa.dylib",
+        }
+        for path in self.files.values():
+            path.write_text("x", encoding="utf-8")
+
+    def _check(self, flags_by_name, platform_name="darwin"):
+        flags = {path: flags_by_name.get(name, 0) for name, path in self.files.items()}
+
+        def fake_stat(path):
+            return mock.Mock(st_flags=flags[Path(path)])
+
+        return Install_Dependencies.hidden_environment_files(self.venv, platform_name, fake_stat)
+
+    def test_unflagged_files_are_not_hidden(self):
+        self.assertEqual(self._check({}), [])
+
+    def test_each_sentinel_that_is_flagged_is_reported(self):
+        for name in self.files:
+            with self.subTest(name=name):
+                self.assertEqual(self._check({name: self.HIDDEN | 0x2}), [self.files[name]])
+
+    def test_other_flags_do_not_count(self):
+        self.assertEqual(self._check({"cfg": 0x2, "qt": 0x1}), [])
+
+    def test_only_macos_has_the_flag(self):
+        self.assertEqual(self._check({"cfg": self.HIDDEN}, "linux"), [])
+        self.assertEqual(self._check({"cfg": self.HIDDEN}, "win32"), [])
+
+    def test_a_stat_result_without_flags_or_a_missing_file_is_not_hidden(self):
+        class NoFlags:
+            pass
+
+        self.assertEqual(
+            Install_Dependencies.hidden_environment_files(self.venv, "darwin", lambda path: NoFlags()), [])
+
+        def missing(path):
+            raise FileNotFoundError(path)
+
+        self.assertEqual(Install_Dependencies.hidden_environment_files(self.venv, "darwin", missing), [])
+
+    def test_the_readiness_check_stops_with_its_own_code_and_says_what_to_do(self):
+        stderr = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "hidden_environment_files", return_value=[Path("x")]), \
+                mock.patch.object(Install_Dependencies, "_refuse_unsupported_host", return_value=False), \
+                mock.patch.object(Install_Dependencies, "environment_is_ready", return_value=True) as ready, \
+                mock.patch.object(Install_Dependencies, "install", return_value=0) as install, \
+                redirect_stderr(stderr):
+            code = Install_Dependencies.main(["--check-only", "--venv", str(self.venv)])
+        self.assertEqual(code, Install_Dependencies.HIDDEN_ENVIRONMENT_EXIT)
+        self.assertNotIn(code, (0, Install_Dependencies.SETUP_REQUIRED_EXIT, 1))
+        self.assertIn("iCloud", stderr.getvalue())
+        self.assertIn("run ./install.sh again", stderr.getvalue())
+        ready.assert_not_called()
+        install.assert_not_called()
+
+    def test_setup_itself_is_not_blocked(self):
+        with mock.patch.object(Install_Dependencies, "hidden_environment_files", return_value=[Path("x")]), \
+                mock.patch.object(Install_Dependencies, "_refuse_unsupported_host", return_value=False), \
+                mock.patch.object(Install_Dependencies, "install", return_value=0) as install:
+            code = Install_Dependencies.main(["--venv", str(self.venv)])
+        self.assertEqual(code, 0)
+        install.assert_called_once()
+
+
 class _AuditedOpens:
     """Collect the files opened for reading while `active` is true.
 

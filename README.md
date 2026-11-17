@@ -644,6 +644,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
      > [!IMPORTANT]
      > Only Apple Silicon Macs are supported. Intel-based Macs are not supported by the pinned PyTorch runtime.
+     >
+     > Keep the EMAP-SSN folder outside Desktop, Documents and Downloads, for example in your home folder. iCloud can sync Desktop and Documents and mark the Python environment's files as hidden, after which no window can start; macOS also asks for access to those folders. If this happens the launchers say so: move the folder, then run `./install.sh` again.
 
    * **🐧 Linux**:
      Open a terminal in the project root, make the installer executable, and run it:

@@ -105,7 +105,11 @@ if !ERRORLEVEL! equ 0 goto INSTALL_DEPENDENCIES
 
 :CREATE_VENV
 echo Creating isolated local virtual environment .venv...
-"!UV_EXE!" venv --clear --python 3.13
+call :TRY_MANAGED_VENV
+if !ERRORLEVEL! neq 0 (
+    echo uv's own Python 3.13 is not available; using a Python 3.13 found on this computer.
+    "!UV_EXE!" venv --clear --python 3.13
+)
 if !ERRORLEVEL! neq 0 (
     set "INSTALL_ERROR=!ERRORLEVEL!"
     call :RELEASE_SETUP_LOCK
@@ -145,6 +149,19 @@ if !APP_EXIT! neq 0 (
 )
 exit /b !APP_EXIT!
 
+:TRY_MANAGED_VENV
+:: uv's own Python first, so that updating or removing another Python cannot break the
+:: environment. The setting lasts only inside this call.
+setlocal EnableDelayedExpansion
+set "UV_PYTHON_PREFERENCE=only-managed"
+"!UV_EXE!" venv --clear --python 3.13
+if !ERRORLEVEL! equ 0 (
+    endlocal
+    exit /b 0
+)
+endlocal
+exit /b 1
+
 :ACTIVATE_EXISTING_INSTANCE
 if not exist ".venv\Scripts\python.exe" exit /b 1
 ".venv\Scripts\python.exe" "src\desktop\Single_Instance_Probe.py" viewer 2>nul
@@ -153,6 +170,7 @@ exit /b !ERRORLEVEL!
 :SANITIZE_MANAGED_ENVIRONMENT
 set "PYTHONHOME="
 set "PYTHONPATH="
+set "PYTHONSAFEPATH="
 set "QT_PLUGIN_PATH="
 set "QT_QPA_PLATFORM_PLUGIN_PATH="
 set "QML_IMPORT_PATH="

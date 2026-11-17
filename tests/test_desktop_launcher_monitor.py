@@ -688,6 +688,7 @@ class ManagedEnvironmentTests(unittest.TestCase):
         environment = {
             "PYTHONHOME": "/external/python",
             "PYTHONPATH": "/external/modules",
+            "PYTHONSAFEPATH": "1",
             "QT_PLUGIN_PATH": "/external/qt/plugins",
             "QT_QPA_PLATFORM_PLUGIN_PATH": "/external/qt/platforms",
             "QML_IMPORT_PATH": "/external/qml",
@@ -704,6 +705,7 @@ class ManagedEnvironmentTests(unittest.TestCase):
         )
 
         self.assertIs(result, environment)
+        self.assertIn("PYTHONSAFEPATH", self.monitor._MANAGED_ENVIRONMENT_PATH_OVERRIDES)
         for name in self.monitor._MANAGED_ENVIRONMENT_PATH_OVERRIDES:
             self.assertNotIn(name, environment)
         self.assertEqual(environment["PATH"], "/managed/path")
@@ -737,6 +739,7 @@ class ManagedEnvironmentTests(unittest.TestCase):
         process.wait.return_value = 0
         inherited = {
             "PYTHONHOME": "/external/python",
+            "PYTHONSAFEPATH": "1",
             "QT_PLUGIN_PATH": "/external/qt/plugins",
             "CONDA_PREFIX": "/conda/base",
             "QT_QPA_PLATFORM": "offscreen",
@@ -755,6 +758,7 @@ class ManagedEnvironmentTests(unittest.TestCase):
         self.assertEqual(result, 0)
         child_environment = popen.call_args.kwargs["env"]
         self.assertNotIn("PYTHONHOME", child_environment)
+        self.assertNotIn("PYTHONSAFEPATH", child_environment)
         self.assertNotIn("QT_PLUGIN_PATH", child_environment)
         self.assertEqual(child_environment["CONDA_PREFIX"], "/conda/base")
         self.assertEqual(child_environment["QT_QPA_PLATFORM"], "offscreen")

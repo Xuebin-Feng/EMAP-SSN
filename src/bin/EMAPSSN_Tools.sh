@@ -72,6 +72,7 @@ elif [ -f "$HOME/.local/bin/uv" ]; then
     UV_EXE="$HOME/.local/bin/uv"
 else
     if [ "$LAUNCH_MODE" = "--check-only" ]; then
+        echo "Setup is needed: the uv package manager is not installed." >&2
         exit 10
     fi
     echo "uv package manager not found. Installing it automatically..."
@@ -85,7 +86,12 @@ VENV_PYTHON=".venv/bin/python"
 # such as one kept by an in-place upgrade, is recreated instead of reused.
 VENV_PROBE='import sys; sys.exit(0 if sys.version_info[:2] == (3, 13) else 1)'
 if [ "$LAUNCH_MODE" = "--check-only" ]; then
-    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
+    if [ ! -x "$VENV_PYTHON" ]; then
+        echo "Setup is needed: the Python environment (.venv) is missing." >&2
+        exit 10
+    fi
+    if ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
+        echo "Setup is needed: the Python environment (.venv) does not run Python 3.13." >&2
         exit 10
     fi
     "$VENV_PYTHON" src/Install_Dependencies.py --check-only --uv-executable "$UV_EXE" --venv .venv
@@ -105,10 +111,17 @@ fi
 # --setup-only callers have just run --check-only, so it is not repeated.
 environment_ready=0
 if [ "$LAUNCH_MODE" != "--setup-only" ] &&
-        [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
-        "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
-            --uv-executable "$UV_EXE" --venv .venv; then
-    environment_ready=1
+        [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
+    "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
+        --uv-executable "$UV_EXE" --venv .venv
+    check_status=$?
+    if [ "$check_status" -eq 0 ]; then
+        environment_ready=1
+    elif [ "$check_status" -eq 11 ]; then
+        # macOS hid the environment's files. Setup cannot repair that, and the
+        # check has printed what to do.
+        exit 1
+    fi
 fi
 
 if [ "$environment_ready" -ne 1 ]; then
@@ -124,7 +137,12 @@ if [ "$environment_ready" -ne 1 ]; then
     else
         if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
             echo "Creating isolated local virtual environment (.venv)..."
-            "$UV_EXE" venv --clear --python 3.13 || exit 1
+            # uv's own Python first, so that updating or removing another Python
+            # (Anaconda, Homebrew) cannot break the environment.
+            if ! UV_PYTHON_PREFERENCE=only-managed "$UV_EXE" venv --clear --python 3.13; then
+                echo "uv's own Python 3.13 is not available; using a Python 3.13 found on this computer."
+                "$UV_EXE" venv --clear --python 3.13 || exit 1
+            fi
         fi
 
         # 3. Resolve base, ESM, and hardware-specific PyTorch dependencies.

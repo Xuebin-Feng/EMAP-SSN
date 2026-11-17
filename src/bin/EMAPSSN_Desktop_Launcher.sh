@@ -117,7 +117,15 @@ if activate_existing_instance; then
 fi
 printf 'Starting %s...\n' "$APP_LABEL"
 printf 'Detecting hardware and validating dependencies...\n'
-if ! "$PORTABLE_LAUNCHER" --check-only; then
+"$PORTABLE_LAUNCHER" --check-only
+check_status=$?
+if [ "$check_status" -eq 11 ]; then
+    # macOS hid the environment's files: setup cannot repair that, and the check
+    # has printed what to do.
+    read -r -p 'Press Enter to close...' _
+    exit 1
+fi
+if [ "$check_status" -ne 0 ]; then
     printf '\nSetup or repair is required. The terminal will remain visible.\n'
     if ! "$PORTABLE_LAUNCHER" --setup-only; then
         printf '\nSSN setup failed. Review the errors above.\n'

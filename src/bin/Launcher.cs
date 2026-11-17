@@ -34,7 +34,7 @@ static class Launcher
     // Variables that would point the managed Python or Qt at another installation (the batch file clears them too).
     static readonly string[] ManagedOverrides =
     {
-        "PYTHONHOME", "PYTHONPATH", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML_IMPORT_PATH", "QML2_IMPORT_PATH"
+        "PYTHONHOME", "PYTHONPATH", "PYTHONSAFEPATH", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML_IMPORT_PATH", "QML2_IMPORT_PATH"
     };
 
     // The windows it can start, each as: the word that names it, the Python launcher that shows the splash and

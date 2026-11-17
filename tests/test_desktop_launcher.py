@@ -265,9 +265,10 @@ class PureHelperTests(unittest.TestCase):
             with mock.patch.object(Desktop_Launcher.sys, "platform", "win32"):
                 self.assertEqual(launch._environment().value("PYTHONUNBUFFERED"), "")
         # Either way the managed-environment overrides go.
-        with mock.patch.dict(os.environ, {"PYTHONHOME": "/x", "QT_PLUGIN_PATH": "/y"}):
+        with mock.patch.dict(os.environ, {"PYTHONHOME": "/x", "QT_PLUGIN_PATH": "/y", "PYTHONSAFEPATH": "1"}):
             environment = launch._environment()
         self.assertFalse(environment.contains("PYTHONHOME"))
+        self.assertFalse(environment.contains("PYTHONSAFEPATH"))
         self.assertFalse(environment.contains("QT_PLUGIN_PATH"))
 
     def test_the_managed_python_is_where_the_platform_puts_it(self):
