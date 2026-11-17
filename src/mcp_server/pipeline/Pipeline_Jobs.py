@@ -1084,7 +1084,11 @@ class PipelineJobManager:
     async def _stop_process_group(self, process):
         try:
             os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # No member is left that this process could signal: the group is
+            # empty (ESRCH), or macOS finds only members it cannot signal,
+            # which for a group this manager started means zombies awaiting a
+            # reap (EPERM). Nothing of ours is running.
             return ""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.termination_grace
@@ -1104,7 +1108,16 @@ class PipelineJobManager:
             pass
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # As for SIGTERM above: nothing is left that SIGKILL could reach.
+            # The launched process is still reaped below, so a leader that is
+            # an unreaped zombie is waited for, not assumed gone.
+            if process.returncode is not None:
+                return ""
+            try:
+                await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
+            except TimeoutError:
+                return f"process {process.pid} still running after SIGKILL"
             return ""
         try:
             await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
@@ -1122,12 +1135,20 @@ class PipelineJobManager:
         empty, Linux and macOS give the number out again only after their PID
         counter wraps around, and it names a group again only if that new
         process starts one. Reaching a stranger would take both within one poll.
+
+        Signal 0 answers PermissionError (EPERM) on macOS when the group has
+        members but none this user may signal, and it counts zombies that
+        have not been reaped among them; Linux answers success for zombies.
+        The group is ours, so every live process in it is signalable: EPERM
+        means only zombies, or a stranger's group after ID reuse, remain.
+        Neither runs anything of ours, so it counts as ended. (A group with a
+        live member of ours answers success, so this never ends a wait early.)
         """
         loop = asyncio.get_running_loop()
         while True:
             try:
                 os.killpg(pgid, 0)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 return True
             if loop.time() >= deadline:
                 return False

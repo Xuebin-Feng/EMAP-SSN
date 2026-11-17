@@ -39,6 +39,7 @@ SLEEPER = "import os, time; print(os.getpid(), flush=True); time.sleep(60)"
 # What taskkill does when WMI cancels the query that lists the tree: it exits
 # with an error and stops nothing. (The message stands in for taskkill's own.)
 FAILED_TASKKILL = (1, "ERROR: the process query was cancelled (WMI 0x80041032).")
+SIGTERM, SIGKILL = 15, 9
 SIGTERM_IGNORING_SLEEPER = (
     "import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
     "print(os.getpid(), flush=True); time.sleep(60)"
@@ -281,6 +282,148 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled["status"], "cancelled")
         self.assertTrue(marker.exists(), "A group member was killed before it finished cleaning up.")
         self.assertEqual([], [_describe(process) for process in processes if _alive(process)])
+
+
+    @unittest.skipIf(os.name == "nt", "Process groups are POSIX.")
+    async def test_cancel_on_a_system_that_answers_eperm_for_unreaped_members(self):
+        # macOS answers EPERM, not success, when a group's only members are
+        # zombies, and ESRCH once they are reaped. Stand in for that: the first
+        # probe that finds the group empty answers EPERM, the next ESRCH.
+        job, processes = await self._start_spawning_job(SIGTERM_IGNORING_SLEEPER)
+        killpg = os.killpg
+        answers = []
+
+        def macos_killpg(group, signal_number):
+            try:
+                killpg(group, signal_number)
+            except ProcessLookupError:
+                if signal_number or answers:
+                    raise
+                answers.append("EPERM")
+                raise PermissionError(1, "Operation not permitted") from None
+
+        started = time.monotonic()
+        with mock.patch.object(Pipeline_Jobs.os, "killpg", side_effect=macos_killpg):
+            cancelled = await self.manager.cancel(job["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertIsNone(cancelled["failure_message"])
+        await self._assert_all_ended(processes, started)
+
+
+class FakeProcess:
+    """The part of asyncio's Process that stopping a process group uses."""
+
+    pid = 4242
+
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+
+    async def wait(self):
+        if self.returncode is None:
+            self.returncode = -15
+        return self.returncode
+
+
+class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
+    """Stopping a process group when killpg answers as macOS does.
+
+    macOS answers EPERM, where Linux answers success for zombies and ESRCH
+    only for an empty group, when a group has members but none this user may
+    signal: for a group the manager started, zombies not yet reaped. Nothing
+    of the job runs then, so EPERM ends a wait and a send; success from a
+    probe means a live member and must never be read as an end.
+    """
+
+    def setUp(self):
+        self.manager = PipelineJobManager(PROJECT_ROOT, termination_grace=0.2)
+        patcher = mock.patch.object(Pipeline_Jobs, "_FORCED_STOP_WAIT", 0.3)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # Windows has no SIGKILL; the stand-in killpg never sends anything.
+        patcher = mock.patch.object(Pipeline_Jobs.signal, "SIGKILL", SIGKILL, create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.calls = []
+
+    def killpg(self, *script):
+        """A killpg whose n-th call does what script[n] says (the last one repeats):
+        None answers success, an exception class or instance is raised."""
+        script = list(script)
+
+        def fake(group, signal_number):
+            self.calls.append(signal_number)
+            step = script[min(len(self.calls), len(script)) - 1]
+            if step is not None:
+                raise step
+        return mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True)
+
+    async def test_a_probe_that_answers_eperm_means_the_group_is_over(self):
+        with self.killpg(PermissionError):
+            self.assertTrue(await PipelineJobManager._wait_for_process_group(1, time.monotonic() + 5))
+
+    async def test_a_probe_that_answers_esrch_means_the_group_is_over(self):
+        with self.killpg(ProcessLookupError):
+            self.assertTrue(await PipelineJobManager._wait_for_process_group(1, time.monotonic() + 5))
+
+    async def test_a_probe_that_answers_success_means_a_member_lives(self):
+        with self.killpg(None):
+            self.assertFalse(await PipelineJobManager._wait_for_process_group(1, time.monotonic() + 0.2))
+        self.assertGreater(len(self.calls), 1, "it polls until the deadline")
+
+    async def test_a_member_that_ignores_sigterm_gets_sigkill_then_eperm_then_esrch(self):
+        # SIGTERM sent; the probes find the member alive until the deadline;
+        # SIGKILL sent; the probe then answers EPERM (zombie), then ESRCH.
+        sigterm, sigkill = SIGTERM, SIGKILL
+
+        def fake(group, signal_number):
+            self.calls.append(signal_number)
+            if sigkill in self.calls and signal_number == 0:
+                raise PermissionError(1, "Operation not permitted")
+
+        with mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True):
+            problem = await self.manager._stop_process_group(FakeProcess())
+        self.assertEqual(problem, "")
+        self.assertEqual([c for c in self.calls if c], [sigterm, sigkill])
+
+    async def test_a_live_member_after_sigkill_is_reported(self):
+        with self.killpg(None):
+            problem = await self.manager._stop_process_group(FakeProcess())
+        self.assertEqual(problem, "processes of group 4242 still running after SIGKILL")
+
+    async def test_eperm_on_sigterm_ends_the_stop_without_sigkill(self):
+        with self.killpg(PermissionError):
+            self.assertEqual(await self.manager._stop_process_group(FakeProcess()), "")
+        self.assertEqual(self.calls, [SIGTERM])
+
+    async def test_eperm_on_sigkill_still_waits_for_the_leader(self):
+        # The group answers success to SIGTERM and its probe, then EPERM to SIGKILL:
+        # the leader is not reaped yet, so the stop waits for it.
+        sigkill = SIGKILL
+
+        def fake(group, signal_number):
+            self.calls.append(signal_number)
+            if signal_number == sigkill:
+                raise PermissionError(1, "Operation not permitted")
+
+        process = FakeProcess()
+        with mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True):
+            self.assertEqual(await self.manager._stop_process_group(process), "")
+        self.assertEqual(process.returncode, -15)
+
+    async def test_eperm_on_sigkill_reports_a_leader_that_will_not_end(self):
+        sigkill = SIGKILL
+
+        class Stuck(FakeProcess):
+            async def wait(self):
+                await asyncio.sleep(60)
+
+        def fake(group, signal_number):
+            if signal_number == sigkill:
+                raise PermissionError(1, "Operation not permitted")
+
+        with mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True):
+            problem = await self.manager._stop_process_group(Stuck())
+        self.assertEqual(problem, "process 4242 still running after SIGKILL")
 
 
 class LogPageTests(unittest.TestCase):

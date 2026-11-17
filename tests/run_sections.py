@@ -599,10 +599,10 @@ def _kill_process_group(process):
     for signal_number in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(group, signal_number)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # Empty (ESRCH), or, on macOS, only members this user may not
+            # signal (EPERM): zombies not yet reaped. Nothing of ours runs.
             return ""
-        except PermissionError:
-            continue
         if _group_ended(process, group, time.monotonic() + STOP_WAIT):
             return ""
     return f"process group {group} still has members after SIGKILL"
@@ -620,7 +620,10 @@ def _group_ended(process, group, deadline):
         except ProcessLookupError:
             return True
         except PermissionError:
-            pass  # members this user may not signal are members all the same
+            # macOS: the group has members but none can be signalled, which for
+            # a group we started means zombies. A live member of ours would
+            # answer success, so none is running. (Linux never answers this.)
+            return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)

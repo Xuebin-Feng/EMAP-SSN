@@ -610,6 +610,54 @@ class LogFolderTests(unittest.TestCase):
                              ["20260101-000000", "durations.json", "notes"])
 
 
+class MacGroupAnswerTests(unittest.TestCase):
+    """killpg as macOS answers it: EPERM for a group whose only members are
+    zombies not yet reaped (Linux answers success for them), then ESRCH. Such a
+    group runs nothing of ours, so it is not reported as having members; a group
+    that answers success to signal 0 has a live member and still is."""
+
+    def setUp(self):
+        self.signals = []
+        patcher = mock.patch.object(run_sections.signal, "SIGKILL", 9, create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.process = mock.Mock(pid=4242)
+        self.process.poll.return_value = 0
+
+    def stand_in(self, probe, send=None):
+        def killpg(group, signal_number):
+            if signal_number:
+                self.signals.append(signal_number)
+                if send is not None:
+                    raise send
+            elif probe is not None:
+                raise probe
+        return mock.patch.object(run_sections.os, "killpg", killpg, create=True)
+
+    def test_a_probe_answering_eperm_means_the_group_ended(self):
+        with self.stand_in(PermissionError(1, "Operation not permitted")):
+            self.assertTrue(run_sections._group_ended(self.process, 4242, time.monotonic() + 5))
+
+    def test_a_probe_answering_success_means_a_member_lives(self):
+        with self.stand_in(None):
+            self.assertFalse(run_sections._group_ended(self.process, 4242, time.monotonic() + 0.1))
+
+    def test_the_stop_ends_cleanly_when_the_members_are_unreaped_zombies(self):
+        with self.stand_in(PermissionError(1, "Operation not permitted")),                 mock.patch.object(run_sections, "STOP_WAIT", 0.2):
+            self.assertEqual(run_sections._kill_process_group(self.process), "")
+        self.assertEqual(self.signals, [15], "no SIGKILL for a group nothing can be signalled in")
+
+    def test_eperm_on_a_send_ends_the_stop(self):
+        with self.stand_in(None, send=PermissionError(1, "Operation not permitted")):
+            self.assertEqual(run_sections._kill_process_group(self.process), "")
+
+    def test_a_live_member_is_still_reported(self):
+        with self.stand_in(None), mock.patch.object(run_sections, "STOP_WAIT", 0.1):
+            problem = run_sections._kill_process_group(self.process)
+        self.assertEqual(problem, "process group 4242 still has members after SIGKILL")
+        self.assertEqual(self.signals, [15, 9])
+
+
 class RealTreeTestCase(unittest.TestCase):
     """Stopping a real tree: a process whose child started a process of its own."""
 
