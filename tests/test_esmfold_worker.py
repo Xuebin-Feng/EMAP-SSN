@@ -766,16 +766,17 @@ class Float32OffCudaTests(unittest.TestCase):
         self.assertEqual(from_pretrained.call_args.kwargs, {"device": torch.device("cpu")})
 
     def test_cuda_is_left_as_esm_loads_it(self):
-        model = self.Model()
-        self.model = model
-        with mock.patch.object(esmfold_worker, "_use_float32") as convert,                 mock.patch.object(self.Model, "to", return_value=model):
-            self._load_cuda()
+        moved = object()
+        with (
+            mock.patch.object(esmfold_worker, "_use_float32") as convert,
+            mock.patch.object(self.Model, "to", return_value=moved),
+            # Only the decision is under test, so the device is a stand-in.
+            mock.patch.object(torch, "device", return_value=types.SimpleNamespace(type="cuda")),
+        ):
+            loaded, from_pretrained = self._load("cuda")
         convert.assert_not_called()
-
-    def _load_cuda(self):
-        # Only the decision is under test, so the device is a stand-in.
-        with mock.patch.object(torch, "device", return_value=types.SimpleNamespace(type="cuda")):
-            self._load("cuda")
+        from_pretrained.assert_called_once_with("esm3_sm_open_v1")
+        self.assertIs(loaded, moved)
 
 
 class WritePredictionScaleTests(unittest.TestCase):
