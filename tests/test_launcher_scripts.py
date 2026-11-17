@@ -658,11 +658,13 @@ class MacosAppBundleTests(unittest.TestCase):
         """A managed Python and Desktop_Launcher.py that record their calls, and an `open` the executable runs instead of /usr/bin/open."""
         executable = app / "Contents" / "MacOS" / "launcher"
         text = executable.read_text(encoding="utf-8")
-        fake_open = self.base / "open"
+        # Always under a folder whose name has a space, as a user's folder may: the script must quote what it runs.
+        fake_open = self.base / "stand in" / "open"
+        fake_open.parent.mkdir(exist_ok=True)
         fake_open.write_text('#!/bin/bash\nprintf \'open|%s\\n\' "$*" >>"$SSN_TEST_LOG"\n', encoding="utf-8", newline="\n")
         fake_open.chmod(0o755)
         self.assertIn("/usr/bin/open", text)
-        executable.write_text(text.replace("/usr/bin/open", str(fake_open)), encoding="utf-8", newline="\n")
+        executable.write_text(text.replace("/usr/bin/open", shlex.quote(str(fake_open))), encoding="utf-8", newline="\n")
         if python:
             interpreter = self.root / ".venv" / "bin" / "python"
             interpreter.parent.mkdir(parents=True, exist_ok=True)
