@@ -73,8 +73,11 @@ class ShellTerminalLauncherTests(unittest.TestCase):
             while not log_path.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             self.assertTrue(log_path.exists(), f"fake {terminal} was not invoked")
+            # The bytes as the terminal received them: with a C locale (macOS's bash 3.2, for one) printf %q
+            # escapes each byte of 雪 on its own, so the single string is not valid UTF-8 until the shell
+            # that runs it has removed the backslashes. surrogateescape keeps those bytes for the test to join.
             return [
-                item.decode("utf-8")
+                item.decode("utf-8", errors="surrogateescape")
                 for item in log_path.read_bytes().split(b"\0")
                 if item
             ]
@@ -120,7 +123,8 @@ class ShellTerminalLauncherTests(unittest.TestCase):
                 argv = self._run_with_terminal(terminal)
                 self.assertEqual(argv[0], "-e")
                 self.assertEqual(len(argv), 2)
-                child = shlex.split(argv[1])
+                # shlex does what the terminal's shell does with the string: the escaped bytes come out joined.
+                child = [item.encode("utf-8", errors="surrogateescape").decode("utf-8") for item in shlex.split(argv[1])]
                 self.assertEqual(child[:2], ["bash", "-c"])
                 self.assertEqual(child[-4:], [
                     "/tmp/program path",
