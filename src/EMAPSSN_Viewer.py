@@ -218,6 +218,7 @@ from desktop.Viewer_Caret import CommandCaret
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
+from desktop.Viewer_Dpi import canvas_dpi
 from desktop.Viewer_Vsync import apply_window_swap_interval, vsync_enabled
 from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability
 from desktop.Viewer_Legend import LegendCard
@@ -1093,6 +1094,9 @@ class MainViewer:
             # The edges' overdraw limit counts in the stencil buffer
             # (desktop.Viewer_Edges.EdgeStencilLimit, which checks what it got).
             config=dict(stencil_size=8),
+            # VisPy's own screen measurement divides by the screen's size in mm and
+            # fails on a display that reports none (desktop.Viewer_Dpi).
+            dpi=canvas_dpi(),
         )
         # Keep the complete traceback available if a future VisPy draw
         # callback fails; the default logarithmic reminders hide the cause
