@@ -585,6 +585,40 @@ class QtPortalNoticeTests(unittest.TestCase):
         ])
 
 
+class QtFatalMessageTests(unittest.TestCase):
+    """qFatal aborts the moment the handler returns: the message waits for the capture threads and goes to the crash file."""
+
+    def test_a_fatal_message_is_printed_then_handed_to_the_capture_which_waits_for_its_threads(self):
+        from types import SimpleNamespace
+        from PySide6 import QtCore
+
+        calls = []
+        fake = SimpleNamespace(report_fatal=lambda text: calls.append(("fatal", text)))
+        installed = []
+        with mock.patch.object(Console_Capture, "_capture", fake), mock.patch.object(
+            QtCore, "qInstallMessageHandler", side_effect=installed.append
+        ):
+            handler = Console_Capture.install_qt_message_handler()
+        written = io.StringIO()
+        with mock.patch.object(Console_Capture, "_capture", fake), mock.patch.object(
+            Console_Capture.sys, "stderr", written
+        ):
+            handler(QtCore.QtMsgType.QtWarningMsg, SimpleNamespace(category="qt.qpa.plugin"), "Could not find")
+            self.assertEqual(calls, [])
+            handler(QtCore.QtMsgType.QtFatalMsg, SimpleNamespace(category="default"), "failed to start")
+        self.assertEqual(calls, [("fatal", "[Qt fatal] failed to start")])
+        self.assertIn("[Qt fatal] failed to start", written.getvalue())
+
+    def test_the_capture_writes_it_to_the_crash_file_and_pauses_once(self):
+        crash = io.BytesIO()
+        capture = Console_Capture.Capture.__new__(Console_Capture.Capture)
+        capture._crash = crash
+        pauses = []
+        capture.report_fatal("[Qt fatal] failed to start", settle=0.25, pause=pauses.append)
+        self.assertEqual(crash.getvalue(), b"[Qt fatal] failed to start\n")
+        self.assertEqual(pauses, [0.25])
+
+
 class OriginalStreamTests(unittest.TestCase):
     def test_a_missing_stream_is_not_read(self):
         with mock.patch.object(Console_Capture.os, "fstat", side_effect=OSError):

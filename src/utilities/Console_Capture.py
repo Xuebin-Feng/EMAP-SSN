@@ -74,6 +74,7 @@ EAGAIN_LONGEST_PAUSE_SECONDS = 0.01
 # Once close() has put descriptors 1 and 2 back (Linux and macOS), a pipe's reader stops when the pipe has
 # been quiet this long: programs this process started may hold the pipe open, and its end would never come.
 CLOSE_QUIET_SECONDS = 0.05
+FATAL_SETTLE_SECONDS = 0.3  # how long Qt's fatal message waits for the pump and the forwarder before Qt aborts
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR_VARIABLE = "SSN_LOG_DIR"
@@ -690,6 +691,23 @@ class Capture(Recorder):
             except OSError:
                 pass
 
+    def report_fatal(self, text, settle=FATAL_SETTLE_SECONDS, pause=time.sleep):
+        """Keep Qt's fatal message, and what Qt printed just before it, from being lost to the abort.
+
+        qFatal aborts as soon as the message handler returns. What reaches descriptor 2 goes through the pump
+        and the forwarder, two threads the abort does not wait for: on a Mac the supervisor's stderr.log was
+        empty ("code -6"), with Qt's "Could not find the Qt platform plugin" nowhere. So the message is
+        written to the crash file (a plain file write) and the threads get ``settle`` seconds to pass on what
+        is in their pipes; the caller has printed the message to sys.stderr first.
+        """
+        data = (redact(str(text)) + "\n").encode("utf-8", "backslashreplace")
+        if self._crash is not None:
+            try:
+                self._crash.write(data)
+            except (OSError, ValueError):
+                pass
+        pause(settle)
+
     # --- forwarder
     def _forward(self, forward_queue, descriptor, name):
         try:
@@ -921,7 +939,10 @@ def install_qt_message_handler():
             prefix = f"[Qt {names.get(kind, 'message')}] "
             if category and category != "default":
                 prefix += f"{category}: "
-            print(prefix + str(message), file=sys.stderr)
+            line = prefix + str(message)
+            print(line, file=sys.stderr)
+            if kind == QtCore.QtMsgType.QtFatalMsg and _capture is not None:
+                _capture.report_fatal(line)  # Qt aborts as soon as this returns
         except Exception:
             pass
 
