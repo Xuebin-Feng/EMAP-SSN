@@ -616,6 +616,76 @@ class LayoutCacheGenerationTests(unittest.TestCase):
         )
 
 
+class PublishCallSiteTests(unittest.TestCase):
+    """The three publishing functions keep their messages and work on drives without hard links."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = pathlib.Path(self.folder.name)
+
+    def staged(self, content):
+        path = self.root / f"staged-{len(list(self.root.iterdir()))}.partial"
+        path.write_bytes(content)
+        return str(path)
+
+    def no_links(self):
+        return mock.patch.object(os, "link", side_effect=OSError(95, "Operation not supported"))
+
+    def test_auxiliary_publishes_without_links_and_keeps_its_messages(self):
+        for links in (True, False):
+            with self.subTest(links=links):
+                destination = str(self.root / f"aux{links}.json")
+                patch = mock.patch.object(os, "getpid") if links else self.no_links()
+                with patch:
+                    staged = self.staged(b"{}")
+                    Layout_Cache_Generator._publish_auxiliary(staged, destination, b"{}")
+                    self.assertEqual(pathlib.Path(destination).read_bytes(), b"{}")
+                    self.assertFalse(os.path.exists(staged))
+                    staged = self.staged(b"other")
+                    with self.assertRaisesRegex(Layout_Cache_Generator.LayoutGenerationError,
+                                                "Existing cache artifact does not match this run"):
+                        Layout_Cache_Generator._publish_auxiliary(staged, destination, b"other")
+
+    def test_auxiliary_race_message_when_the_name_appears_during_publishing(self):
+        destination = str(self.root / "raced.json")
+        staged = self.staged(b"mine")
+        real_exists = os.path.exists
+
+        def racing_exists(path):
+            if str(path) == destination:
+                pathlib.Path(destination).write_bytes(b"theirs")
+                os.path.exists = real_exists
+                return False
+            return real_exists(path)
+
+        with mock.patch.object(os.path, "exists", side_effect=racing_exists), self.no_links():
+            with self.assertRaisesRegex(Layout_Cache_Generator.LayoutGenerationError,
+                                        "Cache artifact was concurrently replaced"):
+                Layout_Cache_Generator._publish_auxiliary(staged, destination, b"mine")
+
+    def test_cache_publishes_without_links_and_refuses_to_overwrite(self):
+        destination = str(self.root / "cache.h5")
+        with self.no_links():
+            Layout_Cache_Generator._publish_cache_without_overwrite(self.staged(b"first"), destination)
+            self.assertEqual(pathlib.Path(destination).read_bytes(), b"first")
+            with self.assertRaisesRegex(FileExistsError, "Layout cache already exists and will not be overwritten"):
+                Layout_Cache_Generator._publish_cache_without_overwrite(self.staged(b"second"), destination)
+        self.assertEqual(pathlib.Path(destination).read_bytes(), b"first")
+
+    def test_write_export_without_links_publishes_and_never_overwrites(self):
+        from utilities.Headless_Settings import write_export
+        target = self.root / "export.json"
+        with self.no_links():
+            result = write_export({"a": 1}, str(self.root), str(self.root), "stem", str(target))
+            self.assertEqual(result["settings_path"], str(target))
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"a": 1})
+            with self.assertRaises(FileExistsError):
+                write_export({"a": 2}, str(self.root), str(self.root), "stem", str(target))
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"a": 1})
+        self.assertEqual([p.name for p in self.root.iterdir()], ["export.json"])
+
+
 @unittest.skipIf(sys.platform == "win32", "Windows has no file mode bits for the umask to decide")
 class LayoutCacheFileModeTests(unittest.TestCase):
     """The files a run publishes are made as any saved file is, so the umask decides who may read them.

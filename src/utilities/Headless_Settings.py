@@ -15,6 +15,8 @@ import posixpath
 from types import SimpleNamespace
 import uuid
 
+from utilities.Output_Names import publish_without_overwrite
+
 
 def read_object(path, *, optional=False):
     path = Path(path)
@@ -64,7 +66,7 @@ def write_export(document, project_root, export_directory, stem, output_path=Non
     staged = target.with_name(target.name + f".{uuid.uuid4().hex}.partial")
     try:
         staged.write_text(json.dumps(document, indent=4, allow_nan=False) + "\n", encoding="utf-8")
-        os.link(staged, target)
+        publish_without_overwrite(staged, target)
     finally:
         staged.unlink(missing_ok=True)
     return {"settings_path": str(target), "settings_document": document}

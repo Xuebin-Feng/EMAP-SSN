@@ -25,7 +25,7 @@ import h5py
 import numpy as np
 
 import Cache_Manifest as cache_manifest
-from utilities.Output_Names import new_partial_file
+from utilities.Output_Names import new_partial_file, publish_without_overwrite
 from utilities.Sequence_Utils import derive_node_metadata, load_sanitized_fasta
 from desktop.Viewer_State import prepare_network
 
@@ -637,14 +637,14 @@ def _publish_auxiliary(staged: str, destination: str, expected_bytes: bytes) -> 
         os.unlink(staged)
         return
     try:
-        os.link(staged, destination)
+        publish_without_overwrite(staged, destination)
     except FileExistsError:
         with open(destination, "rb") as existing:
             if existing.read() != expected_bytes:
                 raise LayoutGenerationError(
                     f"Cache artifact was concurrently replaced: {destination}"
                 )
-    os.unlink(staged)
+        os.unlink(staged)
 
 
 def _publish_fasta_backup(staged: str, destination: str) -> None:
@@ -654,12 +654,11 @@ def _publish_fasta_backup(staged: str, destination: str) -> None:
 
 def _publish_cache_without_overwrite(staged: str, destination: str) -> None:
     try:
-        os.link(staged, destination)
+        publish_without_overwrite(staged, destination)
     except FileExistsError as error:
         raise FileExistsError(
             f"Layout cache already exists and will not be overwritten: {destination}"
         ) from error
-    os.unlink(staged)
 
 
 def generate_layout_cache(

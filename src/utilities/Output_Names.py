@@ -58,6 +58,45 @@ def new_partial_file(folder, prefix, suffix):
     return path
 
 
+def publish_without_overwrite(staged, destination, claim_name_first=None):
+    """Make ``destination`` hold the staged file without ever replacing an existing file.
+
+    Raises FileExistsError if ``destination`` exists (``staged`` is then left where it is). On
+    success the staged name is gone. A hard link is tried first, as it refuses to replace a file
+    in one step. Drives without hard links (exFAT, FAT32, some network shares) refuse it with
+    some other OSError; any such error switches to a second way that does not overwrite either:
+    where a rename refuses an existing destination (Windows) it is a rename, elsewhere (a rename
+    replaces silently there) the name is first claimed with O_CREAT | O_EXCL and then replaced.
+    ``claim_name_first`` chooses between the two (default: not on Windows). If the second way
+    fails too, its error is raised, chained from the link's.
+    """
+    if claim_name_first is None:
+        claim_name_first = os.name != "nt"
+    try:
+        os.link(staged, destination)
+    except FileExistsError:
+        raise
+    except OSError as link_error:
+        try:
+            if claim_name_first:
+                descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o666)
+                os.close(descriptor)
+                try:
+                    os.replace(staged, destination)
+                except BaseException:
+                    try:
+                        os.unlink(destination)
+                    except OSError:
+                        pass
+                    raise
+            else:
+                os.rename(staged, destination)
+        except OSError as error:
+            raise error from link_error
+        return
+    os.unlink(staged)
+
+
 def first_case_collision(names):
     """Return the first two of ``names`` that differ only in letter case, or None."""
     first_name_by_lower = {}

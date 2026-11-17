@@ -1,8 +1,10 @@
 """Output names stay in the folder the command writes to, whoever issues it."""
+import errno
 import io
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -20,6 +22,7 @@ from utilities.Output_Names import (  # noqa: E402
     first_case_collision,
     folder_ignores_case,
     new_partial_file,
+    publish_without_overwrite,
     validate_output_basename,
 )
 from utilities.Sequence_Utils import write_fasta_atomic  # noqa: E402
@@ -425,6 +428,98 @@ class PartialFileModeTests(unittest.TestCase):
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
         self.assertEqual(Path(path).read_text(encoding="utf-8"), ">a\nMK\n>b\nMV\n")
         self.assertEqual(os.listdir(self.folder), ["Cluster_1.fasta"])
+
+
+def _refuse_link(error):
+    return mock.patch.object(os, "link", side_effect=error)
+
+
+def _windows_style_error():
+    error = OSError(1, "Incorrect function")
+    error.winerror = 1
+    return error
+
+
+class PublishWithoutOverwriteTests(unittest.TestCase):
+    """A staged file becomes its final name without replacing a file, with or without hard links."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+
+    def staged(self, content=b"new"):
+        path = Path(new_partial_file(str(self.root), ".x.", ".partial"))
+        path.write_bytes(content)
+        return path
+
+    def test_link_is_used_where_it_works(self):
+        staged, destination = self.staged(), self.root / "out.bin"
+        publish_without_overwrite(staged, destination)
+        self.assertEqual(destination.read_bytes(), b"new")
+        self.assertFalse(staged.exists())
+
+    def test_link_less_drives_get_the_file_in_both_second_ways(self):
+        errors = [OSError(errno.ENOTSUP, "no links"), PermissionError(errno.EPERM, "denied"), _windows_style_error()]
+        for claim_first in (False, True):
+            for error in errors:
+                with self.subTest(claim_first=claim_first, error=repr(error)):
+                    staged, destination = self.staged(b"bytes"), self.root / f"o{claim_first}{id(error)}.bin"
+                    with _refuse_link(error):
+                        publish_without_overwrite(staged, destination, claim_name_first=claim_first)
+                    self.assertEqual(destination.read_bytes(), b"bytes")
+                    self.assertFalse(staged.exists())
+                    self.assertEqual(sorted(p.name for p in self.root.iterdir() if p.name.endswith(".partial")), [])
+
+    def test_an_existing_destination_is_never_replaced(self):
+        for link_works in (True, False):
+            for claim_first in (False, True):
+                with self.subTest(link_works=link_works, claim_first=claim_first):
+                    destination = self.root / f"keep{link_works}{claim_first}.bin"
+                    destination.write_bytes(b"old")
+                    staged = self.staged()
+                    patch = mock.patch.object(os, "link", side_effect=OSError(errno.ENOTSUP, "no links"))                         if not link_works else mock.patch.object(os, "getpid")
+                    with patch, self.assertRaises(FileExistsError):
+                        publish_without_overwrite(staged, destination, claim_name_first=claim_first)
+                    self.assertEqual(destination.read_bytes(), b"old")
+
+    def test_a_failed_replace_removes_the_claim_and_chains_the_link_error(self):
+        staged, destination = self.staged(), self.root / "never.bin"
+        link_error = OSError(errno.ENOTSUP, "no links")
+        with _refuse_link(link_error), mock.patch.object(os, "replace", side_effect=PermissionError("locked")):
+            with self.assertRaises(PermissionError) as caught:
+                publish_without_overwrite(staged, destination, claim_name_first=True)
+        self.assertIs(caught.exception.__cause__, link_error)
+        self.assertFalse(destination.exists())
+
+    def test_one_of_several_racing_publishers_wins_without_links(self):
+        destination = self.root / "race.bin"
+        for claim_first in (False, True):
+            if destination.exists():
+                destination.unlink()
+            contents = [f"writer {i}".encode() for i in range(6)]
+            stagings = [self.staged(content) for content in contents]
+            results, barrier = {}, threading.Barrier(len(contents))
+
+            def publish(index):
+                barrier.wait()
+                try:
+                    publish_without_overwrite(stagings[index], destination, claim_name_first=claim_first)
+                    results[index] = "won"
+                except FileExistsError:
+                    results[index] = "lost"
+
+            with _refuse_link(OSError(errno.ENOTSUP, "no links")):
+                threads = [threading.Thread(target=publish, args=(i,)) for i in range(len(contents))]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+            with self.subTest(claim_first=claim_first):
+                winners = [i for i, outcome in results.items() if outcome == "won"]
+                self.assertEqual(len(winners), 1)
+                self.assertEqual(destination.read_bytes(), contents[winners[0]])
+
 
 
 if __name__ == "__main__":
