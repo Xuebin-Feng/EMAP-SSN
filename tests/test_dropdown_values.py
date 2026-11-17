@@ -524,10 +524,13 @@ class ToolsOptionLabelTests(unittest.TestCase):
         }
         for (script, setting), texts in old_texts.items():
             with self.subTest(script=script, setting=setting):
-                reference = NoScrollComboBox()
-                reference.addItems(texts)
                 combo = self.combo(window, script, setting)
                 self.assertIsInstance(combo, QComboBox)
+                # Measured the same way: under the dropdown's own parent, so the window's style sheet and
+                # font pad the reference as they pad the dropdown (a bare widget takes the platform's style).
+                reference = NoScrollComboBox(combo.parentWidget())
+                self.addCleanup(reference.deleteLater)
+                reference.addItems(texts)
                 self.assertLessEqual(
                     combo.minimumSizeHint().width(), reference.minimumSizeHint().width()
                 )

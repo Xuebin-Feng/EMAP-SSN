@@ -733,6 +733,11 @@ class ConfigLanguageFollowTests(FollowCase, ConfigWindowCase):
 
     def test_an_open_dropdown_puts_the_switch_off(self):
         window = self.open_window()
+        # A shown window is not always the active one (a Mac gives it no focus without being asked), and
+        # follow() leaves an inactive window alone whatever else is true: the popup is the only reason here.
+        window.activateWindow()
+        flush(self.app)
+        self.assertTrue(window.isActiveWindow())
         save_app_setting("LANGUAGE", "zh_CN")
         window.language_selector.showPopup()
         flush(self.app)
@@ -741,6 +746,8 @@ class ConfigLanguageFollowTests(FollowCase, ConfigWindowCase):
         self.assertIsNone(installed_language())
         window.language_selector.hidePopup()
         flush(self.app)
+        self.assertIsNone(QApplication.activePopupWidget())
+        self.assertTrue(window.isActiveWindow())
         replacement = window.language_follower.follow()
         self.track(replacement)
         self.assertIsNot(replacement, window)

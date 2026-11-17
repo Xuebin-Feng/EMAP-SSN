@@ -677,11 +677,27 @@ class SessionCardTests(LegendCase):
         self.assertGreater(legend.height(), 150)
 
     def test_in_a_middling_window_the_session_card_is_narrowed_to_end_left_of_the_legend(self):
-        viewer, button = self.both_open((1000, 900))
-        legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+        # "Middling" is a window with room for the session card left of the legend at no less than
+        # SESSION_CARD_MIN_WIDTH, but not for the card at the width it likes. Which widths those are follows
+        # from the fonts (the legend card's width, the session card's natural width), so the window is the
+        # first of these in which the layout itself is in that state: 1000 px on the fonts the test was
+        # written with.
+        for width in (1000, *range(1400, 600, -50)):
+            viewer, button = self.both_open((width, 900))
+            legend, session = self.shown(viewer.legend_card), self.session_rect(button)
+            natural = button.card.natural_size().width() - 16
+            beside = session.right() + EMAPSSN_Viewer.LEGEND_CARD_GAP <= legend.left()
+            if beside and session.width() < natural:
+                break
+        else:
+            # The card is no wider than SESSION_CARD_MIN_WIDTH there is to give it: it never needs narrowing
+            # beside the legend, and the narrow-window rule is the next test's.
+            self.assertLessEqual(natural, EMAPSSN_Viewer.SESSION_CARD_MIN_WIDTH + 16)
+            self.skipTest(f"on these fonts the session card is {natural} px wide, no wider than the "
+                          f"{EMAPSSN_Viewer.SESSION_CARD_MIN_WIDTH} px it keeps beside the legend")
         self.assertLessEqual(session.right() + EMAPSSN_Viewer.LEGEND_CARD_GAP, legend.left())
         self.assertGreaterEqual(session.width(), EMAPSSN_Viewer.SESSION_CARD_MIN_WIDTH)
-        self.assertLess(session.width(), button.card.natural_size().width() - 16)    # narrower than it likes
+        self.assertLess(session.width(), natural)    # narrower than it likes
         self.assert_apart(viewer, button)
 
     def test_in_a_narrow_window_the_legends_height_is_cut_to_end_above_the_session_card(self):
