@@ -3098,7 +3098,8 @@ if __name__ == "__main__":
                     **settings,
                 )
                 default_folder = cache_manifest.resolve_default_cache_folder(
-                    saved_layout_dir, canonical_name, compatibility
+                    saved_layout_dir, canonical_name, compatibility,
+                    allowed_names=(os.path.basename(sequence_path),),
                 )
                 # Read before the search, so a cache published during it
                 # still differs at the next look (_recheck_saved_caches).

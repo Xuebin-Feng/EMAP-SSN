@@ -652,8 +652,29 @@ def build_canonical_cache_name(
     return f"{fasta_base}{model_string}{suffix}"
 
 
+def folder_is_free_for_cache(folder, allowed_names=()):
+    """Return whether ``folder`` holds no manifest and nothing a new cache must not share it with.
+
+    Free means empty apart from what the operating system leaves around (``.DS_Store`` and the
+    like), staged ``*.partial`` files and the names in ``allowed_names`` (the sanitized FASTA
+    backup an interrupted run publishes before its manifest). A manifest, a cache file or any
+    other file or folder makes it taken.
+    """
+    from utilities.Output_Names import is_system_leftover
+    try:
+        with os.scandir(folder) as entries:
+            return all(
+                entry.name != MANIFEST_FILENAME
+                and (is_system_leftover(entry.name) or entry.name.endswith(".partial")
+                     or entry.name in allowed_names)
+                for entry in entries
+            )
+    except OSError:
+        return False
+
+
 def resolve_default_cache_folder(
-    saved_layout_dir, canonical_name, expected_compatibility
+    saved_layout_dir, canonical_name, expected_compatibility, allowed_names=()
 ):
     """Return a non-conflicting default folder for one compatibility identity.
 
@@ -677,6 +698,8 @@ def resolve_default_cache_folder(
             return True
         if not os.path.isdir(folder):
             return False
+        if not os.path.isfile(os.path.join(folder, MANIFEST_FILENAME)):
+            return folder_is_free_for_cache(folder, allowed_names)
         try:
             read_manifest(folder, expected_compatibility)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):

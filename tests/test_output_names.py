@@ -440,6 +440,16 @@ def _windows_style_error():
     return error
 
 
+class SystemLeftoverTests(unittest.TestCase):
+    def test_names_the_system_leaves_behind(self):
+        for name in (".DS_Store", "._x.fasta", "Thumbs.db", "thumbs.DB", "desktop.ini", "Desktop.INI"):
+            with self.subTest(name):
+                self.assertTrue(Output_Names.is_system_leftover(name))
+        for name in ("x.fasta", ".ds_store", "a._b", "thumbs.db.bak", "cache_manifest.json"):
+            with self.subTest(name):
+                self.assertFalse(Output_Names.is_system_leftover(name))
+
+
 class PublishWithoutOverwriteTests(unittest.TestCase):
     """A staged file becomes its final name without replacing a file, with or without hard links."""
 

@@ -25,7 +25,7 @@ import h5py
 import numpy as np
 
 import Cache_Manifest as cache_manifest
-from utilities.Output_Names import new_partial_file, publish_without_overwrite
+from utilities.Output_Names import is_system_leftover, new_partial_file, publish_without_overwrite
 from utilities.Sequence_Utils import derive_node_metadata, load_sanitized_fasta
 from desktop.Viewer_State import prepare_network
 
@@ -514,7 +514,8 @@ def _resolve_cache_target(
             **_manifest_settings(settings),
         )
         folder = cache_manifest.resolve_default_cache_folder(
-            saved_root, folder_name, manifest["compatibility"]
+            saved_root, folder_name, manifest["compatibility"],
+            allowed_names=(os.path.basename(settings.NODE_FASTA_FILE),),
         )
 
     manifest_path = os.path.join(folder, cache_manifest.MANIFEST_FILENAME)
@@ -535,6 +536,7 @@ def _resolve_cache_target(
             entry.name
             for entry in os.scandir(folder)
             if entry.name != allowed_backup and not entry.name.endswith(".partial")
+            and not is_system_leftover(entry.name)
         ]
         if unexpected:
             raise LayoutGenerationError(

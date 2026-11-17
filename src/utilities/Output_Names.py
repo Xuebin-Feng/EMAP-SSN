@@ -97,6 +97,20 @@ def publish_without_overwrite(staged, destination, claim_name_first=None):
     os.unlink(staged)
 
 
+_SYSTEM_LEFTOVER_NAMES = {"thumbs.db", "desktop.ini"}
+
+
+def is_system_leftover(name):
+    """Return whether ``name`` is a file the operating system leaves in a folder it was shown.
+
+    Finder makes ``.DS_Store`` and, on drives that cannot hold extra file data, AppleDouble files
+    (``._name``); Explorer makes ``Thumbs.db`` and ``desktop.ini``. None of them is the user's
+    data, so a folder that holds nothing else counts as empty. The Windows names match in any
+    letter case, as that file system treats them.
+    """
+    return name == ".DS_Store" or name.startswith("._") or name.lower() in _SYSTEM_LEFTOVER_NAMES
+
+
 def first_case_collision(names):
     """Return the first two of ``names`` that differ only in letter case, or None."""
     first_name_by_lower = {}

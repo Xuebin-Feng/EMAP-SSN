@@ -313,6 +313,46 @@ class ManifestIdentityTests(unittest.TestCase):
             )
 
 
+class DefaultFolderLeftoverTests(unittest.TestCase):
+    """A folder with no manifest is free unless it holds something that is the user's."""
+
+    def resolve(self, root, allowed=()):
+        return pathlib.Path(
+            Cache_Manifest.resolve_default_cache_folder(
+                root, "name", make_compatibility(), allowed_names=allowed
+            )
+        )
+
+    def test_folders_holding_only_leftovers_and_staged_files_are_reused(self):
+        cases = {
+            "empty": [],
+            "finder": [".DS_Store"],
+            "apple double": ["._set.fasta", ".DS_Store"],
+            "explorer": ["Thumbs.db", "DESKTOP.INI"],
+            "interrupted run": ["set.fasta", ".cache.h5.abc.partial"],
+        }
+        for label, names in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                root = pathlib.Path(temp_dir)
+                (root / "name").mkdir()
+                for name in names:
+                    (root / "name" / name).write_text("x", encoding="utf-8")
+                self.assertEqual(self.resolve(root, ("set.fasta",)), root / "name")
+
+    def test_folders_with_data_a_manifest_or_a_subfolder_stay_taken(self):
+        for names in (["notes.txt"], ["version_00.h5", ".DS_Store"], ["set.fasta"], ["cache_manifest.json"]):
+            with self.subTest(names), tempfile.TemporaryDirectory() as temp_dir:
+                root = pathlib.Path(temp_dir)
+                (root / "name").mkdir()
+                for name in names:
+                    (root / "name" / name).write_text("x", encoding="utf-8")
+                self.assertNotEqual(self.resolve(root), root / "name")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            (root / "name" / "inner").mkdir(parents=True)
+            self.assertNotEqual(self.resolve(root), root / "name")
+
+
 class ManifestDiscoveryTests(unittest.TestCase):
     def test_zero_one_renamed_and_duplicate_matches(self):
         compatibility = make_compatibility()

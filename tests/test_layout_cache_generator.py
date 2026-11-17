@@ -831,6 +831,16 @@ class LayoutTargetProtectionTests(unittest.TestCase):
             os.path.join(settings.SAVED_LAYOUT_DIR, "foo", "version_00.h5"),
         )
 
+    def test_files_the_system_leaves_behind_do_not_count_as_stray(self):
+        self.target.mkdir(parents=True)
+        for name in (".DS_Store", "._version_00.h5", "THUMBS.DB", "Desktop.ini"):
+            (self.target / name).write_text("x", encoding="utf-8")
+        settings, _manifest = self.resolve()
+        self.assertEqual(
+            settings.TARGET_CACHE_PATH,
+            os.path.join(settings.SAVED_LAYOUT_DIR, "foo", "version_00.h5"),
+        )
+
     def test_target_away_from_the_compatible_manifest_folder_is_refused(self):
         _settings, manifest = self.resolve()
         Cache_Manifest.write_manifest_atomic(self.layouts / "bar", manifest)
