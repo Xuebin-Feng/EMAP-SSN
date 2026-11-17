@@ -30,6 +30,8 @@ still change before version 1.0.0.
   are the edges that were copied from the old network.
 - On a Mac, the first start after updating checks the setup once more, because the record
   of the computer's hardware no longer includes its display settings (see Fixed).
+- The MCP server is 0.17.0 (0.16.0 in v0.5.0), for the new `predict_structure` action and
+  the `predict_structures` pipeline tool (see Added).
 
 ### Added
 
@@ -425,7 +427,8 @@ still change before version 1.0.0.
   cache's name and no manifest used to count as taken, so the next run made a second
   folder ending in `_[<id>]` beside it. A folder that is empty, or holds only unfinished
   files and the FASTA backup of an interrupted run, is now used. A folder with a
-  manifest or any other file is still left alone.
+  manifest or any other file is still left alone. Config and VR Config look for a saved
+  cache by the same rule.
 
 ### Fixed
 
@@ -692,8 +695,8 @@ still change before version 1.0.0.
   installer approved a backend that PyTorch cannot use now, the reply's `errors` say so.
 - **The readiness check said nothing when it wanted setup** on Linux and macOS: no uv,
   no environment, or an environment on another Python. It now prints the reason. The
-  launchers also clear `PYTHONSAFEPATH`, which kept the program from starting when it
-  was set.
+  launchers, VR's included, also clear `PYTHONSAFEPATH`, which kept the program from
+  starting when it was set.
 - **A Viewer web reply could be lost when the request body was left unread.** For a body
   over 65,536 bytes, a chunked body or one with an invalid length, the server answered
   (a 401, 403 or 404) and closed at once, and Windows then dropped the connection before
