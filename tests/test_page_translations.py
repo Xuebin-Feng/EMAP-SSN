@@ -1249,6 +1249,31 @@ class MetadataPageTests(WebPageTestCase):
         self.press(Qt.Key_Z, Qt.MetaModifier | Qt.ShiftModifier)
         self.assertEqual(self.sent(), [{"action": "metadata_redo"}, {"action": "metadata_redo"}])
 
+    def test_a_mac_reads_the_pages_shortcut_texts_with_cmd(self):
+        """platformKeyText and applyPlatformKeys, forced to the Mac branch (the page itself checks navigator.platform)."""
+        self.open(self.TABLE)
+        self.assertEqual(self.js("platformKeyText('Ctrl+Z, Ctrl+Y, Ctrl+C, Control, Ctrlx', false)"),
+                         "Ctrl+Z, Ctrl+Y, Ctrl+C, Control, Ctrlx")
+        self.assertEqual(self.js("platformKeyText('Ctrl+Z, Ctrl+Y, Ctrl+C, Control, Ctrlx', true)"),
+                         "Cmd+Z, Cmd+Shift+Z, Cmd+C, Control, Ctrlx")
+        self.assertEqual(self.js("platformKeyText('按 Ctrl+C 复制', true)"), "按 Cmd+C 复制")
+        self.assertEqual(self.js("t('Redo (Ctrl+Y): {name}', {name: 'Ctrl'})"), "Redo (Ctrl+Y): Ctrl")
+        self.js("""(() => {
+            const box = document.createElement('div');
+            box.id = 'key-box';
+            box.innerHTML = '<button id="k-redo" title="Redo (Ctrl+Y)" aria-label="Ctrl+Z">x</button>'
+                + '<p id="k-help"><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, then Ctrl+C</p>';
+            document.body.appendChild(box);
+            return true;
+        })()""")
+        self.js("applyPlatformKeys(document.getElementById('key-box'), false)")
+        self.assertEqual(self.js("document.getElementById('k-redo').title"), "Redo (Ctrl+Y)")
+        self.js("applyPlatformKeys(document.getElementById('key-box'), true)")
+        self.assertEqual(self.js("document.getElementById('k-redo').title"), "Redo (Cmd+Shift+Z)")
+        self.assertEqual(self.js("document.getElementById('k-redo').getAttribute('aria-label')"), "Cmd+Z")
+        self.assertEqual(self.js("document.getElementById('k-help').textContent"),
+                         "Undo and Redo: Cmd+Z and Cmd+Shift+Z, then Cmd+C")
+
     def test_a_header_filter_fills_its_column_as_tabulators_own_did(self):
         """The page's filter input is styled as Tabulator's input editor styles one,
         so it fills its column's filter, beside the type badge, without widening it."""

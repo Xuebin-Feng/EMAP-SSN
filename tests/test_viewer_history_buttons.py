@@ -714,17 +714,24 @@ class TranslationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def tooltips(self, language):
+    def tooltips(self, language, platform=None):
         self.addCleanup(install_translations, self.app, None)
         install_translations(self.app, language)
         canvas = SimpleNamespace(native=QWidget())
-        buttons = HistoryButtons(canvas, lambda: None, lambda: None)
+        buttons = HistoryButtons(canvas, lambda: None, lambda: None, platform=platform)
         undo, redo = buttons.undo, buttons.redo
         self.assertEqual((undo.accessibleName(), redo.accessibleName()), (undo.toolTip(), redo.toolTip()))
         return undo.toolTip(), redo.toolTip()
 
     def test_the_tooltips_name_the_real_shortcuts_in_english(self):
         self.assertEqual(self.tooltips(None), ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
+
+    def test_a_mac_reads_the_tooltips_with_cmd_and_its_redo_key(self):
+        self.assertEqual(self.tooltips(None, "darwin"), ("Undo (Cmd+Z)", "Redo (Cmd+Shift+Z)"))
+        self.assertEqual(self.tooltips("zh_CN", "darwin"), ("撤销（Cmd+Z）", "重做（Cmd+Shift+Z）"))
+        with mock.patch("sys.platform", "darwin"):
+            self.assertEqual(self.tooltips(None), ("Undo (Cmd+Z)", "Redo (Cmd+Shift+Z)"))
+        self.assertEqual(self.tooltips(None, "linux"), ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
 
     def test_the_tooltips_are_translated(self):
         self.assertEqual(self.tooltips("zh_CN"), ("撤销（Ctrl+Z）", "重做（Ctrl+Y）"))

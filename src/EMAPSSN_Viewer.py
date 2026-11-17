@@ -172,6 +172,7 @@ from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
 from utilities.Localization import JoinedMessage, Message, display_text
+from utilities.Platform_Keys import platform_key_text
 from desktop.Desktop_App import (
     APP_USER_MODEL_IDS,
     APPLICATION_VERSION,
@@ -1468,7 +1469,7 @@ class MainViewer:
 
         # The card lists what the mouse does in this layout: nodes cannot be moved or turned in a
         # manifold layout (UMAP or PaCMAP), whose positions are fixed for the session.
-        controls_text = (
+        controls_text = platform_key_text(  # "Ctrl" reads "Cmd" on a Mac
             translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect | [Scroll] Zoom | [Esc] Cancel Drag | Nodes keep their layout positions")
             if knn_topology_layout(cfg) else
             translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag"))

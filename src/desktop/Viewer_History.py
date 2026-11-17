@@ -39,6 +39,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QPushButton
 
 from desktop.Studio_Theme import TOKENS, studio_icon
+from utilities.Platform_Keys import platform_key_text
 
 # A button's side, in px: the height of the frame-rate row, and of the sidebar toggle in it.
 HISTORY_BUTTON_SIZE = 30
@@ -123,7 +124,7 @@ class HistoryButtons:
     undo() and redo() are what a click calls; legend(), when given, is what a click on the legend button calls.
     """
 
-    def __init__(self, canvas, undo, redo, legend=None):
+    def __init__(self, canvas, undo, redo, legend=None, platform=None):
         self.legend = None
         if legend is not None:
             self.legend = HistoryButton(
@@ -132,10 +133,10 @@ class HistoryButtons:
             self.legend.setCheckable(True)
         self.undo = HistoryButton(
             canvas.native, "viewerUndoButton", "undo-2",
-            QtCore.QCoreApplication.translate("ViewerHistory", "Undo (Ctrl+Z)"), undo)
+            platform_key_text(QtCore.QCoreApplication.translate("ViewerHistory", "Undo (Ctrl+Z)"), platform), undo)
         self.redo = HistoryButton(
             canvas.native, "viewerRedoButton", "redo-2",
-            QtCore.QCoreApplication.translate("ViewerHistory", "Redo (Ctrl+Y)"), redo)
+            platform_key_text(QtCore.QCoreApplication.translate("ViewerHistory", "Redo (Ctrl+Y)"), platform), redo)
         self.show_state(False, False)
         for button in self.buttons():
             button.show()
