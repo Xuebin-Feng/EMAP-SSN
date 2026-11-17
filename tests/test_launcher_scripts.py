@@ -1335,8 +1335,306 @@ class MacOSInstallerMessageTests(unittest.TestCase):
         macos = source[source.index("ssn_install_macos() {"):source.index("ssn_desktop_entry_folder() {")]
         self.assertNotIn("Setup Complete", macos)
         self.assertIn("the first start of either app sets up the Python environment", macos)
-        self.assertIn("chflags -R nohidden", macos)
+        self.assertIn("ssn_clear_hidden_environment_mark", macos)
+        self.assertIn("chflags -R nohidden", source)
         self.assertIn("ssn_warn_if_in_synced_folder", macos)
+
+
+# Stand-ins for the launchers' uv handling. The installer records how it was called, curl "downloads" a script that
+# records the environment it runs in and puts a stub uv into the home folder, and no real uv is on the PATH.
+_UV_STUB_INSTALLER = """\
+import os
+import sys
+
+checking = "--check-only" in sys.argv
+uv = sys.argv[sys.argv.index("--uv-executable") + 1] if "--uv-executable" in sys.argv else "none"
+with open(os.environ["SSN_LAUNCHER_TEST_LOG"], "a", encoding="utf-8") as log:
+    log.write(("check" if checking else "install") + " uv=" + uv + "\\n")
+sys.exit(int(os.environ["SSN_LAUNCHER_TEST_CHECK_EXIT"]) if checking else 0)
+"""
+_STUB_CURL_SH = """\
+#!/bin/sh
+echo "curl $*" >>"$SSN_LAUNCHER_TEST_LOG"
+cat <<'INNER'
+echo "uv-installer UV_NO_MODIFY_PATH=${UV_NO_MODIFY_PATH-unset}" >>"$SSN_LAUNCHER_TEST_LOG"
+mkdir -p "$HOME/.local/bin"
+cp "$SSN_TEST_UV_SOURCE" "$HOME/.local/bin/uv"
+chmod +x "$HOME/.local/bin/uv"
+INNER
+"""
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixUvOnlyForSetupTests(unittest.TestCase):
+    """A ready environment starts without uv, and uv is downloaded only when setup is needed."""
+
+    LAUNCHERS = ("EMAPSSN.sh", "EMAPSSN_Tools.sh")
+    CURL_LINE = "curl -LsSf https://astral.sh/uv/install.sh"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        (self.root / "src" / "bin").mkdir(parents=True)
+        (self.root / "src" / "desktop").mkdir()
+        (self.root / "stub-bin").mkdir()
+        (self.root / "home").mkdir()
+        for launcher in self.LAUNCHERS:
+            (self.root / "src" / "bin" / launcher).write_bytes((SRC_DIR / "bin" / launcher).read_bytes())
+        for application in ("EMAPSSN_Config.py", "EMAPSSN_Tools.py"):
+            (self.root / "src" / application).write_text(_STUB_APPLICATION, encoding="utf-8")
+        (self.root / "src" / "Install_Dependencies.py").write_text(_UV_STUB_INSTALLER, encoding="utf-8")
+        (self.root / "src" / "desktop" / "Single_Instance_Probe.py").write_text(
+            _STUB_INSTANCE_PROBE, encoding="utf-8")
+        # The launchers source the project's install.sh; skip its Linux GUI library preflight.
+        (self.root / "install.sh").write_text(
+            f". {shlex.quote(str(INSTALLER))}\n"
+            "ssn_require_linux_gui_dependencies() { return 0; }\n",
+            encoding="utf-8",
+        )
+        for name, text in (("curl", _STUB_CURL_SH), ("uv-source", _STUB_UV_SH)):
+            path = self.root / ("stub-bin" if name == "curl" else "") / name
+            path.write_text(text, encoding="utf-8")
+            path.chmod(0o755)
+        self.path = f"{self.root / 'stub-bin'}:/usr/bin:/bin"
+        probe = subprocess.run(
+            ["/bin/bash", "-c", "command -v uv"], env={"PATH": self.path}, capture_output=True, text=True)
+        if probe.returncode == 0:
+            self.skipTest(f"a real uv is on the minimal PATH: {probe.stdout.strip()}")
+
+    def _make_environment(self):
+        python = self.root / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_text(
+            '#!/bin/sh\n[ "$1" = "-c" ] && exit 0\n' f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+            encoding="utf-8",
+        )
+        python.chmod(0o755)
+
+    def _install_uv_in_home(self):
+        target = self.root / "home" / ".local" / "bin" / "uv"
+        target.parent.mkdir(parents=True)
+        target.write_bytes((self.root / "uv-source").read_bytes())
+        target.chmod(0o755)
+        return target
+
+    def _run(self, launcher, mode, *, check_exit):
+        log = self.root / "launcher.log"
+        log.unlink(missing_ok=True)
+        environment = {
+            "PATH": self.path,
+            "HOME": str(self.root / "home"),
+            "SSN_LAUNCHER_TEST_LOG": str(log),
+            "SSN_LAUNCHER_TEST_CHECK_EXIT": str(check_exit),
+            "SSN_TEST_PYTHON": sys.executable,
+            "SSN_TEST_UV_SOURCE": str(self.root / "uv-source"),
+        }
+        result = subprocess.run(
+            ["/bin/bash", str(self.root / "src" / "bin" / launcher), *([mode] if mode else [])],
+            cwd=self.root, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            errors="replace", timeout=180,
+        )
+        calls = [line.strip() for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+        return result.returncode, result.stdout + result.stderr, calls
+
+    def test_a_ready_environment_starts_without_uv_and_nothing_is_downloaded(self):
+        self._make_environment()
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                code, output, calls = self._run(launcher, "", check_exit=0)
+                self.assertEqual(code, 0, output)
+                self.assertEqual(calls, ["check uv=none", "app"], output)
+                self.assertFalse((self.root / "home" / ".local").exists())
+
+    def test_check_only_never_downloads_and_keeps_its_exit_code(self):
+        for launcher in self.LAUNCHERS:
+            for check_exit in (0, 10, 11):
+                with self.subTest(launcher=launcher, check_exit=check_exit):
+                    self._make_environment()
+                    code, output, calls = self._run(launcher, "--check-only", check_exit=check_exit)
+                    self.assertEqual(code, check_exit, output)
+                    self.assertEqual(calls, ["check uv=none"], output)
+                    self.assertFalse((self.root / "home" / ".local").exists())
+        # With no environment at all the answer is "setup is needed", still with no download.
+        shutil.rmtree(self.root / ".venv")
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher, environment="none"):
+                code, output, calls = self._run(launcher, "--check-only", check_exit=0)
+                self.assertEqual(code, 10, output)
+                self.assertEqual(calls, [], output)
+                self.assertFalse((self.root / "home" / ".local").exists())
+
+    def test_uv_is_downloaded_only_when_the_check_says_setup_is_needed_and_the_installer_keeps_the_shell_files(self):
+        self._make_environment()
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                shutil.rmtree(self.root / "home" / ".local", ignore_errors=True)
+                code, output, calls = self._run(launcher, "", check_exit=10)
+                self.assertEqual(code, 0, output)
+                uv = self.root / "home" / ".local" / "bin" / "uv"
+                self.assertEqual(
+                    calls,
+                    ["check uv=none", "check uv=none", self.CURL_LINE, "uv-installer UV_NO_MODIFY_PATH=1",
+                     f"install uv={uv}", "app"],
+                    output,
+                )
+                self.assertIn("Your shell start-up files were not changed.", output)
+
+    def test_without_an_environment_uv_is_downloaded_first_and_then_makes_it(self):
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                shutil.rmtree(self.root / ".venv", ignore_errors=True)
+                shutil.rmtree(self.root / "home" / ".local", ignore_errors=True)
+                code, output, calls = self._run(launcher, "", check_exit=0)
+                self.assertEqual(code, 0, output)
+                uv = self.root / "home" / ".local" / "bin" / "uv"
+                self.assertEqual(
+                    calls,
+                    [self.CURL_LINE, "uv-installer UV_NO_MODIFY_PATH=1",
+                     "uv venv --clear --python 3.13 preference=only-managed", f"install uv={uv}", "app"],
+                    output,
+                )
+
+    def test_a_uv_in_the_home_folder_is_used_and_nothing_is_downloaded(self):
+        self._make_environment()
+        uv = self._install_uv_in_home()
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                code, output, calls = self._run(launcher, "", check_exit=10)
+                self.assertEqual(code, 0, output)
+                self.assertEqual(
+                    calls, [f"check uv={uv}", f"check uv={uv}", f"install uv={uv}", "app"], output)
+
+    def test_a_download_that_leaves_no_uv_stops_with_a_message(self):
+        self._make_environment()
+        (self.root / "stub-bin" / "curl").write_text("#!/bin/sh\nexit 22\n", encoding="utf-8")
+        for launcher in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                code, output, calls = self._run(launcher, "--setup-only", check_exit=10)
+                self.assertEqual(code, 1, output)
+                self.assertIn("Installing uv failed", output)
+                self.assertNotIn("install uv=", " ".join(calls))
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixFindUvTests(unittest.TestCase):
+    """ssn_find_uv: PATH, then ~/.local/bin, then (macOS only) Homebrew's two folders."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.home = self.root / "home"
+        self.arm, self.intel, self.on_path = self.root / "arm", self.root / "intel", self.root / "path"
+        for folder in (self.home, self.arm, self.intel, self.on_path):
+            folder.mkdir()
+        self.path = f"{self.on_path}:/usr/bin:/bin"
+        probe = subprocess.run(
+            ["/bin/bash", "-c", "command -v uv"], env={"PATH": self.path}, capture_output=True, text=True)
+        if probe.returncode == 0:
+            self.skipTest(f"a real uv is on the minimal PATH: {probe.stdout.strip()}")
+
+    def _find(self, system):
+        program = (
+            f". {shlex.quote(str(INSTALLER))}\n"
+            f"uname() {{ echo {system}; }}\n"
+            f"SSN_MACOS_UV_FOLDERS={shlex.quote(f'{self.arm} {self.intel}')}\n"
+            "ssn_find_uv\n"
+        )
+        done = subprocess.run(
+            ["/bin/bash", "-c", program], env={"PATH": self.path, "HOME": str(self.home)},
+            capture_output=True, text=True, check=False)
+        return (done.stdout.strip() or None) if done.returncode == 0 else None
+
+    @staticmethod
+    def _make(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    def test_the_order_is_path_then_the_local_bin_then_homebrews_folders_on_macos(self):
+        self.assertIsNone(self._find("Darwin"))
+        self._make(self.intel / "uv")
+        self.assertEqual(self._find("Darwin"), str(self.intel / "uv"))
+        self._make(self.arm / "uv")
+        self.assertEqual(self._find("Darwin"), str(self.arm / "uv"))
+        self._make(self.home / ".local" / "bin" / "uv")
+        self.assertEqual(self._find("Darwin"), str(self.home / ".local" / "bin" / "uv"))
+        self._make(self.on_path / "uv")
+        self.assertEqual(self._find("Darwin"), "uv")
+
+    def test_homebrews_folders_are_not_searched_on_linux(self):
+        self._make(self.arm / "uv")
+        self._make(self.intel / "uv")
+        self.assertIsNone(self._find("Linux"))
+        self._make(self.home / ".local" / "bin" / "uv")
+        self.assertEqual(self._find("Linux"), str(self.home / ".local" / "bin" / "uv"))
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixHiddenMarkMessageTests(unittest.TestCase):
+    """install.sh on macOS says in one line when it removed the hidden mark, and says nothing otherwise."""
+
+    FLAG = 0x8000  # UF_HIDDEN
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.venv = self.root / ".venv"
+        self.site = self.venv / "lib" / "python3.13" / "site-packages"
+        self.site.mkdir(parents=True)
+        (self.venv / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
+        (self.site / "distutils-precedence.pth").write_text("x\n", encoding="utf-8")
+        (self.site / "PySide6" / "Qt" / "plugins" / "platforms").mkdir(parents=True)
+        (self.site / "PySide6" / "Qt" / "plugins" / "platforms" / "libqcocoa.dylib").write_text("x", encoding="utf-8")
+
+    def _clear(self, flags_by_name, *, chflags_succeeds=True):
+        """Run the function with a stat that reports flags per file name and a chflags that only records."""
+        cases = "\n".join(f"        *{name}) echo {flags} ;;" for name, flags in flags_by_name.items())
+        program = "\n".join((
+            f". {shlex.quote(str(INSTALLER))}",
+            "stat() {",
+            '    case "$3" in',
+            cases,
+            "        *) echo 0 ;;",
+            "    esac",
+            "}",
+            f'chflags() {{ echo "chflags $*" >>{shlex.quote(str(self.root / "chflags.log"))}; '
+            f"return {0 if chflags_succeeds else 1}; }}",
+            f"ssn_clear_hidden_environment_mark {shlex.quote(str(self.venv))}",
+        ))
+        done = subprocess.run(["/bin/bash", "-c", program], capture_output=True, text=True, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        log = self.root / "chflags.log"
+        return done.stdout, log.read_text(encoding="utf-8") if log.exists() else ""
+
+    def test_a_hidden_environment_file_gets_one_line_and_the_mark_is_cleared(self):
+        for name in ("pyvenv.cfg", "distutils-precedence.pth", "libqcocoa.dylib"):
+            with self.subTest(hidden=name):
+                (self.root / "chflags.log").unlink(missing_ok=True)
+                output, log = self._clear({name: self.FLAG | 2})
+                self.assertEqual(output.count("\n"), 1, output)
+                self.assertIn("marked the Python environment's files hidden", output)
+                self.assertEqual(log.strip(), f"chflags -R nohidden {self.venv}")
+
+    def test_an_environment_without_the_mark_is_cleared_in_silence(self):
+        output, log = self._clear({"pyvenv.cfg": 2})
+        self.assertEqual(output, "")
+        self.assertEqual(log.strip(), f"chflags -R nohidden {self.venv}")
+
+    def test_the_rule_is_the_one_the_python_check_uses(self):
+        # The same sentinel files as hidden_environment_files() in src/Install_Dependencies.py.
+        source = (SRC_DIR / "Install_Dependencies.py").read_text(encoding="utf-8")
+        for fragment in ('"pyvenv.cfg"', '"*.pth"', '"libqcocoa.dylib"', "0x8000"):
+            self.assertIn(fragment.strip('"'), source)
+        shell = INSTALLER.read_text(encoding="utf-8")
+        for fragment in ("pyvenv.cfg", "*.pth", "libqcocoa.dylib", "32768"):
+            self.assertIn(fragment, shell)
+
+    def test_no_message_when_the_clearing_fails(self):
+        output, _log = self._clear({"pyvenv.cfg": self.FLAG}, chflags_succeeds=False)
+        self.assertEqual(output, "")
 
 
 if __name__ == "__main__":

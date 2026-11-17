@@ -65,20 +65,9 @@ if ! ssn_require_linux_gui_dependencies tools; then
     exit 1
 fi
 
-# 1. Locate uv executable
-if command -v uv &> /dev/null; then
-    UV_EXE="uv"
-elif [ -f "$HOME/.local/bin/uv" ]; then
-    UV_EXE="$HOME/.local/bin/uv"
-else
-    if [ "$LAUNCH_MODE" = "--check-only" ]; then
-        echo "Setup is needed: the uv package manager is not installed." >&2
-        exit 10
-    fi
-    echo "uv package manager not found. Installing it automatically..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    UV_EXE="$HOME/.local/bin/uv"
-fi
+# 1. Locate uv. It may be missing: a ready environment starts without it, so nothing is downloaded
+# until the check says setup is needed.
+UV_EXE=$(ssn_find_uv) || UV_EXE=""
 
 # 2. Validate, create, or repair the managed virtual environment
 VENV_PYTHON=".venv/bin/python"
@@ -94,7 +83,7 @@ if [ "$LAUNCH_MODE" = "--check-only" ]; then
         echo "Setup is needed: the Python environment (.venv) does not run Python 3.13." >&2
         exit 10
     fi
-    "$VENV_PYTHON" src/Install_Dependencies.py --check-only --uv-executable "$UV_EXE" --venv .venv
+    ssn_check_environment "$VENV_PYTHON" "$UV_EXE"
     exit $?
 fi
 
@@ -112,8 +101,7 @@ fi
 environment_ready=0
 if [ "$LAUNCH_MODE" != "--setup-only" ] &&
         [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
-    "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
-        --uv-executable "$UV_EXE" --venv .venv
+    ssn_check_environment "$VENV_PYTHON" "$UV_EXE"
     check_status=$?
     if [ "$check_status" -eq 0 ]; then
         environment_ready=1
@@ -131,10 +119,13 @@ if [ "$environment_ready" -ne 1 ]; then
     # earlier check already printed why setup is needed, and the installer
     # prints its own detection, so this re-check stays quiet.
     if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
-            "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
-                --uv-executable "$UV_EXE" --venv .venv >/dev/null 2>&1; then
+            ssn_check_environment "$VENV_PYTHON" "$UV_EXE" >/dev/null 2>&1; then
         printf 'Dependency setup was completed by another launcher.\n'
     else
+        # Only setup needs uv: this is the one place it is downloaded.
+        if [ -z "$UV_EXE" ]; then
+            ssn_install_uv || exit 1
+        fi
         if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
             echo "Creating isolated local virtual environment (.venv)..."
             # uv's own Python first, so that updating or removing another Python
