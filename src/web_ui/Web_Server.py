@@ -428,6 +428,51 @@ def contained_path(directory, relative):
 
 
 class WebServerHandler(http.server.BaseHTTPRequestHandler):
+    # A reply sent over an unread request body is followed by a lingering
+    # close (see finish). Both caps keep one connection from holding its
+    # server thread: a loopback client that wants the reply sends its body in
+    # milliseconds, so 2 s and 2 MiB are generous for it and small for a
+    # client that sends forever or stalls.
+    LINGER_SECONDS = 2.0
+    LINGER_BYTES = 2 * 1024 * 1024
+    _body_unread = False
+
+    def finish(self):
+        if self._body_unread:
+            self._linger_close()
+        super().finish()
+
+    def _linger_close(self):
+        """Let the client finish sending an unread body before the socket closes.
+
+        Closing a socket that still has unread received data makes Windows
+        send RST, which discards the reply the client has not read yet. So
+        flush the reply, shut down only the sending side (the client sees the
+        reply and EOF), then read and drop what the client still sends until
+        it closes, the time cap passes or the byte cap is reached. Nothing is
+        kept: a 64 KiB buffer is reused. On Linux and macOS this is the
+        standard lingering close and only costs the wait for the client's FIN.
+        """
+        try:
+            self.wfile.flush()
+            self.connection.shutdown(socket.SHUT_WR)
+        except (OSError, ValueError):
+            return
+        deadline = time.monotonic() + self.LINGER_SECONDS
+        remaining_bytes = self.LINGER_BYTES
+        try:
+            while remaining_bytes > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.connection.settimeout(remaining)
+                chunk = self.connection.recv(min(65536, remaining_bytes))
+                if not chunk:
+                    break
+                remaining_bytes -= len(chunk)
+        except (OSError, ValueError):
+            pass
+
     def log_message(self, format, *args):
         # Silences console log spam
         pass
@@ -611,6 +656,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if self.headers.get("Transfer-Encoding") or not 0 <= length <= limit:
+            self._body_unread = bool(self.headers.get("Transfer-Encoding")) or length != 0
             return {"Connection": "close"}
         self.rfile.read(length)
         return {}

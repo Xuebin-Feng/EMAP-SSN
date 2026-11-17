@@ -138,6 +138,66 @@ class WebOriginTests(unittest.TestCase):
         self.settle()
         self.assertEqual(self.dispatched, [])
 
+    def split_exchange(self, path, headers, body, pause=0.05):
+        """Send headers, a pause, an unread-by-the-server body, a pause, then read the reply."""
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        try:
+            connection.putrequest('POST', path, skip_host=True, skip_accept_encoding=True)
+            for name, value in headers.items():
+                connection.putheader(name, value)
+            connection.endheaders()
+            time.sleep(pause)
+            connection.send(body)
+            time.sleep(pause)
+            response = connection.getresponse()
+            return response.status, response.headers, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def test_replies_over_an_unread_body_survive_the_close(self):
+        # The server writes these replies without reading the body, then closes.
+        # Windows resets a socket closed over unread data, and the client lost the
+        # reply (WinError 10053) unless the server lingers to read the body out.
+        big = b'x' * 70000
+        chunked = b''.join(b'%x\r\n%s\r\n' % (len(piece), piece) for piece in (big[:30000], big[30000:])) + b'0\r\n\r\n'
+        cases = [
+            ('/api/nowhere', page_headers(self.port, **{'Content-Length': str(len(big))}), big, 404),
+            ('/api/action', cross_site_headers(self.port, **{'Content-Length': str(len(big))}), big, 403),
+            ('/api/nowhere', page_headers(self.port, **{'Transfer-Encoding': 'chunked'}), chunked, 404),
+            ('/api/nowhere', page_headers(self.port, **{'Content-Length': 'abc'}), big, 404),
+        ]
+        for path, headers, body, expected in cases:
+            for attempt in range(5):
+                with self.subTest(path=path, attempt=attempt, framing=sorted(set(headers) & {'Transfer-Encoding'}) or headers['Content-Length']):
+                    status, reply_headers, _ = self.split_exchange(path, headers, body)
+                    self.assertEqual((status, reply_headers.get('Connection')), (expected, 'close'))
+        self.settle()
+        self.assertEqual(self.dispatched, [])
+
+    def test_a_client_that_keeps_sending_is_cut_off_by_the_caps(self):
+        from web_ui import Web_Server
+        handler = Web_Server.WebServerHandler
+        with mock.patch.object(handler, 'LINGER_SECONDS', 0.5), mock.patch.object(handler, 'LINGER_BYTES', 256 * 1024):
+            connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            try:
+                connection.putrequest('POST', '/api/nowhere', skip_host=True, skip_accept_encoding=True)
+                for name, value in page_headers(self.port, **{'Content-Length': str(10 ** 9)}).items():
+                    connection.putheader(name, value)
+                connection.endheaders()
+                started = time.monotonic()
+                cut_off = None
+                piece = b'x' * 65536
+                while time.monotonic() - started < 8:
+                    try:
+                        connection.send(piece)
+                    except OSError as error:
+                        cut_off = time.monotonic() - started
+                        break
+                self.assertIsNotNone(cut_off, 'the server kept reading a body it had rejected')
+                self.assertLess(cut_off, 4)
+            finally:
+                connection.close()
+
     def test_cross_site_embeds_carry_no_origin_to_check(self):
         # A cross-site <img>, <script> or <iframe> is a plain GET: the browser
         # sends Sec-Fetch-Site but no Origin, so only that header distinguishes
