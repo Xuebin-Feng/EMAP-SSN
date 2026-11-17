@@ -1446,6 +1446,7 @@ class MetadataPageTests(WebPageTestCase):
             redo: document.getElementById('redo-btn').getAttribute('aria-keyshortcuts'),
             viewport: !!document.querySelector('meta[name=viewport][content*="width=device-width"]'),
             animated: getComputedStyle(document.getElementById('help-modal')).animationName,
+            reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
         })"""))
         self.assertTrue(found["grid"])
         self.assertEqual(found["levels"], ["H1", "H2"] + ["H3"] * 4)
@@ -1454,9 +1455,10 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(found["undo"], "Control+Z Meta+Z")
         self.assertEqual(found["redo"], "Control+Y Meta+Y Control+Shift+Z Meta+Shift+Z")
         self.assertTrue(found["viewport"])
-        # Offscreen Qt gives no-preference, so the animation is there; the rule
+        # Without a reduced-motion request the animation is there; the rule
         # sits inside the media query, not on the dialog itself.
-        self.assertEqual(found["animated"], "modalFadeIn")
+        # (The desktop may ask for reduced motion, and then the page rightly shows none.)
+        self.assertEqual(found["animated"], "none" if found["reduced"] else "modalFadeIn")
         source = (Path(__file__).resolve().parents[1] / "src" / "web_ui" / "meta.html").read_text(encoding="utf-8")
         self.assertRegex(source, r"@media \(prefers-reduced-motion: no-preference\) \{\s*\.modal-content \{ animation")
 
