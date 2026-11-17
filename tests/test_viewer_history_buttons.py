@@ -511,11 +511,12 @@ class ClickTests(ViewerCase):
 
     def test_the_keys_the_tooltips_name_are_the_keys_the_handler_reads(self):
         # Ctrl+Z undoes and Ctrl+Y redoes (Cmd on macOS is Control to Qt, and Meta also counts); Ctrl+Shift+Z
-        # undoes too, and nothing else redoes, so the tooltips name Ctrl+Z and Ctrl+Y alone.
+        # redoes as Ctrl+Y does (the Mac's redo key is Cmd+Shift+Z), so the tooltips name Ctrl+Y, or Cmd+Shift+Z.
         viewer = self.build()
         viewer.console_mode = False
         cases = (("Z", ("Control",), "undo_by_hand"), ("Y", ("Control",), "redo_by_hand"),
-                 ("Z", ("Control", "Shift"), "undo_by_hand"), ("Z", ("Meta",), "undo_by_hand"),
+                 ("Z", ("Control", "Shift"), "redo_by_hand"), ("Z", ("Meta", "Shift"), "redo_by_hand"),
+                 ("Z", ("Meta",), "undo_by_hand"),
                  ("Z", (), None), ("Y", ("Shift",), None))
         for name, modifiers, expected in cases:
             with self.subTest(key=name, modifiers=modifiers), \
