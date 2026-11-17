@@ -4970,7 +4970,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+74"/>
-        <location filename="../../../commands/cluster.py" line="+391"/>
+        <location filename="../../../commands/cluster.py" line="+434"/>
         <location filename="../../../commands/color.py" line="+578"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
@@ -5050,7 +5050,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-229"/>
+        <location filename="../../../commands/cluster.py" line="-272"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -5082,7 +5082,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+275"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -5099,7 +5099,7 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location line="+99"/>
+        <location line="+111"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
@@ -5122,7 +5122,7 @@ Command-line usage:
         <translation type="unfinished">聚类</translation>
     </message>
     <message numerus="yes">
-        <location line="+39"/>
+        <location line="+49"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -5133,7 +5133,7 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-176"/>
+        <location line="-198"/>
         <location filename="../../../commands/subcluster.py" line="-187"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
@@ -5145,7 +5145,7 @@ Command-line usage:
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+150"/>
+        <location line="+172"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -5816,7 +5816,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-465"/>
+        <location filename="../../../commands/cluster.py" line="-530"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+73"/>
         <location filename="../../../commands/hide.py" line="+58"/>
