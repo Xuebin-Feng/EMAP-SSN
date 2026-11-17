@@ -117,14 +117,30 @@ class ShellTerminalLauncherTests(unittest.TestCase):
                     "雪",
                 ])
 
+    @staticmethod
+    def _unquote_with_bash(text: str) -> list[str]:
+        """The words bash reads from text, which is how its own printf %q output is meant to be read.
+
+        The launcher quotes with the bash that runs it, and what %q writes for a byte that is not ASCII
+        depends on that bash and its locale: a backslash before each byte (macOS's bash 3.2), the raw
+        bytes (UTF-8), or $'\\351...' (bash 5 in the C locale). shlex reads only the first of these,
+        so the test lets bash read the string back and compares the bytes it ends with.
+        """
+        done = subprocess.run(
+            ["/bin/bash", "-c", 'eval "set -- $1"; printf "%s\\0" "$@"', "ssn-unquote",
+             text.encode("utf-8", errors="surrogateescape")],
+            check=False, capture_output=True,
+        )
+        assert done.returncode == 0, done.stderr
+        return [item.decode("utf-8") for item in done.stdout.split(b"\0")[:-1]]
+
     def test_single_string_terminal_families_round_trip_arguments(self):
         for terminal in ("qterminal", "lxterminal"):
             with self.subTest(terminal=terminal):
                 argv = self._run_with_terminal(terminal)
                 self.assertEqual(argv[0], "-e")
                 self.assertEqual(len(argv), 2)
-                # shlex does what the terminal's shell does with the string: the escaped bytes come out joined.
-                child = [item.encode("utf-8", errors="surrogateescape").decode("utf-8") for item in shlex.split(argv[1])]
+                child = self._unquote_with_bash(argv[1])
                 self.assertEqual(child[:2], ["bash", "-c"])
                 self.assertEqual(child[-4:], [
                     "/tmp/program path",
