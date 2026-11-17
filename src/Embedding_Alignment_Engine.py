@@ -1108,7 +1108,7 @@ def _to_normalized_cuda(array, device, precision="float32"):
     contiguous = np.ascontiguousarray(array)
     cpu_tensor = torch.from_numpy(contiguous)
     device_type = getattr(device, "type", str(device).split(":", 1)[0])
-    use_pinned_copy = device_type in {"cuda", "xpu"}
+    use_pinned_copy = _pins_host_memory(device_type)
     if use_pinned_copy:
         try:
             cpu_tensor = cpu_tensor.pin_memory()
@@ -1209,7 +1209,7 @@ def _int64_to_device(values, device):
     """
     host = torch.as_tensor(values, dtype=torch.int64)
     device = torch.device(device)
-    if device.type in {"cuda", "xpu"}:
+    if _pins_host_memory(device.type):
         try:
             host = host.pin_memory()
         except RuntimeError:
@@ -1290,13 +1290,26 @@ def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
     return final
 
 
+_PIN_BACKEND_USABLE = {}
+
+
 def _pins_host_memory(device):
-    """Pinned host memory serves only CUDA and XPU.
+    """True only for CUDA or XPU that this process can really use.
 
     Where PyTorch was built with MPS but cannot use it, asking for pinned memory
-    crashes the process outright, which no except can catch.
+    crashes the process outright, which no except can catch; so the device type
+    alone is not enough. The availability of each backend is asked once.
     """
-    return getattr(device, "type", str(device).split(":", 1)[0]) in {"cuda", "xpu"}
+    backend = getattr(device, "type", str(device).split(":", 1)[0])
+    if backend not in {"cuda", "xpu"}:
+        return False
+    if backend not in _PIN_BACKEND_USABLE:
+        module = getattr(torch, backend, None)
+        try:
+            _PIN_BACKEND_USABLE[backend] = bool(module is not None and module.is_available())
+        except Exception:
+            _PIN_BACKEND_USABLE[backend] = False
+    return _PIN_BACKEND_USABLE[backend]
 
 
 def _host_output_buffer(tensor):
@@ -2403,14 +2416,16 @@ def run_fixed_query_cuda_pipeline(
     pad_row = max(rows for _starts, rows, _count in block_layouts)
     capacity = max(used for _entries, used in chunks)
     ring_depth = max(2, min(8, FIXED_QUERY_RING_BYTES // max(1, capacity)))
-    try:
-        if not _pins_host_memory(device):
-            raise RuntimeError("pinned host memory serves only CUDA and XPU")
-        buffers = [
-            torch.empty(capacity, dtype=torch.uint8, pin_memory=True)
-            for _ in range(ring_depth)
-        ]
-    except RuntimeError:
+    buffers = None
+    if _pins_host_memory(device):
+        try:
+            buffers = [
+                torch.empty(capacity, dtype=torch.uint8, pin_memory=True)
+                for _ in range(ring_depth)
+            ]
+        except RuntimeError:
+            buffers = None
+    if buffers is None:
         buffers = [torch.empty(capacity, dtype=torch.uint8) for _ in range(ring_depth)]
     reader = _ChunkReader(store, chunks, [buffer.numpy() for buffer in buffers])
 

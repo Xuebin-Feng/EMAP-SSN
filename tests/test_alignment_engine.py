@@ -4,6 +4,7 @@ plans, VRAM estimates, the shared benchmark sampler and the tiled pipeline's
 phase handling. Tests that combine the engine with Align_Similarity_Matrix
 callbacks live in test_align_similarity_matrix_pipeline.py.
 """
+import contextlib
 import os
 import sys
 import tempfile
@@ -707,9 +708,21 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
         self.assertEqual(warmup, [])
         self.assertEqual(timed, [(0, 1, "a", "b")])
 
-    def test_host_output_buffers_are_pinned_only_for_cuda_and_xpu(self):
+    def usable(self, **backends):
+        """Patch which backends this process can really use; reset the cache."""
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.dict(alignment_engine._PIN_BACKEND_USABLE, clear=True))
+        stack.enter_context(mock.patch.object(
+            alignment_engine.torch, "cuda", mock.Mock(is_available=lambda: backends.get("cuda", False))))
+        stack.enter_context(mock.patch.object(
+            alignment_engine.torch, "xpu", mock.Mock(is_available=lambda: backends.get("xpu", False)),
+            create=True))
+
+    def test_host_output_buffers_are_pinned_only_for_usable_cuda_and_xpu(self):
         # Where MPS was built in but cannot be used, a pinned request crashes the
-        # process, so the request is never made for any other device.
+        # process, so the request is never made unless the backend really works.
+        self.usable(cuda=True, xpu=True)
         for device_type, pinned in (("cuda", True), ("xpu", True), ("mps", False), ("cpu", False)):
             matrices = mock.Mock(shape=(2, 3), device=torch.device(device_type))
             with mock.patch.object(alignment_engine.torch, "empty") as empty:
@@ -726,6 +739,28 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
             self.assertTrue(alignment_engine._pins_host_memory(value))
         for value in ("mps", "cpu", torch.device("mps")):
             self.assertFalse(alignment_engine._pins_host_memory(value))
+
+    def test_a_cuda_device_without_usable_cuda_never_asks_for_pinned_memory(self):
+        self.usable(cuda=False, xpu=False)
+        matrices = mock.Mock(shape=(2, 3), device=torch.device("cuda"))
+        with mock.patch.object(alignment_engine.torch, "empty") as empty:
+            alignment_engine._host_output_buffer(matrices)
+        self.assertNotIn("pin_memory", empty.call_args.kwargs)
+        self.assertFalse(alignment_engine._pins_host_memory("xpu:0"))
+        # The two older sites follow the same rule.
+        host = mock.Mock()
+        with mock.patch.object(alignment_engine.torch, "as_tensor", return_value=host):
+            alignment_engine._int64_to_device([1, 2], "cuda")
+        host.pin_memory.assert_not_called()
+        host.to.assert_called_once()
+
+    def test_a_usable_cuda_still_pins_in_the_real_process(self):
+        if not torch.cuda.is_available():
+            self.skipTest("needs CUDA")
+        alignment_engine._PIN_BACKEND_USABLE.clear()
+        self.assertTrue(alignment_engine._pins_host_memory(torch.device("cuda")))
+        matrices = mock.Mock(shape=(4,), device=torch.device("cuda"))
+        self.assertTrue(alignment_engine._host_output_buffer(matrices).is_pinned())
 
 
 if __name__ == "__main__":
