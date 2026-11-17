@@ -266,6 +266,55 @@ class ESMFoldWorkerTests(unittest.TestCase):
             local_loader.assert_not_called()
             self.assertTrue(client.closed)
 
+    def test_mps_fallback_is_set_before_the_first_import_that_can_load_torch(self):
+        # esm.sdk.api imports torch, so the variable must exist before it.
+        seen = []
+
+        class Finder:
+            def find_spec(self, name, path=None, target=None):
+                if name != "esm.sdk.api":
+                    return None
+                seen.append(os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK"))
+                import importlib.util
+
+                return importlib.util.spec_from_loader(name, Loader())
+
+        class Loader:
+            def create_module(self, spec):
+                return fake_esm_modules()["esm.sdk.api"]
+
+            def exec_module(self, module):
+                pass
+
+        modules = fake_esm_modules()
+        del modules["esm.sdk.api"]
+        for module in modules.values():
+            module.__path__ = []
+
+        def run(platform_name):
+            seen.clear()
+            with (
+                mock.patch.dict(sys.modules, modules),
+                mock.patch.dict(os.environ),
+                mock.patch.object(esmfold_worker.sys, "platform", platform_name),
+                mock.patch.object(sys, "meta_path", [Finder(), *sys.meta_path]),
+                mock.patch.object(esmfold_worker, "_load_large_client", side_effect=KeyError("stop")),
+                tempfile.TemporaryDirectory() as structures_dir,
+            ):
+                os.environ.pop("PYTORCH_ENABLE_MPS_FALLBACK", None)
+                sys.modules.pop("esm.sdk.api", None)
+                with self.assertRaises(KeyError):
+                    esmfold_worker.run_predictions([], structures_dir, mode="large")
+                return list(seen)
+
+        self.assertEqual(run("darwin"), ["1"])
+        self.assertEqual(run("win32"), [None])
+
+    def test_mps_fallback_keeps_a_value_the_user_set(self):
+        with mock.patch.dict(os.environ, {"PYTORCH_ENABLE_MPS_FALLBACK": "0"}):
+            esmfold_worker._allow_mps_fallback("darwin")
+            self.assertEqual(os.environ["PYTORCH_ENABLE_MPS_FALLBACK"], "0")
+
     def test_authentication_failure_refreshes_once_and_retries_current_request(self):
         client = FakeClient([FakeProteinError(401), FakeOutput()])
         settings = {

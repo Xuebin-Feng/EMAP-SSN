@@ -536,6 +536,17 @@ def _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra):
     return sidecar_filename
 
 
+def _allow_mps_fallback(platform_name=None):
+    """On macOS let operations MPS lacks run on the CPU.
+
+    PyTorch reads PYTORCH_ENABLE_MPS_FALLBACK when it loads, so this must run
+    before the process's first torch import. It is harmless on the CPU, so it
+    is set whatever device is chosen; a value the user already set is kept.
+    """
+    if (platform_name or sys.platform) == "darwin":
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+
 def run_predictions(
     nodes_to_fold,
     structures_dir,
@@ -566,6 +577,8 @@ def run_predictions(
     was folded. ``residue_data_saved(path)`` is called with each residue-data
     file saved (after ``notifier`` for a structure just folded).
     """
+    # Before the first import that can load torch: esm.sdk.api does.
+    _allow_mps_fallback()
     from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
 
     os.makedirs(structures_dir, exist_ok=True)
@@ -587,8 +600,6 @@ def run_predictions(
         device = torch.device(
             target_device or ("cuda" if torch.cuda.is_available() else "cpu")
         )
-        if device.type == "mps":
-            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         print(f"Using device: {device}")
         model = _load_local_model(device, job_event)
 
