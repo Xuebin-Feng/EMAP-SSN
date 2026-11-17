@@ -404,5 +404,10 @@ def main(application, argv=None):
             runpy.run_path(str(script), run_name="__main__")
         return 0
     except Exception as error:
+        if args.operation == "launch-viewer":
+            # The one-line message below is all a client sees ("Error: float division by zero"); the
+            # traceback goes to stderr first, so the Viewer's log and stderr.log keep where it came from.
+            import traceback
+            traceback.print_exc(file=sys.stderr)
         print(f"Error: {error}", file=sys.stderr)
         return 1

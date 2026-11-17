@@ -571,5 +571,36 @@ class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
                 await manager.close()
 
 
+class LaunchViewerFailureTests(unittest.TestCase):
+    def test_a_viewer_that_fails_to_start_keeps_the_one_line_message_and_leaves_the_traceback(self):
+        import io
+        import contextlib
+        import runpy
+        from utilities import Headless_Settings
+
+        errors = io.StringIO()
+        with mock.patch.object(runpy, "run_path", side_effect=ZeroDivisionError("float division by zero")), \
+                mock.patch.dict(os.environ, {}, clear=False), mock.patch.object(sys, "argv", list(sys.argv)), \
+                contextlib.redirect_stderr(errors):
+            code = Headless_Settings.main("config", ["--headless", "launch-viewer", "--settings", "x.json",
+                                                      "--viewer-mode", "headless"])
+        lines = errors.getvalue().splitlines()
+        self.assertEqual(code, 1)
+        self.assertEqual(lines[-1], "Error: float division by zero")
+        self.assertIn("Traceback (most recent call last):", lines)
+        self.assertIn("ZeroDivisionError: float division by zero", lines)
+
+    def test_other_operations_print_only_the_message(self):
+        import io
+        import contextlib
+        from utilities import Headless_Settings
+
+        errors = io.StringIO()
+        with mock.patch.object(Headless_Settings, "export_config_settings", side_effect=ValueError("bad")), \
+                contextlib.redirect_stderr(errors):
+            code = Headless_Settings.main("config", ["--headless", "export", "--kind", "viewer"])
+        self.assertEqual((code, errors.getvalue()), (1, "Error: bad\n"))
+
+
 if __name__ == "__main__":
     unittest.main()
