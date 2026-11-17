@@ -117,6 +117,57 @@
       "CROPPED_FASTA"
     ]
   },
+  "Embedding_Import.py": {
+    "properties": {
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Sequence Set (.fasta): The sequences the new embedding file holds.\nSanitized as Sanitize Sequences does. Every sanitized record must find one array in the source, with one row per residue of its sanitized sequence."
+      },
+      "SOURCE_PATH": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Embedding Source: Per-residue embeddings computed elsewhere: an HDF5 file with one dataset per protein named by its ID (such as UniProt's per-residue files; a dataset's original_id attribute also counts), a .npz file, or a folder of .npy files named by ID.\nAn absolute path anywhere on the computer, or a name inside the FASTA directory. The Tools window picks it with File or Folder and does not save it; a settings file for the MCP server gives the path."
+      },
+      "ID_MAP_TSV": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "ID Mapping (.tsv): Optional file of two tab-separated columns: a FASTA header and the source ID it takes; lines starting with # are skipped.\nTried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME. An absolute path, or a name inside the FASTA directory; not saved by the Tools window."
+      },
+      "MODEL_LABEL": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Model Label: Names the model in the file and in the names of the files made from it.\nLower-case letters, digits, _ and -, at most 64 characters. It may not be the identifier of a model EMAP-SSN computes itself, such as prot_t5: use a label of your own, such as uniprot_prot_t5.",
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+      },
+      "SAVING_MODE": {
+        "type": "string",
+        "default": "float16",
+        "description": "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.",
+        "enum": [
+          "float32",
+          "float16"
+        ]
+      }
+    },
+    "required": [
+      "INPUT_FASTA",
+      "SOURCE_PATH",
+      "MODEL_LABEL"
+    ]
+  },
   "Align_Similarity_Matrix.py": {
     "properties": {
       "INPUT_HDF5": {

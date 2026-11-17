@@ -7692,7 +7692,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">下载元数据出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../../tools/tool_helpers/Model_Plugins.py" line="+374"/>
+        <location filename="../../../tools/tool_helpers/Model_Plugins.py" line="+375"/>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}
@@ -10632,7 +10632,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+165"/>
+        <location line="+169"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
@@ -10758,7 +10758,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">分块</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+105"/>
         <source>The network metadata could not be validated.</source>
         <translation type="unfinished">无法验证网络元数据。</translation>
     </message>
@@ -10885,20 +10885,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+581"/>
+        <location line="+612"/>
         <location line="+295"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-876"/>
-        <location line="+582"/>
+        <location line="-907"/>
+        <location line="+613"/>
         <location line="+295"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-875"/>
+        <location line="-906"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -11464,20 +11464,21 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+909"/>
+        <location line="+940"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+46"/>
-        <location line="+223"/>
+        <location line="+67"/>
+        <location line="+205"/>
         <location line="+67"/>
         <source>Sequence Set (.fasta):</source>
         <translation type="unfinished">序列集（.fasta）：</translation>
     </message>
     <message>
-        <location line="-331"/>
+        <location line="-380"/>
         <source>Show Length Histogram:</source>
         <translation type="unfinished">显示长度直方图：</translation>
     </message>
@@ -11492,7 +11493,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1920"/>
+        <location line="-1951"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11638,21 +11639,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+4"/>
+        <location line="+48"/>
         <source>Floating-point precision for storing embedding tensors in HDF5.</source>
         <translation type="unfinished">在 HDF5 中存储 embedding 张量时使用的浮点精度。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-46"/>
+        <location line="+48"/>
         <source>Saves 50% disk space and RAM with minimal precision loss.</source>
         <translation type="unfinished">可节省 50% 的磁盘空间和内存，精度损失极小。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-47"/>
+        <location line="+48"/>
         <source>Retains full precision.</source>
         <translation type="unfinished">保留完整精度。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-44"/>
         <source>Hardware compute device used for neural network inference.</source>
         <translation type="unfinished">用于神经网络推理的硬件计算设备。</translation>
     </message>
@@ -11682,7 +11686,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">其序列标题和序列必须与完整 embedding 数据库中某段连续子串完全匹配。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+36"/>
         <source>HDF5 database containing dense residue embeddings.</source>
         <translation type="unfinished">包含稠密残基 embedding 的 HDF5 数据库。</translation>
     </message>
@@ -12720,7 +12724,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">自动（第一个加速器）</translation>
     </message>
     <message>
-        <location line="+1662"/>
+        <location line="+1707"/>
         <source>Select FASTA File</source>
         <translation type="unfinished">选择 FASTA 文件</translation>
     </message>
@@ -12729,7 +12733,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
     </message>
     <message>
-        <location line="-1653"/>
+        <location line="-1698"/>
         <source>Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).</source>
         <translation type="unfinished">只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。</translation>
     </message>
@@ -12765,24 +12769,27 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+6"/>
+        <location line="+80"/>
         <source>Float32 (Full Precision)</source>
         <comment>saving mode</comment>
         <translation type="unfinished">Float32（全精度）</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-79"/>
+        <location line="+80"/>
         <source>Float16 (Half Size)</source>
         <comment>saving mode</comment>
         <translation type="unfinished">Float16（体积减半）</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-75"/>
+        <location line="+79"/>
         <source>Saving Mode:</source>
         <translation type="unfinished">保存模式：</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+94"/>
+        <location line="-74"/>
+        <location line="+143"/>
         <location line="+272"/>
         <location line="+117"/>
         <location line="+238"/>
@@ -12790,7 +12797,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-714"/>
+        <location line="-763"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -12805,7 +12812,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">裁剪序列集（.fasta）：</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+60"/>
         <location line="+214"/>
         <source>Input &amp; Output Settings:</source>
         <translation type="unfinished">输入与输出设置：</translation>
@@ -12972,22 +12979,83 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="-2434"/>
+        <location line="-2519"/>
         <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
         <translation type="unfinished">FASTA 文件 (*.fasta *.fa *.faa *.fna *.fas *.fsa);;所有文件 (*)</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Embedding files (*.h5 *.hdf5 *.hdf *.he5 *.npz);;All files (*)</source>
+        <translation type="unfinished">Embedding 文件 (*.h5 *.hdf5 *.hdf *.he5 *.npz);;所有文件 (*)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tab-separated files (*.tsv *.txt);;All files (*)</source>
+        <translation type="unfinished">制表符分隔文件 (*.tsv *.txt);;所有文件 (*)</translation>
+    </message>
+    <message>
         <location line="+163"/>
+        <source>Embedding Import</source>
+        <translation type="unfinished">Embedding 导入</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Predict Structures</source>
         <translation type="unfinished">结构预测</translation>
     </message>
     <message>
-        <location line="+1413"/>
+        <location line="+1414"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+295"/>
+        <location line="+29"/>
+        <source>The sequences the new embedding file holds.</source>
+        <translation type="unfinished">新 embedding 文件所包含的序列。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sanitized as Sanitize Sequences does. Every sanitized record must find one array in the source, with one row per residue of its sanitized sequence.</source>
+        <translation type="unfinished">按“清理序列”的方式清理。每条已清理的记录都必须在源中找到一个数组，其行数等于该记录已清理序列的残基数。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Per-residue embeddings computed elsewhere, chosen with File or Folder from anywhere on this computer.</source>
+        <translation type="unfinished">在别处计算的逐残基 embedding，用“文件”或“文件夹”从这台计算机上的任意位置选择。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>An HDF5 file with one dataset per protein named by its ID (such as UniProt&apos;s per-residue files), a .npz file, or a folder of .npy files named by ID.</source>
+        <translation type="unfinished">为每个蛋白质存放一个以其 ID 命名的数据集的 HDF5 文件（例如 UniProt 的逐残基文件）、一个 .npz 文件，或由以 ID 命名的 .npy 文件组成的文件夹。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+7"/>
+        <source>It is not saved: the field is empty the next time the window opens, and a run gets it for that run only.</source>
+        <translation type="unfinished">它不会被保存：下次打开窗口时该输入框为空，运行时只对该次运行有效。</translation>
+    </message>
+    <message>
+        <location line="-3"/>
+        <source>Optional file of two tab-separated columns: a FASTA header and the source ID it takes.</source>
+        <translation type="unfinished">可选的文件，含以制表符分隔的两列：一个 FASTA 序列标题及其对应的源 ID。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME.</source>
+        <translation type="unfinished">先于自动规则尝试。自动规则依次为：原始序列标题、其第一个词、已清理的序列标题，以及 UniProt accession（例如从 sp|P12345|NAME 得到 P12345）。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Names the model in the file and in the names of the files made from it.</source>
+        <translation type="unfinished">在文件以及由它生成的文件的名称中标识模型。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lower-case letters, digits, `_` and `-`. It may not be the identifier of a model EMAP-SSN computes itself, such as `prot_t5`: use a label of your own, such as `uniprot_prot_t5`.</source>
+        <translation type="unfinished">只能使用小写字母、数字、`_` 和 `-`。它不能是 EMAP-SSN 自己计算的模型的标识符（例如 `prot_t5`）：请使用你自己的标签，例如 `uniprot_prot_t5`。</translation>
+    </message>
+    <message>
+        <location line="+278"/>
         <source>Chooses what is folded: one typed sequence, or every sequence of a FASTA file.</source>
         <translation type="unfinished">选择要折叠的内容：一条键入的序列，或 FASTA 文件中的每条序列。</translation>
     </message>
@@ -13038,17 +13106,57 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+1068"/>
+        <location line="+1117"/>
         <source>Maximum Sequences</source>
         <translation type="unfinished">最大序列数</translation>
     </message>
     <message>
-        <location line="-1067"/>
+        <location line="-1116"/>
         <source>A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more.</source>
         <translation type="unfinished">会折叠更多序列的运行在折叠之前即被拒绝。已存在的结构不计入。调大该值或改用更小的 FASTA 文件即可折叠更多。</translation>
     </message>
     <message>
-        <location line="+565"/>
+        <location line="+342"/>
+        <source>Embedding Import Settings:</source>
+        <translation type="unfinished">Embedding 导入设置：</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Select Embedding Source</source>
+        <translation type="unfinished">选择 Embedding 源</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>File...</source>
+        <translation type="unfinished">文件…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Folder...</source>
+        <translation type="unfinished">文件夹…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding Source:</source>
+        <translation type="unfinished">Embedding 源：</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Select ID Mapping File</source>
+        <translation type="unfinished">选择 ID 映射文件</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>ID Mapping (.tsv):</source>
+        <translation type="unfinished">ID 映射（.tsv）：</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Model Label:</source>
+        <translation type="unfinished">模型标签：</translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Use Sequence Filter:</source>
         <translation type="unfinished">使用序列过滤：</translation>
     </message>
@@ -13444,13 +13552,13 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+10"/>
         <location line="+509"/>
-        <location line="+1140"/>
+        <location line="+1161"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1646"/>
-        <location line="+527"/>
+        <location line="-1667"/>
+        <location line="+531"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
@@ -13481,7 +13589,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../../EMAPSSN_Tools.py" line="-506"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="-510"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
@@ -13592,14 +13700,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1604"/>
+        <location line="+1625"/>
         <location line="+480"/>
         <location line="+41"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2137"/>
+        <location line="-2158"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -13675,7 +13783,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">设置：{name}</translation>
     </message>
     <message>
-        <location line="+311"/>
+        <location line="+332"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -13924,17 +14032,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5296"/>
+        <location line="-5399"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
-        <location line="-178"/>
+        <location line="-182"/>
         <source>FP32 (Full Precision)</source>
         <translation type="unfinished">FP32（全精度）</translation>
     </message>
     <message>
-        <location line="+179"/>
+        <location line="+183"/>
         <source>Sparse MSA Converter</source>
         <translation type="unfinished">稀疏 MSA 转换器</translation>
     </message>
@@ -13999,7 +14107,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">Embedding 裁剪</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+52"/>
         <source>global (Needleman-Wunsch)</source>
         <comment>alignment mode</comment>
         <translation type="unfinished">全局（Needleman-Wunsch）</translation>
@@ -14103,7 +14211,7 @@ Fedora / RHEL：
         <translation type="obsolete">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+1048"/>
+        <location line="+1079"/>
         <source>If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds.</source>
         <translation type="unfinished">留空时会自动查找 BLAST+：先查系统 PATH，然后是标准安装文件夹（取最新版本）或常见的 Unix 文件夹。字段会显示该查找的结果。</translation>
     </message>
@@ -14137,7 +14245,7 @@ Fedora / RHEL：
         <translation type="obsolete">要折叠的序列：</translation>
     </message>
     <message>
-        <location line="+871"/>
+        <location line="+920"/>
         <source>Batch Input:</source>
         <translation type="unfinished">批量输入：</translation>
     </message>
@@ -14189,12 +14297,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+156"/>
-        <location line="+1470"/>
+        <location line="+1491"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1455"/>
+        <location line="-1476"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -14208,7 +14316,7 @@ Fedora / RHEL：
         <translation type="obsolete">（无）</translation>
     </message>
     <message>
-        <location line="+2072"/>
+        <location line="+2093"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

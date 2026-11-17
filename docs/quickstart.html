@@ -312,11 +312,11 @@
 
                 <h3>1. Pipeline Stage Tabs</h3>
                 <p>
-                    The Tools GUI categorizes 15 computational programs into clear operational tabs:
+                    The Tools GUI categorizes 16 computational programs into clear operational tabs:
                 </p>
                 <ul>
                     <li>
-                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating), <code>Generate_Embeddings.py</code> (computing per-residue representations with models such as ESM-2, ESM C, ProtBERT, ProtT5, ProstT5, and Ankh), and <code>Embedding_Cropping.py</code> (slicing embeddings for cropped sequences out of an existing full-sequence database instead of embedding the fragments in isolation).
+                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating), <code>Generate_Embeddings.py</code> (computing per-residue representations with models such as ESM-2, ESM C, ProtBERT, ProtT5, ProstT5, and Ankh), <code>Embedding_Cropping.py</code> (slicing embeddings for cropped sequences out of an existing full-sequence database instead of embedding the fragments in isolation), and <code>Embedding_Import.py</code> (converting per-residue embeddings computed elsewhere, such as UniProt's ProtT5 files, into an embedding database).
                     </li>
                     <li>
                         <strong>Sequence Similarity Calculations:</strong> Hosts <code>Align_Similarity_Matrix.py</code> (all-vs-all dynamic programming alignment over residue-level embedding similarities), <code>Align_Substitution_Matrix.py</code> (all-vs-all BLASTP alignment with traditional substitution matrices; requires NCBI BLAST+), and <code>Parse_BLAST_Output.py</code> (importing existing tabular BLAST or DIAMOND results; run DIAMOND with <code>-k 0</code> so it reports every hit). Both BLAST tools score each pair by its E-value or, with <strong>Score</strong> set to <code>EFI alignment score</code>, by the EFI-EST alignment score, which also needs each hit's bit score.

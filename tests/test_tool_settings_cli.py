@@ -51,6 +51,7 @@ EXPECTED_TOOLS = {
     "Align_Substitution_Matrix.py",
     "Embedding_Cropping.py",
     "Embedding_Extraction.py",
+    "Embedding_Import.py",
     "Embedding_Injection.py",
     "Embedding_MSA.py",
     "Embedding_PWA.py",

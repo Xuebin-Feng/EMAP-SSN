@@ -37,6 +37,7 @@ DESCRIPTIONS = {
     "sanitize_sequences": "Clean, deduplicate, and optionally filter FASTA sequences.",
     "generate_embeddings": "Generate residue embeddings from FASTA sequences.",
     "embedding_cropping": "Crop embedding residues using a corresponding FASTA set.",
+    "embedding_import": "Convert per-residue embeddings computed elsewhere (HDF5, .npz or .npy folder) into an embedding database.",
     "embedding_extraction": "Extract embeddings for a FASTA subset.",
     "embedding_injection": "Add FASTA sequences to an embedding database.",
     "align_similarity_matrix": "Build a network from embedding alignment scores.",
@@ -175,6 +176,9 @@ def get_pipeline_schema(tool_id, project_root):
         example["INPUT_BLAST_TABULAR"] = "example.tsv"
     elif tool_id == "predict_structures":
         example = {"SEQUENCE": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ", "SEQUENCE_NAME": "my_protein"}
+    elif tool_id == "embedding_import":
+        example = {"INPUT_FASTA": "example.fasta", "SOURCE_PATH": "/path/to/per-residue.h5",
+                   "MODEL_LABEL": "uniprot_prot_t5"}
     from mcp_server.pipeline.Pipeline_Guide import tool_guide
     guide = tool_guide(tool_id)
     extra = {}
@@ -229,7 +233,7 @@ def _errors(schema, values, prefix):
     return errors
 
 
-def _combination_errors(tool_id, values):
+def _combination_errors(tool_id, values, project_root):
     errors = []
     def fail(field, message): errors.append({"field": f"parameters.{field}", "message": message})
     if tool_id == "sanitize_sequences" and values["ENABLE_LENGTH_FILTER"]:
@@ -256,6 +260,10 @@ def _combination_errors(tool_id, values):
             fail("SEQUENCE", "Batch Input is off, so a sequence is needed: set SEQUENCE, or set BATCH_INPUT to true.")
         elif not sanitize_sequence(values["SEQUENCE"])[0]:
             fail("SEQUENCE", "Sequence is empty after sanitization.")
+    if tool_id == "embedding_import" and values.get("MODEL_LABEL") in discover_model_execution_modes(
+            os.path.join(project_root, "src", "resources", "pLM_models")):
+        fail("MODEL_LABEL", "Names a model EMAP-SSN computes itself; give imported embeddings a label of "
+                            "their own, such as 'uniprot_' followed by the model's identifier.")
     for switch, field in (("MANUAL_REF_SEQ", "REF_SEQUENCE"), ("MANUAL_TAR_SEQ", "TAR_SEQUENCE"),
                           ("MANUAL_QUERY_SEQ", "QUERY_SEQUENCE")):
         if values.get(switch) and not sanitize_sequence(values[field])[0]:
@@ -342,7 +350,7 @@ def normalize_pipeline_settings(tool_id, project_root, *, parameters=None, direc
     values.update(supplied)
     result["errors"].extend(_errors(schema, values, "parameters"))
     if not result["errors"]:
-        result["errors"].extend(_combination_errors(tool_id, values))
+        result["errors"].extend(_combination_errors(tool_id, values, project_root))
     if result["errors"]:
         return result
     # Match Tool_Settings' treatment of configured tool-specific directories.

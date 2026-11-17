@@ -578,7 +578,7 @@ class ToolsRunTimeTextTests(WindowTestCase):
 
     def test_card_titles_are_the_headings_of_the_tool_help_files(self):
         headings = self.tools.get_tool_titles()
-        self.assertEqual(len(headings), 15)
+        self.assertEqual(len(headings), 16)
         self.assertEqual(self.tools.TOOL_TITLES, headings)
 
 

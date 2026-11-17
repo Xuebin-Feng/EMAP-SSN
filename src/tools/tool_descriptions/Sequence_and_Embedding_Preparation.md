@@ -166,3 +166,87 @@ This script does not require additional configuration parameters — behavior is
      Writes and flushes the resolved sanitized headers and sequences first, streams each crop under its header key, and marks the output complete only after validation.
 
 </details>
+
+---
+
+# Embedding Import (`Embedding_Import.py`)
+
+This tool converts per-residue embeddings computed outside EMAP-SSN, such as UniProt's ProtT5 per-residue files, the output of the ProtTrans scripts or a model of your own, into an EMAP-SSN embedding database, so the alignment, MSA and network tools can use them. No model is run. The FASTA decides what the database holds: it is sanitized as `Sanitize_Sequences.py` does, and every sanitized record must find one residues-by-features array in the source.
+
+### Input
+
+#### Sequence Set `INPUT_FASTA`
+*   **Format**: Standard FASTA (`.fasta`), raw or sanitized: the sequences the embeddings were computed for.
+*   **Description**: Records are sanitized in memory (uppercased, invalid residues masked, identical sequences merged). Each array must have one row per residue of the sanitized sequence.
+
+#### Embedding Source `SOURCE_PATH`
+*   **Format**: One of these:
+    - an HDF5 file (`.h5`) with one dataset per protein at its top level, named by its ID, such as UniProt's per-residue files, named by accession. A dataset's `original_id` attribute also counts as its ID, which covers bio_embeddings files;
+    - a `.npz` file holding one array per ID;
+    - a folder of `.npy` files, one per protein, each named by its ID (`P12345.npy`).
+*   **Description**: Chosen with **File...** or **Folder...** from anywhere on this computer. It is not saved: the field is empty the next time the window opens. A relative path is read inside the FASTA directory.
+
+#### ID Mapping `ID_MAP_TSV` (optional)
+*   **Format**: Two tab-separated columns: a FASTA header (the original, its first word or the sanitized one) and the source ID it takes. Lines starting with `#` are skipped.
+*   **Description**: For records whose IDs the automatic rules do not find. Not saved, like the source.
+
+### Parameters
+
+| Parameter | Description |
+| :--- | :--- |
+| Model Label **`MODEL_LABEL`** | Names the model in the database and in the names of the files made from it. Lower-case letters, digits, `_` and `-`, at most 64 characters. It may not be the identifier of a model EMAP-SSN computes itself, such as `prot_t5`: the file would pass for one computed here, and Embedding Injection would extend it with embeddings computed locally. Use a label of your own, such as `uniprot_prot_t5`. |
+| Saving Mode **`SAVING_MODE`** | As in Generate Embeddings: `Float32 (Full Precision)` or `Float16 (Half Size)`. Every array is converted to it, and an array with values beyond the range of float16 is refused. |
+
+### Output
+
+#### HDF5 Embedding Database
+*   **Format**: HDF5 (`.h5`), named `{INPUT_FASTA}_[{MODEL_LABEL}]_embeddings.h5`, in the format described under Embedding File Format below.
+*   **Completion**: Marked complete only when every sanitized record has its array. Otherwise it stays incomplete, every reader refuses it, and running the tool again resumes it: records already imported are kept and the rest are matched again, with a mapping file, say.
+*   **Existing File**: One with the same label, saving mode and sequences is kept or resumed; one with another label or saving mode, or with changed sequences, is refused.
+*   **Provenance**: Attributes `import_source` (the source's file or folder name), `import_reader` (`hdf5`, `npz` or `npy_folder`), `import_source_dtype` and `import_matched_by` (records per matching rule).
+
+#### Import Report
+*   **Format**: Tab-separated (`.tsv`), named `{INPUT_FASTA}_[{MODEL_LABEL}]_import_report.tsv`, beside the database, written only when records were not imported: `header`, `status` (`missing`, `ambiguous`, `unmapped` or `invalid`), `source_id` and `reason`. A later run that imports everything deletes it.
+*   **Terminal**: The counts of records imported, already in the file, missing, ambiguous, mapped to an absent ID and refused, and of source IDs not used.
+
+<details markdown="1">
+<summary><b>Algorithm Details</b></summary>
+
+1. **ID Matching**:
+     For each sanitized record, the first rule that finds an ID in the source is used: the mapping file; the original header; its first word; the sanitized header; a UniProt accession (`sp|P12345|NAME ...` and `tr|...` headers give `P12345`). Records that sanitization merged, because their sequences were identical, try every original header. An ID that more than one record could take is not used: those records are reported as ambiguous, and a mapping file settles them.
+
+2. **Array Checks**:
+     An array must be two-dimensional: a single vector per protein, a per-protein embedding, is refused, because alignment needs one vector per residue. It must have one row per residue of the sanitized sequence: rows = length + 2 means the model's start and end tokens were left in, and rows = length + 1 one of them. Its values must be floating-point, with one feature width for the whole database, and finite at the saving mode.
+
+3. **HDF5 Database Compilation**:
+     Writes and flushes the sanitized headers and sequences first, then one array per record, and marks the database complete only after validation, as `Generate_Embeddings.py` does.
+
+</details>
+
+---
+
+# Embedding File Format
+
+Every EMAP-SSN tool and the Viewer read embeddings in one HDF5 layout. A file in another layout is refused with a message that points to Embedding Import, which converts it.
+
+| Object | Content |
+| :--- | :--- |
+| Attribute `model_name` | The model's label, in lower case; also in the file name `{set}_[{model_name}]_embeddings.h5`. |
+| Attribute `saving_mode` | `float16` or `float32`: the type of every embedding array. |
+| Attribute `num_sequences` | The number of records. |
+| Attribute `generation_complete` | Boolean. Readers refuse a file in which it is false. |
+| Dataset `/headers` | UTF-8 strings: the sanitized FASTA headers, each unique. |
+| Dataset `/sequences` | UTF-8 strings: the sanitized sequences, in the order of `/headers`. |
+| Group `/embeddings` | One dataset per header, `/embeddings/{sanitized header}`: an $L \times D$ array of the saving mode's type, where $L$ is the length of its sequence and $D$ is the same for every array. |
+
+Sanitized means as `Sanitize_Sequences.py` writes it: readers match nodes by sanitized header and identical sequence. Other attributes, such as Embedding Import's `import_*`, are allowed and ignored.
+
+A script of your own can write such a database with `EmbeddingWriter` from `src/utilities/HDF5_Storage.py` (with `src` on the Python path). It sanitizes the FASTA, checks each array as Embedding Import does, resumes an incomplete database, and marks it complete when every sequence has its array:
+
+```python
+from utilities.HDF5_Storage import EmbeddingWriter
+
+with EmbeddingWriter("Embeddings/my_set_[my_model]_embeddings.h5", "my_set.fasta", "my_model", "float16") as writer:
+    for header, sequence in writer.pending:      # sanitized headers and sequences still missing
+        writer.add(header, my_model(sequence))   # residues x features
+```

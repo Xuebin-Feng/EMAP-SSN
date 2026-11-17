@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import re
 
 import h5py
 import numpy as np
@@ -28,6 +30,15 @@ REQUIRED_ATTRIBUTES = (
 )
 REQUIRED_OBJECTS = ("headers", "sequences", "embeddings")
 SANITIZED_RESIDUE_CODES = frozenset("ACDEFGHIKLMNPQRSTVWYBZJXUO")
+# Where a reader's refusal of a file in another format sends the user.
+FOREIGN_FILE_ADVICE = (
+    "EMAP-SSN reads only its own embedding format. Convert per-residue "
+    "embeddings from elsewhere with Embedding Import (Tools window, Sequence & "
+    "Embedding Preparation tab); its help describes the format."
+)
+# A model label names the model in an embedding file and in the names of the
+# files made from it, such as <set>_[<label>]_embeddings.h5.
+MODEL_LABEL_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
 
 @dataclass(frozen=True)
@@ -194,14 +205,16 @@ def read_embedding_manifest(
         raise ValueError(
             "Embedding file is missing required attribute(s): "
             + ", ".join(missing_attrs)
-            + ". Legacy embedding files are unsupported."
+            + ". "
+            + FOREIGN_FILE_ADVICE
         )
     missing_objects = [name for name in REQUIRED_OBJECTS if name not in hf]
     if missing_objects:
         raise ValueError(
             "Embedding file is missing required object(s): "
             + ", ".join(f"/{name}" for name in missing_objects)
-            + ". Legacy embedding files are unsupported."
+            + ". "
+            + FOREIGN_FILE_ADVICE
         )
     if not isinstance(hf["headers"], h5py.Dataset) or not isinstance(
         hf["sequences"], h5py.Dataset
@@ -346,6 +359,233 @@ def mark_generation_complete(hf):
     return read_embedding_manifest(hf, require_complete=True)
 
 
+def validate_model_label(label):
+    """Return ``label`` if it can name a model in a file and in file names."""
+    if not isinstance(label, str) or not MODEL_LABEL_PATTERN.fullmatch(label):
+        raise ValueError(
+            f"Model label {label!r} cannot be used: give 1 to 64 lower-case "
+            "letters, digits, '_' or '-', starting with a letter or digit."
+        )
+    return label
+
+
+def embedding_shape_problem(shape, sequence_length):
+    """Say why an array of ``shape`` cannot be one sequence's embedding, or None.
+
+    Names the usual causes: a per-protein vector where one vector per residue
+    is needed, and the rows of a model's start or end tokens left in.
+    """
+    shape = tuple(int(size) for size in shape)
+    if len(shape) == 1:
+        return (
+            f"is a single vector of {shape[0]} values, a per-protein embedding; "
+            "alignment needs one vector per residue (a residues-by-features matrix)"
+        )
+    if len(shape) != 2:
+        return f"has {len(shape)} dimensions; expected residues by features"
+    rows, width = shape
+    if width == 0:
+        return "has no features"
+    if rows == sequence_length:
+        return None
+    hint = ""
+    if rows == sequence_length + 2:
+        hint = ": the model's start and end tokens were probably left in"
+    elif rows == sequence_length + 1:
+        hint = ": a start or end token was probably left in"
+    return f"has {rows} rows for a sequence of {sequence_length} residues{hint}"
+
+
+class EmbeddingWriter:
+    """Write an EMAP-SSN embedding file from any model, one sequence at a time.
+
+    For a model EMAP-SSN has no plugin for::
+
+        with EmbeddingWriter("Embeddings/my_set_[my_model]_embeddings.h5",
+                             "my_set.fasta", "my_model", "float16") as writer:
+            for header, sequence in writer.pending:
+                writer.add(header, my_model(sequence))  # residues x features
+
+    ``fasta`` is a FASTA path, which is sanitized as every EMAP-SSN tool
+    sanitizes it, or a ``(headers, sequences)`` pair already sanitized.
+    ``pending`` lists the sanitized (header, sequence) pairs that still lack an
+    array. Embed that sanitized sequence: readers match nodes by header and
+    identical sequence. ``add`` checks the array (one row per residue, one
+    feature width for the whole file, floating-point and finite values) and
+    stores it at the saving mode's precision.
+
+    Opening an incomplete file resumes it, as Generate Embeddings does: the
+    model label and saving mode must be the same, and no sequence may have been
+    removed or changed. Leaving the ``with`` block normally checks the file and
+    marks it complete when every sequence has its array. Otherwise, or after an
+    error, it stays incomplete, and every reader refuses an incomplete file.
+    """
+
+    def __init__(self, path, fasta, model_name, saving_mode):
+        validate_model_label(model_name)
+        self.dtype = dtype_for_saving_mode(saving_mode)
+        if isinstance(fasta, (str, os.PathLike)):
+            from utilities.Sequence_Utils import load_sanitized_fasta
+
+            headers, sequences, _ = load_sanitized_fasta(os.fspath(fasta))
+        else:
+            headers, sequences = (list(part) for part in fasta)
+        validate_manifest_records(headers, sequences)
+        if not headers:
+            raise ValueError("The FASTA holds no sequences.")
+        self.path = os.fspath(path)
+        self.model_name = model_name
+        self.saving_mode = saving_mode
+        self.headers = headers
+        self.manifest = None
+        self._sequence_by_header = dict(zip(headers, sequences))
+        directory = os.path.dirname(self.path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        self._file = h5py.File(self.path, "a")
+        try:
+            self.feature_dimension = self._open_manifest(headers, sequences)
+            self._written = set(self._file["embeddings"].keys())
+            if self.pending:
+                self._file.attrs["generation_complete"] = False
+                self._file.flush()
+        except BaseException:
+            self._file.close()
+            self._file = None
+            raise
+
+    def _open_manifest(self, headers, sequences):
+        hf = self._file
+        if len(hf) == 0 and len(hf.attrs) == 0:
+            create_metadata_first_file(
+                hf, headers, sequences, self.model_name, self.saving_mode
+            )
+            return None
+        existing = read_embedding_manifest(
+            hf, require_complete=False, validate_embeddings=True
+        )
+        if existing.model_name != self.model_name:
+            raise ValueError(
+                f"Cannot resume model '{self.model_name}' in a file of model "
+                f"'{existing.model_name}'."
+            )
+        if existing.saving_mode != self.saving_mode:
+            raise ValueError(
+                f"Cannot resume {self.saving_mode} writing in a "
+                f"{existing.saving_mode} file."
+            )
+        removed = sorted(set(existing.headers) - set(headers))
+        if removed:
+            raise ValueError(
+                f"Cannot resume because existing header '{removed[0]}' was "
+                "removed from the sanitized FASTA."
+            )
+        changed = sorted(
+            header
+            for header in set(existing.headers) & set(headers)
+            if existing.sequence_by_header[header] != self._sequence_by_header[header]
+        )
+        if changed:
+            raise ValueError(
+                f"Cannot resume because the sanitized sequence for '{changed[0]}' "
+                "changed."
+            )
+        if existing.headers != headers or existing.sequences != sequences:
+            write_embedding_manifest(
+                hf, headers, sequences, self.model_name, self.saving_mode, replace=True
+            )
+        return existing.feature_dimension
+
+    @property
+    def pending(self):
+        """The sanitized (header, sequence) pairs that still lack an array."""
+        return [
+            (header, self._sequence_by_header[header])
+            for header in self.headers
+            if header not in self._written
+        ]
+
+    @property
+    def written(self):
+        """How many sequences have their array in the file."""
+        return len(self._written)
+
+    def add(self, header, embedding):
+        """Check one sequence's residues-by-features array and store it."""
+        if self._file is None:
+            raise ValueError("The embedding file is closed.")
+        sequence = self._sequence_by_header.get(header)
+        if sequence is None:
+            raise KeyError(f"'{header}' is not a sanitized header of this FASTA.")
+        if header in self._written:
+            raise ValueError(f"'{header}' already has an embedding in this file.")
+        array = np.asarray(embedding)
+        problem = embedding_shape_problem(array.shape, len(sequence))
+        if problem:
+            raise ValueError(f"The embedding for '{header}' {problem}.")
+        if not np.issubdtype(array.dtype, np.floating):
+            raise ValueError(
+                f"The embedding for '{header}' holds {array.dtype} values, not "
+                "floating-point ones."
+            )
+        finite_before = bool(np.isfinite(array).all())
+        with np.errstate(over="ignore"):
+            stored = array.astype(self.dtype)
+        if finite_before and not np.isfinite(stored).all():
+            raise ValueError(
+                f"The embedding for '{header}' has values beyond the range of "
+                f"{self.saving_mode}; save it as float32."
+            )
+        self.feature_dimension = validate_embedding_array(
+            stored,
+            sequence,
+            self.saving_mode,
+            feature_dimension=self.feature_dimension,
+            require_finite=True,
+            header=header,
+        )
+        self._file["embeddings"].create_dataset(header, data=stored)
+        self._file.flush()
+        self._written.add(header)
+
+    def set_attributes(self, **attributes):
+        """Store extra file attributes, such as where the embeddings came from."""
+        if self._file is None:
+            raise ValueError("The embedding file is closed.")
+        reserved = sorted(set(attributes) & set(REQUIRED_ATTRIBUTES))
+        if reserved:
+            raise ValueError(f"Attribute '{reserved[0]}' is set by the writer itself.")
+        for name, value in attributes.items():
+            self._file.attrs[name] = value
+        self._file.flush()
+
+    def close(self):
+        """Mark the file complete if every sequence has its array, then close it.
+
+        Returns the complete file's manifest, or None while sequences are missing.
+        """
+        if self._file is None:
+            return self.manifest
+        try:
+            if not self.pending:
+                self.manifest = mark_generation_complete(self._file)
+        finally:
+            self._file.close()
+            self._file = None
+        return self.manifest
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type is None:
+            self.close()
+        elif self._file is not None:
+            self._file.close()
+            self._file = None
+        return False
+
+
 __all__ = [
     "SAVING_MODE_DTYPES",
     "REQUIRED_ATTRIBUTES",
@@ -361,4 +601,9 @@ __all__ = [
     "write_embedding_manifest",
     "create_metadata_first_file",
     "mark_generation_complete",
+    "FOREIGN_FILE_ADVICE",
+    "MODEL_LABEL_PATTERN",
+    "validate_model_label",
+    "embedding_shape_problem",
+    "EmbeddingWriter",
 ]

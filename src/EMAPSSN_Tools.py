@@ -164,9 +164,13 @@ TOOL_TITLE_ICON_GAP = 6
 # window redrawn in another language carries them over, but tools_settings.json never does.
 UNSAVED_SETTINGS = {
     "Predict_Structures.py": ("INPUT_FASTA",),
+    "Embedding_Import.py": ("SOURCE_PATH", "ID_MAP_TSV"),
 }
 # The filters of the dialog that picks a FASTA file anywhere on the computer.
 FASTA_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)")
+# The filters of the dialogs that pick Embedding Import's source file and ID mapping file.
+EMBEDDING_SOURCE_FILTER = QT_TRANSLATE_NOOP("Tools", "Embedding files (*.h5 *.hdf5 *.hdf *.he5 *.npz);;All files (*)")
+ID_MAP_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "Tab-separated files (*.tsv *.txt);;All files (*)")
 # How long a tool's Save & Run stays greyed out once clicked, in ms, so a
 # double click starts the tool once. The console the tool opens in shows it
 # started; no message box says so.
@@ -329,6 +333,7 @@ TOOL_TITLES = {
     "Sanitize_Sequences.py": QT_TRANSLATE_NOOP("Tools", "Sanitize Sequences"),
     "Generate_Embeddings.py": QT_TRANSLATE_NOOP("Tools", "Generate Embeddings"),
     "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "Embedding Cropping"),
+    "Embedding_Import.py": QT_TRANSLATE_NOOP("Tools", "Embedding Import"),
     "Predict_Structures.py": QT_TRANSLATE_NOOP("Tools", "Predict Structures"),
 }
 # The Lucide icon (src/resources/icons/lucide) beside each tool card's title,
@@ -348,6 +353,7 @@ TOOL_ICONS = {
     "Sanitize_Sequences.py": "sparkles",
     "Generate_Embeddings.py": "dna",
     "Embedding_Cropping.py": "scissors",
+    "Embedding_Import.py": "file-input",
     "Predict_Structures.py": "layers",
 }
 # Cards and help headings that name no tool.
@@ -364,6 +370,7 @@ HELP_HEADING_ICONS = {
     "Parameters": "settings", "参数": "settings",
     "Stages": "settings", "阶段": "settings",
     "Benchmark": BENCHMARK_ICON, "基准测试": BENCHMARK_ICON,
+    "Embedding File Format": "file-text", "Embedding 文件格式": "file-text",
 }
 
 # The benchmark (src/resources/benchmark) has a card of its own at the end of
@@ -1769,6 +1776,37 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "Headers and sequences must match exact contiguous substrings within the full embedding database."),),
                 ),
             },
+            "Embedding_Import.py": {
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "The sequences the new embedding file holds."),
+                    details=(translate("Tools", "Sanitized as Sanitize Sequences does. Every sanitized record must find one array in the source, with one row per residue of its sanitized sequence."),),
+                ),
+                "SOURCE_PATH": Tip(
+                    translate("Tools", "Per-residue embeddings computed elsewhere, chosen with File or Folder from anywhere on this computer."),
+                    details=(
+                        translate("Tools", "An HDF5 file with one dataset per protein named by its ID (such as UniProt's per-residue files), a .npz file, or a folder of .npy files named by ID."),
+                        translate("Tools", "It is not saved: the field is empty the next time the window opens, and a run gets it for that run only."),
+                    ),
+                ),
+                "ID_MAP_TSV": Tip(
+                    translate("Tools", "Optional file of two tab-separated columns: a FASTA header and the source ID it takes."),
+                    details=(
+                        translate("Tools", "Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME."),
+                        translate("Tools", "It is not saved: the field is empty the next time the window opens, and a run gets it for that run only."),
+                    ),
+                ),
+                "MODEL_LABEL": Tip(
+                    translate("Tools", "Names the model in the file and in the names of the files made from it."),
+                    details=(translate("Tools", "Lower-case letters, digits, `_` and `-`. It may not be the identifier of a model EMAP-SSN computes itself, such as `prot_t5`: use a label of your own, such as `uniprot_prot_t5`."),),
+                ),
+                "SAVING_MODE": Tip(
+                    translate("Tools", "Floating-point precision for storing embedding tensors in HDF5."),
+                    options=(
+                        TipOption("float16", translate("Tools", "Saves 50% disk space and RAM with minimal precision loss.")),
+                        TipOption("float32", translate("Tools", "Retains full precision.")),
+                    ),
+                ),
+            },
             "Align_Similarity_Matrix.py": {
                 "INPUT_HDF5": Tip(
                     translate("Tools", "HDF5 database containing dense residue embeddings."),
@@ -2402,6 +2440,55 @@ class ToolsGUI(QMainWindow):
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
                             "display": translate("Tools", "Cropped Sequence Set (.fasta):")
+                        }
+                    ],
+                    "Embedding_Import.py": [
+                        {
+                            "var_name": "title_import",
+                            "type": "title",
+                            "display": translate("Tools", "Embedding Import Settings:")
+                        },
+                        {
+                            "var_name": "INPUT_FASTA",
+                            "type": "dropdown_from_folder",
+                            "folder": os.path.join("Input_Files", "Sequence_Sets"),
+                            "extension": ".fasta",
+                            "include_ext": True,
+                            "dir_key": "FASTA_DIR",
+                            "display": translate("Tools", "Sequence Set (.fasta):")
+                        },
+                        {
+                            "var_name": "SOURCE_PATH",
+                            "type": "file_browse",
+                            "filter": EMBEDDING_SOURCE_FILTER,
+                            "dialog_title": QT_TRANSLATE_NOOP("Tools", "Select Embedding Source"),
+                            "button_text": QT_TRANSLATE_NOOP("Tools", "File..."),
+                            # A folder of .npy files is a source too.
+                            "folder_button": QT_TRANSLATE_NOOP("Tools", "Folder..."),
+                            "display": translate("Tools", "Embedding Source:")
+                        },
+                        {
+                            "var_name": "ID_MAP_TSV",
+                            "type": "file_browse",
+                            "filter": ID_MAP_FILE_FILTER,
+                            "dialog_title": QT_TRANSLATE_NOOP("Tools", "Select ID Mapping File"),
+                            "display": translate("Tools", "ID Mapping (.tsv):")
+                        },
+                        {
+                            "var_name": "MODEL_LABEL",
+                            "type": "text",
+                            "display": translate("Tools", "Model Label:")
+                        },
+                        {
+                            "var_name": "SAVING_MODE",
+                            "type": "dropdown",
+                            "options": [
+                                translate("Tools", "Float32 (Full Precision)", "saving mode"),
+                                translate("Tools", "Float16 (Half Size)", "saving mode"),
+                            ],
+                            "option_values": ["float32", "float16"],
+                            "minimum_characters": 2,
+                            "display": translate("Tools", "Saving Mode:")
                         }
                     ]
                 }
@@ -3922,13 +4009,18 @@ class ToolsGUI(QMainWindow):
                 h_lay = QHBoxLayout(ui_element)
                 h_lay.setContentsMargins(0, 0, 0, 0)
                 line_edit = QLineEdit("" if actual_val is None else str(actual_val).strip("\"'"))
-                browse_button = set_role(QPushButton(translate("Tools", "Browse...")), "compact")
+                # A row may name its dialog and button, and add a Folder button for a folder as the value.
+                dialog_title = s_def.get("dialog_title")
+                dialog_title = translate("Tools", dialog_title) if dialog_title else translate("Tools", "Select FASTA File")
+                button_text = s_def.get("button_text")
+                button_text = translate("Tools", button_text) if button_text else translate("Tools", "Browse...")
+                browse_button = set_role(QPushButton(button_text), "compact")
 
-                def browse_for_file(checked=False, edit=line_edit, file_filter=s_def.get("filter", "")):
+                def browse_for_file(checked=False, edit=line_edit, file_filter=s_def.get("filter", ""), title=dialog_title):
                     start = edit.text().strip()
                     start = os.path.dirname(os.path.abspath(os.path.expanduser(start))) if start else ""
                     chosen, _selected_filter = QFileDialog.getOpenFileName(
-                        self, translate("Tools", "Select FASTA File"), start, translate("Tools", file_filter)
+                        self, title, start, translate("Tools", file_filter)
                     )
                     if chosen:
                         edit.setText(os.path.normpath(chosen))
@@ -3936,8 +4028,24 @@ class ToolsGUI(QMainWindow):
                 browse_button.clicked.connect(browse_for_file)
                 h_lay.addWidget(line_edit)
                 h_lay.addWidget(browse_button)
+                folder_button = None
+                if s_def.get("folder_button"):
+                    folder_button = set_role(QPushButton(translate("Tools", s_def["folder_button"])), "compact")
+
+                    def browse_for_folder(checked=False, edit=line_edit, title=dialog_title):
+                        start = edit.text().strip()
+                        start = os.path.abspath(os.path.expanduser(start)) if start else ""
+                        if start and not os.path.isdir(start):
+                            start = os.path.dirname(start)
+                        chosen = QFileDialog.getExistingDirectory(self, title, start)
+                        if chosen:
+                            edit.setText(os.path.normpath(chosen))
+
+                    folder_button.clicked.connect(browse_for_folder)
+                    h_lay.addWidget(folder_button)
                 ui_element.line_edit = line_edit
                 ui_element.browse_button = browse_button
+                ui_element.folder_button = folder_button
 
             elif s_def['type'] == "switch":
                 ui_element = ToggleSwitch()

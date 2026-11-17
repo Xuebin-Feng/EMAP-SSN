@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 cfc5b2deb2e9a3b9898464bd2e97d4614817e821950fc544385e244a64ecedb2 -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 bfeeafb2d75f03cd4677c1a57bcc05285e984161e7be83621dcaa314712d8e71 -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -167,3 +167,87 @@
      先写入并刷新已解析、已清理的序列标题和序列，再把每个裁剪结果流式写入其序列标题键下，只有通过校验后才把输出标记为完成。
 
 </details>
+
+---
+
+# Embedding 导入 (`Embedding_Import.py`)
+
+该工具把在 EMAP-SSN 之外计算的逐残基 embedding（例如 UniProt 的 ProtT5 逐残基文件、ProtTrans 脚本的输出或你自己的模型）转换为 EMAP-SSN 的 embedding 数据库，供比对、MSA 和网络工具使用。它不运行任何模型。数据库包含哪些序列由 FASTA 决定：FASTA 会按 `Sanitize_Sequences.py` 的方式清理，每条已清理的记录都必须在源中找到一个“残基 × 特征”的数组。
+
+### 输入
+
+#### 序列集 `INPUT_FASTA`
+*   **格式**：标准 FASTA（`.fasta`），原始的或已清理过的均可：即计算这些 embedding 所用的序列。
+*   **说明**：记录会在内存中清理（转为大写、屏蔽无效残基、合并相同序列）。每个数组的行数都必须等于其已清理序列的残基数。
+
+#### Embedding 源 `SOURCE_PATH`
+*   **格式**：以下之一：
+    - 一个 HDF5 文件（`.h5`），其顶层为每个蛋白质存放一个以其 ID 命名的数据集，例如以 accession 命名的 UniProt 逐残基文件。数据集的 `original_id` 属性也算作其 ID，因此也能读取 bio_embeddings 的文件；
+    - 一个 `.npz` 文件，每个 ID 一个数组；
+    - 一个由 `.npy` 文件组成的文件夹，每个蛋白质一个文件，以其 ID 命名（`P12345.npy`）。
+*   **说明**：用 **文件…** 或 **文件夹…** 从这台计算机上的任意位置选择。它不会被保存：下次打开窗口时该字段为空。相对路径在 FASTA 目录中查找。
+
+#### ID 映射 `ID_MAP_TSV`（可选）
+*   **格式**：以制表符分隔的两列：一个 FASTA 序列标题（原始标题、其第一个词或已清理的标题）及其对应的源 ID。以 `#` 开头的行会被跳过。
+*   **说明**：用于自动规则找不到 ID 的记录。与源一样不会被保存。
+
+### 参数
+
+| 参数 | 说明 |
+| :--- | :--- |
+| 模型标签 **`MODEL_LABEL`** | 在数据库以及由它生成的文件的名称中标识模型。只能使用小写字母、数字、`_` 和 `-`，最多 64 个字符。它不能是 EMAP-SSN 自己计算的模型的标识符（例如 `prot_t5`）：否则该文件会被当成在本机计算的文件，而 Embedding 注入会用本机计算的 embedding 扩展它。请使用你自己的标签，例如 `uniprot_prot_t5`。 |
+| 保存精度 **`SAVING_MODE`** | 与生成 embedding 中相同：`Float32 (Full Precision)` 或 `Float16 (Half Size)`。每个数组都会转换为该精度；数值超出 float16 范围的数组会被拒绝。 |
+
+### 输出
+
+#### HDF5 embedding 数据库
+*   **格式**：HDF5（`.h5`），命名为 `{INPUT_FASTA}_[{MODEL_LABEL}]_embeddings.h5`，格式见下文的“Embedding 文件格式”。
+*   **完成**：只有当每条已清理的记录都有其数组时，数据库才会被标记为完成。否则它保持未完成状态，所有读取工具都会拒绝它；再次运行该工具会接着完成它：已导入的记录会保留，其余记录会重新匹配（例如借助映射文件）。
+*   **已有文件**：模型标签、保存精度和序列都相同的文件会被保留或接着完成；模型标签或保存精度不同、或序列已改变的文件会被拒绝。
+*   **来源记录**：属性 `import_source`（源的文件名或文件夹名）、`import_reader`（`hdf5`、`npz` 或 `npy_folder`）、`import_source_dtype` 和 `import_matched_by`（按匹配规则统计的记录数）。
+
+#### 导入报告
+*   **格式**：制表符分隔（`.tsv`），命名为 `{INPUT_FASTA}_[{MODEL_LABEL}]_import_report.tsv`，位于数据库旁边，仅在有记录未导入时写入：`header`、`status`（`missing`、`ambiguous`、`unmapped` 或 `invalid`）、`source_id` 和 `reason`。之后某次运行导入了全部记录时会删除它。
+*   **终端**：显示已导入、文件中已有、缺失、有歧义、映射到不存在的 ID 以及被拒绝的记录数，以及未使用的源 ID 数。
+
+<details markdown="1">
+<summary><b>算法详情</b></summary>
+
+1. **ID 匹配**：
+     对每条已清理的记录，使用第一条能在源中找到 ID 的规则：映射文件；原始序列标题；其第一个词；已清理的序列标题；UniProt accession（`sp|P12345|NAME ...` 和 `tr|...` 形式的标题给出 `P12345`）。因序列相同而在清理时被合并的记录会尝试每一个原始序列标题。可能被多条记录使用的 ID 不会被使用：这些记录会被报告为有歧义，可用映射文件解决。
+
+2. **数组检查**：
+     数组必须是二维的：每个蛋白质只有一个向量（即逐蛋白质 embedding）会被拒绝，因为比对需要每个残基一个向量。行数必须等于已清理序列的残基数：行数 = 长度 + 2 说明模型的起始和结束 token 被保留了，行数 = 长度 + 1 说明保留了其中一个。数值必须是浮点数，整个数据库的特征宽度一致，并且在所选保存精度下为有限值。
+
+3. **HDF5 数据库编制**：
+     与 `Generate_Embeddings.py` 一样，先写入并刷新已清理的序列标题和序列，再为每条记录写入一个数组，只有通过校验后才把数据库标记为完成。
+
+</details>
+
+---
+
+# Embedding 文件格式
+
+EMAP-SSN 的所有工具和 Viewer 都以同一种 HDF5 布局读取 embedding。其他布局的文件会被拒绝，错误信息会指向可以转换它的 Embedding 导入工具。
+
+| 对象 | 内容 |
+| :--- | :--- |
+| 属性 `model_name` | 模型标签，小写；也出现在文件名 `{set}_[{model_name}]_embeddings.h5` 中。 |
+| 属性 `saving_mode` | `float16` 或 `float32`：每个 embedding 数组的类型。 |
+| 属性 `num_sequences` | 记录数。 |
+| 属性 `generation_complete` | 布尔值。读取工具会拒绝该值为 false 的文件。 |
+| 数据集 `/headers` | UTF-8 字符串：已清理的 FASTA 序列标题，各不相同。 |
+| 数据集 `/sequences` | UTF-8 字符串：已清理的序列，顺序与 `/headers` 相同。 |
+| 组 `/embeddings` | 每个序列标题一个数据集，即 `/embeddings/{sanitized header}`：一个保存精度类型的 $L \times D$ 数组，其中 $L$ 是其序列的长度，$D$ 对所有数组都相同。 |
+
+“已清理”指按 `Sanitize_Sequences.py` 的方式写出：读取工具按已清理的序列标题和完全相同的序列匹配节点。其他属性（例如 Embedding 导入写入的 `import_*`）是允许的，并会被忽略。
+
+你自己的脚本可以用 `src/utilities/HDF5_Storage.py` 中的 `EmbeddingWriter` 写出这样的数据库（需将 `src` 加入 Python 路径）。它会清理 FASTA，像 Embedding 导入一样检查每个数组，接着完成未完成的数据库，并在每条序列都有数组时把它标记为完成：
+
+```python
+from utilities.HDF5_Storage import EmbeddingWriter
+
+with EmbeddingWriter("Embeddings/my_set_[my_model]_embeddings.h5", "my_set.fasta", "my_model", "float16") as writer:
+    for header, sequence in writer.pending:      # 仍缺数组的已清理序列标题和序列
+        writer.add(header, my_model(sequence))   # 残基 × 特征
+```

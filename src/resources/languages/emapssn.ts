@@ -7602,6 +7602,14 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Embedding files (*.h5 *.hdf5 *.hdf *.he5 *.npz);;All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tab-separated files (*.tsv *.txt);;All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7675,6 +7683,10 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
     </message>
     <message>
         <source>Embedding Cropping</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Import</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7983,6 +7995,42 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>Headers and sequences must match exact contiguous substrings within the full embedding database.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The sequences the new embedding file holds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sanitized as Sanitize Sequences does. Every sanitized record must find one array in the source, with one row per residue of its sanitized sequence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Per-residue embeddings computed elsewhere, chosen with File or Folder from anywhere on this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>An HDF5 file with one dataset per protein named by its ID (such as UniProt&apos;s per-residue files), a .npz file, or a folder of .npy files named by ID.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It is not saved: the field is empty the next time the window opens, and a run gets it for that run only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Optional file of two tab-separated columns: a FASTA header and the source ID it takes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Names the model in the file and in the names of the files made from it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lower-case letters, digits, `_` and `-`. It may not be the identifier of a model EMAP-SSN computes itself, such as `prot_t5`: use a label of your own, such as `uniprot_prot_t5`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8897,6 +8945,38 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>Cropped Sequence Set (.fasta):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Import Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select Embedding Source</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folder...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Source:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select ID Mapping File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ID Mapping (.tsv):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model Label:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

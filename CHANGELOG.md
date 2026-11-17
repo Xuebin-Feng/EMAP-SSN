@@ -31,7 +31,7 @@ still change before version 1.0.0.
 - On a Mac, the first start after updating checks the setup once more, because the record
   of the computer's hardware no longer includes its display settings (see Fixed).
 - The MCP server is 0.17.0 (0.16.0 in v0.5.0), for the new `predict_structure` action and
-  the `predict_structures` pipeline tool (see Added).
+  the `predict_structures` and `embedding_import` pipeline tools (see Added).
 - Generate Embeddings now saves float16 by default (see Changed). To resume an interrupted
   run that was saving float32, set Saving Mode to float32 first: a resume keeps the file's
   saving mode and refuses a different one.
@@ -367,6 +367,34 @@ still change before version 1.0.0.
     is asked before the download.
   - **MCP:** jobs accept `prot_t5` as the model, and the server's guide lists its
     embedding width.
+- **Embedding Import, for embeddings computed elsewhere.** A new tool, the last card of the
+  Tools window's Sequence & Embedding Preparation tab and the MCP pipeline tool
+  `embedding_import`, converts per-residue embeddings into an embedding database without
+  running a model: UniProt's ProtT5 per-residue files, the ProtTrans scripts' output, or a
+  model of your own.
+  - **Sources:** an HDF5 file with one dataset per protein named by its ID (a dataset's
+    `original_id` attribute counts too, as bio_embeddings writes it), a `.npz` file, or a
+    folder of `.npy` files. File and Folder buttons pick it. Like Predict Structures' FASTA,
+    the path is not saved, and neither is the optional ID mapping file.
+  - **The FASTA decides:** it is sanitized as Sanitize Sequences does, and each record takes
+    the first ID the source has among: the mapping file's (two columns, header and ID), the
+    original header, its first word, the sanitized header, and a UniProt accession
+    (`sp|P12345|NAME` gives `P12345`). An ID that more than one record could take is not used.
+  - **Checks:** a per-protein vector is refused, since alignment needs one vector per residue.
+    Rows must equal the sanitized sequence's length; length + 2 is named as start and end
+    tokens left in. One feature width per file, and finite values at the Saving Mode, whose
+    default is Generate Embeddings' (a test keeps the two equal).
+  - **Output:** `<set>_[<label>]_embeddings.h5`, with the source's name, reader, number type
+    and match counts as extra attributes. It is marked complete only when every record has
+    its array. Otherwise `<set>_[<label>]_import_report.tsv` lists the other records and
+    why, the run fails, and running it again resumes the file. The label may not be the
+    identifier of a model EMAP-SSN computes, so an imported file never passes for a
+    computed one.
+  - **Your own scripts:** `EmbeddingWriter` in `src/utilities/HDF5_Storage.py` writes the
+    same file from any model's arrays, with the same checks and the same resume.
+  - **Every reader** that refuses an embedding file in another format now names Embedding
+    Import instead of calling the file legacy, and the help page describes the format in a
+    new section, Embedding File Format.
 
 ### Changed
 

@@ -109,8 +109,10 @@ class EmbeddingHdf5Tests(unittest.TestCase):
                 hf.create_dataset("headers", data=[b"Alpha"])
                 hf.create_group("embeddings")
             with h5py.File(legacy, "r") as hf:
-                with self.assertRaisesRegex(ValueError, "Legacy embedding files"):
+                with self.assertRaisesRegex(ValueError, "missing required attribute") as raised:
                     Embedding_HDF5.read_embedding_manifest(hf)
+                # Every reader's refusal of a file in another format points to the converter.
+                self.assertIn("Embedding Import", str(raised.exception))
 
             incomplete = pathlib.Path(temp_dir) / "incomplete.h5"
             with h5py.File(incomplete, "w") as hf:
@@ -773,6 +775,135 @@ class EmbeddingCroppingTests(unittest.TestCase):
             Embedding_Cropping.crop_embeddings(self.source, cropped, same_file)
 
         self.assertEqual(self.source.read_bytes(), original)
+
+
+class EmbeddingWriterClassTests(unittest.TestCase):
+    """HDF5_Storage.EmbeddingWriter: a valid file from any model's arrays, for users' own scripts."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = pathlib.Path(folder.name)
+        self.fasta = self.root / "set.fasta"
+        # The second header is sanitized; Alpha and Gamma, identical once uppercased, are merged.
+        self.fasta.write_text(">Alpha\nacde\n>Beta two\nFGHIK\n>Gamma\nACDE\n", encoding="utf-8")
+        self.output = self.root / "out" / "set_[my_model]_embeddings.h5"
+
+    def writer(self, model="my_model", mode="float16", fasta=None):
+        with mock.patch("sys.stdout"):
+            return Embedding_HDF5.EmbeddingWriter(self.output, fasta or self.fasta, model, mode)
+
+    @staticmethod
+    def array(length, width=3, value=0.5):
+        return np.full((length, width), value, dtype=np.float64)
+
+    def test_a_script_writes_a_complete_file_from_the_sanitized_records(self):
+        with self.writer() as writer:
+            self.assertEqual(writer.pending, [("Alpha", "ACDE"), ("Beta_two", "FGHIK")])
+            for header, sequence in writer.pending:
+                writer.add(header, self.array(len(sequence)))
+            self.assertEqual(writer.written, 2)
+        self.assertTrue(writer.manifest.generation_complete)
+        with h5py.File(self.output, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(hf["embeddings"]["Alpha"].dtype, np.float16)
+        self.assertEqual((manifest.model_name, manifest.saving_mode, manifest.feature_dimension),
+                         ("my_model", "float16", 3))
+
+    def test_an_error_leaves_the_file_incomplete_and_reopening_resumes_it(self):
+        with self.assertRaises(RuntimeError):
+            with self.writer() as writer:
+                writer.add("Alpha", self.array(4))
+                raise RuntimeError("the model crashed")
+        with h5py.File(self.output, "r") as hf:
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                Embedding_HDF5.read_embedding_manifest(hf)
+        with self.writer() as writer:
+            self.assertEqual(writer.pending, [("Beta_two", "FGHIK")])
+            writer.add("Beta_two", self.array(5))
+        self.assertTrue(writer.manifest.generation_complete)
+
+    def test_an_error_after_the_last_array_still_leaves_the_file_incomplete(self):
+        with self.assertRaises(RuntimeError):
+            with self.writer() as writer:
+                for header, sequence in writer.pending:
+                    writer.add(header, self.array(len(sequence)))
+                raise RuntimeError("the script failed afterwards")
+        self.assertIsNone(writer.manifest)
+        with h5py.File(self.output, "r") as hf:
+            self.assertFalse(hf.attrs["generation_complete"])
+
+    def test_leaving_with_sequences_missing_keeps_the_file_incomplete(self):
+        with self.writer() as writer:
+            writer.add("Alpha", self.array(4))
+        self.assertIsNone(writer.manifest)
+        with h5py.File(self.output, "r") as hf:
+            self.assertFalse(hf.attrs["generation_complete"])
+
+    def test_resuming_refuses_another_model_precision_or_changed_sequences(self):
+        with self.writer() as writer:
+            writer.add("Alpha", self.array(4))
+        with self.assertRaisesRegex(ValueError, "model 'my_model'"):
+            self.writer(model="other")
+        with self.assertRaisesRegex(ValueError, "float32 writing in a float16 file"):
+            self.writer(mode="float32")
+        changed = self.root / "changed.fasta"
+        changed.write_text(">Alpha\nACDF\n>Beta two\nFGHIK\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "sequence for 'Alpha' changed"):
+            self.writer(fasta=changed)
+        removed = self.root / "removed.fasta"
+        removed.write_text(">Beta two\nFGHIK\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "'Alpha' was removed"):
+            self.writer(fasta=removed)
+        added = self.root / "added.fasta"
+        added.write_text(">Alpha\nACDE\n>Beta two\nFGHIK\n>Delta\nMM\n", encoding="utf-8")
+        with self.writer(fasta=added) as writer:
+            self.assertEqual([header for header, _ in writer.pending], ["Beta_two", "Delta"])
+
+    def test_add_refuses_arrays_that_do_not_fit_and_says_why(self):
+        writer = self.writer()
+        self.addCleanup(writer.close)
+        cases = (
+            ("Unknown", self.array(4), KeyError, "not a sanitized header"),
+            ("Alpha", np.ones(3), ValueError, "per-protein embedding"),
+            ("Alpha", self.array(6), ValueError, "start and end tokens"),
+            ("Alpha", self.array(5), ValueError, "start or end token"),
+            ("Alpha", np.ones((4, 3), dtype=np.int64), ValueError, "not floating-point"),
+            ("Alpha", self.array(4, value=1e6), ValueError, "beyond the range of float16"),
+            ("Alpha", self.array(4, value=np.nan), ValueError, "NaN"),
+        )
+        for header, array, error, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(error, message):
+                    writer.add(header, array)
+        writer.add("Alpha", self.array(4))
+        with self.assertRaisesRegex(ValueError, "already has an embedding"):
+            writer.add("Alpha", self.array(4))
+        with self.assertRaisesRegex(ValueError, "feature dimension 2; expected 3"):
+            writer.add("Beta_two", self.array(5, width=2))
+
+    def test_extra_attributes_are_kept_and_the_required_ones_are_the_writers(self):
+        with self.writer() as writer:
+            with self.assertRaisesRegex(ValueError, "model_name"):
+                writer.set_attributes(model_name="x")
+            writer.set_attributes(import_source="source.h5")
+            for header, sequence in writer.pending:
+                writer.add(header, self.array(len(sequence)))
+        with h5py.File(self.output, "r") as hf:
+            self.assertEqual(hf.attrs["import_source"], "source.h5")
+            Embedding_HDF5.read_embedding_manifest(hf)
+
+    def test_model_labels_are_safe_in_file_names(self):
+        for label in ("my_model", "e1", "prot_t5", "uniprot-prot_t5", "a" * 64):
+            with self.subTest(label=label):
+                self.assertEqual(Embedding_HDF5.validate_model_label(label), label)
+        for label in ("", "My_Model", "a b", "a[b]", "a/b", "-lead", "a" * 65, None):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(ValueError, "Model label"):
+                    Embedding_HDF5.validate_model_label(label)
+        with self.assertRaisesRegex(ValueError, "Model label"):
+            self.writer(model="Bad Label")
+        self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":

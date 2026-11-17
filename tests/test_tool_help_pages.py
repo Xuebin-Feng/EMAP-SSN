@@ -568,8 +568,8 @@ class ParameterTableTests(unittest.TestCase):
                 self.assertEqual(shown.count('<div class="table-scroll parameters">'), keyed)
                 self.assertEqual(shown.count('<div class="table-scroll">'), len(tables) - keyed)
             counted += keyed
-        # Ten tables in each of English and Chinese.
-        self.assertEqual(counted, 20)
+        # Eleven tables in each of English and Chinese.
+        self.assertEqual(counted, 22)
         # A table whose first column names no setting keeps the plain box.
         self.assertFalse(Help_Pages.is_parameter_table(
             "<table><tbody><tr>\n<td>Load</td><td>Reading the <code>cache</code></td></tr></tbody></table>"))
