@@ -43,6 +43,15 @@ def distance(a, b):
     return math.dist(a, b)
 
 
+def hex_channels(colour):
+    return [int(colour[index:index + 2], 16) for index in (1, 3, 5)]
+
+
+# A pixel read back from the canvas is the colour of its token as the screen shows it: exactly on Windows and
+# Linux, within a step of 1 per channel on macOS, whose colour management shifts #fafafa to #f9f9f9.
+PIXEL_TOLERANCE = 2 if sys.platform == "darwin" else 0
+
+
 class ShellWebglTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -55,12 +64,16 @@ class ShellWebglTests(unittest.TestCase):
         self.assertEqual(self.found["errors"], [])
         self.assertEqual(self.found["errorsReady"], [])
 
+    def assertColourIs(self, pixel, token):
+        for read, wanted in zip(hex_channels(pixel), hex_channels(token)):
+            self.assertLessEqual(abs(read - wanted), PIXEL_TOLERANCE, (pixel, token))
+
     def test_the_canvas_takes_the_colour_of_each_theme_and_draws_the_structures_on_it(self):
         found = self.found
         self.assertEqual(found["lightToken"], "#fafafa")
-        self.assertEqual(found["light"]["corner"], found["lightToken"])
+        self.assertColourIs(found["light"]["corner"], found["lightToken"])
         self.assertNotEqual(found["darkToken"], found["lightToken"])
-        self.assertEqual(found["dark"]["corner"], found["darkToken"])
+        self.assertColourIs(found["dark"]["corner"], found["darkToken"])
         self.assertEqual(found["darkRenderer"], found["darkToken"])
         for theme in ("light", "dark"):
             self.assertGreater(found[theme]["drawn"], 0.002, theme)
