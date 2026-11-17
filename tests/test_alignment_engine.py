@@ -707,6 +707,26 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
         self.assertEqual(warmup, [])
         self.assertEqual(timed, [(0, 1, "a", "b")])
 
+    def test_host_output_buffers_are_pinned_only_for_cuda_and_xpu(self):
+        # Where MPS was built in but cannot be used, a pinned request crashes the
+        # process, so the request is never made for any other device.
+        for device_type, pinned in (("cuda", True), ("xpu", True), ("mps", False), ("cpu", False)):
+            matrices = mock.Mock(shape=(2, 3), device=torch.device(device_type))
+            with mock.patch.object(alignment_engine.torch, "empty") as empty:
+                alignment_engine._host_output_buffer(matrices)
+            self.assertEqual(empty.call_args.kwargs.get("pin_memory", False), pinned, device_type)
+            self.assertEqual(empty.call_count, 1)
+        matrices = mock.Mock(shape=(2, 3), device=torch.device("cuda"))
+        with mock.patch.object(
+            alignment_engine.torch, "empty", side_effect=[RuntimeError("no"), "plain"]
+        ) as empty:
+            self.assertEqual(alignment_engine._host_output_buffer(matrices), "plain")
+        self.assertNotIn("pin_memory", empty.call_args.kwargs)
+        for value in ("cuda", "cuda:1", torch.device("xpu")):
+            self.assertTrue(alignment_engine._pins_host_memory(value))
+        for value in ("mps", "cpu", torch.device("mps")):
+            self.assertFalse(alignment_engine._pins_host_memory(value))
+
 
 if __name__ == "__main__":
     unittest.main()

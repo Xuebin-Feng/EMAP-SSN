@@ -1290,11 +1290,22 @@ def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
     return final
 
 
+def _pins_host_memory(device):
+    """Pinned host memory serves only CUDA and XPU.
+
+    Where PyTorch was built with MPS but cannot use it, asking for pinned memory
+    crashes the process outright, which no except can catch.
+    """
+    return getattr(device, "type", str(device).split(":", 1)[0]) in {"cuda", "xpu"}
+
+
 def _host_output_buffer(tensor):
-    try:
-        return torch.empty(tensor.shape, dtype=torch.float32, device="cpu", pin_memory=True)
-    except RuntimeError:
-        return torch.empty(tensor.shape, dtype=torch.float32, device="cpu")
+    if _pins_host_memory(tensor.device):
+        try:
+            return torch.empty(tensor.shape, dtype=torch.float32, device="cpu", pin_memory=True)
+        except RuntimeError:
+            pass
+    return torch.empty(tensor.shape, dtype=torch.float32, device="cpu")
 
 
 def _partition_tiles(tasks, block_ids):
@@ -2393,6 +2404,8 @@ def run_fixed_query_cuda_pipeline(
     capacity = max(used for _entries, used in chunks)
     ring_depth = max(2, min(8, FIXED_QUERY_RING_BYTES // max(1, capacity)))
     try:
+        if not _pins_host_memory(device):
+            raise RuntimeError("pinned host memory serves only CUDA and XPU")
         buffers = [
             torch.empty(capacity, dtype=torch.uint8, pin_memory=True)
             for _ in range(ring_depth)
