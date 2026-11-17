@@ -387,7 +387,23 @@ def _gated_error(error):
     return type(error).__name__ in {"GatedRepoError", "RepositoryNotFoundError"} or status in {401, 403}
 
 
+def _use_float32(model):
+    """Make model, and the parts esm loads on first use, float32. Returns model."""
+    model.float()
+    for name in ("structure_encoder_fn", "structure_decoder_fn", "function_decoder_fn"):
+        loader = getattr(model, name, None)
+        if loader is not None:
+            setattr(model, name, lambda device, loader=loader: loader(device).float())
+    # A part that was already loaded is converted too.
+    for name in ("_structure_encoder", "_structure_decoder", "_function_decoder"):
+        part = getattr(model, name, None)
+        if part is not None:
+            part.float()
+    return model
+
+
 def _load_local_model(device, job_event=None):
+    import torch
     import esm.pretrained
     from esm.utils.constants.esm3 import data_root as package_data_root
     from huggingface_hub import snapshot_download
@@ -429,7 +445,13 @@ def _load_local_model(device, job_event=None):
     from esm.models.esm3 import ESM3
 
     print("Loading local MIT-licensed ESM3 1.4B model (biohub/esm3-sm-open-v1)...")
-    return ESM3.from_pretrained("esm3_sm_open_v1").to(device)
+    device = torch.device(device)
+    if device.type == "cuda":
+        return ESM3.from_pretrained("esm3_sm_open_v1").to(device)
+    # Off CUDA the weights stay in float32: esm keeps them as bfloat16, and only
+    # its CUDA path turns on the bfloat16 autocast that makes that work.
+    model = ESM3.from_pretrained("esm3_sm_open_v1", device=torch.device("cpu"))
+    return _use_float32(model).to(device)
 
 
 def _load_large_client(prompt_callback=None):

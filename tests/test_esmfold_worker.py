@@ -29,6 +29,8 @@ from utilities import Job_Cancellation
 from web_ui import esmfold_backend
 from web_ui.Plugin_Manager import WebPluginRegistry
 
+import torch  # after the imports above: a lone import of torch can segfault here
+
 
 class FakeProtein:
     def __init__(self, sequence=None):
@@ -694,7 +696,86 @@ class LocalModelDataRootTests(unittest.TestCase):
             self.assertEqual(data_root("esmc-300"), Path("package") / "esmc-300")
             self.assertEqual(package_calls, ["esmc-300"])
             self.assertEqual(download.call_count, 1)
-        esm3_class.from_pretrained.assert_called_once_with("esm3_sm_open_v1")
+        esm3_class.from_pretrained.assert_called_once()
+        self.assertEqual(esm3_class.from_pretrained.call_args.args, ("esm3_sm_open_v1",))
+
+
+class Float32OffCudaTests(unittest.TestCase):
+    """Off CUDA the model and its lazily loaded parts run in float32; CUDA is left alone."""
+
+    class Part(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layer = torch.nn.Linear(2, 2).to(torch.bfloat16)
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layer = torch.nn.Linear(2, 2).to(torch.bfloat16)
+            self.made = []
+            self.structure_encoder_fn = self.structure_decoder_fn = self.function_decoder_fn = self._make
+            self._structure_encoder = self._structure_decoder = self._function_decoder = None
+
+        def _make(self, device):
+            part = Float32OffCudaTests.Part()
+            self.made.append(part)
+            return part
+
+        def get_structure_decoder(self):
+            if self._structure_decoder is None:
+                self._structure_decoder = self.structure_decoder_fn("cpu")
+            return self._structure_decoder
+
+    def test_model_and_lazily_loaded_parts_become_float32(self):
+        model = esmfold_worker._use_float32(self.Model())
+        self.assertEqual(model.layer.weight.dtype, torch.float32)
+        decoder = model.get_structure_decoder()
+        self.assertEqual(decoder.layer.weight.dtype, torch.float32)
+        self.assertIs(model.get_structure_decoder(), decoder)
+        self.assertEqual(model.function_decoder_fn("cpu").layer.weight.dtype, torch.float32)
+
+    def test_a_part_loaded_before_the_conversion_is_converted_too(self):
+        model = self.Model()
+        model.get_structure_decoder()
+        esmfold_worker._use_float32(model)
+        self.assertEqual(model._structure_decoder.layer.weight.dtype, torch.float32)
+
+    def _load(self, device):
+        class Esm3:
+            from_pretrained = mock.Mock(side_effect=lambda *a, **k: self.model)
+        self.model = self.Model()
+        modules = {name: types.ModuleType(name) for name in (
+            "esm", "esm.pretrained", "esm.utils", "esm.utils.constants",
+            "esm.utils.constants.esm3", "esm.models", "esm.models.esm3",
+            "huggingface_hub",
+        )}
+        for name, module in modules.items():
+            if "." in name:
+                parent, child = name.rsplit(".", 1)
+                setattr(modules[parent], child, module)
+        modules["esm.utils.constants.esm3"].data_root = lambda name: name
+        modules["esm.models.esm3"].ESM3 = Esm3
+        modules["huggingface_hub"].snapshot_download = mock.Mock()
+        with mock.patch.dict(sys.modules, modules):
+            loaded = esmfold_worker._load_local_model(device)
+        return loaded, Esm3.from_pretrained
+
+    def test_cpu_loads_on_cpu_in_float32(self):
+        loaded, from_pretrained = self._load(torch.device("cpu"))
+        self.assertEqual(loaded.layer.weight.dtype, torch.float32)
+        self.assertEqual(from_pretrained.call_args.kwargs, {"device": torch.device("cpu")})
+
+    def test_cuda_is_left_as_esm_loads_it(self):
+        model = self.Model()
+        self.model = model
+        with mock.patch.object(esmfold_worker, "_use_float32") as convert,                 mock.patch.object(self.Model, "to", return_value=model):
+            self._load_cuda()
+        convert.assert_not_called()
+
+    def _load_cuda(self):
+        # Only the decision is under test, so the device is a stand-in.
+        with mock.patch.object(torch, "device", return_value=types.SimpleNamespace(type="cuda")):
+            self._load("cuda")
 
 
 class WritePredictionScaleTests(unittest.TestCase):
