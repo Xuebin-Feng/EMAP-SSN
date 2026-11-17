@@ -694,6 +694,20 @@ still change before version 1.0.0.
   (a 401, 403 or 404) and closed at once, and Windows then dropped the connection before
   the client had read the answer. The server now stops sending, reads out what the
   client is still sending, for at most 2 seconds and 2 MiB, and then closes.
+- **macOS: cancelling an MCP job whose program ignores the stop signal ended in an
+  error.** macOS answers "not permitted" for a group of processes that have ended but
+  are not yet cleared away, and the job manager did not expect that answer. It now
+  counts as stopped once the program it started has ended. If that program is still
+  alive, the signal was refused: the job is then reported as still running, never as
+  stopped. The test runner follows the same rule. Not yet run on a Mac.
+- **VR: `meta upload` and `run` could not take a path with a space,** such as a file in
+  a user folder named `First Last`. `meta upload` looked up each word as its own file.
+  It now tries the whole text as one file first, and accepts quotes, as the desktop
+  does. `run` reported a folder with a space as missing; it now names it as a folder.
+- **Tests that assumed Windows now hold on macOS:** a folder listing in a fixed order,
+  the Tree View's key names, a Retina screen's doubled scale, a colour read back one
+  step off, and a message box found by its title, which macOS does not show. The last
+  one made the suite hang on a Mac.
 
 ## [0.5.0] - 2026-10-30
 
