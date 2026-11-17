@@ -342,7 +342,10 @@ class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
     """
 
     def setUp(self):
-        self.manager = PipelineJobManager(PROJECT_ROOT, termination_grace=0.2)
+        temporary = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(temporary.cleanup)
+        self.manager = PipelineJobManager(
+            PROJECT_ROOT, termination_grace=0.2, temporary_parent=pathlib.Path(temporary.name) / "jobs")
         for name, value in (("_FORCED_STOP_WAIT", 0.3), ("_LEADER_REAP_WAIT", 0.05)):
             patcher = mock.patch.object(Pipeline_Jobs, name, value)
             patcher.start()
