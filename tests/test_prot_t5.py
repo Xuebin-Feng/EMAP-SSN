@@ -9,6 +9,7 @@ its tokenizer is already in the local Hugging Face cache; nothing is
 downloaded.
 """
 
+import os
 import sys
 import tempfile
 import unittest
@@ -134,11 +135,25 @@ class LoadModelTests(unittest.TestCase):
         np.testing.assert_array_equal(first, second)
 
     def test_the_identifier_maps_to_the_unrounded_checkpoint(self):
-        with mock.patch(
+        switch = {}
+
+        def load(*args, **kwargs):
+            switch["during"] = os.environ.get("DISABLE_SAFETENSORS_CONVERSION")
+            return mock.Mock()
+
+        with mock.patch.dict(os.environ), mock.patch(
             "transformers.T5Tokenizer.from_pretrained", return_value="tokenizer"
-        ), mock.patch("transformers.T5EncoderModel.from_pretrained") as model_loader:
+        ), mock.patch(
+            "transformers.T5EncoderModel.from_pretrained", side_effect=load
+        ) as model_loader:
+            os.environ.pop("DISABLE_SAFETENSORS_CONVERSION", None)
             prot_t5.load_model("prot_t5", "cpu")
+            after = os.environ.get("DISABLE_SAFETENSORS_CONVERSION")
         model_loader.assert_called_once_with(HF_ID, dtype=torch.float32)
+        # The repository holds only pytorch_model.bin: the converter bot's copy
+        # is not fetched while the checkpoint loads, and the switch is not left on.
+        self.assertEqual(switch["during"], "1")
+        self.assertIsNone(after)
 
 
 def _cached_tokenizer():

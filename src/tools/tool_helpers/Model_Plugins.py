@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import glob
 import hashlib
@@ -445,6 +446,38 @@ def require_model_license_acceptance(
     )
 
 
+# =====================================================================
+# 3. Loading Checkpoints from the Hugging Face Hub
+# =====================================================================
+
+SAFETENSORS_CONVERSION_SWITCH = "DISABLE_SAFETENSORS_CONVERSION"
+
+
+@contextmanager
+def safetensors_conversion_disabled():
+    """Load a ``.bin``-only Hub checkpoint without fetching a converted copy.
+
+    When a Hub repository's main branch holds ``pytorch_model.bin`` and no
+    safetensors file, Transformers loads the ``.bin`` and then starts a
+    background thread that asks Hugging Face's safetensors-convert Space for a
+    copy, or finds the converter bot's pull request, and downloads that copy
+    from ``refs/pr/<n>``. The weights loaded never come from it, yet the copy is
+    about as large as the checkpoint, and the thread is not a daemon, so the
+    process cannot end before the download does. Transformers skips the thread
+    while this switch is set; it reads the switch during ``from_pretrained``,
+    so the switch is set for the call only and restored afterwards.
+    """
+    previous = os.environ.get(SAFETENSORS_CONVERSION_SWITCH)
+    os.environ[SAFETENSORS_CONVERSION_SWITCH] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(SAFETENSORS_CONVERSION_SWITCH, None)
+        else:
+            os.environ[SAFETENSORS_CONVERSION_SWITCH] = previous
+
+
 __all__ = [
     "ALLOWED_EXECUTION_MODES",
     "USAGE_TERM_FIELDS",
@@ -468,4 +501,6 @@ __all__ = [
     "format_model_selector_label",
     "prompt_for_model_license_acceptance",
     "require_model_license_acceptance",
+    "SAFETENSORS_CONVERSION_SWITCH",
+    "safetensors_conversion_disabled",
 ]

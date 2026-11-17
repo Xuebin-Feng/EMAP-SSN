@@ -15,6 +15,8 @@
 
 import re
 
+from tools.tool_helpers.Model_Plugins import safetensors_conversion_disabled
+
 SUPPORTED_MODELS = ["prot_t5"]
 MODEL_EXECUTION_MODES = {"prot_t5": "local"}
 # What the Tools dropdowns show; the identifier above stays what settings and files hold.
@@ -66,7 +68,12 @@ def load_model(model_name, device):
     # embedding file records only the model name, so repointing hf_mappings
     # would silently mix checkpoints under prot_t5; add a separate model entry
     # instead.
-    model = T5EncoderModel.from_pretrained(hf_id, dtype=torch.float32).to(device)
+    # The repository holds only pytorch_model.bin, so Transformers would also
+    # fetch the converter bot's safetensors copy (as large again) in the
+    # background; the weights come from the .bin either way.
+    with safetensors_conversion_disabled():
+        model = T5EncoderModel.from_pretrained(hf_id, dtype=torch.float32)
+    model = model.to(device)
     model.eval()
     return tokenizer, model
 

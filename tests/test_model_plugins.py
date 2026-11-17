@@ -2,15 +2,18 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Model_Plugins: static plugin metadata, declared execution modes and the
-model license gate (always against a temporary acceptance file)."""
+"""Model_Plugins: static plugin metadata, declared execution modes, the
+model license gate (always against a temporary acceptance file) and the
+switch that keeps a .bin-only Hub checkpoint from fetching a converted copy."""
 
 from datetime import datetime, timezone
 import json
+import os
 import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -325,6 +328,42 @@ class ModelDisplayNameTests(unittest.TestCase):
                 plugin = PLM_Plugin_Utils.find_model_plugin(model)
                 self.assertIn(model, plugin.SUPPORTED_MODELS)
                 self.assertEqual(plugin.MODEL_DISPLAY_NAMES[model], self.SHIPPED[model])
+
+
+class SafetensorsConversionSwitchTests(unittest.TestCase):
+    """A .bin-only Hub checkpoint loads without fetching the converter bot's copy."""
+
+    SWITCH = "DISABLE_SAFETENSORS_CONVERSION"
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_switch_is_on_inside_and_removed_after(self):
+        os.environ.pop(self.SWITCH, None)
+        with PLM_Plugin_Utils.safetensors_conversion_disabled():
+            self.assertEqual(os.environ[self.SWITCH], "1")
+        self.assertNotIn(self.SWITCH, os.environ)
+
+    def test_a_value_set_before_comes_back_even_after_an_error(self):
+        os.environ[self.SWITCH] = "0"
+        with self.assertRaises(RuntimeError):
+            with PLM_Plugin_Utils.safetensors_conversion_disabled():
+                raise RuntimeError("load failed")
+        self.assertEqual(os.environ[self.SWITCH], "0")
+
+    def test_transformers_still_reads_this_switch(self):
+        # Transformers decides whether to start the conversion thread from this
+        # variable; if an upgrade renames it, the helper silently stops working.
+        import inspect
+        from transformers import modeling_utils
+        from transformers.utils.import_utils import is_env_variable_true
+
+        self.assertEqual(PLM_Plugin_Utils.SAFETENSORS_CONVERSION_SWITCH, self.SWITCH)
+        self.assertIn(f'is_env_variable_true("{self.SWITCH}")', inspect.getsource(modeling_utils))
+        with PLM_Plugin_Utils.safetensors_conversion_disabled():
+            self.assertTrue(is_env_variable_true(self.SWITCH))
 
 
 if __name__ == "__main__":

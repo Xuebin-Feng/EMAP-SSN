@@ -357,7 +357,9 @@ still change before version 1.0.0.
     download on first use. Only its encoder is loaded, about 1.2 billion parameters or
     4.8 GB in float32, and it runs in float32 like every local model. The half-precision
     `Rostlab/prot_t5_xl_half_uniref50-enc` is not used, because it gives different
-    embeddings.
+    embeddings. The repository has no safetensors file, and Transformers would also
+    download a converter bot's safetensors copy, as large again, in the background
+    and keep the tool from ending until it arrived; the plugin turns that off.
   - **Input:** ProtTrans's published preprocessing: residues separated by spaces, and B,
     Z, U and O mapped to X. J, which the vocabulary lacks, and `.` or `-` inside a
     sequence become X, as for ProtBERT and ProstT5.
