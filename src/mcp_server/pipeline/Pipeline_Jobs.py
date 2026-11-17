@@ -122,7 +122,7 @@ def changed_files(before, after):
     return sorted(changes, key=lambda item: os.path.normcase(item["path"]))
 
 
-def _benchmark_failure(result, return_code):
+def _benchmark_failure(result, return_code, platform=None):
     """Why a benchmark that wrote its result did not succeed, from that result."""
     status = result.get("status")
     if status == "could_not_start":
@@ -137,7 +137,18 @@ def _benchmark_failure(result, return_code):
     if failed:
         return (f"The benchmark finished, but stage(s) {', '.join(failed)} failed; "
                 "its result and report say why.")
-    return f"The benchmark process exited with code {return_code}; its result says how far it got."
+    return f"The benchmark process {exit_description(return_code, platform)}; its result says how far it got."
+
+
+def exit_description(return_code, platform=None):
+    """Words for how a process ended: "exited with code 1", or on POSIX "was ended by signal 6 (SIGABRT)"."""
+    if (platform or sys.platform) != "win32" and isinstance(return_code, int) and return_code < 0:
+        try:
+            name = f" ({signal.Signals(-return_code).name})"
+        except ValueError:
+            name = ""
+        return f"was ended by signal {-return_code}{name}"
+    return f"exited with code {return_code}"
 
 
 def latest_line(path):
@@ -846,7 +857,7 @@ class PipelineJobManager:
                     else:
                         job.status = "failed"
                         job.failure_message = (
-                            f"The pipeline process exited with code {return_code}."
+                            f"The pipeline process {exit_description(return_code)}."
                         )
                     evicted_directories = self._finish_job_locked(job)
             except asyncio.CancelledError:

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import pathlib
+import signal
 import sys
 import tempfile
 import time
@@ -503,6 +504,28 @@ class LogPageTests(unittest.TestCase):
             pathlib.Path(path).write_bytes(b"a\xffb")
             page = PipelineJobManager._read_log_page("job", "stdout", path, 0, 2)
             self.assertEqual(page["text"] + PipelineJobManager._read_log_page("job", "stdout", path, 2, 2)["text"], "a�b")
+
+class ExitDescriptionTests(unittest.TestCase):
+    def test_a_negative_code_on_posix_names_the_signal(self):
+        self.assertEqual(Pipeline_Jobs.exit_description(-signal.SIGABRT.value, "linux"),
+            f"was ended by signal {signal.SIGABRT.value} (SIGABRT)")
+        self.assertEqual(Pipeline_Jobs.exit_description(-signal.SIGTERM.value, "darwin"),
+            f"was ended by signal {signal.SIGTERM.value} (SIGTERM)")
+
+    def test_an_unknown_signal_number_is_given_bare(self):
+        self.assertEqual(Pipeline_Jobs.exit_description(-200, "linux"), "was ended by signal 200")
+
+    def test_windows_and_positive_codes_are_unchanged(self):
+        self.assertEqual(Pipeline_Jobs.exit_description(-6, "win32"), "exited with code -6")
+        self.assertEqual(Pipeline_Jobs.exit_description(1, "linux"), "exited with code 1")
+        self.assertEqual(Pipeline_Jobs.exit_description(1, "win32"), "exited with code 1")
+
+    def test_the_benchmark_message_names_the_signal_too(self):
+        self.assertIn(
+            f"was ended by signal {signal.SIGTERM.value} (SIGTERM)",
+            Pipeline_Jobs._benchmark_failure({"stages": []}, -signal.SIGTERM.value, "linux"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
