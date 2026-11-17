@@ -239,7 +239,7 @@
     },
     "predict_structures": {
       "stage": "predict structures",
-      "purpose": "Predict the 3D structure of one typed protein sequence (BATCH_INPUT false, the default: SEQUENCE, optionally named by SEQUENCE_NAME) or of every sequence of a FASTA (BATCH_INPUT true: INPUT_FASTA) with ESM3, and save each as a PDB file. Needs no Viewer, no similarity-network file and no embeddings. The switch decides: the input it does not choose is ignored, and the chosen one missing fails validation.",
+      "purpose": "Predict the 3D structure of one typed protein sequence (BATCH_INPUT false, the default: SEQUENCE, optionally named by SEQUENCE_NAME) or of every sequence of a FASTA (BATCH_INPUT true: INPUT_FASTA) with ESM3, and save each as a PDB file. Needs no Viewer, no similarity-network file and no embeddings. The pipeline action predict_structure runs it in one call (sequence or fasta_file, no settings document); this entry is for settings-file runs with start_job. The switch decides: the input it does not choose is ignored, and the chosen one missing fails validation.",
       "inputs": {
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA to fold when BATCH_INPUT is true: an absolute path anywhere on the computer, or a name inside FASTA_DIR (the Tools window picks it with Browse and does not save it)"}
       },
@@ -320,7 +320,8 @@
       "goal": "Predict a structure from a sequence",
       "steps": [
         "get_compute_capabilities (optional: a GPU makes the local model much faster)",
-        "predict_structures with parameters {\"SEQUENCE\": \"<amino acids>\", \"SEQUENCE_NAME\": \"<optional name>\"}: BATCH_INPUT stays false and no file is needed; PREDICTION_MODEL stays local unless the user asked for the Biohub API (remote); for several sequences set BATCH_INPUT true and INPUT_FASTA to a FASTA path instead",
+        "predict_structure (the action) with {\"sequence\": \"<amino acids>\", \"name\": \"<optional name>\"}: one call, no file and no settings document; it waits up to wait_seconds, then returns the records or the running job_id; model stays local unless the user asked for the Biohub API (remote); for a FASTA give fasta_file instead",
+        "Equivalent with settings: predict_structures with parameters {\"SEQUENCE\": \"<amino acids>\", \"SEQUENCE_NAME\": \"<optional name>\"}: BATCH_INPUT stays false and no file is needed; PREDICTION_MODEL stays local unless the user asked for the Biohub API (remote); for several sequences set BATCH_INPUT true and INPUT_FASTA to a FASTA path instead",
         "wait_job, then take each .pdb path from output_files; its B-factor column is the per-residue pLDDT, 0 to 100"
       ]
     }

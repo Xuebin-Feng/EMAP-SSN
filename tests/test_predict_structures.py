@@ -483,6 +483,23 @@ class SettingsAndInputTests(EngineCase):
         self.assertIn("failed", output)
         self.assertIn("different sequence", output)
 
+    def test_the_records_go_to_the_file_a_job_names_and_never_into_the_structures_folder(self):
+        result = self.root / "job" / "result.json"
+        result.parent.mkdir()
+        with mock.patch.dict(os.environ, {prediction.RESULT_FILE_VARIABLE: str(result)}):
+            code, output = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="rec")
+        self.assertEqual(code, 0, output)
+        document = json.loads(result.read_text(encoding="utf-8"))
+        self.assertEqual(document["model"], "local")
+        record, = document["structures"]
+        self.assertEqual((record["name"], record["status"], record["length"]), ("rec", "folded", len(SEQUENCE)))
+        self.assertIsInstance(record["mean_plddt"], float)
+        self.assertEqual(self.files(), ["rec.pdb"])
+        # Run by hand, without the variable, no file is written at all.
+        code, _ = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="rec2")
+        self.assertEqual((code, self.files(), sorted(path.name for path in result.parent.iterdir())),
+                         (0, ["rec.pdb", "rec2.pdb"], ["result.json"]))
+
     def test_a_request_that_cannot_run_prints_one_error_line_and_exits_nonzero(self):
         code, output = self.run_tool(SEQUENCE=SEQUENCE, DEVICE_SELECTION="cuda:3")
         self.assertEqual(code, 1)
@@ -557,8 +574,9 @@ class ParityTests(unittest.TestCase):
         self.assertEqual(watched, (str(PROJECT_ROOT / "out"),))
         recipe = [w for w in Pipeline_Guide.workflows() if w["goal"] == "Predict a structure from a sequence"]
         self.assertEqual(len(recipe), 1)
+        self.assertTrue(recipe[0]["steps"][1].startswith("predict_structure (the action)"))
+        self.assertIn("no settings document", recipe[0]["steps"][1])
         self.assertIn("SEQUENCE", " ".join(recipe[0]["steps"]))
-        self.assertIn("no file is needed", " ".join(recipe[0]["steps"]))
         self.assertIn("predict_structures", " ".join(Pipeline_Guide.tool_guide("sanitize_sequences")["next"]))
 
     def check(self, **parameters):

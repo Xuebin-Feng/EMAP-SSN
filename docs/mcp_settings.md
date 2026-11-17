@@ -649,6 +649,26 @@ that size. It runs on CPU threads only, and gives the same layout for the same `
 on any number of threads. Layout documents, settings files and caches written
 before `LAYOUT_METHOD` existed are UMAP or physics ones and open as before.
 
+## Structure prediction
+
+`emapssn_pipeline(action="predict_structure")` predicts 3D structures with ESM3 in one call, with no Viewer
+and no settings document. It starts the pipeline tool `predict_structures` as a job (so `wait_job`, `get_job`,
+`read_log`, `cancel_job` and `list_jobs` work on it) and waits up to `wait_seconds` (default and maximum 50)
+like `wait_job`:
+
+```json
+{"action": "predict_structure", "arguments": {"sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ", "name": "my_protein"}}
+```
+
+Give exactly one of `sequence` (with an optional `name`) and `fasta_file` (an absolute path, or a name inside the
+FASTA directory). `model` is `local` (default) or `remote`; the Biohub API is used only when the call says
+`remote`, and a saved token is required. Other arguments: `device` (default `auto`), `max_sequences` (default
+20) and `output_dir` (default the Tools directory of folded structures, `Analysis_Results/Folded_Structure`).
+The reply is the job record plus, once the job has finished, `structures`: one record per sequence (name, path,
+length, status `folded`, `existing` or `failed`, mean pLDDT, note). A job still running says to continue with
+`wait_job`. The PDB files hold the per-residue pLDDT (0 to 100) in the B-factor column, an existing file is never
+overwritten, and `output_files` lists only the `.pdb` files. `list_tools` carries a `structure_prediction` entry.
+
 ## Benchmark (server 0.14.0)
 
 `emapssn_pipeline(action="start_benchmark")` times this computer. It enqueues

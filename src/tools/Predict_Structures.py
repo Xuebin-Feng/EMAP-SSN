@@ -105,6 +105,10 @@ def main(argv=None):
     for line in prediction.format_table(records):
         print(line)
     print(f"\nStructures are in: {os.path.abspath(STRUCTURE_DIR)}")
+    result_file = os.environ.get(prediction.RESULT_FILE_VARIABLE)
+    if result_file:
+        # A job of the MCP server asks for the records themselves; the structures folder gets nothing but PDB files.
+        prediction.write_result_file(result_file, records, PREDICTION_MODEL)
     broken = prediction.failed(records)
     if broken:
         print(f"❌ {len(broken)} of {len(records)} sequence(s) failed.")

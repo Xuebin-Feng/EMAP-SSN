@@ -27,6 +27,7 @@ StructureRequestError with one line that says why.
 """
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -58,6 +59,10 @@ STEM_HASH_LENGTH = 8
 MIN_STEM_LENGTH = 24
 # The longest path Windows opens without a long-path setting, with the room for the end of it.
 WINDOWS_PATH_LIMIT = 259
+
+# The MCP server's job for this tool names a file in the job's own folder (never the structures folder) that the
+# records are written to as JSON; a run by hand or from the Tools window has no such variable and writes none.
+RESULT_FILE_VARIABLE = "SSN_TOOL_RESULT_FILE"
 
 GENERATED_NAME_PREFIX = "sequence_"
 GENERATED_NAME_HEXDIGITS = 10
@@ -371,6 +376,17 @@ def _fold(to_fold, structures_dir, mode, target_device, suffix, records, log):
         if item.name not in records:
             reason = reasons.get(item.stem) or reasons.get(None) or "the prediction produced no structure"
             records[item.name] = StructureRecord(item.name, item.path, len(item.sequence), FAILED, None, reason)
+
+
+def write_result_file(path, records, mode):
+    """Write ``records`` as JSON to ``path``, whole or not at all: {"model": mode, "structures": [...]}."""
+    document = {"model": mode, "structures": [
+        {"name": record.name, "path": record.path, "length": record.length, "status": record.status,
+         "mean_plddt": record.mean_plddt, "note": record.note} for record in records]}
+    temporary = f"{path}.{os.getpid()}.partial"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2)
+    os.replace(temporary, path)
 
 
 def failed(records):

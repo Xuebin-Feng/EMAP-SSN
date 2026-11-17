@@ -90,6 +90,7 @@ class PipelineCatalog(BaseModel):
     tools: list[PipelineToolInfo]
     layout: dict[str, Any]
     benchmark: dict[str, Any]
+    structure_prediction: dict[str, Any]
     workflows: list[dict[str, Any]]
     path_rules: list[str]
     max_running: int
@@ -130,13 +131,30 @@ class PipelineJobInfo(BaseModel):
     result: dict[str, Any] | None = Field(default=None, description=(
         "Layout jobs: node, edge, cluster and threshold summary of the published cache. "
         "Benchmark jobs: report paths, each stage's status, time, throughput, device and "
-        "Auto choices, and the hardware."))
+        "Auto choices, and the hardware. predict_structure jobs: the engine's own records, one for "
+        "each sequence."))
     latest_output: dict[str, str | None] | None = Field(default=None, description=(
         "Last line of stdout and stderr (progress), from get_job and wait_job."))
 
 
 class PipelineJobList(BaseModel):
     jobs: list[PipelineJobInfo]
+
+
+class StructureRecordInfo(BaseModel):
+    name: str
+    path: str
+    length: int
+    status: Literal["folded", "existing", "failed"]
+    mean_plddt: float | None = Field(description="Mean pLDDT on a scale of 0 to 100; None when no structure could be read.")
+    note: str = ""
+
+
+class StructurePredictionInfo(PipelineJobInfo):
+    structures: list[StructureRecordInfo] | None = Field(default=None, description=(
+        "Once the job has finished: one record per sequence (name, path, length, status, mean_plddt, note)."))
+    notice: str | None = Field(default=None, description="What the call did that the user should know, such as a remote run.")
+    next_step: str | None = Field(default=None, description="What to do next while the job is still running.")
 
 
 class PipelineLogPage(BaseModel):
@@ -255,6 +273,24 @@ def list_pipeline_tools() -> PipelineCatalog:
             "outputs": "A report in src/resources/benchmark named by the start time, as a .txt in the "
                        "program's language with an English .json beside it; reports are never deleted.",
             "duration": "About 6 minutes on a recent GPU workstation, longer without a GPU.",
+        },
+        structure_prediction={
+            "actions": ["predict_structure"],
+            "job_tool_id": "predict_structures",
+            "purpose": "Predict 3D structures with ESM3 from one typed sequence (sequence, optional name) or a FASTA "
+                       "(fasta_file) in one call: no Viewer and no settings document. It starts the pipeline tool "
+                       "predict_structures as a job and waits like wait_job.",
+            "inputs": "Exactly one of sequence and fasta_file; model local (default) or remote, which only an explicit "
+                      "model='remote' uses and which needs a saved Biohub token.",
+            "outputs": "One PDB per sequence in the folded-structure folder (Analysis_Results/Folded_Structure by "
+                       "default, or output_dir), with the per-residue pLDDT (0 to 100) in the B-factor column; an "
+                       "existing file is never overwritten. The reply, once finished, has one record per sequence "
+                       "(name, path, length, status, mean_plddt, note).",
+            "next": "wait_job while it runs; read_log for the table; the same tool runs from a settings file with start_job.",
+            "examples": [
+                {"action": "predict_structure", "arguments": {"sequence": "<amino acids>", "name": "<optional name>"}},
+                {"action": "predict_structure", "arguments": {"fasta_file": "<FASTA path>", "max_sequences": 20}},
+            ],
         },
         workflows=workflows(),
         path_rules=path_rules(),
@@ -575,6 +611,66 @@ def _benchmark_stage_text(stages: list[int | str]) -> str:
     if not chosen:
         raise ToolError("stages must name at least one stage; omit it to run all of them.")
     return ",".join(chosen)
+
+
+async def predict_structure(
+    ctx: Context[AppContext],
+    sequence: Annotated[str | None, Field(description=(
+        "One amino acid sequence, typed or pasted in (cleaned like any typed sequence). Give this or fasta_file, not both."))] = None,
+    name: Annotated[str | None, Field(description=(
+        "Optional name of the sequence; it becomes the structure's file name. Without it the file is named sequence_ "
+        "and the first 10 hexadecimal digits of the sequence's SHA-256. Only with sequence."))] = None,
+    fasta_file: Annotated[str | None, Field(description=(
+        "A protein FASTA whose sequences are all folded: an absolute path, or a name inside the FASTA directory. "
+        "Give this or sequence, not both."))] = None,
+    model: Annotated[Literal["local", "remote"], Field(description=(
+        "local runs the ESM3 open model on this computer. remote sends the sequences to the Biohub API and needs a token "
+        "saved beforehand by the user; choose it only when the user asks. Neither is a fallback for the other."))] = "local",
+    device: Annotated[str, Field(description="Device for the local model: 'auto' (the first accelerator, else the CPU), 'cpu', 'cuda:N', 'xpu:N' or 'mps'")] = "auto",
+    max_sequences: Annotated[int, Field(ge=1, description=(
+        "Most sequences one call folds; a larger request is refused before anything is folded. Structures that exist are not counted."))] = 20,
+    output_dir: Annotated[str | None, Field(description=(
+        "Folder for the structures; omit for the saved Tools directory of folded structures (Analysis_Results/Folded_Structure by default)."))] = None,
+    wait_seconds: Annotated[float, Field(ge=0, le=MAX_WAIT_SECONDS, description=(
+        "Seconds to wait for the job after starting it, as wait_job does (at most 50)."))] = MAX_WAIT_SECONDS,
+) -> StructurePredictionInfo:
+    """Predict 3D structures with ESM3 from one sequence or a FASTA, with no Viewer and no settings document.
+    Starts the pipeline tool predict_structures as a job and waits up to wait_seconds like wait_job. A short
+    fold returns finished with one record per sequence (name, path, length, status folded, existing or failed,
+    mean_plddt, note); a longer one returns the running job: continue with wait_job, then read the records
+    from get_job. Each PDB's B-factor column holds the per-residue pLDDT on a scale of 0 to 100. A structure
+    file that exists is never overwritten. output_files lists only the .pdb files written.
+    """
+    if (sequence is None or not sequence.strip()) == (fasta_file is None or not fasta_file.strip()):
+        raise ToolError("Give exactly one of sequence and fasta_file.")
+    if name is not None and name.strip() and fasta_file is not None:
+        raise ToolError("name applies to a sequence only.")
+    if sequence is not None and sequence.strip():
+        parameters = {"BATCH_INPUT": False, "SEQUENCE": sequence, "SEQUENCE_NAME": name or ""}
+    else:
+        parameters = {"BATCH_INPUT": True, "INPUT_FASTA": fasta_file}
+    parameters.update(PREDICTION_MODEL=model, DEVICE_SELECTION=device, MAX_SEQUENCES=max_sequences)
+    preview = normalize_pipeline_settings(
+        "predict_structures", _PROJECT_ROOT, parameters=parameters,
+        directories={"STRUCTURE_DIR": output_dir} if output_dir else None,
+    )
+    if not preview["valid"]:
+        raise ToolError(str(PipelineSettingsError(preview["errors"])))
+    jobs = _context(ctx).jobs
+    try:
+        payload = await jobs.submit("predict_structures", preview["settings_document"], collect_structures=True)
+        payload = await jobs.wait(payload["job_id"], timeout=wait_seconds)
+    except (KeyError, OSError, TypeError, ValueError, PipelineJobError) as error:
+        raise ToolError(str(error)) from error
+    result = payload.get("result") or {}
+    reply = {**payload, "structures": result.get("structures")}
+    if model == "remote":
+        reply["notice"] = "The sequences are sent to the Biohub API (remote model), as asked."
+    if payload["status"] in ("queued", "running", "cancelling"):
+        reply["next_step"] = (
+            "Still running: continue with emapssn_pipeline(action='wait_job', arguments={'job_id': '"
+            + payload["job_id"] + "'}); when it has finished, its structures and output_files are in the reply.")
+    return StructurePredictionInfo.model_validate(reply)
 
 
 async def start_benchmark(

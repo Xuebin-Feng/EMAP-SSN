@@ -24,8 +24,9 @@ output, and typical next tools; workflow recipes cover common goals (for example
 injecting new sequences instead of recomputing). A pipeline ID is an argument, not an
 MCP tool name. Pass it to `emapssn_pipeline(action="get_tool_schema")`
 for accepted parameters, defaults, conditions, model availability and an example. Do not
-invent IDs, script names, or parameter keys. Structure prediction from a typed sequence or a FASTA is
-the pipeline tool_id predict_structures and needs no Viewer.
+invent IDs, script names, or parameter keys. For the structure of a sequence or a FASTA, call
+`emapssn_pipeline(action="predict_structure")`: no Viewer or settings document. Settings-file runs use tool_id
+predict_structures.
 
 Use `emapssn_pipeline(action="inspect_file")` on known input paths when their contents or
 format need checking; it does not search directories. Use

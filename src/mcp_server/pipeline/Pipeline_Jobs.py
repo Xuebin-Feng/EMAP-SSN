@@ -48,6 +48,11 @@ MAX_WAIT_SECONDS = 50.0
 OUTPUT_FILE_LIMIT = 100
 # The benchmark (src/resources/benchmark/Run_Benchmark.py) runs as a job of its own kind.
 BENCHMARK_TOOL_ID = "run_benchmark"
+# The tool that hands one record for each sequence back to the job in a private file of the job's own folder.
+STRUCTURE_TOOL_ID = "predict_structures"
+STRUCTURE_RESULT = "predict-structures-result.json"
+# The environment variable that names that file (tools/tool_helpers/Structure_Prediction.RESULT_FILE_VARIABLE).
+STRUCTURE_RESULT_VARIABLE = "SSN_TOOL_RESULT_FILE"
 BENCHMARK_RESULT = "benchmark-result.json"
 _LATEST_OUTPUT_BYTES = 4096
 _LATEST_OUTPUT_CHARACTERS = 300
@@ -215,6 +220,8 @@ class PipelineJob:
     output_files: list[dict] = field(default_factory=list)
     output_files_omitted: int = 0
     result: dict | None = None
+    # A tool that hands a result back is told where to write it (STRUCTURE_RESULT_VARIABLE); None for the others.
+    result_file: str | None = None
     completion: asyncio.Event = field(
         default_factory=asyncio.Event,
         repr=False,
@@ -296,7 +303,8 @@ class PipelineJobManager:
                 name="SSNMCPPipelineFIFO",
             )
 
-    async def submit(self, tool_id, settings_source):
+    async def submit(self, tool_id, settings_source, *, collect_structures=False):
+        """Enqueue a pipeline tool; ``collect_structures`` (predict_structures) has the job keep the tool's records as its result."""
         await self.start()
         async with self._lock:
             if self._closed:
@@ -344,6 +352,10 @@ class PipelineJobManager:
                 output_locations=output_locations,
                 watched_directories=watched,
             )
+            if collect_structures:
+                if invocation.tool.tool_id != STRUCTURE_TOOL_ID:
+                    raise PipelineJobError("Only predict_structures hands structure records back.")
+                job.result_file = os.path.join(job_directory, STRUCTURE_RESULT)
         except Exception:
             self._remove_job_directory(job_directory)
             raise
@@ -764,6 +776,10 @@ class PipelineJobManager:
                         stdin=asyncio.subprocess.DEVNULL,
                         stdout=stdout_handle,
                         stderr=stderr_handle,
+                        env=(
+                            {**os.environ, STRUCTURE_RESULT_VARIABLE: job.result_file}
+                            if job.result_file else None
+                        ),
                         **self._process_group_options(),
                     )
                     async with self._lock:
@@ -798,12 +814,20 @@ class PipelineJobManager:
                     except (OSError, ValueError, PipelineJobError) as error:
                         if return_code == 0:
                             result_problem = str(error)
+                # The records are in the file when every sequence was handled (0) or some failed (1).
+                if job.result_file and return_code in (0, 1) and not job.cancellation_requested:
+                    try:
+                        self._read_structure_result(job)
+                    except (OSError, ValueError, PipelineJobError) as error:
+                        if return_code == 0:
+                            result_problem = str(error)
                 async with self._lock:
                     job.exit_code = return_code
                     job.finished_at = _utc_now()
                     job.output_files = output_files[:OUTPUT_FILE_LIMIT]
                     job.output_files_omitted = max(0, len(output_files) - OUTPUT_FILE_LIMIT)
-                    kind = "benchmark" if job.tool_id == BENCHMARK_TOOL_ID else "layout"
+                    kind = ("benchmark" if job.tool_id == BENCHMARK_TOOL_ID
+                            else "structure prediction" if job.result_file else "layout")
                     if job.cancellation_requested:
                         job.status = "cancelled"
                     elif result_problem is not None:
@@ -877,6 +901,15 @@ class PipelineJobManager:
         except OSError:
             size = None
         return {"path": os.path.abspath(cache_path), "change": "created", "size_bytes": size}
+
+    @staticmethod
+    def _read_structure_result(job):
+        """Record the tool's own records, one for each sequence, as the job's result."""
+        with open(job.result_file, encoding="utf-8") as handle:
+            result = json.load(handle)
+        if not isinstance(result, dict) or not isinstance(result.get("structures"), list):
+            raise PipelineJobError("The structure result is not a list of records.")
+        job.result = result
 
     @staticmethod
     def _read_benchmark_result(job):

@@ -215,6 +215,7 @@ modules = [
     "test_mcp_agent_instructions",
     "test_mcp_command_wait",
     "test_mcp_pipeline_guidance",
+    "test_predict_structure_action",
     "test_mcp_server",
     "test_mcp_viewer_lifecycle",
     "test_mcp_workflow_dispatch",
