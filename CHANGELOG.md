@@ -283,6 +283,28 @@ still change before version 1.0.0.
     mode takes lighter greys (#71717a, 3.7:1 on the cards). The pages also darken a reply's
     token line, Tree View's search placeholder and Meta Data's found-row ring, and Fold
     View's dark error toast gets an opaque background.
+- **Predict Structures, a tool that folds sequences without a Viewer.** It predicts 3D
+  structures with ESM3 for one typed sequence or for the sequences of a FASTA file. It is
+  a card in the Tools window's Manual Tools tab and the MCP pipeline tool
+  `predict_structures`. Until now folding existed only as the Viewer's `esmfold` command.
+  - **Input:** a Batch Input switch chooses between one sequence, with an optional name,
+    and a FASTA file picked with Browse from anywhere on the computer. The rows that are
+    not in use are greyed out and keep their content. The chosen FASTA path is not saved.
+    A sequence given without a name is named from the sequence itself, so asking for it
+    again finds its structure.
+  - **Model:** the local ESM3 open model by default. The Biohub API is used only when
+    the Model setting says remote and a token is saved, and the run says that it is
+    sending the sequences. Neither model takes the other's place.
+  - **Output:** one PDB file per sequence in the new Folded Structure Directory
+    (`Analysis_Results/Folded_Structure`), with the per-residue pLDDT, 0 to 100, in the
+    B-factor column. Nothing else is written. These files are separate from the
+    structures the Viewer's `esmfold` keeps.
+  - **Safeguards:** an existing structure is never overwritten. It is reported as
+    existing when it holds the same sequence, and as failed when it holds another. A run
+    folds at most 20 sequences unless Maximum Sequences is raised. An unavailable device
+    or a missing token is refused before anything is created.
+  - **MCP:** the server's guide names the tool, and the guide's word limit goes from
+    1,850 to 2,000. A workflow recipe shows how to predict a structure from a sequence.
 
 ### Changed
 
