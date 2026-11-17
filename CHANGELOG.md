@@ -310,6 +310,11 @@ still change before version 1.0.0.
     per sequence (name, path, length, status, mean pLDDT), and a longer one comes back
     with its job to wait on. The server's guide and `list_tools` name it, a workflow
     recipe shows it, and the guide's word limit goes from 1,850 to 2,000.
+- **The `cluster` table names each cluster's centre.** To the right of each MCL or Leiden
+  cluster's row, the table names the cluster's centre: for MCL its strongest attractor,
+  and for Leiden the member whose leaving would cost the most modularity at the
+  resolution used. Jaccard clusters have none. The centre is only printed: `cluster
+  list`, undo and `subcluster` do not use it.
 
 ### Changed
 
