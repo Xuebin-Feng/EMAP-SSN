@@ -24,6 +24,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tests.config_gui_loader import load_config_namespace
+from tests.git_availability import git_executable_for
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -210,9 +211,10 @@ class AtomicWriteTests(unittest.TestCase):
     def test_an_interrupted_save_copy_cannot_be_committed(self):
         with tempfile.TemporaryDirectory() as folder:
             name = self.interrupted_save(Path(folder) / "viewer_settings.json").name
+        git = git_executable_for(ROOT)
         try:
             result = subprocess.run(
-                ["git", "-C", str(ROOT), "check-ignore", "--no-index", "--quiet", "--", name],
+                [git, "-C", str(ROOT), "check-ignore", "--no-index", "--quiet", "--", name],
                 capture_output=True,
             )
         except OSError:

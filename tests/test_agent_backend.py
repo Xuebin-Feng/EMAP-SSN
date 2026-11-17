@@ -22,6 +22,7 @@ from PySide6 import QtWidgets
 from utilities.Localization import display_text
 from web_ui import agent_backend as agent
 from web_ui.agent_prompt import PLACEHOLDERS
+from tests.git_availability import git_executable_for
 from tests.agent_fixtures import FakeProvider, Stalled, completion, self_signed_tls
 from tests.viewer_fixtures import PortalFixture
 
@@ -254,8 +255,9 @@ class ModelCardTests(unittest.TestCase):
 
     def test_an_interrupted_save_copy_cannot_be_committed(self):
         relative = f'src/resources/agent/{self.interrupted_save().name}'
+        git = git_executable_for(ROOT)
         try:
-            result = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--no-index', '--quiet', '--', relative],
+            result = subprocess.run([git, '-C', str(ROOT), 'check-ignore', '--no-index', '--quiet', '--', relative],
                                     capture_output=True)
         except OSError:
             self.skipTest('git is not installed')

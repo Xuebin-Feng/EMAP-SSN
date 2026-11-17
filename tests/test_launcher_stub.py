@@ -22,6 +22,8 @@ SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from tests.git_availability import git_problem
+
 LAUNCHER_SOURCE = SRC / "bin" / "Launcher.cs"
 BUILD_SCRIPT = SRC / "bin" / "Build_Launcher.bat"
 INSTALLER = PROJECT_ROOT / "install.bat"
@@ -345,9 +347,12 @@ class InstallerTextTests(unittest.TestCase):
     def test_the_binary_is_not_committed(self):
         ignored = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         self.assertIn("EMAP-SSN.exe", ignored)
-        listed = subprocess.run(["git", "-C", str(PROJECT_ROOT), "ls-files", "--", "*.exe"], capture_output=True, text=True)
-        if listed.returncode == 0:
-            self.assertEqual(listed.stdout.split(), [])
+        # The .gitignore line above holds everywhere; asking git needs a work tree.
+        if git_problem(PROJECT_ROOT) is None:
+            listed = subprocess.run([shutil.which("git"), "-C", str(PROJECT_ROOT), "ls-files", "--", "*.exe"],
+                                    capture_output=True, text=True)
+            if listed.returncode == 0:
+                self.assertEqual(listed.stdout.split(), [])
 
     def test_the_build_script_uses_the_compiler_that_ships_with_windows_and_embeds_the_icon(self):
         build = BUILD_SCRIPT.read_bytes().decode("utf-8")

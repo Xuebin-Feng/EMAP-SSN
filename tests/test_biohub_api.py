@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from resources import Biohub_API
+from tests.git_availability import git_executable_for
 
 
 class BiohubAPITests(unittest.TestCase):
@@ -174,9 +175,10 @@ class BiohubAPITests(unittest.TestCase):
 
     def test_an_interrupted_write_copy_cannot_be_committed(self):
         relative = f"src/resources/{self.interrupted_write().name}"
+        git = git_executable_for(PROJECT_ROOT)
         try:
             result = subprocess.run(
-                ["git", "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", relative],
+                [git, "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", relative],
                 capture_output=True,
             )
         except OSError:

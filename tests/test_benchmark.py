@@ -24,6 +24,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from tests.git_availability import git_executable_for
 from utilities import Localization
 from utilities.Sequence_Utils import VALID_RESIDUE_CODES, read_fasta, sanitize_fasta_records
 
@@ -165,8 +166,9 @@ class BenchmarkRepositoryTests(unittest.TestCase):
     """Git keeps the sets' bytes and ignores what a run leaves in the folder."""
 
     def git(self, *arguments):
+        executable = git_executable_for(PROJECT_ROOT)
         try:
-            result = subprocess.run(["git", "-C", str(PROJECT_ROOT), *arguments], capture_output=True, text=True)
+            result = subprocess.run([executable, "-C", str(PROJECT_ROOT), *arguments], capture_output=True, text=True)
         except OSError:
             self.skipTest("git is not installed")
         if result.returncode not in (0, 1):
@@ -348,11 +350,18 @@ class BenchmarkConditionProbeTests(unittest.TestCase):
     """The start-of-run condition probes are informational: a system that forbids one never stops the run."""
 
     def test_a_process_listing_that_fails_gives_what_was_found(self):
+        # The listing skips this process and its ancestors, and pid 1 is an ancestor of every process on macOS
+        # and usually on Linux: the other program gets a pid that is neither, and the ancestry is the test's own.
+        other = os.getpid() + 1
+        ancestors = SimpleNamespace(parents=lambda: [SimpleNamespace(pid=1)])
+
         def listing(_attributes):
-            yield SimpleNamespace(info={"pid": 1, "name": "python.exe", "cmdline": ["python", "EMAPSSN_Tools.py"]})
+            yield SimpleNamespace(info={"pid": 1, "name": "python3", "cmdline": ["python", "EMAPSSN_Viewer.py"]})
+            yield SimpleNamespace(info={"pid": other, "name": "python.exe", "cmdline": ["python", "EMAPSSN_Tools.py"]})
             raise PermissionError(13, "Permission denied")
 
-        with mock.patch.object(benchmark.psutil, "process_iter", side_effect=listing):
+        with mock.patch.object(benchmark.psutil, "process_iter", side_effect=listing), \
+                mock.patch.object(benchmark.psutil, "Process", return_value=ancestors):
             self.assertEqual(benchmark.other_emapssn_processes(), ["EMAPSSN_Tools.py"])
         with mock.patch.object(benchmark.psutil, "process_iter", side_effect=benchmark.psutil.AccessDenied(1)):
             self.assertEqual(benchmark.other_emapssn_processes(), [])

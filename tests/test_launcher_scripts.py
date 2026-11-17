@@ -24,6 +24,8 @@ import venv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
+from tests.git_availability import git_executable_for  # noqa: E402
+
 INSTALLER = PROJECT_ROOT / "install.sh"
 MANAGED_LAUNCHERS = ("EMAPSSN.bat", "EMAPSSN_Tools.bat", "EMAPSSN.sh", "EMAPSSN_Tools.sh")
 
@@ -164,9 +166,10 @@ class LauncherScriptPolicyTests(unittest.TestCase):
         # `git pull` (found on a fresh Linux clone). Windows checkouts keep
         # core.fileMode false, so git takes the bit from the index, never from
         # the file: set it with `git update-index --chmod=+x`.
+        git = git_executable_for(PROJECT_ROOT)
         try:
             listed = subprocess.run(
-                ["git", "-C", str(PROJECT_ROOT), "ls-files", "-s", "--", "*.sh"],
+                [git, "-C", str(PROJECT_ROOT), "ls-files", "-s", "--", "*.sh"],
                 capture_output=True, text=True,
             )
         except OSError:

@@ -22,6 +22,7 @@ from unittest import mock
 import psutil
 
 from tests import run_sections
+from tests.git_availability import git_executable_for, git_problem
 from tests.run_sections import (
     UNASSIGNED,
     ReferenceIndex,
@@ -768,6 +769,102 @@ class WindowsStopTests(RealTreeTestCase):
             problem = run_sections._kill_tree(self.process)
         self.assertEqual(run.call_count, run_sections.TASKKILL_TRIES)
         self.assertEqual(problem, "taskkill exited with 1 on all 3 tries: ERROR: cancelled")
+
+
+class GitAvailabilityTests(unittest.TestCase):
+    """Tests run git only where it works: on a Mac without Apple's command-line tools /usr/bin/git is a stub that opens an install dialog."""
+
+    # Files that may name git without the helper, and why.
+    ALLOWED = {
+        "tests/git_availability.py": "the helper itself",
+        "tests/run_sections.py": "the runner asks git only for --changed and treats any failure as no answer",
+    }
+
+    def problem(self, platform="darwin", found="/usr/bin/git", tools=0, git_entry=True, root="/project"):
+        def which(name):
+            return found
+
+        def run(command, **keywords):
+            self.assertEqual(command, ["xcode-select", "-p"])
+            self.assertIn("timeout", keywords)
+            if isinstance(tools, BaseException):
+                raise tools
+            return subprocess.CompletedProcess(command, tools)
+
+        return git_problem(root, platform=platform, which=which, run=run, has_git_entry=git_entry)
+
+    def test_a_missing_executable_is_a_problem_everywhere(self):
+        for platform in ("win32", "linux", "darwin"):
+            with self.subTest(platform=platform):
+                self.assertEqual(self.problem(platform, found=None), "git is not installed")
+
+    def test_apples_stub_needs_the_command_line_tools(self):
+        self.assertIsNone(self.problem(tools=0))
+        self.assertIn("command-line tools", self.problem(tools=2))
+        self.assertIn("command-line tools", self.problem(tools=subprocess.TimeoutExpired("xcode-select", 10)))
+        self.assertIn("command-line tools", self.problem(tools=FileNotFoundError()))
+
+    def test_only_the_stub_on_a_mac_is_asked_about_the_tools(self):
+        # xcode-select exits 2 here, so it would be a problem if it were asked.
+        self.assertIsNone(self.problem(found="/opt/homebrew/bin/git", tools=2))
+        self.assertIsNone(self.problem(found="/usr/local/bin/git", tools=2))
+        for platform in ("win32", "linux"):
+            with self.subTest(platform=platform):
+                self.assertIsNone(self.problem(platform, tools=2))
+
+    def test_a_folder_without_a_git_entry_is_not_a_work_tree(self):
+        self.assertEqual(self.problem(git_entry=False), "this folder is not a git work tree")
+        self.assertIsNone(git_problem(None, platform="linux", which=lambda name: "/usr/bin/git", has_git_entry=False))
+
+    def test_a_git_entry_is_looked_for_in_the_folder_without_running_git(self):
+        with tempfile.TemporaryDirectory() as folder:
+            found = dict(platform="linux", which=lambda name: "/usr/bin/git", run=mock.Mock(side_effect=AssertionError))
+            self.assertEqual(git_problem(folder, **found), "this folder is not a git work tree")
+            Path(folder, ".git").write_text("gitdir: elsewhere", encoding="utf-8")  # a linked work tree's file
+            self.assertIsNone(git_problem(folder, **found))
+
+    def test_a_test_that_cannot_use_git_is_skipped_with_the_reason(self):
+        with mock.patch("tests.git_availability.git_problem", return_value="no git here"):
+            with self.assertRaisesRegex(unittest.SkipTest, "no git here"):
+                git_executable_for(PROJECT_ROOT)
+
+    @staticmethod
+    def runs_git(tree):
+        """Whether a module names the git executable as a command: ["git", ...] or which("git")."""
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+                first = node.elts[0]
+                if isinstance(first, ast.Constant) and first.value in ("git", "git.exe"):
+                    return True
+            if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+                function = node.func
+                name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
+                if name in ("which", "run", "Popen", "check_output", "check_call", "call") and node.args[0].value in ("git", "git.exe"):
+                    return True
+        return False
+
+    def test_the_scan_sees_the_ways_a_test_names_git(self):
+        for text in ('subprocess.run(["git", "status"])', "shutil.which('git')", 'x = ("git", "-C", folder)',
+                     'subprocess.check_output(["git.exe", "log"])'):
+            with self.subTest(text=text):
+                self.assertTrue(self.runs_git(ast.parse(text)))
+        for text in ('subprocess.run(["gitk"])', 'print("git is not installed")', 'x = ["a", "git"]'):
+            with self.subTest(text=text):
+                self.assertFalse(self.runs_git(ast.parse(text)))
+
+    def test_every_test_that_runs_git_asks_tests_git_availability_first(self):
+        tests_folder = PROJECT_ROOT / "tests"
+        found = []
+        for path in sorted(tests_folder.rglob("*.py")):
+            relative = path.relative_to(PROJECT_ROOT).as_posix()
+            if relative in self.ALLOWED:
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "git" not in source:
+                continue
+            if self.runs_git(ast.parse(source)) and "git_availability" not in source:
+                found.append(relative)
+        self.assertEqual(found, [], "these run git without tests.git_availability (git_executable_for / git_problem)")
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ if str(SRC_DIR) not in os.sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from tests.git_availability import git_executable_for  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     DEFAULT_DIRECTORY_PATHS,
     TOOL_DIRECTORY_KEYS,
@@ -716,9 +717,10 @@ class SharedToolSettingsTests(unittest.TestCase):
                     mock.patch.object(os, "unlink"), self.assertRaises(Killed):
                 self.saves(root)["tool section"]()
             [leftover] = os.listdir(root)
+        git = git_executable_for(PROJECT_ROOT)
         try:
             result = subprocess.run(
-                ["git", "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", leftover],
+                [git, "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", leftover],
                 capture_output=True,
             )
         except OSError:
