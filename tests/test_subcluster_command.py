@@ -472,14 +472,16 @@ class MCLPrecisionTests(unittest.TestCase):
 
     def matrix_given_to_mcl(self, command, viewer, args):
         captured = []
-        real = subcluster_command.network_clustering.markov_clusters
+        # cluster asks markov_clusters_and_attractors, subcluster markov_clusters;
+        # both hand the matrix to this one MCL run.
+        real = subcluster_command.network_clustering._converged_mcl_flow
 
-        def capture(matrix, inflation, **options):
+        def capture(matrix, inflation, progress):
             captured.append(matrix.copy())
-            return real(matrix, inflation, **options)
+            return real(matrix, inflation, progress)
 
         with mock.patch.object(
-            subcluster_command.network_clustering, "markov_clusters", side_effect=capture
+            subcluster_command.network_clustering, "_converged_mcl_flow", side_effect=capture
         ):
             _succeeded, failed, _output = run_command(command, viewer, args)
         failed.assert_not_called()

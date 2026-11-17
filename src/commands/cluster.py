@@ -276,6 +276,47 @@ def label_mcl_clusters(clusters, n_nodes, min_size):
     return labels
 
 
+def mcl_attractor_centres(labels, clusters, attractors, min_size):
+    """The attractors (markov_clusters_and_attractors) that are still members
+    of their own cluster in labels, the labelling label_mcl_clusters gave.
+
+    A cluster's attractor is its centre. An overlapping later cluster can
+    take the attractor over, and a cluster an overlap left too small is
+    Noise; such a cluster's attractor is not returned.
+    """
+    centres = []
+    cluster_id = 1
+    for comp, attractor in zip(clusters, attractors):
+        if len(comp) >= min_size:
+            if labels[attractor] == cluster_id:
+                centres.append(int(attractor))
+            cluster_id += 1
+    return centres
+
+
+def mcl_centres(labels, attractor_centres, edges, scores, kernels):
+    """{cluster id: centre node} for an MCL clustering numbered by size.
+
+    A cluster's centre is its attractor (mcl_attractor_centres). A cluster
+    whose attractor went to another cluster takes the member with the
+    strongest edges to the rest of its cluster instead.
+    """
+    centres = {int(labels[node]): node for node in attractor_centres}
+    missing = set(np.unique(labels[labels != -1]).tolist()) - centres.keys()
+    if missing:
+        strongest = kernels.modularity_centres(labels, edges, scores, 0.0)
+        centres.update({cid: strongest[cid] for cid in missing})
+    return centres
+
+
+def centre_name(viewer, node):
+    """The name of node, its full header, as the cluster table prints it."""
+    headers = getattr(viewer, 'full_headers', None)
+    if headers is not None and 0 <= node < len(headers):
+        return str(headers[node])
+    return f"Node {node}"
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -380,6 +421,8 @@ class ClusterResult:
     label_slots: object
     counts: object
     color_map: dict
+    # {cluster id: centre node} for MCL and Leiden; None for Jaccard, which finds none.
+    centres: object = None
 
 
 def plan(viewer, args):
@@ -567,9 +610,12 @@ def compute(inputs, progress):
         matrix = mcl_adjacency(edges, inputs.scores, n_nodes)
 
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        clusters = network_clustering.markov_clusters(matrix, inflation, progress=progress)
+        clusters, attractors = network_clustering.markov_clusters_and_attractors(
+            matrix, inflation, progress=progress
+        )
 
         labels = label_mcl_clusters(clusters, n_nodes, min_sz)
+        attractor_centres = mcl_attractor_centres(labels, clusters, attractors, min_sz)
 
     # =======================================================
     # MODE 3: LEIDEN COMMUNITY DETECTION
@@ -594,11 +640,20 @@ def compute(inputs, progress):
     # Canonicalize IDs across every clustering mode without changing membership.
     labels = renumber_clusters_by_size(labels)
 
+    # Each cluster's centre node, found on the final labels: a centre is a
+    # member, so its cluster id is simply its label.
+    centres = None
+    if mode == "mcl":
+        centres = mcl_centres(labels, attractor_centres, edges, inputs.scores, network_clustering)
+    elif mode == "leiden":
+        centres = network_clustering.modularity_centres(labels, edges, inputs.scores, param1)
+
     unique_labels, label_slots, counts = np.unique(
         labels, return_inverse=True, return_counts=True
     )
     unique_clusters = [k for k in unique_labels if k != -1]
-    return ClusterResult(labels, unique_labels, label_slots, counts, get_cluster_color_map(unique_clusters))
+    return ClusterResult(labels, unique_labels, label_slots, counts,
+                         get_cluster_color_map(unique_clusters), centres)
 
 
 def removed_subclusters_message(removed):
@@ -656,10 +711,20 @@ def apply(viewer, plan, result):
     # --- 7. Print Statistics ---
     label_counts = dict(zip(unique_labels, counts))
 
+    # MCL and Leiden name each cluster's centre node to the right of the
+    # table, outside its border and unpadded, so a long header neither widens
+    # the table nor is cut short. Jaccard finds no centres.
+    centre_names = {}
+    if result.centres is not None:
+        centre_names = {cid: centre_name(viewer, node) for cid, node in result.centres.items()}
+
+    def beside(text):
+        return f" {text}" if text else ""
+
     print(f"\n{'='*54}")
     print(f"--- {mode.upper()} Clustering Stats (Total Nodes: {n_nodes}) ---")
     print(f"{'='*54}")
-    print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
+    print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |{beside('Centre' if centre_names else '')}")
     print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
 
     noise_count = label_counts.get(-1, 0)
@@ -672,7 +737,7 @@ def apply(viewer, plan, result):
         c_count = label_counts[cid]
         c_pct = (c_count / n_nodes) * 100
         c_name_padded = get_colored_cluster_name(cid, f"{f'Cluster {cid}':<20}", color_map)
-        print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |")
+        print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |{beside(centre_names.get(cid, ''))}")
     print(f"{'='*54}\n")
 
     n_clusters = len(sorted_clusters)

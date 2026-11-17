@@ -358,7 +358,7 @@ class ParameterValidationTests(unittest.TestCase):
         ) as leiden, mock.patch.object(
             cluster.network_clustering, "jaccard_partition"
         ) as jaccard, mock.patch.object(
-            cluster.network_clustering, "markov_clusters"
+            cluster.network_clustering, "markov_clusters_and_attractors"
         ) as mcl:
             succeeded, failed, output = run_command(cluster, viewer, args)
         failed.assert_called_once_with(viewer, message)
@@ -416,7 +416,7 @@ class ExtraArgumentTests(unittest.TestCase):
         ) as leiden, mock.patch.object(
             cluster.network_clustering, "jaccard_partition"
         ) as jaccard, mock.patch.object(
-            cluster.network_clustering, "markov_clusters"
+            cluster.network_clustering, "markov_clusters_and_attractors"
         ) as mcl:
             succeeded, failed, output = run_command(cluster, viewer, args)
         first_line = f"Error: Unrecognized cluster argument '{argument}'."
@@ -687,6 +687,130 @@ class OverlappingMCLClusterTests(unittest.TestCase):
         # Without overlap every cluster of enough nodes is kept.
         labels = cluster.label_mcl_clusters([(0, 1), (2,), (3, 4, 5)], 6, 2)
         np.testing.assert_array_equal(labels, [1, 1, -1, 2, 2, 2])
+
+
+# A triangle 0-1-2 and a star with hub 7 and leaves 3-6: the star is larger,
+# so it is cluster 1 although MCL and Leiden find the triangle first.
+TRIANGLE_AND_STAR_EDGES = ((0, 1), (0, 2), (1, 2), (3, 7), (4, 7), (5, 7), (6, 7))
+
+
+class ClusterCentreTests(unittest.TestCase):
+    """MCL and Leiden name each cluster's centre node, by its header, to the
+    right of the table a run prints, outside its border; Jaccard names none."""
+
+    NAMES = [f"seq_{index}" for index in range(8)]
+    # The table, rules and rows alike, ends 52 or 54 characters in.
+    TABLE_WIDTH = 52
+
+    def table(self, args, n_nodes=7, edges=BARBELL_EDGES, names=NAMES):
+        """The printed table's lines and {first cell: the text right of the table}."""
+        viewer = network_viewer(n_nodes, edges)
+        if names is not None:
+            viewer.full_headers = list(names[:n_nodes])
+        _succeeded, failed, output = run_command(cluster, viewer, args)
+        failed.assert_not_called()
+        lines = output.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("="))
+        end = max(i for i, line in enumerate(lines) if line.startswith("="))
+        rows = [line for line in lines[start:end + 1] if line.startswith("| ")]
+        # Right of the bar after Percent; a header such as sp|P00000|NAME
+        # holds bars of its own.
+        cells = [[cell.strip() for cell in row[1:].split("|", 3)] for row in rows]
+        return lines[start:end + 1], {row[0].lstrip("● "): row[3] for row in cells}
+
+    def test_mcl_names_each_clusters_attractor(self):
+        # The barbell's flow converges on the ends of its bridge, 2 and 3.
+        _lines, beside = self.table(["mcl", "2", "1"])
+        self.assertEqual(beside, {
+            "Cluster Name": "Centre",
+            "Noise (Unclustered)": "",
+            "Cluster 1": "seq_2",
+            "Cluster 2": "seq_3",
+            "Cluster 3": "seq_6",
+        })
+
+    def test_leiden_names_the_member_that_most_belongs_to_its_cluster(self):
+        # The bridge ends pay modularity for the bridge; of the members that
+        # don't, the lowest node is the centre.
+        _lines, beside = self.table(["leiden", "1", "1"])
+        self.assertEqual(
+            [beside[f"Cluster {cid}"] for cid in (1, 2, 3)], ["seq_0", "seq_4", "seq_6"]
+        )
+
+    def test_jaccard_names_no_centre_and_no_centre_heading(self):
+        lines, beside = self.table(["jaccard", "0.5", "1"])
+        self.assertNotIn("Centre", "\n".join(lines))
+        self.assertEqual(set(beside.values()), {""})
+
+    def test_noise_has_no_centre(self):
+        lines, beside = self.table(["mcl", "2", "3"])
+        self.assertEqual(beside["Noise (Unclustered)"], "")
+        noise_row = next(line for line in lines if "Noise" in line)
+        self.assertTrue(noise_row.endswith("% |"))
+        self.assertEqual(beside["Cluster 1"], "seq_2")
+        self.assertNotIn("Cluster 3", beside)
+
+    def test_the_centres_follow_the_numbering_by_size(self):
+        for mode in ("mcl", "leiden"):
+            with self.subTest(mode=mode):
+                _lines, beside = self.table(
+                    [mode, "2" if mode == "mcl" else "1", "1"],
+                    n_nodes=8, edges=TRIANGLE_AND_STAR_EDGES,
+                )
+                self.assertEqual(beside["Cluster 1"], "seq_7")
+                # The triangle's members tie; the lowest is the centre.
+                self.assertEqual(beside["Cluster 2"], "seq_0")
+
+    def test_the_table_keeps_its_width_and_a_long_name_follows_it_whole(self):
+        names = list(self.NAMES)
+        names[3] = "sp|P00000|LONG_NAME a protein with a long description"
+        long_lines, beside = self.table(["mcl", "2", "1"], names=names)
+        self.assertEqual(beside["Cluster 2"], names[3])
+        jaccard_lines, _beside = self.table(["jaccard", "0.5", "1"])
+        for lines in (long_lines, jaccard_lines):
+            for line in lines:
+                if line.startswith("|"):
+                    # Every row's border is where Jaccard's table ends, and
+                    # nothing right of it is boxed in.
+                    self.assertEqual(line[self.TABLE_WIDTH - 1], "|", line)
+                    self.assertNotIn("|", line[self.TABLE_WIDTH:].replace(names[3], ""))
+                elif line.startswith("="):
+                    self.assertEqual(line, "=" * 54)
+        self.assertTrue(
+            next(line for line in long_lines if "Cluster 2" in line).endswith(" | " + names[3])
+        )
+
+    def test_a_viewer_without_headers_names_nodes_by_index(self):
+        _lines, beside = self.table(["mcl", "2", "1"], names=None)
+        self.assertEqual(beside["Cluster 1"], "Node 2")
+
+    def test_an_attractor_another_cluster_took_gives_way_to_the_strongest_member(self):
+        # MCL found (0, 1, 2) about attractor 2 and (2, 3, 4) about attractor 3;
+        # the later cluster takes node 2, so (0, 1) needs another centre.
+        clusters, attractors = [(0, 1, 2), (2, 3, 4)], [2, 3]
+        edges = np.array([(0, 1), (0, 2), (1, 2), (2, 3), (2, 4), (3, 4)])
+        labels = cluster.label_mcl_clusters(clusters, 5, 2)
+        np.testing.assert_array_equal(labels, [1, 1, 2, 2, 2])
+        kept = cluster.mcl_attractor_centres(labels, clusters, attractors, 2)
+        self.assertEqual(kept, [3])
+        self.assertEqual(
+            cluster.mcl_centres(labels, kept, edges, None, cluster.network_clustering),
+            {1: 0, 2: 3},
+        )
+        # With a minimum of 3, (0, 1) is Noise and needs none.
+        labels = cluster.label_mcl_clusters(clusters, 5, 3)
+        kept = cluster.mcl_attractor_centres(labels, clusters, attractors, 3)
+        self.assertEqual(
+            cluster.mcl_centres(labels, kept, edges, None, cluster.network_clustering),
+            {2: 3},
+        )
+
+    def test_overlapping_path_clusters_keep_their_attractors(self):
+        # MCL gives the path 0-...-4 the clusters (0, 1, 2) and (2, 3, 4)
+        # about attractors 1 and 3; node 2 goes to the later one.
+        _lines, beside = self.table(["mcl", "2", "2"], n_nodes=5, edges=PATH_EDGES)
+        self.assertEqual(beside["Cluster 1"], "seq_3")
+        self.assertEqual(beside["Cluster 2"], "seq_1")
 
 
 class ClusterListTests(unittest.TestCase):

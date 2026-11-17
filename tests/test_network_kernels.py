@@ -990,5 +990,173 @@ class MCLSelfLoopTests(unittest.TestCase):
         self.assertEqual(self.clusters(6, edges, identity * 300.0), expected)
 
 
+class MCLAttractorTests(unittest.TestCase):
+    """markov_clusters_and_attractors returns markov_clusters' clusters and,
+    for each, the attractor its flow converged on: MCL's own centre."""
+
+    def run_mcl(self, n_nodes, edges, weights=None, inflation=2.0):
+        weights = np.ones(len(edges)) if weights is None else weights
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return network_kernels.markov_clusters_and_attractors(
+                mcl_adjacency(n_nodes, edges, weights), inflation
+            )
+
+    def test_the_clusters_are_markov_clusters_and_each_attractor_is_a_member(self):
+        rng = np.random.default_rng(11)
+        for trial in range(15):
+            n_nodes = int(rng.integers(5, 40))
+            n_pairs = int(rng.integers(n_nodes, 4 * n_nodes))
+            edges = random_edges(rng, n_nodes, n_pairs, simple=True)
+            weights = rng.uniform(0.2, 5.0, len(edges))
+            for inflation in (1.5, 2.0, 4.0):
+                with self.subTest(trial=trial, inflation=inflation):
+                    clusters, attractors = self.run_mcl(n_nodes, edges, weights, inflation)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        expected = network_kernels.markov_clusters(
+                            mcl_adjacency(n_nodes, edges, weights), inflation
+                        )
+                    self.assertEqual(clusters, expected)
+                    self.assertEqual(len(attractors), len(clusters))
+                    for members, attractor in zip(clusters, attractors):
+                        self.assertIn(attractor, members)
+
+    def test_a_stars_hub_and_a_barbells_bridge_ends_are_the_attractors(self):
+        star = [(5, leaf) for leaf in range(5)]
+        self.assertEqual(self.run_mcl(6, star), ([(0, 1, 2, 3, 4, 5)], [5]))
+        barbell = [(0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)]
+        self.assertEqual(self.run_mcl(6, barbell), ([(0, 1, 2), (3, 4, 5)], [2, 3]))
+
+    def test_an_isolated_node_is_its_own_attractor(self):
+        self.assertEqual(self.run_mcl(3, [(0, 1)]), ([(0, 1), (2,)], [0, 2]))
+
+    def test_the_equal_attractors_of_a_clique_give_its_lowest_node(self):
+        # Every member of a clique of equal edges keeps a quarter of its flow.
+        clique = [(a, b) for a in range(4) for b in range(a + 1, 4)]
+        self.assertEqual(self.run_mcl(4, clique), ([(0, 1, 2, 3)], [0]))
+
+    def test_of_two_attractors_of_one_cluster_the_one_holding_more_flow_wins(self):
+        import scipy.sparse as sp
+
+        # Each column is where a node's flow ended. Nodes 0 and 2 keep some
+        # of their own, so both are attractors of the cluster {0, 1, 2}; row 2
+        # holds 2.1 of the flow and row 0 0.9.
+        flow = sp.csc_matrix(
+            np.array([[0.4, 0.2, 0.3], [0.0, 0.0, 0.0], [0.6, 0.8, 0.7]])
+        )
+        self.assertEqual(
+            network_kernels._mcl_get_clusters(flow, with_attractors=True),
+            ([(0, 1, 2)], [2]),
+        )
+        self.assertEqual(network_kernels._mcl_get_clusters(flow), [(0, 1, 2)])
+
+
+def modularity(communities, edges, weights, resolution):
+    """The modularity of a partition times m, from its definition: each
+    community's inner edge weight less resolution * K_c^2 / 4m."""
+    total = 2.0 * weights.sum()
+    strength = np.bincount(edges[:, 0], weights, len(communities))
+    strength += np.bincount(edges[:, 1], weights, len(communities))
+    quality = 0.0
+    for community in set(communities.tolist()):
+        members = communities == community
+        inner = weights[members[edges[:, 0]] & members[edges[:, 1]]].sum()
+        quality += inner - resolution * strength[members].sum() ** 2 / (2.0 * total)
+    return quality
+
+
+class ModularityCentreTests(unittest.TestCase):
+    """modularity_centres names the member of each cluster whose leaving it
+    would lower the partition's modularity the most."""
+
+    BARBELL = np.array([(0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)])
+
+    def test_the_centre_is_the_member_whose_leaving_costs_the_most_modularity(self):
+        rng = np.random.default_rng(5)
+        for trial in range(25):
+            n_nodes = int(rng.integers(4, 30))
+            n_pairs = int(rng.integers(n_nodes, 4 * n_nodes))
+            edges = random_edges(rng, n_nodes, n_pairs, simple=True)
+            weights = rng.uniform(0.1, 5.0, len(edges))
+            labels = rng.integers(-1, 4, n_nodes)
+            # Noise counts in modularity as nodes that are each alone.
+            alone = np.arange(n_nodes) + n_nodes
+            communities = np.where(labels == -1, alone, labels)
+            for resolution in (0.0, 0.5, 1.0, 3.0):
+                with self.subTest(trial=trial, resolution=resolution):
+                    centres = network_kernels.modularity_centres(
+                        labels, edges, weights, resolution
+                    )
+                    self.assertEqual(set(centres), set(labels.tolist()) - {-1})
+                    before = modularity(communities, edges, weights, resolution)
+                    for cluster_id, centre in centres.items():
+                        members = np.flatnonzero(labels == cluster_id)
+                        drops = []
+                        for node in members:
+                            moved = communities.copy()
+                            moved[node] = alone[node]
+                            drops.append(before - modularity(moved, edges, weights, resolution))
+                        drops = np.array(drops)
+                        best = members[drops >= drops.max() - 1e-9]
+                        self.assertEqual(centre, best.min())
+
+    def test_a_bridge_end_loses_to_a_member_without_outside_edges(self):
+        labels = np.array([1, 1, 1, 2, 2, 2])
+        # At resolution 1 the bridge ends 2 and 3 pay for the bridge.
+        self.assertEqual(
+            network_kernels.modularity_centres(labels, self.BARBELL, None, 1.0),
+            {1: 0, 2: 4},
+        )
+        # Resolution 0 leaves the within-cluster strength: all tie at 2.
+        self.assertEqual(
+            network_kernels.modularity_centres(labels, self.BARBELL, None, 0.0),
+            {1: 0, 2: 3},
+        )
+
+    def test_the_two_members_of_a_pair_tie_and_the_lower_one_is_the_centre(self):
+        # Either member leaving gives the same partition, so 0 and 1 score
+        # the same in exact arithmetic, whatever their outside edges weigh.
+        # Rounded, as these weights are, node 1 came out 3e-17 ahead.
+        edges = np.array([(0, 1), (0, 2), (1, 3)])
+        labels = np.array([1, 1, -1, -1])
+        self.assertEqual(
+            network_kernels.modularity_centres(labels, edges, [0.1, 0.1, 1.1], 1.0),
+            {1: 0},
+        )
+
+    def test_noise_has_no_centre(self):
+        labels = np.array([1, 1, 1, -1, -1, -1])
+        self.assertEqual(
+            network_kernels.modularity_centres(labels, self.BARBELL, None, 1.0), {1: 0}
+        )
+        self.assertEqual(
+            network_kernels.modularity_centres(np.full(6, -1), self.BARBELL, None, 1.0), {}
+        )
+
+    def test_weights_count_and_unusable_ones_count_as_one(self):
+        path = np.array([(0, 1), (1, 2), (2, 3)])
+        labels = np.ones(4, dtype=int)
+        centres = lambda weights: network_kernels.modularity_centres(  # noqa: E731
+            labels, path, weights, 0.0
+        )
+        self.assertEqual(centres([1.0, 1.0, 5.0]), {1: 2})
+        for weights in (None, [1.0, 1.0, -5.0], [1.0, np.nan, 5.0], [1.0, 5.0]):
+            with self.subTest(weights=weights):
+                self.assertEqual(centres(weights), {1: 1})
+
+    def test_a_member_without_edges_is_the_centre_of_its_own_cluster(self):
+        edges = np.array([(0, 1)])
+        self.assertEqual(
+            network_kernels.modularity_centres(np.array([1, 1, 2]), edges, None, 1.0),
+            {1: 0, 2: 2},
+        )
+        no_edges = np.zeros((0, 2), dtype=np.int32)
+        self.assertEqual(
+            network_kernels.modularity_centres(np.array([1, 2]), no_edges, None, 1.0),
+            {1: 0, 2: 1},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

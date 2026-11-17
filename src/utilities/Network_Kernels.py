@@ -1655,18 +1655,35 @@ def _mcl_column_argmax(matrix):
     return matrix.indices[first]
 
 
-def _mcl_get_clusters(matrix):
+def _mcl_get_clusters(matrix, with_attractors=False):
     """``markov_clustering.get_clusters`` with one CSR conversion instead of
-    a row extraction per attractor."""
+    a row extraction per attractor.
+
+    With ``with_attractors``, also return each cluster's attractor, in the
+    clusters' order. An attractor is a node the converged flow keeps some of
+    its own flow on, and its row's nonzero entries are its cluster. Several
+    attractors can share one cluster (in a clique of equal edges every member
+    is one); the cluster's attractor is then the one whose row holds the most
+    flow, the lowest node index on a tie.
+    """
     attractors = matrix.diagonal().nonzero()[0]
     rows = matrix.tocsr()
     indptr, indices, data = rows.indptr, rows.indices, rows.data
-    clusters = set()
+    strongest = {}
     for attractor in attractors.tolist():
         start, end = indptr[attractor], indptr[attractor + 1]
-        members = indices[start:end][data[start:end] != 0]
-        clusters.add(tuple(members.tolist()))
-    return sorted(clusters)
+        nonzero = data[start:end] != 0
+        members = tuple(indices[start:end][nonzero].tolist())
+        flow = float(data[start:end][nonzero].sum())
+        held = strongest.get(members)
+        # The attractors come in ascending order, so a tie, to within
+        # rounding, keeps the lower index.
+        if held is None or flow > held[0] * (1 + 1e-9):
+            strongest[members] = (flow, attractor)
+    clusters = sorted(strongest)
+    if not with_attractors:
+        return clusters
+    return clusters, [strongest[members][1] for members in clusters]
 
 
 # _mcl_prune puts each column's maximum back into the pruned matrix, which
@@ -1687,6 +1704,22 @@ else:
     )
 
 
+def _converged_mcl_flow(matrix, inflation, progress):
+    """The flow matrix ``run_mcl`` converges to; see markov_clusters."""
+    from markov_clustering import mcl
+
+    matrix = mcl.normalize(_mcl_add_self_loops(matrix))
+    for _iteration in range(100):
+        if progress is not None:
+            progress(f"MCL iteration {_iteration + 1}")
+        last_mat = matrix.copy()
+        matrix = mcl.iterate(matrix, 2, inflation)
+        matrix = _mcl_prune(matrix, 0.001)
+        if mcl.converged(matrix, last_mat):
+            break
+    return matrix
+
+
 def markov_clusters(matrix, inflation, progress=None):
     """Return ``get_clusters(run_mcl(matrix, inflation=inflation))`` of
     ``markov_clustering``, with the library's defaults and arithmetic, except
@@ -1701,18 +1734,99 @@ def markov_clusters(matrix, inflation, progress=None):
     ``progress``, when given, is called with a short text before each
     iteration; it may raise to stop the run (the command queue's cancel).
     """
-    from markov_clustering import mcl
+    return _mcl_get_clusters(_converged_mcl_flow(matrix, inflation, progress))
 
-    matrix = mcl.normalize(_mcl_add_self_loops(matrix))
-    for _iteration in range(100):
-        if progress is not None:
-            progress(f"MCL iteration {_iteration + 1}")
-        last_mat = matrix.copy()
-        matrix = mcl.iterate(matrix, 2, inflation)
-        matrix = _mcl_prune(matrix, 0.001)
-        if mcl.converged(matrix, last_mat):
-            break
-    return _mcl_get_clusters(matrix)
+
+def markov_clusters_and_attractors(matrix, inflation, progress=None):
+    """Return ``(clusters, attractors)``: markov_clusters' clusters, and for
+    each the attractor its flow converged on, MCL's own centre of the cluster
+    (see _mcl_get_clusters). The attractor is a member of its cluster."""
+    return _mcl_get_clusters(
+        _converged_mcl_flow(matrix, inflation, progress), with_attractors=True
+    )
+
+
+def modularity_centres(labels, edges, weights, resolution):
+    """Return ``{label: node}``, each cluster's centre, for clusters labelled
+    1, 2, ...; Noise (-1) has none.
+
+    The centre is the member that most belongs to its cluster by modularity,
+    the measure Leiden maximises: the member with the highest
+
+        k_in(i) - resolution * k(i) * (K_c - k(i)) / (2m)
+
+    where k_in(i) is the weight of the node's edges to the other members,
+    k(i) the weight of all its edges, K_c the summed k of the members and 2m
+    the summed k of every node. It is how much the partition's modularity
+    would drop if the node left its cluster to be alone, so a hub with many
+    edges into other clusters scores lower than its strength alone would
+    give. A resolution of 0 leaves the plain within-cluster strength. Scores
+    within rounding (a billionth of their size) of the best tie, and ties go
+    to the lowest node index; a member without edges scores 0.
+
+    The score is the modularity gain Louvain (Blondel et al. 2008) and Leiden
+    (Traag et al. 2019) use to move a node; taking its best member as the
+    centre is this program's choice, not a named measure. The standard
+    within-module degree z-score (Guimera and Amaral 2005) picks the member
+    a resolution of 0 picks, and can land on a hub linking clusters.
+
+    ``weights`` (one per edge) weigh the edges. Without them, or when one is
+    negative or not finite, every edge weighs 1.
+    """
+    labels = np.asarray(labels)
+    n_nodes = labels.size
+    edges = np.asarray(edges).reshape(-1, 2)
+    clustered = labels != -1
+    if not clustered.any():
+        return {}
+
+    if weights is not None and len(weights) == len(edges):
+        weights = np.asarray(weights, dtype=np.float64).ravel()
+        if not (np.isfinite(weights) & (weights >= 0)).all():
+            weights = None
+    else:
+        weights = None
+    if weights is None:
+        weights = np.ones(len(edges), dtype=np.float64)
+
+    sources, targets = edges[:, 0], edges[:, 1]
+    strength = np.bincount(sources, weights, minlength=n_nodes)
+    strength += np.bincount(targets, weights, minlength=n_nodes)
+    source_labels = labels[sources]
+    inside = source_labels == labels[targets]
+    inside &= source_labels != -1
+    del source_labels
+    inner = np.bincount(sources[inside], weights[inside], minlength=n_nodes)
+    inner += np.bincount(targets[inside], weights[inside], minlength=n_nodes)
+
+    nodes = np.flatnonzero(clustered)
+    cluster_ids, slots = np.unique(labels[nodes], return_inverse=True)
+    # bincount counts in integers when it is given no edge at all.
+    member_strength = strength[nodes].astype(np.float64)
+    score = inner[nodes].astype(np.float64)
+    magnitude = score.copy()
+    total = float(strength.sum())
+    if total > 0 and resolution != 0:
+        cluster_strength = np.bincount(slots, member_strength)
+        penalty = resolution * member_strength * (
+            cluster_strength[slots] - member_strength
+        ) / total
+        score = score - penalty
+        magnitude += np.abs(penalty)
+
+    # Members within rounding of their cluster's best score tie, and a tie
+    # goes to the lowest node. The two members of a pair score the same in
+    # exact arithmetic (either leaving gives the same partition), but
+    # K_c - k(i) need not round alike for both.
+    n_clusters = len(cluster_ids)
+    best = np.full(n_clusters, -np.inf)
+    np.maximum.at(best, slots, score)
+    scale = np.zeros(n_clusters)
+    np.maximum.at(scale, slots, magnitude)
+    near_best = score >= best[slots] - 1e-9 * scale[slots]
+    centres = np.full(n_clusters, n_nodes)
+    np.minimum.at(centres, slots[near_best], nodes[near_best])
+    return {int(cid): int(node) for cid, node in zip(cluster_ids, centres)}
 
 
 if NUMBA_AVAILABLE:
@@ -1914,5 +2028,7 @@ __all__ = [
     "sorted_neighbour_csr",
     "jaccard_partition",
     "markov_clusters",
+    "markov_clusters_and_attractors",
+    "modularity_centres",
     "fast_jaccard_filter",
 ]
