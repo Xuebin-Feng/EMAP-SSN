@@ -708,11 +708,17 @@ class DeterministicLayoutTests(unittest.TestCase):
                 limits, *arguments,
             )
 
-        np.testing.assert_array_equal(positions_3d[:, :2], positions_2d)
+        # Bit-identity of the two kernels is not something the product relies on
+        # (2D and 3D caches are separate): it only held on x86. On arm64 the two
+        # code shapes fuse multiply-adds differently and differ by about 1e-8, so
+        # x and y are compared to a tight tolerance. z stays exactly zero.
+        np.testing.assert_allclose(
+            positions_3d[:, :2], positions_2d, rtol=1e-5, atol=1e-5
+        )
         np.testing.assert_array_equal(
             positions_3d[:, 2], np.zeros(count, dtype=np.float32)
         )
-        self.assertEqual(rmsd_2d, rmsd_3d)
+        self.assertAlmostEqual(float(rmsd_2d), float(rmsd_3d), places=5)
 
 
 class BenchmarkHandOffTests(unittest.TestCase):
