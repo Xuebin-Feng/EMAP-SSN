@@ -292,19 +292,24 @@ still change before version 1.0.0.
     not in use are greyed out and keep their content. The chosen FASTA path is not saved.
     A sequence given without a name is named from the sequence itself, so asking for it
     again finds its structure.
-  - **Model:** the local ESM3 open model by default. The Biohub API is used only when
-    the Model setting says remote and a token is saved, and the run says that it is
-    sending the sequences. Neither model takes the other's place.
+  - **Model:** the local ESM3 open model by default, on the first available GPU and on
+    the CPU only when there is none. The Biohub API is used only when Folding Model says
+    remote and a token is saved, and the run says that it is sending the sequences.
+    Neither model takes the other's place.
   - **Output:** one PDB file per sequence in the new Folded Structure Directory
     (`Analysis_Results/Folded_Structure`), with the per-residue pLDDT, 0 to 100, in the
     B-factor column. Nothing else is written. These files are separate from the
     structures the Viewer's `esmfold` keeps.
   - **Safeguards:** an existing structure is never overwritten. It is reported as
     existing when it holds the same sequence, and as failed when it holds another. A run
-    folds at most 20 sequences unless Maximum Sequences is raised. An unavailable device
-    or a missing token is refused before anything is created.
-  - **MCP:** the server's guide names the tool, and the guide's word limit goes from
-    1,850 to 2,000. A workflow recipe shows how to predict a structure from a sequence.
+    folds at most 20 sequences unless Max Seq is raised. A missing token is refused
+    before anything is created.
+  - **MCP:** a new action, `emapssn_pipeline(action="predict_structure")`, folds one
+    sequence or a FASTA in one call with no settings document. It starts the tool as a
+    job and waits as `wait_job` does: a short fold comes back finished, with one record
+    per sequence (name, path, length, status, mean pLDDT), and a longer one comes back
+    with its job to wait on. The server's guide and `list_tools` name it, a workflow
+    recipe shows it, and the guide's word limit goes from 1,850 to 2,000.
 
 ### Changed
 
@@ -684,6 +689,11 @@ still change before version 1.0.0.
   no environment, or an environment on another Python. It now prints the reason. The
   launchers also clear `PYTHONSAFEPATH`, which kept the program from starting when it
   was set.
+- **A Viewer web reply could be lost when the request body was left unread.** For a body
+  over 65,536 bytes, a chunked body or one with an invalid length, the server answered
+  (a 401, 403 or 404) and closed at once, and Windows then dropped the connection before
+  the client had read the answer. The server now stops sending, reads out what the
+  client is still sending, for at most 2 seconds and 2 MiB, and then closes.
 
 ## [0.5.0] - 2026-10-30
 
