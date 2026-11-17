@@ -849,19 +849,13 @@
           "local",
           "remote"
         ],
-        "description": "Model: local runs the ESM3 open model on this computer; remote sends the sequences to the Biohub API with the saved token and the model of the saved API settings.\nThe remote service is used only when this says remote, and the local model never takes its place."
-      },
-      "DEVICE_SELECTION": {
-        "type": "string",
-        "default": "auto",
-        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$",
-        "description": "Device: Hardware that runs the local model. Auto takes the first available accelerator, else the CPU.\nIgnored by the remote model."
+        "description": "Folding Model: local runs the ESM3 open model on this computer, on the first available accelerator and on the CPU only when there is none; remote sends the sequences to the Biohub API with the saved token and the model of the saved API settings.\nThe remote service is used only when this says remote, and the local model never takes its place."
       },
       "MAX_SEQUENCES": {
         "type": "integer",
         "default": 20,
         "minimum": 1,
-        "description": "Maximum Sequences: Most sequences one run folds; a run that would fold more is refused before anything is folded.\nStructures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more."
+        "description": "Max Seq: Maximum number of sequences one run folds; a run that would fold more is refused before anything is folded.\nStructures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more."
       }
     },
     "required": []

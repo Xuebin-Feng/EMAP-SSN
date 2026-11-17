@@ -279,7 +279,8 @@ def predict_structures(requests, structures_dir, *, mode=LOCAL, device="auto",
                        max_sequences=DEFAULT_MAX_SEQUENCES, log=print, path_limit=None):
     """Predict the structure of each ``(name, sequence)`` of ``requests``; return a StructureRecord for each, in order.
 
-    ``mode`` is LOCAL (the ESM3 open model, on ``device``: "auto", "cpu", "cuda:0", ...) or REMOTE (the
+    ``mode`` is LOCAL (the ESM3 open model, on the first available accelerator, else the CPU; ``device`` names
+    one instead for tests: "cpu", "cuda:0", ... No setting of a tool offers it) or REMOTE (the
     Biohub API, with the model of the saved API settings). The remote service is used only when REMOTE is
     asked for, and the local model never takes its place. A structure file that exists is kept, never
     written again: it is reported EXISTING when it holds this sequence, and FAILED when it holds another.

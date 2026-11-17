@@ -144,10 +144,11 @@ class ActionTests(unittest.IsolatedAsyncioTestCase):
         action = REGISTRY["emapssn_pipeline"]["predict_structure"]
         action.model.model_validate(action.example)
         self.assertEqual(set(action.model.model_fields),
-                         {"sequence", "name", "fasta_file", "model", "device", "max_sequences", "output_dir", "wait_seconds"})
+                         {"sequence", "name", "fasta_file", "model", "max_sequences", "output_dir", "wait_seconds"})
         fields = action.model.model_fields
-        self.assertEqual((fields["model"].default, fields["device"].default, fields["max_sequences"].default,
-                          fields["wait_seconds"].default), ("local", "auto", 20, 50.0))
+        self.assertEqual((fields["model"].default, fields["max_sequences"].default,
+                          fields["wait_seconds"].default), ("local", 20, 50.0))
+        self.assertNotIn("device", fields)
 
     async def test_help_and_describe_show_it(self):
         listing = await dispatch("emapssn_pipeline", "help", {}, None)
@@ -160,7 +161,8 @@ class ActionTests(unittest.IsolatedAsyncioTestCase):
         await self.call(sequence=SEQUENCE, name="my protein")
         section, document = self.section()
         self.assertEqual((section["BATCH_INPUT"], section["SEQUENCE"], section["SEQUENCE_NAME"]), (False, SEQUENCE, "my protein"))
-        self.assertEqual((section["PREDICTION_MODEL"], section["DEVICE_SELECTION"], section["MAX_SEQUENCES"]), ("local", "auto", 20))
+        self.assertEqual((section["PREDICTION_MODEL"], section["MAX_SEQUENCES"]), ("local", 20))
+        self.assertNotIn("DEVICE_SELECTION", section)
         self.assertEqual(Path(document["DIRECTORIES"]["STRUCTURE_DIR"]),
                          PROJECT_ROOT / "Analysis_Results" / "Folded_Structure")
         self.assertEqual(self.jobs.submit.await_args.kwargs, {"collect_structures": True})
@@ -168,10 +170,10 @@ class ActionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_fasta_becomes_the_batch_input_and_an_output_folder_is_passed_on(self):
         await self.call(fasta_file="/data/set.fasta", output_dir=str(Path(tempfile.gettempdir()) / "out"),
-                        device="cpu", max_sequences=3)
+                        max_sequences=3)
         section, document = self.section()
-        self.assertEqual((section["BATCH_INPUT"], section["INPUT_FASTA"], section["DEVICE_SELECTION"], section["MAX_SEQUENCES"]),
-                         (True, "/data/set.fasta", "cpu", 3))
+        self.assertEqual((section["BATCH_INPUT"], section["INPUT_FASTA"], section["MAX_SEQUENCES"]),
+                         (True, "/data/set.fasta", 3))
         self.assertEqual(Path(document["DIRECTORIES"]["STRUCTURE_DIR"]), Path(tempfile.gettempdir()) / "out")
 
     async def test_remote_is_set_only_when_the_call_says_so(self):
@@ -189,7 +191,7 @@ class ActionTests(unittest.IsolatedAsyncioTestCase):
             ({"sequence": "  ", "fasta_file": ""}, "exactly one of sequence and fasta_file"),
             ({"fasta_file": "set.fasta", "name": "x"}, "name applies to a sequence only"),
             ({"sequence": "1234"}, "empty after sanitization"),
-            ({"sequence": SEQUENCE, "device": "gpu"}, "DEVICE_SELECTION"),
+            ({"sequence": SEQUENCE, "device": "cpu"}, "device"),
             ({"sequence": SEQUENCE, "model": "hosted"}, "model"),
             ({"sequence": SEQUENCE, "max_sequences": 0}, "max_sequences"),
             ({"sequence": SEQUENCE, "wait_seconds": 51}, "wait_seconds"),

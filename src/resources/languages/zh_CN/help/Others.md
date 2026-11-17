@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 acaf439656351f839850f6497b7e60be02dfcb6547973cc529768f1efa05113c -->
+<!-- Translation of Others.md, sha256 97472947d6c877a188dbb52ea4c5e7a2c68498fce7e5bd55d6182df43a2cdf8c -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -177,8 +177,7 @@
 | 序列 **`SEQUENCE`** | 键入的一条氨基酸序列。批量输入关闭时使用，此时必填。 |
 | 序列名称 **`SEQUENCE_NAME`** | 键入序列的可选名称。 |
 | FASTA 文件 **`INPUT_FASTA`** | 要折叠的 FASTA 文件，用浏览选择。批量输入开启时使用，此时必填。不会被保存。 |
-| 模型 **`PREDICTION_MODEL`** | `local`（默认）在本机运行 ESM3 开放模型（`biohub/esm3-sm-open-v1`）。`remote` 使用已保存的 API 令牌和已保存 API 设置中的模型，将序列发送到 Biohub API。只有此项为 `remote` 时才会使用远程服务；本地模型绝不会替代它，缺少令牌会使运行失败。 |
-| 设备 **`DEVICE_SELECTION`** | 运行本地模型的设备：`auto`（第一个可用的加速器，否则为 CPU，CPU 极慢）或某个具体设备。不可用的设备会在创建任何内容之前被拒绝。远程模型忽略此项。 |
+| 折叠模型 **`PREDICTION_MODEL`** | `local`（默认）在本机运行 ESM3 开放模型（`biohub/esm3-sm-open-v1`），使用第一个可用的加速器，只有没有加速器时才使用 CPU（CPU 极慢）；没有设备设置，运行时会输出所用设备。`remote` 使用已保存的 API 令牌和已保存 API 设置中的模型，将序列发送到 Biohub API。只有此项为 `remote` 时才会使用远程服务；本地模型绝不会替代它，缺少令牌会使运行失败。 |
 | 最大序列数 **`MAX_SEQUENCES`** | 一次运行最多折叠的序列数（默认 20）。会折叠更多序列的运行在折叠之前被拒绝，并说明序列数。已存在的结构不计入。调大该值或改用更小的 FASTA 文件即可折叠更多。 |
 | 折叠结构目录 **`STRUCTURE_DIR`** | 保存结构的文件夹（“目录”标签页）。默认为 `Analysis_Results/Folded_Structure`。 |
 

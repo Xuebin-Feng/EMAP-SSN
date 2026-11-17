@@ -624,9 +624,8 @@ async def predict_structure(
         "A protein FASTA whose sequences are all folded: an absolute path, or a name inside the FASTA directory. "
         "Give this or sequence, not both."))] = None,
     model: Annotated[Literal["local", "remote"], Field(description=(
-        "local runs the ESM3 open model on this computer. remote sends the sequences to the Biohub API and needs a token "
+        "local runs the ESM3 open model on this computer, on the first available accelerator and on the CPU only when there is none. remote sends the sequences to the Biohub API and needs a token "
         "saved beforehand by the user; choose it only when the user asks. Neither is a fallback for the other."))] = "local",
-    device: Annotated[str, Field(description="Device for the local model: 'auto' (the first accelerator, else the CPU), 'cpu', 'cuda:N', 'xpu:N' or 'mps'")] = "auto",
     max_sequences: Annotated[int, Field(ge=1, description=(
         "Most sequences one call folds; a larger request is refused before anything is folded. Structures that exist are not counted."))] = 20,
     output_dir: Annotated[str | None, Field(description=(
@@ -649,7 +648,7 @@ async def predict_structure(
         parameters = {"BATCH_INPUT": False, "SEQUENCE": sequence, "SEQUENCE_NAME": name or ""}
     else:
         parameters = {"BATCH_INPUT": True, "INPUT_FASTA": fasta_file}
-    parameters.update(PREDICTION_MODEL=model, DEVICE_SELECTION=device, MAX_SEQUENCES=max_sequences)
+    parameters.update(PREDICTION_MODEL=model, MAX_SEQUENCES=max_sequences)
     preview = normalize_pipeline_settings(
         "predict_structures", _PROJECT_ROOT, parameters=parameters,
         directories={"STRUCTURE_DIR": output_dir} if output_dir else None,

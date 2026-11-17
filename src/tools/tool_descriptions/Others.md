@@ -176,9 +176,8 @@ The **Batch Input** switch chooses the input. It is off by default. The input it
 | Sequence **`SEQUENCE`** | One typed amino acid sequence. Used while Batch Input is off, and then required. |
 | Sequence Name **`SEQUENCE_NAME`** | The optional name of the typed sequence. |
 | FASTA File **`INPUT_FASTA`** | The FASTA file to fold, chosen with Browse. Used while Batch Input is on, and then required. Not saved. |
-| Model **`PREDICTION_MODEL`** | `local` (the default) runs the ESM3 open model (`biohub/esm3-sm-open-v1`) on this computer. `remote` sends the sequences to the Biohub API, with the saved API token and the model of the saved API settings. The remote service is used only when this says `remote`; the local model never takes its place, and a missing token fails the run. |
-| Device **`DEVICE_SELECTION`** | The device that runs the local model: `auto` (the first available accelerator, else the CPU, which is extremely slow) or a concrete device. An unavailable device is refused before anything is created. The remote model ignores it. |
-| Maximum Sequences **`MAX_SEQUENCES`** | The most sequences one run folds (default 20). A run that would fold more is refused before anything is folded, saying how many there are. Structures that exist already are not counted. Raise it, or use a smaller FASTA file, to fold more. |
+| Folding Model **`PREDICTION_MODEL`** | `local` (the default) runs the ESM3 open model (`biohub/esm3-sm-open-v1`) on this computer, on the first available accelerator and on the CPU only when there is none (the CPU is extremely slow); there is no device setting, and the run prints the device it uses. `remote` sends the sequences to the Biohub API, with the saved API token and the model of the saved API settings. The remote service is used only when this says `remote`; the local model never takes its place, and a missing token fails the run. |
+| Max Seq **`MAX_SEQUENCES`** | The maximum number of sequences one run folds (default 20). A run that would fold more is refused before anything is folded, saying how many there are. Structures that exist already are not counted. Raise it, or use a smaller FASTA file, to fold more. |
 | Folded Structure Directory **`STRUCTURE_DIR`** | The folder the structures are saved in (Directories tab). By default `Analysis_Results/Folded_Structure`. |
 
 ### Output

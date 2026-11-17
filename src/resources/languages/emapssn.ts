@@ -8426,6 +8426,10 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The local model runs on the first available accelerator, and on the CPU, which is extremely slow, only when there is none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Runs the ESM3 open model on this computer.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8434,19 +8438,11 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Hardware compute device that runs the local model.</source>
+        <source>Maximum number of sequences one run folds.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Ignored by the remote model.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Uses the first available accelerator (CUDA, XPU, MPS), else the CPU, which is extremely slow.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Most sequences one run folds.</source>
+        <source>Maximum Sequences</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9150,7 +9146,21 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequences to Fold:</source>
+        <source>Local (ESM3 Open Model)</source>
+        <comment>prediction model</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remote (Biohub API)</source>
+        <comment>prediction model</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding Model:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max Seq:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9162,38 +9172,11 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Name (Optional):</source>
+        <source>Sequence Name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>FASTA File:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Prediction Settings:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Local (ESM3 Open Model)</source>
-        <comment>prediction model</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Remote (Biohub API)</source>
-        <comment>prediction model</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Model:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Automatic (First Accelerator)</source>
-        <comment>device selection</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Maximum Sequences:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

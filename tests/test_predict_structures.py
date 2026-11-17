@@ -428,7 +428,7 @@ class SettingsAndInputTests(EngineCase):
         return str(path)
 
     def run_tool(self, **values):
-        names = ("BATCH_INPUT", "INPUT_FASTA", "SEQUENCE", "SEQUENCE_NAME", "PREDICTION_MODEL", "DEVICE_SELECTION")
+        names = ("BATCH_INPUT", "INPUT_FASTA", "SEQUENCE", "SEQUENCE_NAME", "PREDICTION_MODEL")
         namespace = {name: getattr(tool, name) for name in names}
         with mock.patch.multiple(tool, **namespace), contextlib.redirect_stdout(io.StringIO()) as output:
             code = tool.main([self.settings(**values)])
@@ -460,7 +460,7 @@ class SettingsAndInputTests(EngineCase):
         self.assertEqual(code, 0, output)
 
     def test_a_typed_sequence_runs_end_to_end_and_the_table_ends_it(self):
-        code, output = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="typed one", DEVICE_SELECTION="cpu")
+        code, output = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="typed one")
         self.assertEqual(code, 0, output)
         self.assertEqual(self.files(), ["typed_one.pdb"])
         for text in ("Mean pLDDT", "typed_one.pdb", "folded", str(len(SEQUENCE)), "Structures are in:", "Done: 1"):
@@ -501,15 +501,24 @@ class SettingsAndInputTests(EngineCase):
                          (0, ["rec.pdb", "rec2.pdb"], ["result.json"]))
 
     def test_a_request_that_cannot_run_prints_one_error_line_and_exits_nonzero(self):
-        code, output = self.run_tool(SEQUENCE=SEQUENCE, DEVICE_SELECTION="cuda:3")
+        code, output = self.run_tool(BATCH_INPUT=True, INPUT_FASTA="missing.fasta")
         self.assertEqual(code, 1)
         errors = [line for line in output.splitlines() if "Error" in line]
         self.assertEqual(len(errors), 1)
-        self.assertIn("cuda:3", errors[0])
+        self.assertIn("missing.fasta", errors[0])
         self.assertFalse(self.folder.exists())
-        code, output = self.run_tool(BATCH_INPUT=True, INPUT_FASTA="missing.fasta")
-        self.assertEqual(code, 1)
-        self.assertIn("missing.fasta", output)
+
+    def test_the_local_model_takes_the_first_accelerator_and_the_run_prints_which_device_it_uses(self):
+        with mock.patch.object(Hardware_Acceleration, "get_optimal_device", return_value="cuda:0") as optimal, \
+                mock.patch.object(Hardware_Acceleration, "get_available_devices", return_value=[Candidate("cuda:0")]):
+            code, output = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="gpu")
+        self.assertEqual(code, 0, output)
+        optimal.assert_called()
+        self.assertIn("on cuda:0", output)
+        with mock.patch.object(Hardware_Acceleration, "get_optimal_device", return_value="cpu"):
+            code, output = self.run_tool(SEQUENCE=SEQUENCE, SEQUENCE_NAME="cpu")
+        self.assertEqual(code, 0, output)
+        self.assertIn("on cpu", output)
 
     def test_the_tool_never_names_remote_unless_the_setting_says_remote(self):
         self.assertEqual(tool.PREDICTION_MODEL, "local")
@@ -548,7 +557,10 @@ class ParityTests(unittest.TestCase):
         contract = _CONTRACTS["Predict_Structures.py"]
         self.assertTrue(set(contract["properties"]) <= self.module_settings())
         self.assertEqual(set(contract["properties"]), {
-            "BATCH_INPUT", "INPUT_FASTA", "SEQUENCE", "SEQUENCE_NAME", "PREDICTION_MODEL", "DEVICE_SELECTION", "MAX_SEQUENCES"})
+            "BATCH_INPUT", "INPUT_FASTA", "SEQUENCE", "SEQUENCE_NAME", "PREDICTION_MODEL", "MAX_SEQUENCES"})
+        # No device setting is offered anywhere: the local model takes the first accelerator, else the CPU.
+        self.assertNotIn("DEVICE_SELECTION", contract["properties"])
+        self.assertFalse(hasattr(tool, "DEVICE_SELECTION"))
         for name, entry in contract["properties"].items():
             self.assertEqual(getattr(tool, name), entry["default"], name)
         spec = get_tool_spec("predict_structures")
@@ -604,8 +616,8 @@ class ParityTests(unittest.TestCase):
         # The typed sequence is not looked at while the switch is on.
         self.assertTrue(self.check(BATCH_INPUT=True, SEQUENCE="1234", INPUT_FASTA="set.fasta")["valid"])
 
-    def test_validation_checks_the_model_device_and_maximum(self):
-        for parameters in ({"PREDICTION_MODEL": "hosted"}, {"DEVICE_SELECTION": "gpu"}, {"MAX_SEQUENCES": 0},
+    def test_validation_checks_the_model_and_maximum_and_knows_no_device(self):
+        for parameters in ({"PREDICTION_MODEL": "hosted"}, {"DEVICE_SELECTION": "auto"}, {"MAX_SEQUENCES": 0},
                            {"SEQUENCE_NAME": "a/b"}, {"UNKNOWN": 1}):
             with self.subTest(parameters=parameters):
                 self.assertFalse(self.check(SEQUENCE=SEQUENCE, **parameters)["valid"])
@@ -788,15 +800,212 @@ class ToolsWindowTests(unittest.TestCase):
         collected = window._collect_tool_settings(path)
         self.assertEqual((collected["PREDICTION_MODEL"], collected["SEQUENCE_NAME"], collected["MAX_SEQUENCES"]),
                          ("remote", "n", 7))
-        self.assertEqual(collected["DEVICE_SELECTION"], "auto")
+        self.assertNotIn("DEVICE_SELECTION", collected)
 
-    def test_the_device_dropdown_says_what_auto_does_for_this_tool_and_the_others_are_unchanged(self):
+    def test_the_card_has_no_device_choice_and_the_shared_device_dropdown_is_as_it_was(self):
         window, path, _ = self.window()
-        combo = window.script_data[path]["inputs"]["DEVICE_SELECTION"]["widget"]
-        self.assertEqual((combo.itemText(0), combo.itemData(0)), ("Automatic (First Accelerator)", "auto"))
+        inputs = window.script_data[path]["inputs"]
+        self.assertNotIn("DEVICE_SELECTION", inputs)
         other = next(p for p in window.script_data if Path(p).name == "Generate_Embeddings.py")
-        other_combo = window.script_data[other]["inputs"]["DEVICE_SELECTION"]["widget"]
-        self.assertEqual((other_combo.itemText(0), other_combo.itemData(0)), ("Auto Benchmark", "auto"))
+        combo = window.script_data[other]["inputs"]["DEVICE_SELECTION"]["widget"]
+        self.assertEqual((combo.itemText(0), combo.itemData(0)), ("Auto Benchmark", "auto"))
+        import EMAPSSN_Tools
+        self.assertNotIn("auto_label", Path(EMAPSSN_Tools.__file__).read_text(encoding="utf-8"))
+
+    # --- the card's three rows ---
+
+    def shown_window(self, language=None):
+        """The Tools window on screen (offscreen), in English or in a language's own texts."""
+        from desktop.Desktop_App import install_translations
+        from EMAPSSN_Tools import configure_qt_application_fonts
+        if language:
+            install_translations(self.app, language)
+            self.addCleanup(install_translations, self.app, None)
+        configure_qt_application_fonts(self.app)
+        window, path, _ = self.window()
+        window.show()
+        self.flush()
+        return window, path
+
+    def flush(self):
+        for _ in range(4):
+            self.app.processEvents()
+
+    def resize_panel(self, window, width):
+        right = window.splitter.widget(1).minimumSizeHint().width() + 4
+        window.resize(width + right + 34, 850)
+        window.splitter.setSizes([width + 4, right])
+        self.flush()
+        delta = width - window.tabs.currentWidget().width()
+        left, right = window.splitter.sizes()
+        window.splitter.setSizes([left + delta, right - delta])
+        self.flush()
+
+    def show_card(self, window, path):
+        field = window.script_data[path]["inputs"]["SEQUENCE"]["widget"]
+        tab = next(index for index in range(window.tabs.count()) if window.tabs.widget(index).isAncestorOf(field))
+        window.tabs.setCurrentIndex(tab)
+        self.flush()
+        return window.tabs.widget(tab)
+
+    def box(self, widget, origin):
+        return widget.rect().translated(widget.mapTo(origin, widget.rect().topLeft()))
+
+    def row_boxes(self, window, path, origin):
+        """Each field's box, in the coordinates of ``origin``."""
+        inputs = window.script_data[path]["inputs"]
+        return {name: self.box(entry["widget"], origin) for name, entry in inputs.items()}, None
+
+    def test_the_three_rows_hold_the_fields_in_the_order_the_user_asked_for(self):
+        window, path = self.shown_window()
+        scroll = self.show_card(window, path)
+        self.resize_panel(window, 1400)
+        boxes, _ = self.row_boxes(window, path, scroll.widget())
+        model, limit, batch = boxes["PREDICTION_MODEL"], boxes["MAX_SEQUENCES"], boxes["BATCH_INPUT"]
+        sequence, name, fasta = boxes["SEQUENCE"], boxes["SEQUENCE_NAME"], boxes["INPUT_FASTA"]
+        # Row 1: Folding Model, Max Seq, and the switch at the far right.
+        for field in (limit, batch):
+            self.assertLessEqual(abs(field.center().y() - model.center().y()), 3)
+        self.assertLess(model.right(), limit.left())
+        self.assertLess(limit.right(), batch.left())
+        # The switch ends the row: nothing of this card reaches further right on row 1.
+        self.assertGreaterEqual(batch.right(), max(box.right() for box in (sequence, fasta)) - 2)
+        # Row 2: the sequence alone, across the row.
+        rows_other_than_two = [box for box in (model, limit, batch, name, fasta)]
+        self.assertTrue(all(box.bottom() < sequence.top() or box.top() > sequence.bottom() for box in rows_other_than_two))
+        self.assertGreater(sequence.width(), name.width())
+        # Row 3: the name on the left, the FASTA file and its Browse on the right.
+        self.assertLessEqual(abs(name.center().y() - fasta.center().y()), 3)
+        self.assertLess(name.right(), fasta.left())
+        self.assertLess(model.bottom(), sequence.top())
+        self.assertLess(sequence.bottom(), name.top())
+        # The first field of each row starts where the other cards' fields start.
+        self.assertEqual({model.left(), sequence.left(), name.left()}, {model.left()})
+        other = next(p for p in window.script_data if Path(p).name == "Embedding_SSEARCH.py")
+        neighbour = self.box(window.script_data[other]["inputs"]["INPUT_EMBED"]["widget"], scroll.widget())
+        self.assertEqual(model.left(), neighbour.left())
+        # The labels are the new wording, and the titles inside the card are gone.
+        card = window.script_data[path]["inputs"]["SEQUENCE"]["widget"].parentWidget()
+        from PySide6.QtWidgets import QLabel
+        texts = [label.text() for label in card.findChildren(QLabel)]
+        for wanted in ("Folding Model:", "Max Seq:", "Batch Input:", "Sequence:", "Sequence Name:", "FASTA File:"):
+            self.assertIn(wanted, texts)
+        for gone in ("Model:", "Maximum Sequences:", "Sequence Name (Optional):", "Sequences to Fold:", "Prediction Settings:"):
+            self.assertNotIn(gone, texts)
+
+    def test_the_tab_key_goes_through_the_fields_in_reading_order(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QWidget
+        window, path = self.shown_window()
+        self.show_card(window, path)
+        inputs = window.script_data[path]["inputs"]
+        order = ("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT", "SEQUENCE", "SEQUENCE_NAME", "INPUT_FASTA")
+        owner = {}
+        for name in order:
+            widget = inputs[name]["widget"]
+            for member in [widget] + widget.findChildren(QWidget):
+                owner[member] = name
+        owner[inputs["INPUT_FASTA"]["widget"].browse_button] = "Browse"
+        inputs["BATCH_INPUT"]["widget"].setChecked(True)  # every field takes the focus while it is active
+        self.flush()
+        seen, current = [], inputs[order[0]]["widget"]
+        for _ in range(600):
+            label = owner.get(current)
+            if label and current.focusPolicy() != Qt.FocusPolicy.NoFocus and label not in seen[-1:]:
+                seen.append(label)
+            current = current.nextInFocusChain()
+            if len(seen) >= 7:
+                break
+        self.assertEqual(seen[:2], ["PREDICTION_MODEL", "MAX_SEQUENCES"])
+        self.assertEqual(seen[2:3], ["BATCH_INPUT"])
+        self.assertEqual([name for name in seen if name in ("INPUT_FASTA", "Browse")], ["INPUT_FASTA", "Browse"])
+        self.assertLess(seen.index("INPUT_FASTA"), seen.index("Browse"))
+
+    def test_every_field_keeps_its_tip_and_max_seq_is_read_out_in_full(self):
+        window, path = self.shown_window()
+        inputs = window.script_data[path]["inputs"]
+        for name, entry in inputs.items():
+            with self.subTest(field=name):
+                self.assertIn(entry["widget"], window.tip_db)
+        limit = inputs["MAX_SEQUENCES"]["widget"]
+        self.assertEqual(limit.accessibleName(), "Maximum Sequences")
+        tip = window.tip_db[limit]
+        self.assertEqual((tip.tip.title, tip.tip.summary), ("Maximum Sequences", "Maximum number of sequences one run folds."))
+
+    def check_fits(self, window, path, scroll, width):
+        self.resize_panel(window, width)
+        self.assertEqual(scroll.horizontalScrollBar().maximum(), 0, width)
+        card = window.script_data[path]["inputs"]["SEQUENCE"]["widget"].parentWidget()
+        from PySide6.QtWidgets import QWidget
+        for widget in [card] + card.findChildren(QWidget):
+            layout = widget.layout()
+            if layout is None:
+                continue
+            children = [layout.itemAt(index).widget() for index in range(layout.count())]
+            children = [child for child in children if child is not None and child.isVisibleTo(card)]
+            for index, child in enumerate(children):
+                self.assertTrue(widget.rect().contains(child.geometry()), (width, child.objectName(), type(child).__name__))
+                for other in children[index + 1:]:
+                    self.assertFalse(child.geometry().intersects(other.geometry()), (width, type(child).__name__))
+        inputs = window.script_data[path]["inputs"]
+        for name in ("PREDICTION_MODEL", "MAX_SEQUENCES", "SEQUENCE", "SEQUENCE_NAME"):
+            field = inputs[name]["widget"]
+            self.assertGreaterEqual(field.width(), min(field.minimumSizeHint().width(), 60), (width, name))
+        fasta = inputs["INPUT_FASTA"]["widget"]
+        self.assertGreater(fasta.line_edit.width(), 40, width)
+        self.assertLessEqual(fasta.browse_button.geometry().right(), fasta.rect().right())
+
+    def test_nothing_is_cut_off_at_the_narrowest_and_widest_panel_in_english_and_chinese(self):
+        for language in (None, "zh_CN"):
+            window, path = self.shown_window(language)
+            scroll = self.show_card(window, path)
+            inputs = window.script_data[path]["inputs"]
+            inputs["SEQUENCE"]["widget"].setText("M" * 400)
+            inputs["INPUT_FASTA"]["widget"].line_edit.setText("C:/a-very-long-folder/" * 20 + "set.fasta")
+            for width in (600, 800, 1400, 600):
+                with self.subTest(language=language, width=width):
+                    self.check_fits(window, path, scroll, width)
+            if language:
+                self.assertEqual(inputs["MAX_SEQUENCES"]["widget"].accessibleName(), "最大序列数")
+                self.assertIn("折叠模型：", [label.text() for label in window.findChildren(__import__("PySide6.QtWidgets", fromlist=["QLabel"]).QLabel)])
+            window.close()
+
+    def test_the_other_cards_rows_are_laid_out_as_before(self):
+        import EMAPSSN_Tools as tools
+        self.assertEqual({key: value for key, value in tools.INLINE_FIELD_GROUPS.items() if key != "Predict_Structures.py"}, {
+            "Align_Similarity_Matrix.py": [("INPUT_HDF5", "DEVICE_SELECTION")],
+            "Align_Substitution_Matrix.py": [("INPUT_FASTA", "MATRIX"), ("BLASTP_DIR", "SCORE_METRIC")],
+            "Parse_BLAST_Output.py": [("INPUT_FASTA", "SCORE_METRIC"), ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
+                                      ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")],
+            "Sanitize_Sequences.py": [("INPUT_FASTA", "OVER_WRITE"), ("SHOW_LENGTH_HISTOGRAM", "REMOVE_BY_HEADER_STRING"),
+                                      ("ENABLE_LENGTH_FILTER", "MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH")],
+            "Sparse_MSA_Converter.py": [("CONVERT_ALL", "INPUT_FASTA")],
+            "Embedding_MSA.py": [("USE_SEQUENCE_FILTER", "INPUT_FASTA"), ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
+                                 ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
+                                 ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS")],
+            "Embedding_PWA.py": [("REF_HEADER", "MANUAL_REF_SEQ"), ("TAR_HEADER", "MANUAL_TAR_SEQ"),
+                                 ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT")],
+            "Embedding_SSEARCH.py": [("QUERY_HEADER", "MANUAL_QUERY_SEQ"), ("GENERATE_FASTA", "SIMILARITY_MATRIX", "WORKERS")],
+        })
+        self.assertEqual(tools.INLINE_FIELD_GROUPS["Predict_Structures.py"],
+                         [("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT"), ("SEQUENCE_NAME", "INPUT_FASTA")])
+        self.assertNotIn("Predict_Structures.py", tools.COMPACT_ROW_GROUPS)
+
+    def test_greying_out_is_unchanged_with_the_new_rows(self):
+        window, path = self.shown_window()
+        self.show_card(window, path)
+        inputs = window.script_data[path]["inputs"]
+        switch = inputs["BATCH_INPUT"]["widget"]
+        inputs["SEQUENCE"]["widget"].setText(SEQUENCE)
+        inputs["SEQUENCE_NAME"]["widget"].setText("kept")
+        for batch in (True, False, True):
+            switch.setChecked(batch)
+            self.flush()
+            self.assertEqual(inputs["INPUT_FASTA"]["widget"].isEnabled(), batch)
+            self.assertEqual(inputs["SEQUENCE"]["widget"].isEnabled(), not batch)
+            self.assertEqual(inputs["SEQUENCE_NAME"]["widget"].isEnabled(), not batch)
+            self.assertEqual((inputs["SEQUENCE"]["widget"].text(), inputs["SEQUENCE_NAME"]["widget"].text()), (SEQUENCE, "kept"))
+            self.assertTrue(inputs["PREDICTION_MODEL"]["widget"].isEnabled() and inputs["MAX_SEQUENCES"]["widget"].isEnabled())
 
     def test_the_directories_tab_has_the_folded_structure_folder(self):
         window, _, _ = self.window()

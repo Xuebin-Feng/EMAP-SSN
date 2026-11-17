@@ -662,8 +662,8 @@ like `wait_job`:
 
 Give exactly one of `sequence` (with an optional `name`) and `fasta_file` (an absolute path, or a name inside the
 FASTA directory). `model` is `local` (default) or `remote`; the Biohub API is used only when the call says
-`remote`, and a saved token is required. Other arguments: `device` (default `auto`), `max_sequences` (default
-20) and `output_dir` (default the Tools directory of folded structures, `Analysis_Results/Folded_Structure`).
+`remote`, and a saved token is required. The local model always runs on the first available accelerator, on the CPU only when there is none. Other arguments:
+`max_sequences` (default 20) and `output_dir` (default the Tools directory of folded structures, `Analysis_Results/Folded_Structure`).
 The reply is the job record plus, once the job has finished, `structures`: one record per sequence (name, path,
 length, status `folded`, `existing` or `failed`, mean pLDDT, note). A job still running says to continue with
 `wait_job`. The PDB files hold the per-residue pLDDT (0 to 100) in the B-factor column, an existing file is never

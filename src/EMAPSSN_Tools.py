@@ -241,8 +241,15 @@ INLINE_FIELD_GROUPS = {
         ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
         ("GENERATE_FASTA", "SIMILARITY_MATRIX", "WORKERS"),
     ],
+    # Row 1: the model, the limit and, at the far right, the switch. Row 2 is the sequence alone.
+    # Row 3: the name on the left, the FASTA file and Browse on the right.
+    "Predict_Structures.py": [
+        ("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT"),
+        ("SEQUENCE_NAME", "INPUT_FASTA"),
+    ],
 }
 INLINE_FIELD_RATIOS = {
+    ("SEQUENCE_NAME", "INPUT_FASTA"): (1, 2),
     ("MODEL_NAME", "SAVING_MODE", "DEVICE_SELECTION"): (5, 3, 4),
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
     ("INPUT_FASTA", "MATRIX"): (2, 1),
@@ -291,6 +298,7 @@ INLINE_TRAILING_CONTROL_GROUPS = {
     ("TAR_HEADER", "MANUAL_TAR_SEQ"),
     ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT"),
     ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
+    ("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT"),
 }
 MATCHED_TRAILING_LABEL_VARS = {
     "SHOW_REGRESSION_PLOT",
@@ -2049,21 +2057,15 @@ class ToolsGUI(QMainWindow):
                 ),
                 "PREDICTION_MODEL": Tip(
                     translate("Tools", "Where the structures are predicted."),
+                    details=(translate("Tools", "The local model runs on the first available accelerator, and on the CPU, which is extremely slow, only when there is none."),),
                     options=(
                         TipOption("local", translate("Tools", "Runs the ESM3 open model on this computer.")),
                         TipOption("remote", translate("Tools", "Sends the sequences to the Biohub API, with the saved token and the model of the saved API settings. Used only when chosen here; the local model never takes its place.")),
                     ),
                 ),
-                "DEVICE_SELECTION": Tip(
-                    translate("Tools", "Hardware compute device that runs the local model."),
-                    details=(translate("Tools", "Ignored by the remote model."),),
-                    options=(
-                        TipOption("auto", translate("Tools", "Uses the first available accelerator (CUDA, XPU, MPS), else the CPU, which is extremely slow.")),
-                    ),
-                    live=_detected_devices_note,
-                ),
                 "MAX_SEQUENCES": Tip(
-                    translate("Tools", "Most sequences one run folds."),
+                    translate("Tools", "Maximum number of sequences one run folds."),
+                    title=translate("Tools", "Maximum Sequences"),
                     details=(translate("Tools", "A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more."),),
                 ),
             },
@@ -3119,9 +3121,20 @@ class ToolsGUI(QMainWindow):
                     ],
                     "Predict_Structures.py": [
                         {
-                            "var_name": "title_ps_input",
-                            "type": "title",
-                            "display": translate("Tools", "Sequences to Fold:")
+                            "var_name": "PREDICTION_MODEL",
+                            "type": "dropdown",
+                            "options": [
+                                translate("Tools", "Local (ESM3 Open Model)", "prediction model"),
+                                translate("Tools", "Remote (Biohub API)", "prediction model"),
+                            ],
+                            "option_values": ["local", "remote"],
+                            "display": translate("Tools", "Folding Model:")
+                        },
+                        {
+                            "var_name": "MAX_SEQUENCES",
+                            "type": "number",
+                            "accessible_name": translate("Tools", "Maximum Sequences"),
+                            "display": translate("Tools", "Max Seq:")
                         },
                         {
                             "var_name": "BATCH_INPUT",
@@ -3136,39 +3149,13 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "SEQUENCE_NAME",
                             "type": "text",
-                            "display": translate("Tools", "Sequence Name (Optional):")
+                            "display": translate("Tools", "Sequence Name:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
                             "type": "file_browse",
                             "filter": FASTA_FILE_FILTER,
                             "display": translate("Tools", "FASTA File:")
-                        },
-                        {
-                            "var_name": "title_ps_model",
-                            "type": "title",
-                            "display": translate("Tools", "Prediction Settings:")
-                        },
-                        {
-                            "var_name": "PREDICTION_MODEL",
-                            "type": "dropdown",
-                            "options": [
-                                translate("Tools", "Local (ESM3 Open Model)", "prediction model"),
-                                translate("Tools", "Remote (Biohub API)", "prediction model"),
-                            ],
-                            "option_values": ["local", "remote"],
-                            "display": translate("Tools", "Model:")
-                        },
-                        {
-                            "var_name": "DEVICE_SELECTION",
-                            "type": "device_dropdown",
-                            "auto_label": translate("Tools", "Automatic (First Accelerator)", "device selection"),
-                            "display": translate("Tools", "Device:")
-                        },
-                        {
-                            "var_name": "MAX_SEQUENCES",
-                            "type": "number",
-                            "display": translate("Tools", "Maximum Sequences:")
                         }
                     ]
                 }
@@ -3864,8 +3851,7 @@ class ToolsGUI(QMainWindow):
                 ui_element = NoScrollComboBox()
                 for display, spec in Hardware_Utils.device_selection_options():
                     if spec == Hardware_Utils.AUTO_DEVICE:
-                        # A tool that runs no benchmark says what Auto does for it (auto_label).
-                        ui_element.addItem(s_def.get("auto_label") or translate("Tools", "Auto Benchmark"), spec)
+                        ui_element.addItem(translate("Tools", "Auto Benchmark"), spec)
                     else:
                         ui_element.addItem(display, spec)
                         mark_name_item(ui_element, ui_element.count() - 1)
@@ -4056,6 +4042,9 @@ class ToolsGUI(QMainWindow):
                 ui_element = QLineEdit(str(actual_val))
             
             label = QLabel(s_def['display'])
+            if s_def.get("accessible_name"):
+                # A field whose label is an abbreviation is read out in full.
+                ui_element.setAccessibleName(s_def["accessible_name"])
             # The panel reads the title, options, range and default from the field.
             tip = tool_tip_entry(
                 self.SCRIPT_TIPS.get(script_name, {}).get(var_name),

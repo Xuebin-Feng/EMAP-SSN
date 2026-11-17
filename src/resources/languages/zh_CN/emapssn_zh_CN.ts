@@ -10539,7 +10539,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+165"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
@@ -10793,19 +10793,19 @@ Fedora / RHEL：
     <message>
         <location line="+544"/>
         <location line="+581"/>
-        <location line="+301"/>
+        <location line="+295"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-882"/>
+        <location line="-876"/>
         <location line="+582"/>
-        <location line="+301"/>
+        <location line="+295"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-881"/>
+        <location line="-875"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -11371,7 +11371,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+915"/>
+        <location line="+909"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -11399,7 +11399,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1926"/>
+        <location line="-1920"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11630,23 +11630,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+399"/>
+        <location line="+393"/>
         <source>Gap penalty applied in Smith-Waterman local alignment.</source>
         <translation type="unfinished">Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。</translation>
     </message>
     <message>
-        <location line="-398"/>
+        <location line="-392"/>
         <source>More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished">数值越负，对插入和延伸空位（gap）的惩罚越重，空位越少。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+399"/>
+        <location line="+393"/>
         <source>Gap penalty applied in Needleman-Wunsch global alignment.</source>
         <translation type="unfinished">Needleman-Wunsch 全局比对（global alignment）中使用的空位罚分。</translation>
     </message>
     <message>
-        <location line="-398"/>
+        <location line="-392"/>
         <source>Controls gap insertion penalties across end-to-end full-length alignments.</source>
         <translation type="unfinished">控制端到端全长比对中插入空位的罚分。</translation>
     </message>
@@ -11682,24 +11682,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+298"/>
+        <location line="+292"/>
         <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished">两两得分矩阵的处理方式。</translation>
     </message>
     <message>
-        <location line="-296"/>
-        <location line="+298"/>
+        <location line="-290"/>
+        <location line="+292"/>
         <source>Benchmarks the scalar and tiled plans where they are supported.</source>
         <translation type="unfinished">在支持时对标量和分块（tile）方案进行基准测试。</translation>
     </message>
     <message>
-        <location line="-297"/>
-        <location line="+298"/>
+        <location line="-291"/>
+        <location line="+292"/>
         <source>Processes one pairwise score matrix at a time.</source>
         <translation type="unfinished">一次处理一个两两得分矩阵。</translation>
     </message>
     <message>
-        <location line="-297"/>
+        <location line="-291"/>
         <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
         <translation type="unfinished">在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
@@ -11710,23 +11710,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+301"/>
+        <location line="+295"/>
         <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
         <translation type="unfinished">选择最多 {cap:g} GiB 的安全系统内存预算。</translation>
     </message>
     <message>
-        <location line="-300"/>
+        <location line="-294"/>
         <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
         <translation type="unfinished">可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+449"/>
+        <location line="+443"/>
         <source>Numeric format the accelerator uses for the score matrices.</source>
         <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
     </message>
     <message>
-        <location line="-447"/>
+        <location line="-441"/>
         <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
         <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
     </message>
@@ -11742,12 +11742,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+447"/>
+        <location line="+441"/>
         <source>Low precision; explicit and never automatic.</source>
         <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
     </message>
     <message>
-        <location line="-444"/>
+        <location line="-438"/>
         <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
@@ -11903,30 +11903,30 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+332"/>
+        <location line="+326"/>
         <source>Divides the score by the alignment length.</source>
         <translation type="unfinished">用得分除以比对长度。</translation>
     </message>
     <message>
-        <location line="-331"/>
-        <location line="+332"/>
+        <location line="-325"/>
+        <location line="+326"/>
         <source>Divides the score by the length of the shorter sequence.</source>
         <translation type="unfinished">用得分除以较短序列的长度。</translation>
     </message>
     <message>
-        <location line="-331"/>
-        <location line="+332"/>
+        <location line="-325"/>
+        <location line="+326"/>
         <source>Divides the score by the length of the longer sequence.</source>
         <translation type="unfinished">用得分除以较长序列的长度。</translation>
     </message>
     <message>
-        <location line="-331"/>
-        <location line="+332"/>
+        <location line="-325"/>
+        <location line="+326"/>
         <source>Divides the score by the average length of the two sequences.</source>
         <translation type="unfinished">用得分除以两条序列的平均长度。</translation>
     </message>
     <message>
-        <location line="-328"/>
+        <location line="-322"/>
         <source>Toggle to average guide trees across randomly perturbed distance replicates.</source>
         <translation type="unfinished">切换是否对多组随机扰动的距离重复构建引导树并取平均。</translation>
     </message>
@@ -12207,7 +12207,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">结构在何处预测。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Runs the ESM3 open model on this computer.</source>
         <translation type="unfinished">在本机运行 ESM3 开放模型。</translation>
     </message>
@@ -12217,31 +12217,27 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">使用已保存的令牌和已保存 API 设置中的模型，将序列发送到 Biohub API。只有在此处选择时才使用；本地模型绝不会替代它。</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Hardware compute device that runs the local model.</source>
-        <translation type="unfinished">运行本地模型的硬件计算设备。</translation>
+        <translation type="obsolete">运行本地模型的硬件计算设备。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Ignored by the remote model.</source>
-        <translation type="unfinished">远程模型忽略此项。</translation>
+        <translation type="obsolete">远程模型忽略此项。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Uses the first available accelerator (CUDA, XPU, MPS), else the CPU, which is extremely slow.</source>
-        <translation type="unfinished">使用第一个可用的加速器（CUDA、XPU、MPS），否则使用 CPU（极慢）。</translation>
+        <translation type="obsolete">使用第一个可用的加速器（CUDA、XPU、MPS），否则使用 CPU（极慢）。</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>Most sequences one run folds.</source>
-        <translation type="unfinished">一次运行最多折叠的序列数。</translation>
+        <translation type="obsolete">一次运行最多折叠的序列数。</translation>
     </message>
     <message>
         <source>A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or give a list of names, to fold more.</source>
         <translation type="obsolete">会折叠更多序列的运行在折叠之前即被拒绝。已存在的结构不计入。调大该值或给出名称列表即可折叠更多。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+11"/>
         <source>Master HDF5 embedding database from which subset embeddings are extracted.</source>
         <translation type="unfinished">从中提取子集 embedding 的主 HDF5 embedding 数据库。</translation>
     </message>
@@ -12626,13 +12622,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">计算残基得分矩阵时使用的硬件。</translation>
     </message>
     <message>
-        <location line="+898"/>
         <source>Automatic (First Accelerator)</source>
         <comment>device selection</comment>
-        <translation type="unfinished">自动（第一个加速器）</translation>
+        <translation type="obsolete">自动（第一个加速器）</translation>
     </message>
     <message>
-        <location line="+780"/>
+        <location line="+1662"/>
         <source>Select FASTA File</source>
         <translation type="unfinished">选择 FASTA 文件</translation>
     </message>
@@ -12641,7 +12636,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
     </message>
     <message>
-        <location line="-1669"/>
+        <location line="-1653"/>
         <source>Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).</source>
         <translation type="unfinished">只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。</translation>
     </message>
@@ -12698,12 +12693,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+272"/>
         <location line="+117"/>
         <location line="+238"/>
-        <location line="+68"/>
         <source>Device:</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-782"/>
+        <location line="-714"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -12738,12 +12732,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1269"/>
+        <location line="+1254"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1264"/>
+        <location line="-1249"/>
         <location line="+282"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -12885,12 +12879,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="-2432"/>
+        <location line="-2434"/>
         <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
         <translation type="unfinished">FASTA 文件 (*.fasta *.fa *.faa *.fna *.fas *.fsa);;所有文件 (*)</translation>
     </message>
     <message>
-        <location line="+155"/>
+        <location line="+163"/>
         <source>Predict Structures</source>
         <translation type="unfinished">结构预测</translation>
     </message>
@@ -12935,7 +12929,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">未给名称时，结构命名为 `sequence_` 加该序列 SHA-256 的前 10 位十六进制数字，因此同一条序列会再次找到它的结构。仅在批量输入关闭时使用。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+4"/>
+        <source>The local model runs on the first available accelerator, and on the CPU, which is extremely slow, only when there is none.</source>
+        <translation type="unfinished">本地模型使用第一个可用的加速器，只有没有加速器时才使用 CPU（CPU 极慢）。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Maximum number of sequences one run folds.</source>
+        <translation type="unfinished">一次运行最多折叠的序列数。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+1068"/>
+        <source>Maximum Sequences</source>
+        <translation type="unfinished">最大序列数</translation>
+    </message>
+    <message>
+        <location line="-1067"/>
         <source>A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more.</source>
         <translation type="unfinished">会折叠更多序列的运行在折叠之前即被拒绝。已存在的结构不计入。调大该值或改用更小的 FASTA 文件即可折叠更多。</translation>
     </message>
@@ -13197,22 +13207,20 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">要折叠的名称（.txt，可选）：</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+28"/>
         <source>Sequence:</source>
         <translation type="unfinished">序列：</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>Sequence Name (Optional):</source>
-        <translation type="unfinished">序列名称（可选）：</translation>
+        <translation type="obsolete">序列名称（可选）：</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>Prediction Settings:</source>
-        <translation type="unfinished">预测设置：</translation>
+        <translation type="obsolete">预测设置：</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="-20"/>
         <source>Local (ESM3 Open Model)</source>
         <comment>prediction model</comment>
         <translation type="unfinished">本地（ESM3 开放模型）</translation>
@@ -13224,17 +13232,15 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">远程（Biohub API）</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Model:</source>
-        <translation type="unfinished">模型：</translation>
+        <translation type="obsolete">模型：</translation>
     </message>
     <message>
-        <location line="+11"/>
         <source>Maximum Sequences:</source>
-        <translation type="unfinished">最大序列数：</translation>
+        <translation type="obsolete">最大序列数：</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+68"/>
         <source>Hover or focus on an input to see its description.</source>
         <translation type="unfinished">将鼠标悬停在某个输入项上或使其获得焦点，即可查看其说明。</translation>
     </message>
@@ -13249,7 +13255,17 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="-95"/>
+        <source>Folding Model:</source>
+        <translation type="unfinished">折叠模型：</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Max Seq:</source>
+        <translation type="unfinished">最大序列数：</translation>
+    </message>
+    <message>
+        <location line="+151"/>
         <source>Tools Settings Not Loaded</source>
         <translation type="unfinished">工具设置未加载</translation>
     </message>
@@ -13329,14 +13345,14 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+10"/>
-        <location line="+510"/>
-        <location line="+1137"/>
+        <location line="+509"/>
+        <location line="+1140"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1644"/>
-        <location line="+528"/>
+        <location line="-1646"/>
+        <location line="+527"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
@@ -13367,7 +13383,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../../EMAPSSN_Tools.py" line="-507"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="-506"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
@@ -13478,14 +13494,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1602"/>
+        <location line="+1604"/>
         <location line="+480"/>
         <location line="+41"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2135"/>
+        <location line="-2137"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -13547,7 +13563,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">不可用的已保存模型 [{model}]</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -13561,7 +13577,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">设置：{name}</translation>
     </message>
     <message>
-        <location line="+308"/>
+        <location line="+311"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -13810,17 +13826,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5315"/>
+        <location line="-5296"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
-        <location line="-170"/>
+        <location line="-178"/>
         <source>FP32 (Full Precision)</source>
         <translation type="unfinished">FP32（全精度）</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+179"/>
         <source>Sparse MSA Converter</source>
         <translation type="unfinished">稀疏 MSA 转换器</translation>
     </message>
@@ -14015,27 +14031,31 @@ Fedora / RHEL：
         <translation type="unfinished">`outfmt 7` 从 `# Query` 读取完整的查询序列，并从 `# Fields` 读取目标序列（target sequence）和得分（期望值或比特得分）所在的列。</translation>
     </message>
     <message>
-        <location line="+268"/>
+        <location line="+262"/>
         <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>
     <message>
-        <location line="+855"/>
         <source>Sequences to Fold:</source>
-        <translation type="unfinished">要折叠的序列：</translation>
+        <translation type="obsolete">要折叠的序列：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+871"/>
         <source>Batch Input:</source>
         <translation type="unfinished">批量输入：</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+10"/>
+        <source>Sequence Name:</source>
+        <translation type="unfinished">序列名称：</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>FASTA File:</source>
         <translation type="unfinished">FASTA 文件：</translation>
     </message>
     <message>
-        <location line="+199"/>
+        <location line="+173"/>
         <location line="+177"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
@@ -14072,12 +14092,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+156"/>
-        <location line="+1468"/>
+        <location line="+1470"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1453"/>
+        <location line="-1455"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -14091,7 +14111,7 @@ Fedora / RHEL：
         <translation type="obsolete">（无）</translation>
     </message>
     <message>
-        <location line="+2070"/>
+        <location line="+2072"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

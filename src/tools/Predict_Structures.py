@@ -29,8 +29,9 @@ BATCH_INPUT chooses the input:
   directory. SEQUENCE and SEQUENCE_NAME are ignored.
 The input that is not chosen is never read; the chosen one missing is refused before anything is created.
 
-PREDICTION_MODEL chooses the model: "local" runs the ESM3 open model (biohub/esm3-sm-open-v1) on
-DEVICE_SELECTION; "remote" sends the sequences to the Biohub API and needs the API token saved
+PREDICTION_MODEL chooses the model: "local" runs the ESM3 open model (biohub/esm3-sm-open-v1) on the
+first available accelerator, and on the CPU only when there is none (the run prints the device);
+"remote" sends the sequences to the Biohub API and needs the API token saved
 beforehand. The remote service is used only when the setting says remote, and the local model never
 takes its place.
 
@@ -58,7 +59,6 @@ INPUT_FASTA = None
 SEQUENCE = ""
 SEQUENCE_NAME = ""
 PREDICTION_MODEL = "local"
-DEVICE_SELECTION = "auto"
 MAX_SEQUENCES = 20  # prediction.DEFAULT_MAX_SEQUENCES; a literal, as the Tools window reads the defaults from the source
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -95,7 +95,6 @@ def main(argv=None):
             requests,
             STRUCTURE_DIR,
             mode=PREDICTION_MODEL,
-            device=DEVICE_SELECTION,
             max_sequences=MAX_SEQUENCES,
         )
     except (prediction.StructureRequestError, prediction.StructureRunError, FileNotFoundError) as error:

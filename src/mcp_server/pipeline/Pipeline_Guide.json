@@ -253,7 +253,7 @@
         "At most MAX_SEQUENCES (default 20) sequences are folded in one run; a larger request is refused before anything is folded, saying how many there are. Structures that already exist are not counted. Raise the maximum or use a smaller FASTA to fold more.",
         "A sequence typed in is cleaned as other tools clean a typed sequence (uppercase, ends trimmed to residues, other characters masked as X). A relative INPUT_FASTA resolves inside FASTA_DIR (the pipeline's path rule); an absolute one is used as given.",
         "The log ends with a table of name, file, length, status (folded, existing, failed) and mean pLDDT; read it with read_log. The job fails when any sequence failed.",
-        "DEVICE_SELECTION applies to the local model; an unavailable device is refused before anything is created. get_compute_capabilities lists the devices."
+        "The local model always runs on the first available accelerator and on the CPU only when there is none (the log names the device); there is no device setting. get_compute_capabilities lists the devices."
       ]
     }
   },
