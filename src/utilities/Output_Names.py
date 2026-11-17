@@ -67,11 +67,17 @@ def publish_without_overwrite(staged, destination, claim_name_first=None):
     some other OSError; any such error switches to a second way that does not overwrite either:
     where a rename refuses an existing destination (Windows) it is a rename, elsewhere (a rename
     replaces silently there) the name is first claimed with O_CREAT | O_EXCL and then replaced.
-    ``claim_name_first`` chooses between the two (default: not on Windows). If the second way
+    ``claim_name_first`` chooses between the two on Windows (default: the rename); elsewhere the
+    rename could overwrite, so the name is claimed first whatever is asked, and only forcing the
+    claim on Windows is a choice (for tests). If the second way
     fails too, its error is raised, chained from the link's.
     """
-    if claim_name_first is None:
-        claim_name_first = os.name != "nt"
+    # A rename refuses an existing destination only on Windows; elsewhere it replaces silently, so
+    # there the name is always claimed first, whatever was asked for.
+    if os.name != "nt":
+        claim_name_first = True
+    elif claim_name_first is None:
+        claim_name_first = False
     try:
         os.link(staged, destination)
     except FileExistsError:

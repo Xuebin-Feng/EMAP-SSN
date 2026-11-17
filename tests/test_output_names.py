@@ -493,6 +493,15 @@ class PublishWithoutOverwriteTests(unittest.TestCase):
                         publish_without_overwrite(staged, destination, claim_name_first=claim_first)
                     self.assertEqual(destination.read_bytes(), b"old")
 
+    def test_the_rename_way_is_only_used_where_a_rename_refuses_an_existing_file(self):
+        # On Windows asking for the rename gets it (it refuses by itself); elsewhere asking for it
+        # still claims the name first, so an existing file is untouched either way (see the test above).
+        staged, destination = self.staged(), self.root / "which.bin"
+        with _refuse_link(OSError(errno.ENOTSUP, "no links")),                 mock.patch.object(os, "rename", wraps=os.rename) as rename:
+            publish_without_overwrite(staged, destination, claim_name_first=False)
+        self.assertEqual(rename.called, os.name == "nt")
+        self.assertEqual(destination.read_bytes(), b"new")
+
     def test_a_failed_replace_removes_the_claim_and_chains_the_link_error(self):
         staged, destination = self.staged(), self.root / "never.bin"
         link_error = OSError(errno.ENOTSUP, "no links")
