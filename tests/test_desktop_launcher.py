@@ -238,6 +238,12 @@ class PureHelperTests(unittest.TestCase):
         batch = (PROJECT_ROOT / "src" / "bin" / "EMAPSSN.bat").read_text(encoding="utf-8")
         self.assertIn('src\\Install_Dependencies.py --check-only --uv-executable "!UV_EXE!" --venv .venv', batch)
 
+    def test_the_check_without_uv_leaves_the_option_out(self):
+        command = Desktop_Launcher.check_command("C:/p", "C:/p/.venv/Scripts/python.exe", None)
+        self.assertNotIn("--uv-executable", command)
+        self.assertEqual(command[2:], [str(Path("C:/p/src/Install_Dependencies.py")), "--check-only",
+                                       "--venv", str(Path("C:/p/.venv"))])
+
     def test_the_posix_check_runs_the_portable_launcher_with_check_only_under_bash(self):
         command = Desktop_Launcher.posix_check_command("/p", Path("src") / "bin" / "EMAPSSN.sh")
         self.assertEqual(Path(command[0]).stem, "bash")
@@ -289,6 +295,28 @@ class PureHelperTests(unittest.TestCase):
                 self.assertIsNone(Desktop_Launcher.find_uv(environment, platform))  # the other platform's name is not uv here
                 (home / ".local" / "bin" / name).write_text("x")
                 self.assertEqual(Desktop_Launcher.find_uv(environment, platform), str(home / ".local" / "bin" / name))
+
+    def test_on_macos_uv_is_also_found_in_homebrews_folders_after_the_other_two(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            arm, intel = home / "opt-homebrew-bin", home / "usr-local-bin"
+            arm.mkdir()
+            intel.mkdir()
+            environment = {"PATH": str(home / "nothing"), "HOME": str(home), "USERPROFILE": str(home)}
+            with mock.patch.object(Desktop_Launcher, "MACOS_UV_FOLDERS", (str(arm), str(intel))):
+                self.assertIsNone(Desktop_Launcher.find_uv(environment, "darwin"))
+                (intel / "uv").write_text("x")
+                self.assertEqual(Desktop_Launcher.find_uv(environment, "darwin"), str(intel / "uv"))
+                (arm / "uv").write_text("x")
+                self.assertEqual(Desktop_Launcher.find_uv(environment, "darwin"), str(arm / "uv"))
+                (home / ".local" / "bin").mkdir(parents=True)
+                (home / ".local" / "bin" / "uv").write_text("x")
+                self.assertEqual(Desktop_Launcher.find_uv(environment, "darwin"), str(home / ".local" / "bin" / "uv"))
+                # Only macOS looks there.
+                for platform in ("linux", "win32"):
+                    (home / ".local" / "bin" / "uv").unlink()
+                    self.assertIsNone(Desktop_Launcher.find_uv(environment, platform))
+                    (home / ".local" / "bin" / "uv").write_text("x")
 
     def test_uv_is_found_on_the_path_or_in_the_users_local_bin(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -972,12 +1000,21 @@ class FallbackTests(LaunchCase):
         self.assertIn("missing", launch.marks["console_reason"])
         self.assertNotIn("check_started", launch.marks)
 
-    def test_so_does_a_missing_uv(self):
+    def test_a_missing_uv_is_no_reason_for_setup_a_ready_environment_starts_without_it(self):
         launch = self.launch("viewer", uv=None)
         with mock.patch.object(Desktop_Launcher, "find_uv", return_value=None):
-            launch.begin()
+            self.assertIsNone(launch.needs_setup())
+            self.assertEqual(self.run_launch(launch), 0)
+        launch.popen.assert_not_called()
+        self.assertNotIn("console_reason", launch.marks)
+        self.assertIn("monitor_started", launch.marks)
+
+    def test_and_a_check_that_asks_for_setup_still_hands_over_when_uv_is_missing(self):
+        launch = self.launch("viewer", uv=None, environment={"FAKE_CHECK_EXIT": "10"})
+        with mock.patch.object(Desktop_Launcher, "find_uv", return_value=None):
+            self.assertEqual(self.run_launch(launch), 0)
         launch.popen.assert_called_once()
-        self.assertEqual(launch.marks["console_reason"], "uv is not installed")
+        self.assertEqual(launch.marks["console_reason"], "the environment needs setup or repair")
 
     def test_a_python_that_cannot_start_does_too_instead_of_waiting_for_a_check_that_never_runs(self):
         broken = self.root / "broken_python.exe"

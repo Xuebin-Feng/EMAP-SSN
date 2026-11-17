@@ -26,6 +26,7 @@ from pathlib import Path
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -1277,9 +1278,12 @@ def install(
 
 
 def environment_is_ready(
-    *, project_root: Path, venv: Path, uv_executable: str
+    *, project_root: Path, venv: Path, uv_executable: str | None
 ) -> bool:
     """Check launcher readiness without installing or changing the environment.
+
+    ``uv_executable`` is None when uv is not installed. uv is used for one step only,
+    the package consistency check, and that step is then skipped with a printed line.
 
     The one thing it writes is the small ESM_STACK_RECORD_FILENAME record of a
     passing import smoke test, which is not part of the environment's packages.
@@ -1365,7 +1369,9 @@ def environment_is_ready(
         if _installed_version(python, "esm") != ESM_VERSION:
             print("Environment is not ready: pinned ESM version is missing.", file=sys.stderr)
             return False
-        if not validate_package_consistency(uv_executable, python):
+        if uv_executable is None:
+            print("Installed package consistency: skipped because uv is not installed")
+        elif not validate_package_consistency(uv_executable, python):
             print("Environment is not ready: installed packages are inconsistent.", file=sys.stderr)
             return False
         if esm_stack_validation_is_current(venv, python):
@@ -1489,7 +1495,10 @@ def _refuse_unsupported_host(*, quiet: bool) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--venv", type=Path, default=Path(".venv"))
-    parser.add_argument("--uv-executable", default="uv")
+    parser.add_argument(
+        "--uv-executable", default="uv",
+        help="uv's name or path; with --check-only, a uv that cannot be found only skips the package consistency check",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--check-only",
@@ -1508,16 +1517,25 @@ def main(argv: list[str] | None = None) -> int:
             # Setup cannot repair this, so the launchers stop on this code instead of starting it.
             print(HIDDEN_ENVIRONMENT_MESSAGE, file=sys.stderr)
             return HIDDEN_ENVIRONMENT_EXIT
+        # An empty value, or a name or path that finds no program, means uv is absent.
+        uv_executable = shutil.which(args.uv_executable) if args.uv_executable else None
         if args.check_only:
             ready = environment_is_ready(
                 project_root=project_root,
                 venv=args.venv.resolve(),
-                uv_executable=args.uv_executable,
+                uv_executable=uv_executable,
             )
             return 0 if ready else SETUP_REQUIRED_EXIT
+        if uv_executable is None and not args.dry_run:
+            print(
+                f"Dependency installation error: the uv package manager is not installed "
+                f"({args.uv_executable!r} was not found). Install uv, then run this again.",
+                file=sys.stderr,
+            )
+            return 1
         return install(
             project_root=project_root, venv=args.venv.resolve(),
-            uv_executable=args.uv_executable, dry_run=args.dry_run,
+            uv_executable=uv_executable or args.uv_executable, dry_run=args.dry_run,
             refresh_backend=args.refresh_backend,
         )
     except (FileNotFoundError, ValueError, OSError) as error:

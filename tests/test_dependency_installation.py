@@ -1119,6 +1119,46 @@ class DependencyReadinessTests(unittest.TestCase):
         self.assertTrue(ready)
         consistency.assert_called_once_with("uv", python)
 
+    def test_without_uv_the_check_skips_only_the_package_consistency_step_and_says_so(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            python = root / "python"
+            python.touch()
+            state = {"active_backend": {"backend": "cpu"}}
+            active = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
+            stdout = io.StringIO()
+            with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
+                    mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
+                    mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
+                    mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
+                    mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
+                    mock.patch.object(Install_Dependencies, "read_state", return_value=state), \
+                    mock.patch.object(Install_Dependencies, "_state_mismatches", return_value=[]), \
+                    mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
+                    mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "_installed_version",
+                        side_effect=lambda _python, package: (
+                            Install_Dependencies.TRANSFORMERS_VERSION
+                            if package == "transformers"
+                            else Install_Dependencies.ESM_VERSION
+                        ),
+                    ), mock.patch.object(
+                        Install_Dependencies, "validate_package_consistency", return_value=True
+                    ) as consistency, mock.patch.object(
+                        Install_Dependencies, "validate_esm_stack", return_value=True
+                    ), redirect_stdout(stdout):
+                ready = Install_Dependencies.environment_is_ready(
+                    project_root=root, venv=root, uv_executable=None
+                )
+
+        self.assertTrue(ready)
+        consistency.assert_not_called()
+        self.assertEqual(
+            stdout.getvalue().count("Installed package consistency: skipped because uv is not installed\n"), 1
+        )
+
     def test_a_gpu_not_visible_now_prints_no_state_mismatch(self):
         # With no accelerator visible, a changed hardware fingerprint keeps the
         # saved build. It used to list "State mismatch" lines on every start
@@ -1749,6 +1789,7 @@ class SupportedHostTests(unittest.TestCase):
         stderr = io.StringIO()
         with mock.patch.object(Install_Dependencies, "host_facts", return_value=facts), \
                 mock.patch.dict(os.environ, environment, clear=True), \
+                mock.patch.object(Install_Dependencies.shutil, "which", return_value="/stub/uv"), \
                 mock.patch.object(Install_Dependencies, "environment_is_ready", return_value=True) as ready, \
                 mock.patch.object(Install_Dependencies, "install", return_value=0) as install, \
                 redirect_stderr(stderr):
@@ -1768,6 +1809,41 @@ class SupportedHostTests(unittest.TestCase):
         self.assertEqual(code, Install_Dependencies.SETUP_REQUIRED_EXIT)
         self.assertEqual(stderr, "")
         ready.assert_not_called()
+
+    def _main_without_uv(self, argv):
+        """main() on a supported host where no program named by --uv-executable exists."""
+        stderr = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "_refuse_unsupported_host", return_value=False), \
+                mock.patch.object(Install_Dependencies, "hidden_environment_files", return_value=[]), \
+                mock.patch.object(Install_Dependencies.shutil, "which", return_value=None), \
+                mock.patch.object(Install_Dependencies, "environment_is_ready", return_value=True) as ready, \
+                mock.patch.object(Install_Dependencies, "install", return_value=0) as install, \
+                redirect_stderr(stderr):
+            code = Install_Dependencies.main(argv)
+        return code, stderr.getvalue(), ready, install
+
+    def test_the_check_runs_without_uv_and_keeps_its_exit_codes(self):
+        for argv in (["--check-only", "--venv", "unused"],
+                     ["--check-only", "--uv-executable", "no-such-uv", "--venv", "unused"],
+                     ["--check-only", "--uv-executable", "", "--venv", "unused"]):
+            with self.subTest(argv=argv):
+                code, stderr, ready, install = self._main_without_uv(argv)
+                self.assertEqual(code, 0)
+                self.assertEqual(stderr, "")
+                self.assertIsNone(ready.call_args.kwargs["uv_executable"])
+                install.assert_not_called()
+        with mock.patch.object(Install_Dependencies, "_refuse_unsupported_host", return_value=False), \
+                mock.patch.object(Install_Dependencies, "hidden_environment_files", return_value=[]), \
+                mock.patch.object(Install_Dependencies.shutil, "which", return_value=None), \
+                mock.patch.object(Install_Dependencies, "environment_is_ready", return_value=False):
+            code = Install_Dependencies.main(["--check-only", "--venv", "unused"])
+        self.assertEqual(code, Install_Dependencies.SETUP_REQUIRED_EXIT)
+
+    def test_installing_without_uv_says_so_and_changes_nothing(self):
+        code, stderr, ready, install = self._main_without_uv(["--venv", "unused"])
+        self.assertEqual(code, 1)
+        self.assertIn("the uv package manager is not installed", stderr)
+        install.assert_not_called()
 
     def test_override_lets_an_unsupported_host_try(self):
         code, stderr, ready, install = self._main(["--venv", "unused"], override="1")
@@ -1849,6 +1925,7 @@ class HiddenEnvironmentTests(unittest.TestCase):
     def test_setup_itself_is_not_blocked(self):
         with mock.patch.object(Install_Dependencies, "hidden_environment_files", return_value=[Path("x")]), \
                 mock.patch.object(Install_Dependencies, "_refuse_unsupported_host", return_value=False), \
+                mock.patch.object(Install_Dependencies.shutil, "which", return_value="/stub/uv"), \
                 mock.patch.object(Install_Dependencies, "install", return_value=0) as install:
             code = Install_Dependencies.main(["--venv", str(self.venv)])
         self.assertEqual(code, 0)

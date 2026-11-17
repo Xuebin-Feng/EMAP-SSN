@@ -233,8 +233,15 @@ def venv_python(root, platform_name=None):
     return Path(root) / (VENV_PYTHON if (platform_name or sys.platform) == "win32" else POSIX_VENV_PYTHON)
 
 
+MACOS_UV_FOLDERS = ("/opt/homebrew/bin", "/usr/local/bin")
+
+
 def find_uv(environment=None, platform_name=None):
-    """The uv executable, as the launcher scripts look for it (on PATH, else ~/.local/bin), or None."""
+    """The uv executable, as the launcher scripts look for it, or None.
+
+    The order is PATH, then ~/.local/bin (where uv's own installer puts it), then on macOS Homebrew's two folders:
+    an app opened from Finder has none of them on its PATH.
+    """
     environment = os.environ if environment is None else environment
     found = shutil.which("uv", path=environment.get("PATH"))
     if found:
@@ -243,12 +250,22 @@ def find_uv(environment=None, platform_name=None):
         candidate = Path(environment.get("USERPROFILE") or Path.home()) / ".local" / "bin" / "uv.exe"
     else:
         candidate = Path(environment.get("HOME") or Path.home()) / ".local" / "bin" / "uv"
-    return str(candidate) if candidate.is_file() else None
+    if candidate.is_file():
+        return str(candidate)
+    if (platform_name or sys.platform) == "darwin":
+        for folder in MACOS_UV_FOLDERS:
+            if (Path(folder) / "uv").is_file():
+                return str(Path(folder) / "uv")
+    return None
 
 
 def check_command(root, python, uv):
-    """The dependency check, as EMAPSSN.bat runs it (-u, so its lines reach the splash as they are printed)."""
-    return [str(python), "-u", str(Path(root) / INSTALLER), "--check-only", "--uv-executable", str(uv),
+    """The dependency check, as EMAPSSN.bat runs it (-u, so its lines reach the splash as they are printed).
+
+    Without uv (None) the option is left out and the check skips its package consistency step.
+    """
+    uv_option = ["--uv-executable", str(uv)] if uv else []
+    return [str(python), "-u", str(Path(root) / INSTALLER), "--check-only", *uv_option,
             "--venv", str(Path(root) / ".venv")]
 
 
@@ -442,10 +459,9 @@ class Launch(QObject):
             return "the managed Python is missing"
         if sys.version_info[:2] != REQUIRED_PYTHON and Path(self.python).resolve() == Path(sys.executable).resolve():
             return "the managed Python is not version 3.13"
+        # uv is not needed to check a ready environment: the check skips the one step that uses it.
         if not self.uv:
             self.uv = find_uv(self.environment)
-        if not self.uv:
-            return "uv is not installed"
         return None
 
     def start_check(self):
