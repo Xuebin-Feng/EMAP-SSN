@@ -105,6 +105,17 @@ def collect_metadata(torch, hardware, psutil=None):
                 "runtime API inspection")
         record["errors"] = [e for e in report["errors"] if e["field"].startswith(spec + ".")]
         report["devices"].append(record)
+    if candidates is not None and approved:
+        listed = {device["device_selection"] for device in report["devices"]}
+        for spec in sorted(approved - listed):
+            backend = spec.split(":", 1)[0]
+            if spec == "cpu" or any(e["field"] in (spec, backend) for e in report["errors"]):
+                continue  # the CPU is always listed; a failed probe already said why
+            report["errors"].append(dict(
+                field=spec,
+                reason=f"The installer approved {spec}, but this Python runtime does not report it as usable "
+                       "now, so it is not listed and jobs cannot use it. The PyTorch build may lack that backend "
+                       "or the driver or device may be unavailable; the installer's check may need repeating."))
     report["status"] = "unavailable" if candidates is None else "partial" if report["errors"] else "ok"
     return report
 

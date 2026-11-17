@@ -78,6 +78,21 @@ class ComputeCapabilityTests(unittest.TestCase):
         self.assertEqual([d["device_selection"] for d in result["devices"]], ["cpu", "cuda:1", "cuda:2"])
         self.assertTrue(result["installer_filtering"]["applies"])
 
+    def test_an_approved_device_the_runtime_cannot_use_is_explained(self):
+        # The installer approved mps, but the runtime reports no MPS: only the CPU is listed.
+        result = self.collect(fake_runtime("cpu"), approved={"cpu", "mps"})
+        self.assertEqual([d["device_selection"] for d in result["devices"]], ["cpu"])
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual([e["field"] for e in result["errors"]], ["mps"])
+        self.assertIn("installer approved mps", result["errors"][0]["reason"])
+        # Nothing to explain when every approved device is listed, or when the probe already failed.
+        self.assertEqual(self.collect(fake_runtime("mps"), approved={"cpu", "mps"})["errors"], [])
+        self.assertEqual(self.collect(fake_runtime("cpu"), approved=None)["errors"], [])
+        runtime = fake_runtime()
+        runtime.cuda.is_available = mock.Mock(side_effect=RuntimeError("backend failed"))
+        errors = self.collect(runtime, approved={"cpu", "cuda:0"})["errors"]
+        self.assertEqual([e["field"] for e in errors], ["cuda"])
+
     def test_older_cuda_does_not_claim_emulated_bf16_is_unavailable(self):
         runtime = fake_runtime()
         runtime.cuda.get_device_properties = lambda i: NS(major=7, total_memory=1000)
