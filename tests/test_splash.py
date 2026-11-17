@@ -212,6 +212,14 @@ class SavedThemeColourTests(unittest.TestCase):
             self.assertEqual(Splash.saved_language_setting(environment), "system")
 
 
+class NoScreenTests(unittest.TestCase):
+    def test_no_screen_at_all_is_a_named_error_not_an_attribute_error(self):
+        with mock.patch.object(Splash.QGuiApplication, "screenAt", return_value=None), \
+                mock.patch.object(Splash.QGuiApplication, "primaryScreen", return_value=None):
+            with self.assertRaisesRegex(Splash.NoScreenError, "no screen is available"):
+                Splash.screen_center(QPoint(1, 1))
+
+
 class IdentityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

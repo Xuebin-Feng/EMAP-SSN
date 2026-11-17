@@ -339,6 +339,11 @@ def _guarded(method):
     def run(self, *arguments):
         try:
             return method(self, *arguments)
+        except SplashModule.NoScreenError as error:
+            # A named reason, not a traceback: the session has no screen, so no window can show.
+            print(f"Start-up failed: {error}.", file=sys.stderr)
+            self.marks["exception"] = f"NoScreenError: {error}"
+            self.finish(0 if self.started_anything else EXIT_FALLBACK)
         except Exception:
             import traceback
 

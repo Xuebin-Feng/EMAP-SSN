@@ -462,9 +462,18 @@ def window_name(kind):
     return f"{PRODUCT} {tr(SUBTITLES[kind])}"
 
 
+class NoScreenError(RuntimeError):
+    """Qt has no screen in this session (a session with no access to the display): no window can show."""
+
+
 def screen_center(point=None):
-    """The centre of the available area of the screen under ``point`` (the mouse pointer by default)."""
+    """The centre of the available area of the screen under ``point`` (the mouse pointer by default).
+
+    Raises NoScreenError when Qt has no screen at all.
+    """
     screen = QGuiApplication.screenAt(QCursor.pos() if point is None else point) or QGuiApplication.primaryScreen()
+    if screen is None:
+        raise NoScreenError("no screen is available to this session, so no window can be shown")
     return screen.availableGeometry().center()
 
 

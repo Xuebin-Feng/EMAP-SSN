@@ -1405,6 +1405,17 @@ class BrokenLaunchTests(LaunchCase):
         self.assertIsNotNone(again, "the lock stayed held")
         again.unlock()
 
+    def test_no_screen_ends_the_launch_with_the_named_reason_and_no_traceback(self):
+        launch = self.launch("viewer")
+        with mock.patch.object(
+            Launch, "open_splash", side_effect=Desktop_Launcher.SplashModule.NoScreenError("no screen is available")
+        ), mock.patch.object(Desktop_Launcher.sys, "stderr") as stderr:
+            self.assertEqual(self.run_launch(launch, seconds=10), Desktop_Launcher.EXIT_FALLBACK)
+        printed = "".join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn("no screen is available", printed)
+        self.assertNotIn("Traceback", printed)
+        self.assertIn("no screen is available", launch.marks["exception"])
+
     def test_one_that_raises_once_the_window_is_starting_ends_the_launch_as_handled(self):
         launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.1"})
         with mock.patch.object(Launch, "window_ready", side_effect=RuntimeError("boom")), mock.patch.object(
