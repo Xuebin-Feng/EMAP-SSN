@@ -20,6 +20,7 @@ it. The slider gives up the room the buttons take, and the window is kept wide
 enough that nothing in the row overlaps, with the sidebar closed or open.
 """
 
+import itertools
 import os
 from pathlib import Path
 import sys
@@ -63,6 +64,7 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     SidebarPanel,
     controls_rows,
 )
+from utilities.Platform_Keys import platform_key_text  # noqa: E402
 from tests.test_viewer_widgets import chinese_actions, shipped_actions  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
@@ -466,13 +468,22 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
         self.assertEqual(viewer.threshold_box.text(), "3.740")
 
+    @staticmethod
+    def keys_as_on(platform):
+        """The Viewer's key-name rewrite as that platform does it, so each platform's card is checked on any host."""
+        return mock.patch.object(EMAPSSN_Viewer, "platform_key_text",
+                                 lambda text: platform_key_text(text, platform))
+
     def test_the_card_lists_the_actions_of_the_layout_the_viewer_has(self):
         # A manifold layout (UMAP or PaCMAP) moves no nodes, so its card leaves out what moves or turns them.
-        for manifold in (False, True):
-            with self.subTest(manifold=manifold), \
+        # The card names Ctrl, or Cmd on a Mac.
+        for platform, manifold in itertools.product(("win32", "linux", "darwin"), (False, True)):
+            with self.subTest(platform=platform, manifold=manifold), self.keys_as_on(platform), \
                     mock.patch.object(EMAPSSN_Viewer.cfg, "UMAP_MODE", manifold, create=True):
                 button = self.make_viewer().controls_button
-                self.assertEqual(button.text_source, shipped_actions(manifold=manifold))
+                self.assertEqual(button.text_source, platform_key_text(shipped_actions(manifold=manifold), platform))
+                self.assertEqual("Ctrl" in button.text_source, platform != "darwin" and not manifold)
+                self.assertEqual("Cmd" in button.text_source, platform == "darwin" and not manifold)
                 described = [description for _keys, description in controls_rows(button.text_source)]
                 self.assertEqual("Move Straight (45° Steps)" in described, not manifold)
                 self.assertEqual("Rotate Around Cursor" in described, not manifold)
@@ -483,11 +494,12 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertTrue(translator.load(str(ZH_QM)))
         self.assertTrue(self.app.installTranslator(translator))
         self.addCleanup(self.app.removeTranslator, translator)
-        for manifold in (False, True):
-            with self.subTest(manifold=manifold), \
+        for platform, manifold in itertools.product(("linux", "darwin"), (False, True)):
+            with self.subTest(platform=platform, manifold=manifold), self.keys_as_on(platform), \
                     mock.patch.object(EMAPSSN_Viewer.cfg, "UMAP_MODE", manifold, create=True):
                 button = self.make_viewer().controls_button
-                self.assertEqual(button.text_source, chinese_actions(shipped_actions(manifold=manifold)))
+                self.assertEqual(button.text_source,
+                                 platform_key_text(chinese_actions(shipped_actions(manifold=manifold)), platform))
                 self.assertEqual(len(controls_rows(button.text_source)), 11 if manifold else 14)
 
     def test_the_console_button_sits_between_the_info_button_and_the_threshold_box(self):

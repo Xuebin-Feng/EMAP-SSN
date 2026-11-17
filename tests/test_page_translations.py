@@ -1257,7 +1257,37 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(self.js("platformKeyText('Ctrl+Z, Ctrl+Y, Ctrl+C, Control, Ctrlx', true)"),
                          "Cmd+Z, Cmd+Shift+Z, Cmd+C, Control, Ctrlx")
         self.assertEqual(self.js("platformKeyText('按 Ctrl+C 复制', true)"), "按 Cmd+C 复制")
-        self.assertEqual(self.js("t('Redo (Ctrl+Y): {name}', {name: 'Ctrl'})"), "Redo (Ctrl+Y): Ctrl")
+        # t() reads the browser's own platform, so it says Ctrl on a Windows or Linux browser and Cmd on a real
+        # Mac: the script is run again with navigator.platform of each kind, whatever this host is. Only the
+        # text is rewritten, never the values filled in.
+        # The page's CSP allows no eval or inline script, so each platform gets its own blank frame: its
+        # navigator.platform is set, then /page_text.js, the page's own script, is loaded into it.
+        self.js("""(() => {
+            window.keySaid = [];
+            const platforms = ['Win32', 'Linux x86_64', 'MacIntel'];
+            const next = () => {
+                if (!platforms.length) return;
+                const platform = platforms.shift();
+                const frame = document.createElement('iframe');
+                document.body.appendChild(frame);
+                const inner = frame.contentWindow;
+                Object.defineProperty(inner.navigator, 'platform', {value: platform});
+                const script = inner.document.createElement('script');
+                script.src = location.origin + '/page_text.js';
+                script.onload = () => {
+                    window.keySaid.push(inner.t('Redo (Ctrl+Y): {name}', {name: 'Ctrl'}));
+                    frame.remove();
+                    next();
+                };
+                script.onerror = () => window.keySaid.push('script not loaded');
+                inner.document.head.appendChild(script);
+            };
+            next();
+            return true;
+        })()""")
+        self.wait_for("window.keySaid.length === 3")
+        said = json.loads(self.js("JSON.stringify(window.keySaid)"))
+        self.assertEqual(said, ["Redo (Ctrl+Y): Ctrl", "Redo (Ctrl+Y): Ctrl", "Redo (Cmd+Shift+Z): Ctrl"])
         self.js("""(() => {
             const box = document.createElement('div');
             box.id = 'key-box';

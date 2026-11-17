@@ -725,7 +725,10 @@ class TranslationTests(unittest.TestCase):
         return undo.toolTip(), redo.toolTip()
 
     def test_the_tooltips_name_the_real_shortcuts_in_english(self):
-        self.assertEqual(self.tooltips(None), ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
+        # Each platform is named, so every operating system checks both texts.
+        for platform in ("win32", "linux"):
+            with self.subTest(platform=platform):
+                self.assertEqual(self.tooltips(None, platform), ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
 
     def test_a_mac_reads_the_tooltips_with_cmd_and_its_redo_key(self):
         self.assertEqual(self.tooltips(None, "darwin"), ("Undo (Cmd+Z)", "Redo (Cmd+Shift+Z)"))
@@ -735,8 +738,8 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(self.tooltips(None, "linux"), ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
 
     def test_the_tooltips_are_translated(self):
-        self.assertEqual(self.tooltips("zh_CN"), ("撤销（Ctrl+Z）", "重做（Ctrl+Y）"))
-        pseudo = self.tooltips(PSEUDO_LANGUAGE)
+        self.assertEqual(self.tooltips("zh_CN", "linux"), ("撤销（Ctrl+Z）", "重做（Ctrl+Y）"))
+        pseudo = self.tooltips(PSEUDO_LANGUAGE, "linux")
         self.assertNotEqual(pseudo, ("Undo (Ctrl+Z)", "Redo (Ctrl+Y)"))
 
 
