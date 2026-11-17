@@ -781,7 +781,10 @@ class SimplifiedChineseFontTests(unittest.TestCase):
             return {char: glyph["bitmap"].tobytes() for char, glyph in glyphs.items()}
 
         latin = bitmaps(VISPY_FALLBACK_FACE, False)
-        self.assertEqual(latin["中"], latin["龘"], "the check can fail: a Latin face lacks 中")
+        if sys.platform != "darwin":
+            self.assertEqual(latin["中"], latin["龘"], "the check can fail: a Latin face lacks 中")
+        # (macOS's text engine draws a character its face lacks in a Chinese system font by itself, so there a Latin face
+        # draws 中 and 龘 as themselves and this precondition does not hold; the checks below still tell the two apart.)
         for bold in (False, True):
             with self.subTest(bold=bold):
                 chinese = bitmaps(self.font.vispy_face, bold)
