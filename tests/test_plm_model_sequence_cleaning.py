@@ -32,6 +32,7 @@ class ModelSequenceCleaningTests(unittest.TestCase):
                 "esmc_6b_api",
                 "prost_t5",
                 "prot_bert",
+                "prot_t5",
             )
         }
 
@@ -53,7 +54,7 @@ class ModelSequenceCleaningTests(unittest.TestCase):
         source = "**A-BJXUZOC**"
         expected = "AXXXXXXXC"
 
-        for name in ("prost_t5", "prot_bert"):
+        for name in ("prost_t5", "prot_bert", "prot_t5"):
             with self.subTest(plugin=name):
                 self.assertEqual(self.plugins[name]._clean_sequence(source), expected)
 

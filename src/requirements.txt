@@ -54,8 +54,8 @@ scipy==1.18.1
 # Required for Transformers' sentencepiece-backed tokenizer conversion, not
 # optional. Transformers 5.x rebuilt T5Tokenizer on the Rust `tokenizers`
 # backend, so a model that ships only `spiece.model` and no `tokenizer.json`
-# must be converted on first load. ProstT5 (Rostlab/ProstT5) is exactly
-# that case. The converter reads the .spm through `SentencePieceExtractor`,
+# must be converted on first load. ProstT5 (Rostlab/ProstT5) and ProtT5
+# (Rostlab/prot_t5_xl_uniref50) are exactly that case. The converter reads the .spm through `SentencePieceExtractor`,
 # which needs protobuf to parse the model schema; without it Transformers falls
 # back to a TikToken extractor and fails with a misleading
 # "`tiktoken` is required" error. Ankh and ProtBERT ship `tokenizer.json` and

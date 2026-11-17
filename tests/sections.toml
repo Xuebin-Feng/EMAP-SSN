@@ -298,6 +298,7 @@ modules = [
     "test_network_extraction",
     "test_plm_load_reports",
     "test_plm_model_sequence_cleaning",
+    "test_prot_t5",
     "test_sanitize_sequences",
     "test_sparse_msa_converter",
 ]

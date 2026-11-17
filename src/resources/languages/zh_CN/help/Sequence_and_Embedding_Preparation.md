@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 77b1eee049bb3d73cb11b2f55e74e3fabe7246922f88842cacd2c874f178380f -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 cfc5b2deb2e9a3b9898464bd2e97d4614817e821950fc544385e244a64ecedb2 -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -61,7 +61,7 @@
 
 # 生成 embedding (`Generate_Embeddings.py`)
 
-该脚本使用预训练的蛋白质语言模型（例如 ESM-2、ESM-C、Ankh、ProtBERT 和 ProstT5）提取（extraction）序列 embedding。它把残基映射为高维表示向量，并按所选的 `float16` 或 `float32` 精度存入元数据优先的 HDF5 数据库。
+该脚本使用预训练的蛋白质语言模型（例如 ESM-2、ESM-C、Ankh、ProtBERT、ProtT5 和 ProstT5）提取（extraction）序列 embedding。它把残基映射为高维表示向量，并按所选的 `float16` 或 `float32` 精度存入元数据优先的 HDF5 数据库。
 
 ### 输入
 
@@ -74,7 +74,7 @@
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构。下拉列表给出每个模型的名称，例如 ESM-2 650M 或 ESM C 6B；设置中保存的是它的标识符，标识符也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`prot_bert`、`prost_t5`）。 |
+| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构。下拉列表给出每个模型的名称，例如 ESM-2 650M 或 ESM C 6B；设置中保存的是它的标识符，标识符也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`prot_bert`、`prot_t5`、`prost_t5`）。 |
 | 保存精度 **`SAVING_MODE`** | 在 HDF5 中存储向量所用的数值精度格式（默认的 `Float16 (Half Size)` 即“Float16（体积减半）”，或 `Float32 (Full Precision)` 即“Float32（全精度）”）。`Float16 (Half Size)` 所占的 embedding 存储空间约为 `Float32 (Full Precision)` 的一半。模型始终以 float32 计算；存储时的舍入只会使比对分数产生很小的变化，在 BAliBASE 和 HomFam 基准数据集上没有改变 MSA 准确度。若需按计算结果原样保存数值，请使用 `Float32 (Full Precision)`。 |
 | 计算设备 **`DEVICE_SELECTION`** | `auto` 会在具有代表性的序列长度上对可用、且经安装程序验证的 CPU/加速器候选设备进行基准测试，使用最快的成功设备；若运行时出错，可回退到排名中的下一个设备。指定某个 CPU、CUDA、XPU 或 MPS 设备时，生成过程固定在该设备上，出错时报告错误，而不会悄悄切换设备。 |
 

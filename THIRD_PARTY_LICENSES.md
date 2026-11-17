@@ -433,6 +433,7 @@ that acknowledgement is not a sublicense or a substitute for reading the terms.
 | ESM C 6B (remote API; `esmc-6b-2024-12`) | `https://biohub.ai` | Governed by the API provider's terms of use |
 | ESM3 Large (remote API; currently `esm3-large-2024-03`) | `https://biohub.ai` | Governed by the API provider's terms of use |
 | ProtBERT | [`Rostlab/prot_bert`](https://huggingface.co/Rostlab/prot_bert) | Academic Free License 3.0 (AFL-3.0). The Hugging Face repository has no license tag, but the official [`ProtTrans`](https://github.com/agemagician/ProtTrans#license) project explicitly states that its pretrained models are released under AFL-3.0. ProtTrans source code is separately MIT-licensed. |
+| ProtT5-XL-U50 | [`Rostlab/prot_t5_xl_uniref50`](https://huggingface.co/Rostlab/prot_t5_xl_uniref50) | Academic Free License 3.0 (AFL-3.0), as for ProtBERT: the Hugging Face repository has no license tag, and the official [`ProtTrans`](https://github.com/agemagician/ProtTrans#license) project releases its pretrained models under AFL-3.0. |
 | ProstT5 | [`Rostlab/ProstT5`](https://huggingface.co/Rostlab/ProstT5) | MIT (declared by the model repository) |
 | Ankh Base, Ankh Large | [`ElnaggarLab/ankh-base`](https://huggingface.co/ElnaggarLab/ankh-base), [`ankh-large`](https://huggingface.co/ElnaggarLab/ankh-large) | CC-BY-NC-SA-4.0 — non-commercial, attribution, and ShareAlike terms; explicit application acknowledgement required before access |
 

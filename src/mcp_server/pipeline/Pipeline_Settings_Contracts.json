@@ -62,7 +62,7 @@
           "null"
         ],
         "default": null,
-        "description": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).",
+        "description": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).",
         "x-choice-provider": "plm_models"
       },
       "SAVING_MODE": {

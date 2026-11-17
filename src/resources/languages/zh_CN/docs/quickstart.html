@@ -147,7 +147,7 @@
             </div>
 
             <!-- SECTION 1: ARCHITECTURE OVERVIEW -->
-            <div id="overview" class="section-divider" data-source-sha256="0db9530792e71cb3616813e6a69436a74642987a100e2514791ea0b1ea162a52">
+            <div id="overview" class="section-divider" data-source-sha256="9ed14449d22b3795cb21895c6cfe926dd19896da9708707d46680d0800bb34c9">
                 <span>1. 架构概述与设计理念</span>
             </div>
 
@@ -181,7 +181,7 @@
                     <div class="grid-card">
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span>蛋白质语言模型（pLM）embedding</span></h4>
                         <p style="font-size: 0.9rem; margin-bottom: 0;">
-                            利用最先进的表示（ESM-2、ProtBERT、ProstT5、Ankh），基于稠密的 embedding 相似性矩阵而非静态的氨基酸替换表（BLOSUM62/PAM250）来比对序列，从而捕捉暮光区（twilight zone）中深层的结构与进化关系。
+                            利用最先进的表示（ESM-2、ProtBERT、ProtT5、ProstT5、Ankh），基于稠密的 embedding 相似性矩阵而非静态的氨基酸替换表（BLOSUM62/PAM250）来比对序列，从而捕捉暮光区（twilight zone）中深层的结构与进化关系。
                         </p>
                     </div>
                     <div class="grid-card">
@@ -279,7 +279,7 @@
             </div>
 
             <!-- SECTION 3: TOOLS GUI -->
-            <div id="gui-tools" class="section-divider" data-source-sha256="38ab9aa7aacd637d43548f2a859130deedb71e0c190c7444834a88b192e9fe45">
+            <div id="gui-tools" class="section-divider" data-source-sha256="e16f7e55e3ea7ed3d22fd682ec46727f5d1589eadc9c98a582d7da36684a7169">
                 <span>3. EMAP-SSN 工具 GUI（EMAPSSN_Tools.py）</span>
             </div>
 
@@ -310,7 +310,7 @@
                 </p>
                 <ul>
                     <li>
-                        <strong>序列与 embedding 准备：</strong>包含 <code>Sanitize_Sequences.py</code>（清理序列数据库、执行长度阈值限制、去除片段关键字、去重）、<code>Generate_Embeddings.py</code>（使用 ESM-2、ESM C、ProtBERT、ProstT5 和 Ankh 等模型计算每个残基的表示），以及 <code>Embedding_Cropping.py</code>（从现有全序列数据库中为裁剪后的序列切取 embedding，而不是单独对片段进行 embedding）。
+                        <strong>序列与 embedding 准备：</strong>包含 <code>Sanitize_Sequences.py</code>（清理序列数据库、执行长度阈值限制、去除片段关键字、去重）、<code>Generate_Embeddings.py</code>（使用 ESM-2、ESM C、ProtBERT、ProtT5、ProstT5 和 Ankh 等模型计算每个残基的表示），以及 <code>Embedding_Cropping.py</code>（从现有全序列数据库中为裁剪后的序列切取 embedding，而不是单独对片段进行 embedding）。
                     </li>
                     <li>
                         <strong>序列相似性计算：</strong>包含 <code>Align_Similarity_Matrix.py</code>（基于残基级 embedding 相似性的全对全动态规划比对）、<code>Align_Substitution_Matrix.py</code>（使用传统替换矩阵进行全对全 BLASTP 比对；需要 NCBI BLAST+），以及 <code>Parse_BLAST_Output.py</code>（导入现有的表格形式 BLAST 或 DIAMOND 结果；请使用 <code>-k 0</code> 运行 DIAMOND，以便报告每个命中）。两个 BLAST 工具都按期望值给每个序列对打分；将<strong>得分</strong>设为 <code>EFI alignment score</code>（“EFI 比对得分”）时，则按 EFI-EST 比对得分打分，这还需要每个命中的比特得分。

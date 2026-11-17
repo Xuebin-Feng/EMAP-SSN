@@ -350,6 +350,21 @@ still change before version 1.0.0.
     before anything runs.
   - **In the Console:** a summary and at most 20 x 20 cells of the matrix.
   - **From the Agent,** a reply that runs it waits for the user to press Run.
+- **ProtT5 embeddings.** Generate Embeddings and Pairwise Embedding Alignment offer
+  ProtT5-XL-U50 as ProtT5 (`prot_t5`, 1,024 values per residue). It is the model behind
+  the embeddings UniProt publishes for Swiss-Prot and for reference proteomes.
+  - **Checkpoint:** the unrounded float32 `Rostlab/prot_t5_xl_uniref50`, an 11.3 GB
+    download on first use. Only its encoder is loaded, about 1.2 billion parameters or
+    4.8 GB in float32, and it runs in float32 like every local model. The half-precision
+    `Rostlab/prot_t5_xl_half_uniref50-enc` is not used, because it gives different
+    embeddings.
+  - **Input:** ProtTrans's published preprocessing: residues separated by spaces, and B,
+    Z, U and O mapped to X. J, which the vocabulary lacks, and `.` or `-` inside a
+    sequence become X, as for ProtBERT and ProstT5.
+  - **License:** the weights are under AFL-3.0, as ProtBERT's are, so no acknowledgement
+    is asked before the download.
+  - **MCP:** jobs accept `prot_t5` as the model, and the server's guide lists its
+    embedding width.
 
 ### Changed
 

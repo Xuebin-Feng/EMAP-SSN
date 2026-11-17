@@ -209,6 +209,7 @@ class ModelDisplayNameTests(unittest.TestCase):
         "esmc_6b": "ESM C 6B",
         "prost_t5": "ProstT5",
         "prot_bert": "ProtBERT",
+        "prot_t5": "ProtT5",
     }
 
     def test_every_shipped_model_has_the_name_the_dropdowns_show(self):

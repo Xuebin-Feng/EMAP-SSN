@@ -12982,7 +12982,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">结构预测</translation>
     </message>
     <message>
-        <location line="+1708"/>
+        <location line="+1413"/>
+        <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
+        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
+    </message>
+    <message>
+        <location line="+295"/>
         <source>Chooses what is folded: one typed sequence, or every sequence of a FASTA file.</source>
         <translation type="unfinished">选择要折叠的内容：一条键入的序列，或 FASTA 文件中的每条序列。</translation>
     </message>
@@ -14094,12 +14099,11 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+919"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
-        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
+        <translation type="obsolete">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+1048"/>
         <source>If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds.</source>
         <translation type="unfinished">留空时会自动查找 BLAST+：先查系统 PATH，然后是标准安装文件夹（取最新版本）或常见的 Unix 文件夹。字段会显示该查找的结果。</translation>
     </message>

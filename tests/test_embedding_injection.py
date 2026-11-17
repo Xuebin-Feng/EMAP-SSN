@@ -37,6 +37,7 @@ class EmbeddingInjectionPluginTests(unittest.TestCase):
         "esmc_6b": "esmc_6b_api",
         "prost_t5": "prost_t5",
         "prot_bert": "prot_bert",
+        "prot_t5": "prot_t5",
     }
 
     def test_every_declared_model_resolves_to_the_expected_plugin(self):

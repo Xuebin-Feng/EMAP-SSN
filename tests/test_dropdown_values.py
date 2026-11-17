@@ -359,6 +359,7 @@ class ToolsOptionLabelTests(unittest.TestCase):
         "esmc_6b": "ESM C 6B",
         "prost_t5": "ProstT5",
         "prot_bert": "ProtBERT",
+        "prot_t5": "ProtT5",
     }
     NON_COMMERCIAL = {"ankh_base", "ankh_large"}
     # (script, setting, label by stored value, whether every value is always offered)

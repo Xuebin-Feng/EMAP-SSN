@@ -182,7 +182,7 @@
                     <div class="grid-card">
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span>Protein Language Model (pLM) Embeddings</span></h4>
                         <p style="font-size: 0.9rem; margin-bottom: 0;">
-                            Leverages state-of-the-art representations (ESM-2, ProtBERT, ProstT5, Ankh) to align sequences using dense embedding similarity matrices rather than static amino acid substitution tables (BLOSUM62/PAM250), capturing deep structural and evolutionary relationships in the twilight zone.
+                            Leverages state-of-the-art representations (ESM-2, ProtBERT, ProtT5, ProstT5, Ankh) to align sequences using dense embedding similarity matrices rather than static amino acid substitution tables (BLOSUM62/PAM250), capturing deep structural and evolutionary relationships in the twilight zone.
                         </p>
                     </div>
                     <div class="grid-card">
@@ -316,7 +316,7 @@
                 </p>
                 <ul>
                     <li>
-                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating), <code>Generate_Embeddings.py</code> (computing per-residue representations with models such as ESM-2, ESM C, ProtBERT, ProstT5, and Ankh), and <code>Embedding_Cropping.py</code> (slicing embeddings for cropped sequences out of an existing full-sequence database instead of embedding the fragments in isolation).
+                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating), <code>Generate_Embeddings.py</code> (computing per-residue representations with models such as ESM-2, ESM C, ProtBERT, ProtT5, ProstT5, and Ankh), and <code>Embedding_Cropping.py</code> (slicing embeddings for cropped sequences out of an existing full-sequence database instead of embedding the fragments in isolation).
                     </li>
                     <li>
                         <strong>Sequence Similarity Calculations:</strong> Hosts <code>Align_Similarity_Matrix.py</code> (all-vs-all dynamic programming alignment over residue-level embedding similarities), <code>Align_Substitution_Matrix.py</code> (all-vs-all BLASTP alignment with traditional substitution matrices; requires NCBI BLAST+), and <code>Parse_BLAST_Output.py</code> (importing existing tabular BLAST or DIAMOND results; run DIAMOND with <code>-k 0</code> so it reports every hit). Both BLAST tools score each pair by its E-value or, with <strong>Score</strong> set to <code>EFI alignment score</code>, by the EFI-EST alignment score, which also needs each hit's bit score.

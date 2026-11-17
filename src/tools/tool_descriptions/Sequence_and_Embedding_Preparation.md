@@ -60,7 +60,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 # Generate Embeddings (`Generate_Embeddings.py`)
 
-This script extracts sequence embeddings from pre-trained protein language models such as ESM-2, ESM-C, Ankh, ProtBERT, and ProstT5. It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
+This script extracts sequence embeddings from pre-trained protein language models such as ESM-2, ESM-C, Ankh, ProtBERT, ProtT5, and ProstT5. It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
 
 ### Input
 
@@ -73,7 +73,7 @@ This script extracts sequence embeddings from pre-trained protein language model
 
 | Parameter | Description |
 | :--- | :--- |
-| Model Name **`MODEL_NAME`** | The protein language model architecture to use. The dropdown names each model, such as ESM-2 650M or ESM C 6B; the setting stores its identifier, which is also the label written into the output filename. Identifiers are always lower case (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `ankh_base`, `prot_bert`, `prost_t5`). |
+| Model Name **`MODEL_NAME`** | The protein language model architecture to use. The dropdown names each model, such as ESM-2 650M or ESM C 6B; the setting stores its identifier, which is also the label written into the output filename. Identifiers are always lower case (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `ankh_base`, `prot_bert`, `prot_t5`, `prost_t5`). |
 | Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`Float16 (Half Size)`, the default, or `Float32 (Full Precision)`). `Float16 (Half Size)` uses roughly half the embedding storage of `Float32 (Full Precision)`. Models always compute in float32; rounding the stored values changes alignment scores only slightly and did not change MSA accuracy on BAliBASE and HomFam benchmark sets. Use `Float32 (Full Precision)` to store the values exactly as computed. |
 | Compute Device **`DEVICE_SELECTION`** | `auto` benchmarks the available installer-validated CPU/accelerator candidates on representative sequence lengths and uses the fastest successful device, with ranked fallback if a runtime failure occurs. Selecting a specific CPU, CUDA, XPU, or MPS device pins generation to that device and reports an error instead of silently switching. |
 
