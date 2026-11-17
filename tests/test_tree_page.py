@@ -967,7 +967,10 @@ class KeyboardTests(TreeCase):
         self.assertTrue(self.key("ArrowDown"))
         self.assertNotEqual(self.view_state()["oy"], before["oy"])
         self.assertEqual(self.pinned(), model["root"])
-        self.assertFalse(self.key("ArrowLeft", altKey=True))
+        # Alt and an arrow is the browser's Back, not the page's, except on a Mac, where Option walks the tree too
+        # (the page reads navigator.platform to say so).
+        on_a_mac = self.state("/Mac/.test(navigator.platform || '')")
+        self.assertEqual(self.key("ArrowLeft", altKey=True), on_a_mac)
         self.assertFalse(self.key("ArrowLeft", ctrlKey=True, shiftKey=True))
         self.assertEqual(self.pinned(), model["root"])
 
@@ -1049,8 +1052,10 @@ class KeyboardTests(TreeCase):
                     shown: keys.getBoundingClientRect().width};""")
         self.assertEqual((info["role"], info["describedby"]), ("application", "tree-keys"))
         self.assertEqual(info["keys"], info["expected"])
+        # The page names the walk key for the platform it runs on: Option on a Mac, Ctrl elsewhere.
+        walk_key = "Option" if self.state("/Mac/.test(navigator.platform || '')") else "Ctrl"
         for words in ("Enter: pin the search match, or the node in the middle.",
-                      "Ctrl+Left and Right: go to the parent and the first child; Ctrl+Up and Down: to the previous and next sibling.",
+                      f"{walk_key}+Left and Right: go to the parent and the first child; {walk_key}+Up and Down: to the previous and next sibling.",
                       "Z: zoom to the pinned node.", "S: select it in the network (with nothing pinned, clear the selection); Shift+S: add or remove it.",
                       "C: fold it up or open it.", "Esc: let it go.", "+ and -: zoom the rows; [ and ]: the width."):
             self.assertIn(words, info["keys"])
