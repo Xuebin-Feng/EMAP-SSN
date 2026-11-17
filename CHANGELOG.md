@@ -28,6 +28,8 @@ still change before version 1.0.0.
   version can hold wrong scores for some of the pairs that run computed (see Fixed). Run
   Network Injection again to rebuild it. Smaller networks are not affected, and neither
   are the edges that were copied from the old network.
+- On a Mac, the first start after updating checks the setup once more, because the record
+  of the computer's hardware no longer includes its display settings (see Fixed).
 
 ### Added
 
@@ -378,6 +380,20 @@ still change before version 1.0.0.
     selected nodes (`color $sele$ red #noise# 20%`).
   - The help adds that an attribute left out stays as it is, and that symbols such as `*`
     and `+` are shapes, not wildcards.
+- **Setup builds a new environment on uv's own Python.** Setup used to take any Python
+  3.13 found on the computer, such as Anaconda's, and updating or removing that Python
+  could then break EMAP-SSN. It now asks uv for its own Python 3.13 first, a download of
+  about 20 MB when uv has none. If that fails, setup says so and uses a Python 3.13
+  found on the computer, as before. An environment that already exists is not rebuilt.
+- **Ctrl+Shift+Z redoes, as Ctrl+Y does,** in the Viewer and on the Meta Data page. On a
+  Mac this is Cmd+Shift+Z, the usual redo key there. It used to undo, because Shift was
+  not looked at. During a drag or a selection box it still cancels the gesture, as
+  Ctrl+Z does, whether or not Shift is held.
+- **A layout cache folder left by an interrupted run is used again.** A folder with the
+  cache's name and no manifest used to count as taken, so the next run made a second
+  folder ending in `_[<id>]` beside it. A folder that is empty, or holds only unfinished
+  files and the FASTA backup of an interrupted run, is now used. A folder with a
+  manifest or any other file is still left alone.
 
 ### Fixed
 
@@ -586,6 +602,66 @@ still change before version 1.0.0.
   run failed while building the guide tree ("The number of observations cannot be
   determined on an empty distance matrix"). It now stops at the start and says that an
   alignment needs at least two sequences.
+- **macOS: fixes from the first test on a real Mac.** That round had no screen and no
+  GPU, so it covered setup, the pipelines and the layouts on the CPU. None of the fixes
+  below has been run on a Mac yet.
+  - **A project folder on an iCloud-synced Desktop or Documents stopped every window.**
+    iCloud can mark the files of the Python environment as hidden. Qt then finds no
+    platform plugin and aborts. The readiness check now detects this and says to move
+    the folder, and the launchers stop there, since setup cannot repair it.
+    `./install.sh` warns when the folder is in Desktop, Documents or iCloud Drive, and
+    clears the hidden mark from an environment that was moved out.
+  - **A display change asked for setup again.** The record of the computer's hardware
+    held every line of the Mac's display report, so a new resolution, an external
+    monitor or the automatic-brightness switch changed it. It now holds only the names
+    of the graphics chips. See the Upgrade Notes.
+  - **The Viewer could not start on a display that reports no physical size,** as some
+    remote and virtual displays do. This also stopped an MCP headless launch, whose only
+    reply was "float division by zero". The Viewer now uses 96 dpi there and says so.
+    The same could happen on Windows.
+  - **The start-up screen ended in a traceback when the session had no screen.** It now
+    ends with "no screen is available to this session" and falls back as before.
+  - **The folding worker's MPS fallback had no effect,** because it was switched on after
+    PyTorch had loaded. Operations that MPS lacks can now run on the CPU.
+  - **Alignment could crash where PyTorch has MPS but cannot use it.** A request for
+    pinned memory ended the process at once. Pinned memory is now requested only when
+    CUDA or XPU really works in the running process.
+  - **Tools' chart windows did not get the Tools look,** because matplotlib chose its own
+    Mac window. They are now drawn with Qt, unless a backend was chosen.
+  - **Texts named Ctrl where a Mac uses Cmd.** On a Mac the Undo and Redo tooltips, the
+    Viewer's controls card and the web pages now say Cmd, and Cmd+Shift+Z for redo. The
+    Quick Start and the List of Commands give both forms.
+  - **`./install.sh` ended with "Setup Complete!"** although it installs no dependencies
+    on a Mac. It now says that the two apps were created and that the first start sets
+    up the environment.
+- **Layout caches and settings exports could not be saved on drives without hard
+  links,** such as exFAT and FAT32 drives and some network shares, on any system. A
+  layout job failed there after the whole calculation. Saving now falls back to a second
+  way that also never replaces an existing file.
+- **A `.DS_Store` or `Thumbs.db` in a layout cache folder made a second folder.** A
+  folder holding only files the system leaves around counted as taken (see Changed).
+- **A failed Viewer start could leave nothing to read.** Qt's last message before it
+  aborts could be lost on its way to the log. It is now also written to the crash file.
+  A Viewer that fails to start through the headless launcher leaves its traceback in the
+  log as well as the one-line error.
+- **Generate Embeddings left an empty output file when the device was not available.**
+  It ended in a traceback after creating the file. The device is now checked first, the
+  run ends with one error line, and nothing is created. This check also runs when the
+  output file is already complete.
+- **The Execution Mode tooltip in Tools listed "Tiled" on a computer with no
+  accelerator,** where the dropdown does not offer it. The tooltip, which a screen
+  reader reads, now lists what the dropdown holds.
+- **The benchmark stopped before its first stage where the system refuses to list
+  processes.** Its checks for other running programs, the battery and the kernel caches
+  now report what they could read.
+- **MCP: a finished Sparse MSA Converter job listed its source FASTA only as deleted.**
+  The tool moves that file into `Full_Alignments`, and the job now lists it there too.
+- **MCP: `get_compute_capabilities` gave no reason for a missing accelerator.** When the
+  installer approved a backend that PyTorch cannot use now, the reply's `errors` say so.
+- **The readiness check said nothing when it wanted setup** on Linux and macOS: no uv,
+  no environment, or an environment on another Python. It now prints the reason. The
+  launchers also clear `PYTHONSAFEPATH`, which kept the program from starting when it
+  was set.
 
 ## [0.5.0] - 2026-10-30
 
