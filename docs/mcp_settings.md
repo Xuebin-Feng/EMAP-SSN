@@ -1,4 +1,4 @@
-# MCP settings (server 0.16.0, pipeline settings schema 1)
+# MCP settings (server 0.17.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
