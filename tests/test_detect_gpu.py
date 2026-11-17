@@ -1990,5 +1990,79 @@ class WindowsProbeConcurrencyTests(unittest.TestCase):
         cim.assert_called_once()
 
 
+class MacGraphicsNamesTests(unittest.TestCase):
+    """The Mac's hardware names are its graphics chips, not its display lines.
+
+    The sample outputs are assumptions about the format of
+    `system_profiler SPDisplaysDataType`, written without access to a Mac.
+    """
+
+    JSON = json.dumps({"SPDisplaysDataType": [{
+        "_name": "kHW_AppleM3Item",
+        "sppci_model": "Apple M3",
+        "spdisplays_ndrvs": [
+            {"_name": "Color LCD", "_spdisplays_resolution": "2560 x 1664 Retina"},
+        ],
+    }]})
+    JSON_NO_MODEL = json.dumps({"SPDisplaysDataType": [{
+        "_name": "Apple M3",
+        "spdisplays_ndrvs": [{"_name": "Color LCD"}],
+    }]})
+    TEXT = (
+        "Graphics/Displays:\n\n"
+        "    Apple M3:\n\n"
+        "      Chipset Model: Apple M3\n"
+        "      Type: GPU\n"
+        "      Displays:\n"
+        "        Color LCD:\n"
+        "          Resolution: 2560 x 1664 Retina\n"
+        "          Main Display: Yes\n"
+        "          Mirror: Off\n"
+        "          Automatically Adjust Brightness: Yes\n"
+    )
+
+    def names(self, json_result, text_result):
+        def run(command, timeout=5):
+            return json_result if "-json" in command else text_result
+
+        with mock.patch.object(Detect_GPU, "_run", side_effect=run):
+            return Detect_GPU._controller_names("darwin")
+
+    def test_json_with_one_chip_ignores_the_nested_displays(self):
+        self.assertEqual(self.names(completed(self.JSON), completed(self.TEXT)), ["Apple M3"])
+
+    def test_json_without_sppci_model_uses_the_entry_name(self):
+        self.assertEqual(self.names(completed(self.JSON_NO_MODEL), completed("")), ["Apple M3"])
+
+    def test_broken_json_falls_back_to_the_chipset_model_lines(self):
+        self.assertEqual(self.names(completed("{not json"), completed(self.TEXT)), ["Apple M3"])
+        self.assertEqual(self.names(None, completed(self.TEXT)), ["Apple M3"])
+
+    def test_nothing_usable_gives_an_empty_list_never_raw_lines(self):
+        text = "Graphics/Displays:\n  Resolution: 1 x 1\n  Mirror: Off\n"
+        self.assertEqual(self.names(completed("{}"), completed(text)), [])
+        self.assertEqual(self.names(completed('{"SPDisplaysDataType": [1, "x", []]}'), completed("")), [])
+        self.assertEqual(self.names(None, None), [])
+
+    def report(self, display_lines):
+        names = Detect_GPU._macos_graphics_names_from_text(
+            "Chipset Model: Apple M3\n" + display_lines
+        )
+        with mock.patch.object(Detect_GPU.platform, "system", return_value="Darwin"), \
+                mock.patch.object(Detect_GPU.platform, "version", return_value="25.0"), \
+                mock.patch.object(Detect_GPU.platform, "machine", return_value="arm64"), \
+                mock.patch.object(Detect_GPU, "_controller_names", return_value=names), \
+                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]):
+            return Detect_GPU.detect_hardware()
+
+    def test_reports_differing_only_in_display_lines_share_one_fingerprint(self):
+        first = self.report("Resolution: 2560 x 1664 Retina\nMirror: Off\n")
+        second = self.report("Resolution: 1920 x 1080\nMain Display: Yes\nAutomatically Adjust Brightness: Yes\n")
+        material = Detect_GPU.hardware_compatibility_material
+        self.assertEqual(material(first), material(second))
+        self.assertIn("apple:mps", [device["id"] for device in first["devices"]])
+        self.assertIn("mps", [candidate["backend"] for candidate in first["backend_candidates"]])
+
+
 if __name__ == "__main__":
     unittest.main()

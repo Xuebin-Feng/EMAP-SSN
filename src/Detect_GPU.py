@@ -349,7 +349,60 @@ def _controller_names(system: str) -> list[str]:
             or _amd_accelerator_line(line)
         ]
     if system == "darwin":
-        return _lines(_run(["system_profiler", "SPDisplaysDataType"], timeout=8))
+        return _macos_graphics_names()
+    return []
+
+
+def _macos_graphics_names_from_json(text: str) -> list[str]:
+    """Graphics chip names from `system_profiler SPDisplaysDataType -json`.
+
+    Only the top-level entries count (one per graphics chip). The attached
+    displays are nested under each entry and are never read, so a resolution
+    or a monitor change cannot alter the names.
+    """
+    try:
+        value = json.loads(text.lstrip("﻿"))
+    except (json.JSONDecodeError, ValueError):
+        return []
+    entries = value.get("SPDisplaysDataType") if isinstance(value, dict) else None
+    if not isinstance(entries, list):
+        return []
+    names: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("sppci_model", "_name"):
+            name = entry.get(key)
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+                break
+    return names
+
+
+def _macos_graphics_names_from_text(text: str) -> list[str]:
+    """Chip names from the plain-text form: the values of `Chipset Model:` lines."""
+    names: list[str] = []
+    for line in text.splitlines():
+        key, separator, value = line.strip().partition(":")
+        if separator and key.strip().lower() == "chipset model" and value.strip():
+            names.append(value.strip())
+    return names
+
+
+def _macos_graphics_names() -> list[str]:
+    """Names of the Mac's graphics chips, never the display lines.
+
+    The JSON form comes first because the labels of the text form can be
+    localized. When neither form yields a chip, the result is empty.
+    """
+    result = _run(["system_profiler", "SPDisplaysDataType", "-json"], timeout=8)
+    if result is not None and result.returncode == 0:
+        names = _macos_graphics_names_from_json(result.stdout)
+        if names:
+            return names
+    result = _run(["system_profiler", "SPDisplaysDataType"], timeout=8)
+    if result is not None and result.returncode == 0:
+        return _macos_graphics_names_from_text(result.stdout)
     return []
 
 
