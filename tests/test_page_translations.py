@@ -1262,17 +1262,33 @@ class MetadataPageTests(WebPageTestCase):
             const box = document.createElement('div');
             box.id = 'key-box';
             box.innerHTML = '<button id="k-redo" title="Redo (Ctrl+Y)" aria-label="Ctrl+Z">x</button>'
-                + '<p id="k-help"><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, then Ctrl+C</p>';
+                + '<p id="k-help" data-i18n><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, then Ctrl+C</p>'
+                + '<p id="k-plain">Ctrl+Z in a plain paragraph</p>'
+                + '<table><tbody><tr><td id="k-cell" data-i18n title="Ctrl">Ctrl</td></tr></tbody></table>'
+                + '<script id="k-json" type="application/json">{"sample": "Ctrl"}</script>'
+                + '<textarea id="k-area" data-i18n title="Ctrl">Ctrl+Y</textarea>'
+                + '<pre id="k-pre" data-i18n>Ctrl+Y</pre>'
+                + '<p id="k-mixed" data-i18n>Press Ctrl <code>Ctrl</code> <span translate="no">Ctrl</span></p>';
             document.body.appendChild(box);
             return true;
         })()""")
-        self.js("applyPlatformKeys(document.getElementById('key-box'), false)")
+        box = "document.getElementById('key-box')"
+
+        def text(ident):
+            return self.js(f"document.getElementById('{ident}').textContent")
+
+        self.js(f"applyPlatformKeys({box}, false)")
         self.assertEqual(self.js("document.getElementById('k-redo').title"), "Redo (Ctrl+Y)")
-        self.js("applyPlatformKeys(document.getElementById('key-box'), true)")
+        self.js(f"applyPlatformKeys({box}, true)")
         self.assertEqual(self.js("document.getElementById('k-redo').title"), "Redo (Cmd+Shift+Z)")
         self.assertEqual(self.js("document.getElementById('k-redo').getAttribute('aria-label')"), "Cmd+Z")
-        self.assertEqual(self.js("document.getElementById('k-help').textContent"),
-                         "Undo and Redo: Cmd+Z and Cmd+Shift+Z, then Cmd+C")
+        self.assertEqual(text("k-help"), "Undo and Redo: Cmd+Z and Cmd+Shift+Z, then Cmd+C")
+        self.assertEqual(text("k-mixed"), "Press Cmd Ctrl Ctrl")
+        for ident, expected in (("k-plain", "Ctrl+Z in a plain paragraph"), ("k-cell", "Ctrl"),
+                                ("k-json", '{"sample": "Ctrl"}'), ("k-area", "Ctrl+Y"), ("k-pre", "Ctrl+Y")):
+            self.assertEqual(text(ident), expected, ident)
+        self.assertEqual(self.js("document.getElementById('k-cell').title"), "Ctrl")
+        self.assertEqual(self.js("document.getElementById('k-area').title"), "Ctrl")
 
     def test_a_header_filter_fills_its_column_as_tabulators_own_did(self):
         """The page's filter input is styled as Tabulator's input editor styles one,
