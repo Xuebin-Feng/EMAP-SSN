@@ -7,6 +7,8 @@ Cache_Files/
 Cache_Files_VR/
 msa_benchmark/
 temp/
+# Manuscript, reviews, talks and other private working documents.
+/docs/untracked/
 
 # Built by install.bat from src/bin/Launcher.cs: what the desktop shortcuts start.
 EMAP-SSN.exe
@@ -19,8 +21,6 @@ mcp_config.json
 src/resources/Biohub_API.json
 src/resources/agent/model_card.json
 src/resources/pLM_models/ankh_license.json
-*.docx
-*.pptx
 
 # Temporary copies of the files above that an interrupted save can leave
 # beside them; the model card's and the Biohub token's hold API keys.
