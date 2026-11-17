@@ -1135,7 +1135,7 @@ class BenchmarkMCPActionTests(unittest.IsolatedAsyncioTestCase):
         catalog = self.operations.list_pipeline_tools()
         self.assertEqual(catalog.benchmark["stages"], [f"{stage.number} {stage.key}" for stage in benchmark.STAGES])
         self.assertEqual(catalog.benchmark["job_tool_id"], "run_benchmark")
-        self.assertEqual(len(catalog.tools), 14, "the benchmark is no pipeline tool")
+        self.assertEqual(len(catalog.tools), 15, "the benchmark is no pipeline tool")
 
 
 @unittest.skipUnless(

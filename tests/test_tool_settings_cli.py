@@ -58,6 +58,7 @@ EXPECTED_TOOLS = {
     "Network_Extraction.py",
     "Network_Injection.py",
     "Parse_BLAST_Output.py",
+    "Predict_Structures.py",
     "Sanitize_Sequences.py",
     "Sparse_MSA_Converter.py",
 }

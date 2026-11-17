@@ -298,7 +298,7 @@ The example filenames are chosen destinations, not pre-existing files. CLI expor
 writes a JSON result to stdout; diagnostics go to stderr. Runtime calculation logs
 remain in the MCP job's private log files.
 
-Use `emapssn_pipeline(action="list_tools")` to choose one of the 14 pipeline IDs, then
+Use `emapssn_pipeline(action="list_tools")` to choose one of the 15 pipeline IDs, then
 `emapssn_pipeline(action="get_tool_schema")` with `{"tool_id": "sanitize_sequences"}` to discover
 accepted parameters, descriptions, native JSON types, defaults, allowed choices,
 conditional inputs, directory semantics, and an example. Discovery reads static

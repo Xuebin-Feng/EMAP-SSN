@@ -36,7 +36,7 @@ def _load_agent_instructions():
 
 mcp = MCPServer(
     "emap-ssn", title=PRODUCT_NAME,
-    description="Run pipelines and layout jobs, inspect Viewer data, and control Viewer sessions.",
+    description="Run pipelines (including structure prediction) and layout jobs, inspect Viewer data, and control Viewer sessions.",
     instructions=_load_agent_instructions(), version=MCP_SERVER_VERSION,
     lifespan=app_lifespan, log_level="WARNING",
 )
@@ -47,7 +47,7 @@ _MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotent
 @mcp.tool(title="EMAP-SSN pipelines and layout caches", annotations=_MUTATING, structured_output=True)
 async def emapssn_pipeline(ctx: Context[AppContext], action: PipelineAction,
                            arguments: dict[str, Any] = Field(default_factory=dict)) -> dict[str, Any]:
-    """Discover, configure, run and monitor scientific pipelines and layout-cache jobs.
+    """Discover, configure, run and monitor scientific pipelines (including structure prediction) and layout-cache jobs.
     Use action='help' for the catalog or action='describe', arguments={'action': name}
     for one action's schema, effects and example. Jobs can create/overwrite files;
     cancel_job stops queued/running work. Layout generation does not launch a Viewer.

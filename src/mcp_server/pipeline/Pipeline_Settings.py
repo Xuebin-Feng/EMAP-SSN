@@ -48,6 +48,7 @@ DESCRIPTIONS = {
     "network_extraction": "Extract a network for a FASTA subset.",
     "embedding_pwa": "Align two stored or manually supplied protein sequences.",
     "embedding_ssearch": "Search an embedding database with a stored or manual query.",
+    "predict_structures": "Predict 3D structures with ESM3 for one typed sequence or the sequences of a FASTA.",
 }
 
 
@@ -172,6 +173,8 @@ def get_pipeline_schema(tool_id, project_root):
         example = {"MANUAL_REF_SEQ": True, "REF_SEQUENCE": "ACDE", "MANUAL_TAR_SEQ": True, "TAR_SEQUENCE": "ACDF"}
     elif tool_id == "parse_blast_output":
         example["INPUT_BLAST_TABULAR"] = "example.tsv"
+    elif tool_id == "predict_structures":
+        example = {"SEQUENCE": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ", "SEQUENCE_NAME": "my_protein"}
     from mcp_server.pipeline.Pipeline_Guide import tool_guide
     guide = tool_guide(tool_id)
     extra = {}
@@ -244,6 +247,15 @@ def _combination_errors(tool_id, values):
             fail("ACCELERATOR_PRECISION", "TF32 requires auto selection or a NVIDIA CUDA device; availability is checked at execution.")
     if values.get("EXECUTION_MODE") == "tiled" and values.get("DEVICE_SELECTION") == "cpu":
         fail("EXECUTION_MODE", "Tiled execution requires an accelerator, not CPU.")
+    if tool_id == "predict_structures":
+        # The switch decides which input counts; the other is ignored.
+        if values["BATCH_INPUT"]:
+            if not (values.get("INPUT_FASTA") or "").strip():
+                fail("INPUT_FASTA", "Batch Input is on, so a FASTA file is needed: set INPUT_FASTA.")
+        elif not (values.get("SEQUENCE") or "").strip():
+            fail("SEQUENCE", "Batch Input is off, so a sequence is needed: set SEQUENCE, or set BATCH_INPUT to true.")
+        elif not sanitize_sequence(values["SEQUENCE"])[0]:
+            fail("SEQUENCE", "Sequence is empty after sanitization.")
     for switch, field in (("MANUAL_REF_SEQ", "REF_SEQUENCE"), ("MANUAL_TAR_SEQ", "TAR_SEQUENCE"),
                           ("MANUAL_QUERY_SEQ", "QUERY_SEQUENCE")):
         if values.get(switch) and not sanitize_sequence(values[field])[0]:

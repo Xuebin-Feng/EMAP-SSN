@@ -6,7 +6,7 @@ point matching the user's task; do not run every discovery tool for every reques
 
 | Workflow entry point | Responsibilities |
 | --- | --- |
-| `emapssn_pipeline` | Pipeline discovery, preparation, execution, layout-cache generation and shared job monitoring |
+| `emapssn_pipeline` | Pipeline discovery, preparation, execution, structure prediction, layout-cache generation and shared job monitoring |
 | `emapssn_viewer_data` | Read sessions, summaries, node pages and captured Viewer logs |
 | `emapssn_viewer_control` | Export/validate Viewer settings, launch, connect, disconnect and close |
 
@@ -24,7 +24,8 @@ output, and typical next tools; workflow recipes cover common goals (for example
 injecting new sequences instead of recomputing). A pipeline ID is an argument, not an
 MCP tool name. Pass it to `emapssn_pipeline(action="get_tool_schema")`
 for accepted parameters, defaults, conditions, model availability and an example. Do not
-invent IDs, script names, or parameter keys.
+invent IDs, script names, or parameter keys. Structure prediction from a typed sequence or a FASTA is
+the pipeline tool_id predict_structures and needs no Viewer.
 
 Use `emapssn_pipeline(action="inspect_file")` on known input paths when their contents or
 format need checking; it does not search directories. Use

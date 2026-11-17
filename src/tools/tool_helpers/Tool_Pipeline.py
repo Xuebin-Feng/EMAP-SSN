@@ -31,6 +31,7 @@ DEFAULT_DIRECTORY_PATHS = {
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "NETWORK_DIR": os.path.join("Input_Files", "Networks_EValues"),
     "REPORT_DIR": os.path.join("Analysis_Results", "Alignment_Report"),
+    "STRUCTURE_DIR": os.path.join("Analysis_Results", "Folded_Structure"),
     "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Exported_Settings"),
 }
 
@@ -47,6 +48,7 @@ TOOL_DIRECTORY_KEYS = {
     "Network_Extraction.py": ("FASTA_DIR", "NETWORK_DIR"),
     "Network_Injection.py": ("EMBED_DIR", "NETWORK_DIR"),
     "Parse_BLAST_Output.py": ("FASTA_DIR", "NETWORK_DIR"),
+    "Predict_Structures.py": ("FASTA_DIR", "STRUCTURE_DIR"),
     "Sanitize_Sequences.py": ("FASTA_DIR",),
     "Sparse_MSA_Converter.py": ("MSA_DIR",),
 }
@@ -326,6 +328,7 @@ _TOOL_IDS = {
     "Network_Extraction.py": "network_extraction",
     "Network_Injection.py": "network_injection",
     "Parse_BLAST_Output.py": "parse_blast_output",
+    "Predict_Structures.py": "predict_structures",
     "Sanitize_Sequences.py": "sanitize_sequences",
     "Sparse_MSA_Converter.py": "sparse_msa_converter",
 }
@@ -343,6 +346,7 @@ _TOOL_OUTPUT_DIRECTORIES = {
     "Network_Extraction.py": ("NETWORK_DIR",),
     "Network_Injection.py": ("NETWORK_DIR",),
     "Parse_BLAST_Output.py": ("NETWORK_DIR",),
+    "Predict_Structures.py": ("STRUCTURE_DIR",),
     "Sanitize_Sequences.py": ("FASTA_DIR",),
     "Sparse_MSA_Converter.py": ("MSA_DIR",),
 }
@@ -501,6 +505,27 @@ def _normalized_source_document(spec, settings_source):
     )
 
 
+# Where a document made for one run of one tool is kept when no other folder is given.
+ONE_RUN_SNAPSHOT_DIRECTORY = "ssn_tool_invocations"
+
+
+def forget_one_run_snapshot(settings_path):
+    """Delete the settings file a tool was started from if it is a one-run snapshot in the default folder.
+
+    A tool that is handed a document made for this run alone (the Tools window does it for a value it does
+    not save) deletes the document once it has read it. A shared or exported file, and a snapshot that a
+    job of the MCP server keeps in its own folder, are not in that folder and are left alone.
+    """
+    path = os.path.abspath(os.fspath(settings_path or ""))
+    folder = os.path.abspath(os.path.join(tempfile.gettempdir(), ONE_RUN_SNAPSHOT_DIRECTORY))
+    if os.path.dirname(path) == folder and os.path.isfile(path):
+        try:
+            os.remove(path)
+            os.rmdir(folder)  # only when it is empty now
+        except OSError:
+            pass
+
+
 def create_settings_snapshot(spec, settings_source, *, snapshot_directory=None):
     """Copy a mapping or exported file into a validated immutable snapshot."""
     if not isinstance(spec, ToolSpec):
@@ -509,7 +534,7 @@ def create_settings_snapshot(spec, settings_source, *, snapshot_directory=None):
     snapshot_root = os.path.abspath(
         os.fspath(
             snapshot_directory
-            or os.path.join(tempfile.gettempdir(), "ssn_tool_invocations")
+            or os.path.join(tempfile.gettempdir(), ONE_RUN_SNAPSHOT_DIRECTORY)
         )
     )
     os.makedirs(snapshot_root, mode=0o700, exist_ok=True)

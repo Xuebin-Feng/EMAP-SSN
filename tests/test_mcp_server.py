@@ -306,7 +306,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
 
                 catalog = await client.call_tool("emapssn_pipeline", {"action": "list_tools", "arguments": {}})
                 self.assertFalse(catalog.is_error)
-                self.assertEqual(len(catalog.structured_content["tools"]), 14)
+                self.assertEqual(len(catalog.structured_content["tools"]), 15)
                 self.assertEqual(catalog.structured_content["max_pending"], 16)
 
                 invalid = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": {"tool_id": "sanitize_sequences"}})
@@ -353,7 +353,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(hardware.structured_content["status"], ("ok", "partial", "unavailable"))
                 catalog = await client.call_tool("emapssn_pipeline", {"action": "list_tools", "arguments": {}})
                 self.assertFalse(catalog.is_error)
-                self.assertEqual(len(catalog.structured_content["tools"]), 14)
+                self.assertEqual(len(catalog.structured_content["tools"]), 15)
                 schema = await client.call_tool("emapssn_pipeline", {"action": "get_tool_schema", "arguments": {"tool_id": "sanitize_sequences"}})
                 self.assertFalse(schema.is_error)
                 exported = await client.call_tool("emapssn_pipeline", {"action": "export_tool_settings", "arguments": {

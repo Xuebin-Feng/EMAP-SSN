@@ -22,7 +22,7 @@
         {"directory": "FASTA_DIR", "name": "<INPUT_FASTA stem>_sanitized.fasta", "when": "OVER_WRITE is false", "existing": "replaced"},
         {"beside": "INPUT_FASTA", "name": "INPUT_FASTA itself", "when": "OVER_WRITE is true", "existing": "replaced atomically; an empty result is refused"}
       ],
-      "next": ["generate_embeddings", "align_substitution_matrix", "start_layout_job (as the node FASTA)"],
+      "next": ["generate_embeddings", "align_substitution_matrix", "predict_structures (BATCH_INPUT true, to fold its sequences)", "start_layout_job (as the node FASTA)"],
       "notes": [
         "Embedding, BLAST and layout steps apply the same cleanup in memory, but not the length or header filters, so run this tool when sequences must be filtered or when you want the cleaned FASTA as a file.",
         "MIN_SEQ_LENGTH and MAX_SEQ_LENGTH are inclusive, 0 disables a bound, and they apply only when ENABLE_LENGTH_FILTER is true.",
@@ -236,6 +236,25 @@
       "notes": [
         "Each hit's identity, similarity and gaps are percentages of its alignment length (IDENT%, SIM% and GAP% in the text report; Percent_Identity, Percent_Similarity and Percent_Gaps in the Excel report). A standard residue pair is similar when identical or when SIMILARITY_MATRIX (default BLOSUM62) scores it above 0; the ranking and the alignment come from the embeddings alone."
       ]
+    },
+    "predict_structures": {
+      "stage": "predict structures",
+      "purpose": "Predict the 3D structure of one typed protein sequence (BATCH_INPUT false, the default: SEQUENCE, optionally named by SEQUENCE_NAME) or of every sequence of a FASTA (BATCH_INPUT true: INPUT_FASTA) with ESM3, and save each as a PDB file. Needs no Viewer, no network and no embeddings. The switch decides: the input it does not choose is ignored, and the chosen one missing fails validation.",
+      "inputs": {
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA to fold when BATCH_INPUT is true: an absolute path anywhere on the computer, or a name inside FASTA_DIR (the Tools window picks it with Browse and does not save it)"}
+      },
+      "outputs": [
+        {"directory": "STRUCTURE_DIR", "name": "<sequence name>.pdb, one per sequence (a remote run adds _<model>: <sequence name>_<model>.pdb); a typed sequence with no name is named sequence_<first 10 hex digits of its SHA-256>; names are file-safe and at most 100 characters (longer ones end in _ and 8 hex digits)", "existing": "kept, never overwritten: reported existing when the file holds the same sequence, failed when it holds another (choose another name or folder)"}
+      ],
+      "next": ["Viewer (the structures the Viewer's esmfold command keeps are separate files in Cache_Files; open these in any structure viewer)"],
+      "requirements": "PREDICTION_MODEL local runs the ESM3 open model (biohub/esm3-sm-open-v1) on this computer: a GPU is strongly recommended (the CPU is extremely slow), the weights download on first use, and Hugging Face may require the user to accept the model's terms and log in (hf auth login) outside MCP; the job cannot prompt and ends with that message. PREDICTION_MODEL remote needs the Biohub API token saved beforehand by the user (run esmfold large in a Viewer once, or set ESM_API_KEY for the MCP server); only then are the sequences sent to the Biohub API, and a missing token fails the job without any fallback to the local model. Remote is never chosen for you: set it only when the user asks for it.",
+      "notes": [
+        "Each PDB's B-factor column holds the per-residue pLDDT on a scale of 0 to 100 (the same files the Viewer's esmfold writes). Nothing else is written beside the structures: no per-residue .residues.json (that needs an alignment loaded in a Viewer) and no summary file, so output_files lists only the .pdb files.",
+        "At most MAX_SEQUENCES (default 20) sequences are folded in one run; a larger request is refused before anything is folded, saying how many there are. Structures that already exist are not counted. Raise the maximum or use a smaller FASTA to fold more.",
+        "A sequence typed in is cleaned as other tools clean a typed sequence (uppercase, ends trimmed to residues, other characters masked as X). A relative INPUT_FASTA resolves inside FASTA_DIR (the pipeline's path rule); an absolute one is used as given.",
+        "The log ends with a table of name, file, length, status (folded, existing, failed) and mean pLDDT; read it with read_log. The job fails when any sequence failed.",
+        "DEVICE_SELECTION applies to the local model; an unavailable device is refused before anything is created. get_compute_capabilities lists the devices."
+      ]
     }
   },
   "workflows": [
@@ -295,6 +314,14 @@
         "generate_embeddings on the full-length sequences",
         "embedding_cropping with a FASTA of the fragments (same headers, exact substrings)",
         "align_similarity_matrix on the cropped embeddings, then a layout with the fragment FASTA"
+      ]
+    },
+    {
+      "goal": "Predict a structure from a sequence",
+      "steps": [
+        "get_compute_capabilities (optional: a GPU makes the local model much faster)",
+        "predict_structures with parameters {\"SEQUENCE\": \"<amino acids>\", \"SEQUENCE_NAME\": \"<optional name>\"}: BATCH_INPUT stays false and no file is needed; PREDICTION_MODEL stays local unless the user asked for the Biohub API (remote); for several sequences set BATCH_INPUT true and INPUT_FASTA to a FASTA path instead",
+        "wait_job, then take each .pdb path from output_files; its B-factor column is the per-residue pLDDT, 0 to 100"
       ]
     }
   ]
