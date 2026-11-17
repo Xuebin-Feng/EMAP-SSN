@@ -58,6 +58,8 @@ _LATEST_OUTPUT_BYTES = 4096
 _LATEST_OUTPUT_CHARACTERS = 300
 # How long processes killed by force get to end before they are reported as still running.
 _FORCED_STOP_WAIT = 5.0
+# How long a launched process that EPERM suggests has ended gets to be reaped.
+_LEADER_REAP_WAIT = 0.2
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -1082,14 +1084,25 @@ class PipelineJobManager:
         return ""
 
     async def _stop_process_group(self, process):
+        # EPERM from killpg means no member could be signalled. On macOS that
+        # is the answer for a group whose members are all zombies; it is also
+        # the answer when something forbids this process to signal (a sandbox,
+        # a member that changed its user). The two are told apart without a
+        # signal: this manager is the parent of the launched process, the
+        # group's leader, so waiting for it always works. A leader that has
+        # ended means the EPERM is the zombie case; a live leader means
+        # signalling was refused and nothing was stopped. Limit, accepted: a
+        # member other than the leader that is alive and cannot be signalled,
+        # after the leader has ended, looks like a zombie and is not told apart.
+        refused = False
         try:
             os.killpg(process.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            # No member is left that this process could signal: the group is
-            # empty (ESRCH), or macOS finds only members it cannot signal,
-            # which for a group this manager started means zombies awaiting a
-            # reap (EPERM). Nothing of ours is running.
+        except ProcessLookupError:
             return ""
+        except PermissionError:
+            if await self._leader_ended(process):
+                return ""
+            refused = True  # still waits out the grace period, then reports
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.termination_grace
         try:
@@ -1102,33 +1115,40 @@ class PipelineJobManager:
             # up after the others, and a tool's helper may ignore SIGTERM
             # outright. Members get what is left of the grace period, then
             # SIGKILL like a slow leader.
-            if await self._wait_for_process_group(process.pid, deadline):
+            if await self._wait_for_process_group(process.pid, deadline, process):
                 return ""
         except TimeoutError:
             pass
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            # As for SIGTERM above: nothing is left that SIGKILL could reach.
-            # The launched process is still reaped below, so a leader that is
-            # an unreaped zombie is waited for, not assumed gone.
-            if process.returncode is not None:
-                return ""
-            try:
-                await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
-            except TimeoutError:
-                return f"process {process.pid} still running after SIGKILL"
+        except ProcessLookupError:
             return ""
+        except PermissionError:
+            if await self._leader_ended(process):
+                return ""
+            return f"process {process.pid} still running: signalling its process group was refused (EPERM)"
         try:
             await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
         except TimeoutError:
-            return f"process {process.pid} still running after SIGKILL"
-        if not await self._wait_for_process_group(process.pid, loop.time() + _FORCED_STOP_WAIT):
+            return f"process {process.pid} still running after SIGKILL" + (
+                "; signalling its process group was refused (EPERM)" if refused else "")
+        if not await self._wait_for_process_group(process.pid, loop.time() + _FORCED_STOP_WAIT, process):
             return f"processes of group {process.pid} still running after SIGKILL"
         return ""
 
     @staticmethod
-    async def _wait_for_process_group(pgid, deadline):
+    async def _leader_ended(process):
+        """Whether the launched process has ended: its return code is known, or comes within a short wait."""
+        if process.returncode is not None:
+            return True
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_LEADER_REAP_WAIT)
+        except TimeoutError:
+            return False
+        return True
+
+    @staticmethod
+    async def _wait_for_process_group(pgid, deadline, leader=None):
         """Return True once the group has no processes left, or False at the deadline.
 
         The system keeps a group's ID while any member lives. Once the group is
@@ -1137,19 +1157,23 @@ class PipelineJobManager:
         process starts one. Reaching a stranger would take both within one poll.
 
         Signal 0 answers PermissionError (EPERM) on macOS when the group has
-        members but none this user may signal, and it counts zombies that
-        have not been reaped among them; Linux answers success for zombies.
-        The group is ours, so every live process in it is signalable: EPERM
-        means only zombies, or a stranger's group after ID reuse, remain.
-        Neither runs anything of ours, so it counts as ended. (A group with a
-        live member of ours answers success, so this never ends a wait early.)
+        members but none this user may signal, zombies not yet reaped among
+        them; Linux answers success for zombies. EPERM also answers when
+        signalling is forbidden. It therefore counts as an end only once the
+        group's leader, the process ``leader`` this manager launched, has
+        ended; with a live leader, or none given, the wait goes on to the
+        deadline. (A live member other than the leader that cannot be
+        signalled cannot be told from a zombie this way; that is accepted.)
         """
         loop = asyncio.get_running_loop()
         while True:
             try:
                 os.killpg(pgid, 0)
-            except (ProcessLookupError, PermissionError):
+            except ProcessLookupError:
                 return True
+            except PermissionError:
+                if leader is not None and await PipelineJobManager._leader_ended(leader):
+                    return True
             if loop.time() >= deadline:
                 return False
             await asyncio.sleep(0.05)

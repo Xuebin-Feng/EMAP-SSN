@@ -324,6 +324,13 @@ class FakeProcess:
         return self.returncode
 
 
+class StuckProcess(FakeProcess):
+    """A launched process that is alive: no return code ever comes."""
+
+    async def wait(self):
+        await asyncio.sleep(60)
+
+
 class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
     """Stopping a process group when killpg answers as macOS does.
 
@@ -336,9 +343,10 @@ class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.manager = PipelineJobManager(PROJECT_ROOT, termination_grace=0.2)
-        patcher = mock.patch.object(Pipeline_Jobs, "_FORCED_STOP_WAIT", 0.3)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("_FORCED_STOP_WAIT", 0.3), ("_LEADER_REAP_WAIT", 0.05)):
+            patcher = mock.patch.object(Pipeline_Jobs, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         # Windows has no SIGKILL; the stand-in killpg never sends anything.
         patcher = mock.patch.object(Pipeline_Jobs.signal, "SIGKILL", SIGKILL, create=True)
         patcher.start()
@@ -357,9 +365,25 @@ class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
                 raise step
         return mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True)
 
-    async def test_a_probe_that_answers_eperm_means_the_group_is_over(self):
+    async def test_a_probe_that_answers_eperm_with_the_leader_ended_means_the_group_is_over(self):
         with self.killpg(PermissionError):
-            self.assertTrue(await PipelineJobManager._wait_for_process_group(1, time.monotonic() + 5))
+            self.assertTrue(await PipelineJobManager._wait_for_process_group(
+                1, time.monotonic() + 5, FakeProcess(returncode=0)))
+
+    async def test_a_probe_that_answers_eperm_with_the_leader_reaped_soon_means_it_is_over(self):
+        with self.killpg(PermissionError):
+            self.assertTrue(await PipelineJobManager._wait_for_process_group(
+                1, time.monotonic() + 5, FakeProcess()))
+
+    async def test_a_probe_that_answers_eperm_with_the_leader_alive_is_not_an_end(self):
+        with self.killpg(PermissionError):
+            self.assertFalse(await PipelineJobManager._wait_for_process_group(
+                1, time.monotonic() + 0.3, StuckProcess()))
+        self.assertGreater(len(self.calls), 1, "it keeps polling until the deadline")
+
+    async def test_a_probe_that_answers_eperm_without_a_leader_is_not_an_end(self):
+        with self.killpg(PermissionError):
+            self.assertFalse(await PipelineJobManager._wait_for_process_group(1, time.monotonic() + 0.2))
 
     async def test_a_probe_that_answers_esrch_means_the_group_is_over(self):
         with self.killpg(ProcessLookupError):
@@ -410,20 +434,25 @@ class ProcessGroupStopTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.manager._stop_process_group(process), "")
         self.assertEqual(process.returncode, -15)
 
+    async def test_eperm_everywhere_with_a_live_leader_is_never_reported_as_stopped(self):
+        # A sandbox that refuses signals: SIGTERM, probes and SIGKILL all answer EPERM.
+        with self.killpg(PermissionError):
+            problem = await self.manager._stop_process_group(StuckProcess())
+        self.assertIn("refused (EPERM)", problem)
+        self.assertEqual(self.calls[0], SIGTERM)
+        self.assertEqual(self.calls[-1], SIGKILL)
+
     async def test_eperm_on_sigkill_reports_a_leader_that_will_not_end(self):
         sigkill = SIGKILL
-
-        class Stuck(FakeProcess):
-            async def wait(self):
-                await asyncio.sleep(60)
 
         def fake(group, signal_number):
             if signal_number == sigkill:
                 raise PermissionError(1, "Operation not permitted")
 
         with mock.patch.object(Pipeline_Jobs.os, "killpg", fake, create=True):
-            problem = await self.manager._stop_process_group(Stuck())
-        self.assertEqual(problem, "process 4242 still running after SIGKILL")
+            problem = await self.manager._stop_process_group(StuckProcess())
+        self.assertEqual(
+            problem, "process 4242 still running: signalling its process group was refused (EPERM)")
 
 
 class LogPageTests(unittest.TestCase):

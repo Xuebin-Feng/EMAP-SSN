@@ -638,6 +638,20 @@ class MacGroupAnswerTests(unittest.TestCase):
         with self.stand_in(PermissionError(1, "Operation not permitted")):
             self.assertTrue(run_sections._group_ended(self.process, 4242, time.monotonic() + 5))
 
+    def test_a_probe_answering_eperm_with_the_leader_alive_is_not_an_end(self):
+        self.process.poll.return_value = None
+        with self.stand_in(PermissionError(1, "Operation not permitted")):
+            self.assertFalse(run_sections._group_ended(self.process, 4242, time.monotonic() + 0.1))
+
+    def test_eperm_everywhere_with_a_live_leader_is_reported_not_stopped(self):
+        # A sandbox that refuses signals.
+        self.process.poll.return_value = None
+        refused = PermissionError(1, "Operation not permitted")
+        with self.stand_in(refused, send=refused), mock.patch.object(run_sections, "STOP_WAIT", 0.1):
+            problem = run_sections._kill_process_group(self.process)
+        self.assertEqual(problem, "process group 4242 still has members after SIGKILL")
+        self.assertEqual(self.signals, [15, 9])
+
     def test_a_probe_answering_success_means_a_member_lives(self):
         with self.stand_in(None):
             self.assertFalse(run_sections._group_ended(self.process, 4242, time.monotonic() + 0.1))

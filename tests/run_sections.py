@@ -599,10 +599,16 @@ def _kill_process_group(process):
     for signal_number in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(group, signal_number)
-        except (ProcessLookupError, PermissionError):
-            # Empty (ESRCH), or, on macOS, only members this user may not
-            # signal (EPERM): zombies not yet reaped. Nothing of ours runs.
+        except ProcessLookupError:
             return ""
+        except PermissionError:
+            # EPERM: no member could be signalled. That is macOS's answer for
+            # zombies not yet reaped, and also for a sandbox that forbids
+            # signals. Only a leader that has ended (we are its parent, so
+            # poll tells) makes it the first; with a live leader nothing was
+            # stopped, so go on as before and let the final report say so.
+            if process.poll() is not None:
+                return ""
         if _group_ended(process, group, time.monotonic() + STOP_WAIT):
             return ""
     return f"process group {group} still has members after SIGKILL"
@@ -620,10 +626,13 @@ def _group_ended(process, group, deadline):
         except ProcessLookupError:
             return True
         except PermissionError:
-            # macOS: the group has members but none can be signalled, which for
-            # a group we started means zombies. A live member of ours would
-            # answer success, so none is running. (Linux never answers this.)
-            return True
+            # See _kill_process_group: with the leader ended, EPERM means
+            # zombies (macOS); with it alive, signalling is refused and the
+            # group is not over. A live member other than the leader that
+            # cannot be signalled, after the leader has ended, looks like a
+            # zombie; that is accepted.
+            if process.poll() is not None:
+                return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)
