@@ -70,6 +70,8 @@ def watched_directories(tool_id, document, project_root):
         else:
             beside = input_path(spec.tool_id, output["beside"], document, project_root)
             folder = os.path.dirname(beside) if beside else None
+            if folder and output.get("subfolder"):
+                folder = os.path.join(folder, output["subfolder"])
         if folder and os.path.normcase(folder) not in map(os.path.normcase, folders):
             folders.append(folder)
     return tuple(folders)

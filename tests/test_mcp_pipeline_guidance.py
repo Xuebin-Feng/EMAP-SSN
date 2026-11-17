@@ -164,8 +164,24 @@ class PipelineGuideTests(unittest.TestCase):
                              (str(root / "fasta"),))
             # Missing directories fall back to the project defaults, like the tools.
             converter = {"DIRECTORIES": {}, "Sparse_MSA_Converter.py": {"CONVERT_ALL": True, "INPUT_FASTA": None}}
+            msa = root / "Input_Files" / "Multiple_Alignments"
             self.assertEqual(Pipeline_Guide.watched_directories("sparse_msa_converter", converter, root),
-                             (str(root / "Input_Files" / "Multiple_Alignments"),))
+                             (str(msa), str(msa / "Full_Alignments")))
+            # A single file is converted beside itself and moved into Full_Alignments there.
+            single = {"DIRECTORIES": {}, "Sparse_MSA_Converter.py": {"CONVERT_ALL": False,
+                                                                       "INPUT_FASTA": str(root / "else" / "a.fasta")}}
+            self.assertEqual(Pipeline_Guide.watched_directories("sparse_msa_converter", single, root),
+                             (str(root / "else"), str(msa), str(root / "else" / "Full_Alignments"),
+                              str(msa / "Full_Alignments")))
+            # The moved source lists as created in its new place (and deleted in its old one).
+            before = directory_snapshot((str(msa), str(msa / "Full_Alignments")), 1)
+            self.assertEqual(before, {})
+            (msa / "Full_Alignments").mkdir(parents=True)
+            (msa / "Full_Alignments" / "a.fasta").write_text(">a")
+            (msa / "a_sparse.h5").write_text("h5")
+            changes = {os.path.basename(c["path"]): c["change"] for c in changed_files(
+                before, directory_snapshot((str(msa), str(msa / "Full_Alignments")), 1))}
+            self.assertEqual(changes, {"a.fasta": "created", "a_sparse.h5": "created"})
 
     def test_the_embedding_msa_guide_tree_is_in_the_guide_trees_subfolder(self):
         outputs = Pipeline_Guide.tool_guide("embedding_msa")["outputs"]

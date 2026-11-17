@@ -202,7 +202,9 @@
       },
       "outputs": [
         {"beside": "INPUT_FASTA", "name": "<INPUT_FASTA stem>_sparse.h5", "existing": "replaced"},
-        {"directory": "MSA_DIR", "name": "<each *.fasta stem>_sparse.h5", "when": "CONVERT_ALL is true", "existing": "replaced"}
+        {"directory": "MSA_DIR", "name": "<each *.fasta stem>_sparse.h5", "when": "CONVERT_ALL is true", "existing": "replaced"},
+        {"beside": "INPUT_FASTA", "subfolder": "Full_Alignments", "name": "INPUT_FASTA itself, moved here after the conversion (its old place then lists as deleted)", "existing": "replaced"},
+        {"directory": "MSA_DIR", "subfolder": "Full_Alignments", "name": "each converted *.fasta, moved here (its old place then lists as deleted)", "when": "CONVERT_ALL is true", "existing": "replaced"}
       ],
       "next": ["Viewer settings alignment.MSA_FILE"],
       "notes": ["After converting, the source FASTA is moved into a Full_Alignments subfolder beside it."]
