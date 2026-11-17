@@ -373,6 +373,11 @@ def _benchmark_embedding_devices(
     )
     return model_obj, ranked
 
+
+class DeviceSelectionError(ValueError):
+    """The device the settings ask for is not available on this computer."""
+
+
 def generate_embeddings(
     input_fasta,
     output_hdf5,
@@ -398,6 +403,20 @@ def generate_embeddings(
     if not isinstance(model_name, str) or not model_name:
         raise ValueError("model_name must be a non-empty string.")
     print(f"Loaded {len(headers)} sequences from FASTA.")
+
+    # The requested device is checked before any output file or folder is made,
+    # so an unavailable one leaves nothing behind.
+    available_devices = []
+    manual_candidate = None
+    if execution_mode != "remote_api":
+        available_devices = Hardware_Utils.get_available_devices()
+        try:
+            manual_candidate = Hardware_Utils.resolve_device_selection(
+                DEVICE_SELECTION,
+                available_devices,
+            )
+        except ValueError as error:
+            raise DeviceSelectionError(str(error)) from error
 
     output_directory = os.path.dirname(output_hdf5)
     if output_directory:
@@ -490,7 +509,6 @@ def generate_embeddings(
             print(f"Starting fresh embedding generation for {len(pending)} sequences.")
 
         ranked_devices = []
-        manual_candidate = None
         if execution_mode == "remote_api":
             print(
                 f"[Hardware] Model '{model_name}' uses remote API inference; "
@@ -498,12 +516,6 @@ def generate_embeddings(
             )
             device = None
             model_obj = plugin.load_model(model_name, device)
-        else:
-            available_devices = Hardware_Utils.get_available_devices()
-            manual_candidate = Hardware_Utils.resolve_device_selection(
-                DEVICE_SELECTION,
-                available_devices,
-            )
 
         if execution_mode == "remote_api":
             pass
@@ -644,12 +656,16 @@ def main(argv=None):
     elif SAVING_MODE == "float32":
         print("--> Mode: Saving as float32 (High Precision)")
 
-    generated_count = generate_embeddings(
-        FULL_INPUT_FASTA,
-        OUTPUT_HDF5,
-        MODEL_NAME,
-        SAVING_MODE,
-    )
+    try:
+        generated_count = generate_embeddings(
+            FULL_INPUT_FASTA,
+            OUTPUT_HDF5,
+            MODEL_NAME,
+            SAVING_MODE,
+        )
+    except DeviceSelectionError as error:
+        # One line on stderr: an MCP job shows it as its latest error output.
+        raise SystemExit(f"❌ Error: {error}") from error
     if generated_count:
         print(f"\nDone! All embeddings generated and saved to {OUTPUT_HDF5}")
     return 0

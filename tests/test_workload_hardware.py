@@ -290,6 +290,51 @@ class EmbeddingHardwareTests(unittest.TestCase):
         self.assertIsNone(plugin.asserted_device)
         self.assertEqual(plugin.requests, ["ACD", "ACDEFG", "ACDEFGHIK"])
 
+    def test_unavailable_device_fails_before_any_output_is_created(self):
+        class LocalPlugin:
+            SUPPORTED_MODELS = ["local"]
+            MODEL_EXECUTION_MODES = {"local": "local"}
+
+            def load_model(self, model_name, device):
+                raise AssertionError("the model was loaded")
+
+        cpu = Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        real_generate = Generate_Embeddings.generate_embeddings
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta = pathlib.Path(temp_dir) / "input.fasta"
+            output_folder = pathlib.Path(temp_dir) / "new_folder"
+            output = output_folder / "output.h5"
+            self._write_fasta(fasta)
+            with mock.patch.object(
+                Generate_Embeddings.Hardware_Utils, "get_available_devices", return_value=[cpu]
+            ), mock.patch.object(Generate_Embeddings, "DEVICE_SELECTION", "mps"):
+                with self.assertRaisesRegex(
+                    Generate_Embeddings.DeviceSelectionError,
+                    "Selected device 'mps' is not available",
+                ):
+                    Generate_Embeddings.generate_embeddings(
+                        fasta, output, "local", "float32",
+                        plugin_loader=lambda _: LocalPlugin(),
+                    )
+                # The same refusal reaches the user as one line, not a traceback.
+                with mock.patch.object(Generate_Embeddings, "load_tool_settings"), \
+                        mock.patch.object(Generate_Embeddings, "configure_runtime_paths"), \
+                        mock.patch.multiple(
+                            Generate_Embeddings, create=True, FULL_INPUT_FASTA=fasta,
+                            OUTPUT_HDF5=output, MODEL_NAME="local", SAVING_MODE="float32",
+                        ), \
+                        mock.patch.object(
+                            Generate_Embeddings, "generate_embeddings",
+                            lambda *args: real_generate(*args, plugin_loader=lambda _: LocalPlugin()),
+                        ):
+                    with self.assertRaises(SystemExit) as raised:
+                        Generate_Embeddings.main([])
+            self.assertIn("Selected device 'mps' is not available", str(raised.exception.code))
+            self.assertTrue(str(raised.exception.code).startswith("❌ Error: "))
+            self.assertFalse(output_folder.exists())
+
     def test_auto_production_failure_retries_next_ranked_device(self):
         class LocalPlugin:
             SUPPORTED_MODELS = ["local"]
