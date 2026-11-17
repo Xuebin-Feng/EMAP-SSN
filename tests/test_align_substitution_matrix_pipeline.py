@@ -1500,7 +1500,7 @@ class BlastDirectoryInScriptModeTests(unittest.TestCase):
 
     def assertUntouched(self):
         self.assertFalse(self.network_dir.exists())
-        self.assertEqual(os.listdir(self.folder), ["fastas", "ncbi", "settings.json"])
+        self.assertEqual(sorted(os.listdir(self.folder)), ["fastas", "ncbi", "settings.json"])
 
     def test_the_blastp_directory_of_the_settings_file_is_the_one_every_blast_process_runs(self):
         exit_code, output = self.run_main(self.blast_dir)
