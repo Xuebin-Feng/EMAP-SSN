@@ -722,7 +722,10 @@ class WindowEventTests(ProbeCase):
         self.made.append(box)
         box.show()
         self.pump()
-        dialog = next(event["dialog"] for event in self.events("dialog_shown") if event["dialog"]["title"] == "Careful")
+        # Found by its text: macOS gives a message box no title (message_box_window), the other platforms "Careful".
+        dialog = next(event["dialog"] for event in self.events("dialog_shown") if event["dialog"].get("text") == "The cache is old.")
+        if sys.platform != "darwin":
+            self.assertEqual(dialog["title"], "Careful")
         self.assertEqual(dialog["text"], "The cache is old.")
         self.assertEqual(dialog["informative_text"], "Rebuild it?")
         self.assertEqual(sorted(dialog["buttons"]), ["Cancel", "OK"])
@@ -1305,9 +1308,40 @@ class ActionTests(ProbeCase):
         self.assertFalse(store.read_json(store.response_path(self.out, "broken"))["ok"])
 
 
+def message_box_window(title):
+    """What a request's "window" says to name a QMessageBox titled `title`.
+
+    Qt ignores a message box's title on macOS (the window has none, per Apple's guidelines), so there the box is
+    named by its class, which the probe also matches when a window has no title (README: Targets).
+    """
+    return {"class": "QMessageBox"} if sys.platform == "darwin" else title
+
+
 class DialogTests(ProbeCase):
+    # A click that opens a dialog runs the dialog's own event loop inside the test's loop, so a dialog that no
+    # request answers would hold the test (and the suite) for ever. This closes any modal dialog still open
+    # after STUCK_SECONDS, so that the test fails on its assertions instead.
+    STUCK_SECONDS = 8
+
+    def close_a_dialog_that_is_stuck(self):
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+
+        def reject():
+            modal = QtWidgets.QApplication.activeModalWidget()
+            if modal is not None:
+                self.stuck = True
+                modal.reject()
+                timer.start(500)  # a second dialog behind it, too
+        timer.timeout.connect(reject)
+        timer.start(self.STUCK_SECONDS * 1000)
+        self.stuck = False
+        self.addCleanup(timer.stop)
+
     def test_a_modal_dialog_does_not_stop_the_probe_so_it_can_be_captured_and_answered(self):
         outcome = {}
+        self.close_a_dialog_that_is_stuck()
+        dialog_window = message_box_window("Modal question")
 
         def build(window, layout):
             button = QtWidgets.QPushButton("Ask me")
@@ -1320,7 +1354,8 @@ class DialogTests(ProbeCase):
                 box.addButton("Yes please", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
                 box.addButton("No thanks", QtWidgets.QMessageBox.ButtonRole.RejectRole)
                 box.exec()
-                outcome["clicked"] = box.clickedButton().text()
+                clicked = box.clickedButton()
+                outcome["clicked"] = clicked.text() if clicked is not None else None
             button.clicked.connect(open_dialog)
             layout.addWidget(button)
         self.make_window("Parent window", build)
@@ -1331,9 +1366,9 @@ class DialogTests(ProbeCase):
         def act():
             answers["click"] = agent.ask({"action": "click", "window": "Parent window", "widget": "ask", "block_ms": 300, "settle_ms": 0})
             answers["windows"] = agent.ask({"action": "windows"})
-            answers["capture"] = agent.ask({"action": "capture", "window": "Modal question"})
-            answers["tree"] = agent.ask({"action": "tree", "window": "Modal question"})
-            answers["answer"] = agent.ask({"action": "click", "window": "Modal question", "widget": "Yes please", "settle_ms": 0})
+            answers["capture"] = agent.ask({"action": "capture", "window": dialog_window})
+            answers["tree"] = agent.ask({"action": "tree", "window": dialog_window})
+            answers["answer"] = agent.ask({"action": "click", "window": dialog_window, "widget": "Yes please", "settle_ms": 0})
         thread = threading.Thread(target=act)
         thread.start()
         deadline = time.monotonic() + 30
@@ -1344,7 +1379,9 @@ class DialogTests(ProbeCase):
         thread.join(5)
         self.assertFalse(thread.is_alive())
         self.assertFalse(answers["click"]["result"]["completed"])  # the click is still inside exec()
-        modal = [entry for entry in answers["windows"]["result"]["windows"] if entry["title"] == "Modal question"]
+        self.assertFalse(self.stuck, "no request answered the dialog: " + json.dumps(answers)[:1500])
+        modal = [entry for entry in answers["windows"]["result"]["windows"]
+                 if entry["class"] == "QMessageBox" and (entry["title"] == "Modal question" or sys.platform == "darwin")]
         self.assertTrue(modal and modal[0]["modal"], answers["windows"])
         self.assertTrue(Path(answers["capture"]["result"]["path"]).is_file())
         labels = json.dumps(answers["tree"]["result"]["tree"])
@@ -1356,6 +1393,7 @@ class DialogTests(ProbeCase):
 
     def test_a_request_written_behind_one_that_opens_a_modal_dialog_goes_ahead_once_that_one_is_answered(self):
         outcome = {}
+        queued_window = message_box_window("Queued question")
 
         def build(window, layout):
             button = QtWidgets.QPushButton("Ask me")
@@ -1381,7 +1419,7 @@ class DialogTests(ProbeCase):
         stamp = time.time_ns() - 10 ** 9
         for index, (request_id, request) in enumerate((
                 ("1-open", {"action": "click", "window": "Queued parent", "widget": "Ask me", "block_ms": 200, "settle_ms": 0}),
-                ("2-answer", {"action": "click", "window": "Queued question", "widget": "Yes please", "settle_ms": 0}))):
+                ("2-answer", {"action": "click", "window": queued_window, "widget": "Yes please", "settle_ms": 0}))):
             path = store.write_request(self.out, {"pid": os.getpid()}, request, request_id)
             os.utime(path, ns=(stamp + index * 10 ** 6,) * 2)
         deadline = time.monotonic() + 30

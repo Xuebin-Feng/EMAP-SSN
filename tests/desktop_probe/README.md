@@ -160,6 +160,10 @@ which windows are open afterwards. `{"completed": false}` means the action is st
 its timer keeps firing inside that loop. The click that opened it is answered with `completed: false` after
 1.5 s (`block_ms`); then `windows` shows the dialog (`modal: true`), `capture window="<its title>"` takes it,
 and `click window="<its title>" widget="Yes"` answers it. `dialog_shown` events already carry its text and buttons.
+On macOS a `QMessageBox` has no title (Qt ignores `setWindowTitle` there), so name it by its class, which a title regex
+also matches when the window has no title: `window=QMessageBox`, or `{"class": "QMessageBox"}`; its text is in the
+`dialog_shown` event. A request that names a window that does not exist fails at once with a list of the windows
+there are; it does not wait for it, so a dialog nobody can name stays open until the program closes it.
 
 **File dialogs.** On GNOME a native file dialog is another process and cannot be driven. While the probe is on,
 `QFileDialog.getOpenFileName / getOpenFileNames / getSaveFileName / getExistingDirectory` (and the URL
