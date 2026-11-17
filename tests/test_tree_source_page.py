@@ -390,14 +390,19 @@ class CutLineTests(SourceCase):
         calls = self.script(SPY + """
             let result;
             try {
-                const before = drawn.length; TreeView.drawNow(); const withLine = drawn.length - before;
+                // What a frame draws on the main canvas in the line's own colour: the calls the line costs. Counting every call
+                // would count whatever else the page draws meanwhile (a name pass, a frame of its own), not the line.
+                const accent = TreeView.rgbOf(TreeView.state.palette.accent);
+                const inAccent = (from) => drawn.slice(from).filter((e) => e.op === 'stroke' && e.main
+                    && e.style.every((v, k) => v === accent[k])).length;
+                const before = drawn.length; TreeView.drawNow(); const withLine = inAccent(before);
                 const saved = TreeView.state.cut; TreeView.state.cut = null;
-                const middle = drawn.length; TreeView.drawNow(); const without = drawn.length - middle;
+                const middle = drawn.length; TreeView.drawNow(); const without = inAccent(middle);
                 TreeView.state.cut = saved;
                 result = {withLine, without};
             } finally { restore(); }
             return result;""")
-        # The line is one path stroked in a handful of hairline passes (strokeLines): a few more calls, not one for each node.
+        # The line is one path stroked in a handful of hairline passes (strokeLines): a few calls, not one for each node.
         self.assertLessEqual(calls["withLine"] - calls["without"], 5)
         self.assertGreater(calls["withLine"], calls["without"])
 
