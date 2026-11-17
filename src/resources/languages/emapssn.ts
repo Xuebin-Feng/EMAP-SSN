@@ -7534,6 +7534,10 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7607,6 +7611,10 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
     </message>
     <message>
         <source>Embedding Cropping</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Predict Structures</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8378,6 +8386,74 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Chooses what is folded: one typed sequence, or every sequence of a FASTA file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folds the sequence typed below. The FASTA file field is greyed out and keeps its content.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folds every sequence of the FASTA file chosen below. The sequence and name fields are greyed out and keep their content.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA file whose sequences are folded, chosen with Browse from anywhere on this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used only while Batch Input is on. It is not saved: the field is empty the next time the window opens, and a run gets it for that run only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One amino acid sequence typed or pasted in.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used only while Batch Input is off. Cleaned like any typed sequence: uppercase, ends trimmed to residues, other characters masked as `X`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Optional name of the typed sequence; it becomes the structure&apos;s file name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Without a name, the structure is named `sequence_` and the first 10 hexadecimal digits of the sequence&apos;s SHA-256, so the same sequence finds its structure again. Used only while Batch Input is off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Where the structures are predicted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Runs the ESM3 open model on this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sends the sequences to the Biohub API, with the saved token and the model of the saved API settings. Used only when chosen here; the local model never takes its place.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware compute device that runs the local model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ignored by the remote model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses the first available accelerator (CUDA, XPU, MPS), else the CPU, which is extremely slow.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Most sequences one run folds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Master HDF5 embedding database from which subset embeddings are extracted.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9074,6 +9150,48 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Sequences to Fold:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Input:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Name (Optional):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA File:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Prediction Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local (ESM3 Open Model)</source>
+        <comment>prediction model</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remote (Biohub API)</source>
+        <comment>prediction model</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum Sequences:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Hover or focus on an input to see its description.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9124,6 +9242,10 @@ The window shows the default values, and the file was left unchanged. Saving dir
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Directory where Predict Structures saves the predicted structures (`.pdb`). They are separate from the structures the Viewer&apos;s `esmfold` command keeps.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Directory where per-tool JSON settings files are exported for command-line execution.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9145,6 +9267,10 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <source>Alignment Report Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folded Structure Directory:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9228,6 +9354,10 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <source>Unavailable saved device [{device}]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select FASTA File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

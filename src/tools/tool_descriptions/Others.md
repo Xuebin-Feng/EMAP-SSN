@@ -151,6 +151,54 @@ This script queries a single sequence against an entire database using residue-l
 
 ---
 
+# Predict Structures (`Predict_Structures.py`)
+
+This script predicts the 3D structure of protein sequences with ESM3 and saves each as a PDB file. It needs no Viewer, no network file and no embeddings: only the sequences. Give it one sequence, typed or pasted in, or a FASTA file.
+
+### Input
+
+The **Batch Input** switch chooses the input. It is off by default. The input it does not choose is greyed out in the card (its content stays and comes back when the switch is flipped) and is ignored by the run. The chosen input missing is refused before anything is created.
+
+#### One Sequence (Batch Input off) `SEQUENCE`
+*   **Format**: One amino acid sequence, cleaned like any typed sequence in these tools: uppercased, the ends trimmed to residues, and any other character inside masked as `X`.
+*   **Name**: `SEQUENCE_NAME` names it; the name becomes the structure's file name. Without a name, the structure is named `sequence_` and the first 10 hexadecimal digits of the sequence's SHA-256, so the same sequence finds its structure again and a different sequence never takes the name.
+
+#### FASTA File (Batch Input on) `INPUT_FASTA`
+*   **Format**: A protein FASTA file; every sequence in it is folded. A header is made safe as the other tools make it (spaces become underscores), and that is the structure's name.
+*   **Choosing the file**: the card has a path field with a **Browse** button that opens a file dialog, so the file can be anywhere on the computer. The chosen path is not saved: the field is empty the next time the Tools window opens (it is kept while the window is redrawn in another language). **Save & Run** hands it to the run, and **Export** may hold it.
+*   **In a settings file** (the MCP server, the command line): `INPUT_FASTA` is an absolute path, or a name that resolves inside the FASTA directory.
+
+### Parameters
+
+| Parameter | Description |
+| :--- | :--- |
+| Batch Input **`BATCH_INPUT`** | Off (the default): fold the typed sequence. On: fold every sequence of the FASTA file. |
+| Sequence **`SEQUENCE`** | One typed amino acid sequence. Used while Batch Input is off, and then required. |
+| Sequence Name **`SEQUENCE_NAME`** | The optional name of the typed sequence. |
+| FASTA File **`INPUT_FASTA`** | The FASTA file to fold, chosen with Browse. Used while Batch Input is on, and then required. Not saved. |
+| Model **`PREDICTION_MODEL`** | `local` (the default) runs the ESM3 open model (`biohub/esm3-sm-open-v1`) on this computer. `remote` sends the sequences to the Biohub API, with the saved API token and the model of the saved API settings. The remote service is used only when this says `remote`; the local model never takes its place, and a missing token fails the run. |
+| Device **`DEVICE_SELECTION`** | The device that runs the local model: `auto` (the first available accelerator, else the CPU, which is extremely slow) or a concrete device. An unavailable device is refused before anything is created. The remote model ignores it. |
+| Maximum Sequences **`MAX_SEQUENCES`** | The most sequences one run folds (default 20). A run that would fold more is refused before anything is folded, saying how many there are. Structures that exist already are not counted. Raise it, or use a smaller FASTA file, to fold more. |
+| Folded Structure Directory **`STRUCTURE_DIR`** | The folder the structures are saved in (Directories tab). By default `Analysis_Results/Folded_Structure`. |
+
+### Output
+
+#### Structures
+*   **Files**: one PDB file for each sequence in `STRUCTURE_DIR`, named `<name>.pdb`, or `<name>_<model>.pdb` for a remote run. A name is made safe for a file name and kept to 100 characters; a longer one keeps its beginning and ends in `_` and 8 hexadecimal digits taken from the whole name, so two long names that start alike stay different files. Nothing else is written beside the structures.
+*   **Confidence**: each residue's pLDDT is in the PDB's B-factor column, on a scale of 0 to 100 (higher is more confident), as in the files the Viewer's `esmfold` writes.
+*   **Existing structures**: a structure file that exists is kept and never overwritten. It is reported as `existing` when its residues are the requested sequence, and the record fails, saying to choose another name or folder, when they are another sequence. A file whose residues cannot be read is kept as `existing` with a note.
+*   **Table**: the run ends with a table of name, file, length, status (`folded`, `existing` or `failed`) and mean pLDDT. The tool exits successfully only when nothing failed.
+*   **Separate from the Viewer**: these files are not the structures the Viewer's `esmfold` command keeps (in the Cache directory's `Predicted_Structures`), and Fold View does not list them. To see one there, copy it into that folder under the name `esmfold` would give it.
+*   **No per-residue data**: the `.residues.json` file that Fold View uses needs an alignment loaded in a Viewer, so this tool does not write it.
+
+#### Notes
+
+*   **Local weights**: the first local run downloads the model's weights. Hugging Face may ask you to accept the model's terms and log in (`hf auth login`); the run then ends with that message instead of waiting for an answer.
+*   **Remote model**: the Biohub API needs your API token, saved beforehand (run `esmfold large` in the Viewer once, or set `ESM_API_KEY`). The tool never asks for it, and it never shows it. When a remote run starts, it prints that the sequences are being sent to the Biohub API.
+*   **Memory and time**: the local model is large; a GPU is strongly recommended. Long sequences take more memory and time.
+
+---
+
 # Benchmark
 
 **Run Benchmark** times EMAP-SSN's heavy calculations on a fixed set of public protein sequences, so reports from different computers and versions can be compared. It asks before it starts, then runs `src/resources/benchmark/Run_Benchmark.py` in a console window of its own, which shows the progress and, at the end, the report.

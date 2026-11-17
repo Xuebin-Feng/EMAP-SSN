@@ -312,7 +312,7 @@
 
                 <h3>1. Pipeline Stage Tabs</h3>
                 <p>
-                    The Tools GUI categorizes 14 computational programs into clear operational tabs:
+                    The Tools GUI categorizes 15 computational programs into clear operational tabs:
                 </p>
                 <ul>
                     <li>
@@ -328,7 +328,7 @@
                         <strong>Embedding &amp; Network Tools:</strong> <code>Embedding_Injection.py</code> and <code>Network_Injection.py</code> add new sequences to an existing embedding database or network while reusing the stored results, and <code>Embedding_Extraction.py</code> and <code>Network_Extraction.py</code> extract subsets of them for a list of sequence headers.
                     </li>
                     <li>
-                        <strong>Manual Tools:</strong> <code>Embedding_PWA.py</code> aligns two sequences by their residue embeddings and maps positions between them, and <code>Embedding_SSEARCH.py</code> searches one query sequence against an embedding database, similar to FASTA's <code>ssearch</code>. The tab also holds the <strong>Benchmark</strong> card: <strong>Run Benchmark</strong> times EMAP-SSN's heavy calculations on a bundled set of 860 public protein sequences, so computers and versions can be compared, and saves a report in the card's Report Folder. It asks before it starts.
+                        <strong>Manual Tools:</strong> <code>Embedding_PWA.py</code> aligns two sequences by their residue embeddings and maps positions between them, and <code>Embedding_SSEARCH.py</code> searches one query sequence against an embedding database, similar to FASTA's <code>ssearch</code>, and <code>Predict_Structures.py</code> predicts the 3D structure of one typed sequence or of the sequences of a FASTA with ESM3 and saves each as a PDB file whose B-factor column holds the per-residue pLDDT (0 to 100). The tab also holds the <strong>Benchmark</strong> card: <strong>Run Benchmark</strong> times EMAP-SSN's heavy calculations on a bundled set of 860 public protein sequences, so computers and versions can be compared, and saves a report in the card's Report Folder. It asks before it starts.
                     </li>
                     <li>
                         <strong>Directories:</strong> Master path manager defining base directories for FASTA inputs, network outputs, embeddings, layout caches, and analysis results.

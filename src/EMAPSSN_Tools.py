@@ -104,6 +104,7 @@ from tools.tool_helpers.Tool_Pipeline import (
     load_shared_settings,
     prepare_exported_invocation,
     prepare_gui_invocation,
+    prepare_headless_invocation,
     read_shared_settings,
     save_shared_directories,
     save_shared_tool_settings,
@@ -158,6 +159,14 @@ TOOLS_FORM_HORIZONTAL_SPACING = 30
 # makes the gap between them 8 px.
 TOOL_TITLE_ICON_SIZE = 16
 TOOL_TITLE_ICON_GAP = 6
+# Values a card keeps for the run but not in the saved settings file: a file picked on this computer with
+# Browse. The run gets them in a document made for it alone (Save & Run), an export may hold them, and a
+# window redrawn in another language carries them over, but tools_settings.json never does.
+UNSAVED_SETTINGS = {
+    "Predict_Structures.py": ("INPUT_FASTA",),
+}
+# The filters of the dialog that picks a FASTA file anywhere on the computer.
+FASTA_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)")
 # How long a tool's Save & Run stays greyed out once clicked, in ms, so a
 # double click starts the tool once. The console the tool opens in shows it
 # started; no message box says so.
@@ -312,6 +321,7 @@ TOOL_TITLES = {
     "Sanitize_Sequences.py": QT_TRANSLATE_NOOP("Tools", "Sanitize Sequences"),
     "Generate_Embeddings.py": QT_TRANSLATE_NOOP("Tools", "Generate Embeddings"),
     "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "Embedding Cropping"),
+    "Predict_Structures.py": QT_TRANSLATE_NOOP("Tools", "Predict Structures"),
 }
 # The Lucide icon (src/resources/icons/lucide) beside each tool card's title,
 # and before its help page's title.
@@ -330,6 +340,7 @@ TOOL_ICONS = {
     "Sanitize_Sequences.py": "sparkles",
     "Generate_Embeddings.py": "dna",
     "Embedding_Cropping.py": "scissors",
+    "Predict_Structures.py": "layers",
 }
 # Cards and help headings that name no tool.
 BENCHMARK_ICON = "timer"
@@ -2016,6 +2027,46 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "Embeddings are computed only for the newly introduced sequences to optimize compute time."),),
                 ),
             },
+            "Predict_Structures.py": {
+                "BATCH_INPUT": Tip(
+                    translate("Tools", "Chooses what is folded: one typed sequence, or every sequence of a FASTA file."),
+                    options=(
+                        TipOption(False, translate("Tools", "Folds the sequence typed below. The FASTA file field is greyed out and keeps its content.")),
+                        TipOption(True, translate("Tools", "Folds every sequence of the FASTA file chosen below. The sequence and name fields are greyed out and keep their content.")),
+                    ),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA file whose sequences are folded, chosen with Browse from anywhere on this computer."),
+                    details=(translate("Tools", "Used only while Batch Input is on. It is not saved: the field is empty the next time the window opens, and a run gets it for that run only."),),
+                ),
+                "SEQUENCE": Tip(
+                    translate("Tools", "One amino acid sequence typed or pasted in."),
+                    details=(translate("Tools", "Used only while Batch Input is off. Cleaned like any typed sequence: uppercase, ends trimmed to residues, other characters masked as `X`."),),
+                ),
+                "SEQUENCE_NAME": Tip(
+                    translate("Tools", "Optional name of the typed sequence; it becomes the structure's file name."),
+                    details=(translate("Tools", "Without a name, the structure is named `sequence_` and the first 10 hexadecimal digits of the sequence's SHA-256, so the same sequence finds its structure again. Used only while Batch Input is off."),),
+                ),
+                "PREDICTION_MODEL": Tip(
+                    translate("Tools", "Where the structures are predicted."),
+                    options=(
+                        TipOption("local", translate("Tools", "Runs the ESM3 open model on this computer.")),
+                        TipOption("remote", translate("Tools", "Sends the sequences to the Biohub API, with the saved token and the model of the saved API settings. Used only when chosen here; the local model never takes its place.")),
+                    ),
+                ),
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware compute device that runs the local model."),
+                    details=(translate("Tools", "Ignored by the remote model."),),
+                    options=(
+                        TipOption("auto", translate("Tools", "Uses the first available accelerator (CUDA, XPU, MPS), else the CPU, which is extremely slow.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
+                "MAX_SEQUENCES": Tip(
+                    translate("Tools", "Most sequences one run folds."),
+                    details=(translate("Tools", "A run that would fold more is refused before anything is folded. Structures that already exist are not counted. Raise it, or use a smaller FASTA file, to fold more."),),
+                ),
+            },
             "Embedding_Extraction.py": {
                 "INPUT_EMBED": Tip(
                     translate("Tools", "Master HDF5 embedding database from which subset embeddings are extracted."),
@@ -3065,6 +3116,59 @@ class ToolsGUI(QMainWindow):
                             "type": "switch",
                             "display": translate("Tools", "Generate FASTA File:")
                         }
+                    ],
+                    "Predict_Structures.py": [
+                        {
+                            "var_name": "title_ps_input",
+                            "type": "title",
+                            "display": translate("Tools", "Sequences to Fold:")
+                        },
+                        {
+                            "var_name": "BATCH_INPUT",
+                            "type": "switch",
+                            "display": translate("Tools", "Batch Input:")
+                        },
+                        {
+                            "var_name": "SEQUENCE",
+                            "type": "text",
+                            "display": translate("Tools", "Sequence:")
+                        },
+                        {
+                            "var_name": "SEQUENCE_NAME",
+                            "type": "text",
+                            "display": translate("Tools", "Sequence Name (Optional):")
+                        },
+                        {
+                            "var_name": "INPUT_FASTA",
+                            "type": "file_browse",
+                            "filter": FASTA_FILE_FILTER,
+                            "display": translate("Tools", "FASTA File:")
+                        },
+                        {
+                            "var_name": "title_ps_model",
+                            "type": "title",
+                            "display": translate("Tools", "Prediction Settings:")
+                        },
+                        {
+                            "var_name": "PREDICTION_MODEL",
+                            "type": "dropdown",
+                            "options": [
+                                translate("Tools", "Local (ESM3 Open Model)", "prediction model"),
+                                translate("Tools", "Remote (Biohub API)", "prediction model"),
+                            ],
+                            "option_values": ["local", "remote"],
+                            "display": translate("Tools", "Model:")
+                        },
+                        {
+                            "var_name": "DEVICE_SELECTION",
+                            "type": "device_dropdown",
+                            "display": translate("Tools", "Device:")
+                        },
+                        {
+                            "var_name": "MAX_SEQUENCES",
+                            "type": "number",
+                            "display": translate("Tools", "Maximum Sequences:")
+                        }
                     ]
                 }
             }
@@ -3280,6 +3384,7 @@ class ToolsGUI(QMainWindow):
             "EMBED_DIR": Tip(translate("Tools", "Directory containing pre-computed protein language model embedding databases (`.h5`)."), live=_folder_note),
             "NETWORK_DIR": Tip(translate("Tools", "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (`.h5`, `.tabular`)."), live=_folder_note),
             "REPORT_DIR": Tip(translate("Tools", "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved."), live=_folder_space_note),
+            "STRUCTURE_DIR": Tip(translate("Tools", "Directory where Predict Structures saves the predicted structures (`.pdb`). They are separate from the structures the Viewer's `esmfold` command keeps."), live=_folder_space_note),
             "SETTING_EXPORT_DIR": Tip(translate("Tools", "Directory where per-tool JSON settings files are exported for command-line execution."), live=_folder_space_note),
         }
         dir_labels = {
@@ -3288,6 +3393,7 @@ class ToolsGUI(QMainWindow):
             "MSA_DIR": translate("Tools", "MSA Directory:"),
             "NETWORK_DIR": translate("Tools", "Network Directory:"),
             "REPORT_DIR": translate("Tools", "Alignment Report Directory:"),
+            "STRUCTURE_DIR": translate("Tools", "Folded Structure Directory:"),
             "SETTING_EXPORT_DIR": translate("Tools", "Setting Export Directory:"),
         }
         
@@ -3822,6 +3928,29 @@ class ToolsGUI(QMainWindow):
                 
                 ui_element.combo = combo # Save a reference so save_and_run can extract the text
                 
+            elif s_def['type'] == "file_browse":
+                # A path field and Browse, as the Directories tab has, for a file picked anywhere on the computer.
+                ui_element = QWidget()
+                h_lay = QHBoxLayout(ui_element)
+                h_lay.setContentsMargins(0, 0, 0, 0)
+                line_edit = QLineEdit("" if actual_val is None else str(actual_val).strip("\"'"))
+                browse_button = set_role(QPushButton(translate("Tools", "Browse...")), "compact")
+
+                def browse_for_file(checked=False, edit=line_edit, file_filter=s_def.get("filter", "")):
+                    start = edit.text().strip()
+                    start = os.path.dirname(os.path.abspath(os.path.expanduser(start))) if start else ""
+                    chosen, _selected_filter = QFileDialog.getOpenFileName(
+                        self, translate("Tools", "Select FASTA File"), start, translate("Tools", file_filter)
+                    )
+                    if chosen:
+                        edit.setText(os.path.normpath(chosen))
+
+                browse_button.clicked.connect(browse_for_file)
+                h_lay.addWidget(line_edit)
+                h_lay.addWidget(browse_button)
+                ui_element.line_edit = line_edit
+                ui_element.browse_button = browse_button
+
             elif s_def['type'] == "switch":
                 ui_element = ToggleSwitch()
                 ui_element.setChecked(bool(actual_val))
@@ -4454,6 +4583,23 @@ class ToolsGUI(QMainWindow):
                     lambda checked: sync_manual_pairwise_controls()
                 )
                 sync_manual_pairwise_controls()
+
+        if script_name == "Predict_Structures.py":
+            batch_input = inputs.get("BATCH_INPUT")
+            typed_names = ("SEQUENCE", "SEQUENCE_NAME")
+            if batch_input and "INPUT_FASTA" in inputs and all(name in inputs for name in typed_names):
+                batch_switch = batch_input['widget']
+
+                def sync_batch_input_controls(batch):
+                    # Greyed out, never cleared: a field keeps its content for when its input is chosen again.
+                    for name, enabled in (("INPUT_FASTA", batch), ("SEQUENCE", not batch), ("SEQUENCE_NAME", not batch)):
+                        inputs[name]['widget'].setEnabled(enabled)
+                        label = row_widgets.get(name, (None, None))[0]
+                        if label is not None:
+                            label.setEnabled(enabled)
+
+                batch_switch.toggled.connect(sync_batch_input_controls)
+                sync_batch_input_controls(batch_switch.isChecked())
 
         if script_name == "Embedding_SSEARCH.py":
             score_input = inputs.get("ALIGNMENT_MODE")
@@ -5091,6 +5237,9 @@ class ToolsGUI(QMainWindow):
             elif w_type == "blast_directory":
                 raw_path = widget.line_edit.text().strip()
                 new_settings[var_name] = os.path.normpath(raw_path) if raw_path else ""
+            elif w_type == "file_browse":
+                raw_path = widget.line_edit.text().strip()
+                new_settings[var_name] = os.path.normpath(raw_path) if raw_path else ""
             else:
                 new_settings[var_name] = widget.text()
 
@@ -5419,11 +5568,12 @@ class ToolsGUI(QMainWindow):
         # 3. Replace and save only the selected script's complete settings section.
         # This removes stale keys that are no longer represented in the GUI while
         # preserving DIRECTORIES and every other script section.
+        unsaved = UNSAVED_SETTINGS.get(script_name, ())
         try:
             save_shared_tool_settings(
                 _PROJECT_ROOT,
                 tool_spec,
-                new_settings,
+                {name: value for name, value in new_settings.items() if name not in unsaved},
                 base_document=combined_settings,
             )
         except Exception as e:
@@ -5435,11 +5585,26 @@ class ToolsGUI(QMainWindow):
             
         # 4. Run the script
         try:
-            invocation = prepare_gui_invocation(
-                script_path,
-                _PROJECT_ROOT,
-                python_executable=sys.executable,
-            )
+            if unsaved:
+                # The tool reads a document made for this run alone, which holds what is not saved.
+                invocation = prepare_headless_invocation(
+                    tool_spec.tool_id,
+                    {
+                        "DIRECTORIES": {
+                            key: value for key, value in combined_settings["DIRECTORIES"].items()
+                            if key in tool_spec.required_directories
+                        },
+                        script_name: new_settings,
+                    },
+                    _PROJECT_ROOT,
+                    python_executable=sys.executable,
+                )
+            else:
+                invocation = prepare_gui_invocation(
+                    script_path,
+                    _PROJECT_ROOT,
+                    python_executable=sys.executable,
+                )
             script_name = invocation.tool.script_name
             
             print(f"Executing: {script_name} in {invocation.cwd}")

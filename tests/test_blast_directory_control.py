@@ -454,8 +454,9 @@ class ToolsWindowRowTests(ControlTestCase):
     def test_only_this_row_has_the_two_icon_buttons_and_the_other_browse_buttons_stay(self):
         window, _path, control = self.window()
         browse = [button for button in window.findChildren(QPushButton) if button.text() == "Browse..."]
-        # One Browse button per directory of the Directories tab, and none beside the BLASTP field.
-        self.assertEqual(len(browse), len(window.dir_inputs))
+        # One Browse button per directory of the Directories tab, one for the FASTA File row of Predict Structures,
+        # and none beside the BLASTP field.
+        self.assertEqual(len(browse), len(window.dir_inputs) + 1)
         self.assertFalse(any(control.isAncestorOf(button) for button in browse))
         self.assertEqual(len(window.findChildren(BlastDirectoryControl)), 1)
 

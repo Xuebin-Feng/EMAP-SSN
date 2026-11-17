@@ -84,7 +84,7 @@ separate command, for example
 
 ### 🔌 Local STDIO MCP server
 
-`src/EMAPSSN_MCP_Server.py` exposes 14 pipeline programs, layout-cache generation,
+`src/EMAPSSN_MCP_Server.py` exposes 15 pipeline programs, layout-cache generation,
 Viewer inspection, command execution, and session management to local MCP clients.
 It registers exactly three workflow tools:
 
