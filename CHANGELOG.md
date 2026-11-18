@@ -439,6 +439,19 @@ still change before version 1.0.0.
   the launchers look for it. To run `uv` in your own terminal, add that folder to PATH
   yourself. A download that leaves no uv now stops setup with a message. The Windows
   launchers are unchanged.
+- **Generate Embeddings sends several requests at once to a remote API model.** ESM C 6B
+  through the Biohub API was sent one sequence at a time, so a large set took many hours
+  of waiting on the network. The tool now keeps up to 8 requests in flight. The number
+  is the new setting `API_PARALLEL_REQUESTS` (1 to 64; 1 is the old behaviour).
+  - **It adjusts itself:** when the server answers "too many requests", the number in
+    flight is halved and the sequence is sent again; after a run of successes it rises
+    again step by step, never above the setting.
+  - **The file is the same:** one writer stores the results in input order, and an
+    interrupted run still continues with the sequences not yet in the file.
+  - **Where to set it:** a settings file, the command line and MCP. The Tools window
+    has no field for it yet and uses 8.
+  - **Unchanged:** local models, and the two server calls per sequence.
+  - Not yet run against the real API.
 
 ### Fixed
 
