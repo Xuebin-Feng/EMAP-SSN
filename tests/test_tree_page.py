@@ -10,7 +10,7 @@ three layouts, in which it finds, hovers and folds clades. The page is opened of
 through its own state (the model, the layout, the view, what the last frame drew) and its pixels, and the layout is
 checked against a computation from the tree file made here in Python. The rest of the page's tests are in
 test_tree_detail_page.py (pass-through points, the overview map, level of detail, the large trees) and
-test_tree_colour_page.py (colours, the legend, the notes, text and safety, fitting names); the helpers they share
+test_tree_color_page.py (colours, the legend, the notes, text and safety, fitting names); the helpers they share
 are in tests/tree_page_helpers.py."""
 
 import json

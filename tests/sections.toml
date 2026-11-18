@@ -149,11 +149,11 @@ modules = [
     "test_tree_detail_page",
 ]
 
-[sections.tree_colour]
+[sections.tree_color]
 description = "Tree View page: the network's colours, the legend and its key, the notes, text and safety, fitting names"
 seconds = 100
 modules = [
-    "test_tree_colour_page",
+    "test_tree_color_page",
 ]
 
 [sections.tree_select]
@@ -466,11 +466,11 @@ sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_la
 # through an import. Its backend and the helpers it shares with the backend's tests select the sections that run them.
 [[rules]]
 paths = ["src/web_ui/tree.html", "src/web_ui/tree_*.js", "src/web_ui/page_text.js", "tests/tree_*"]
-sections = ["tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"]
+sections = ["tree_core", "tree_detail", "tree_color", "tree_select", "tree_look", "tree_open"]
 
 [[rules]]
 paths = ["src/web_ui/tree_backend.py", "src/commands/tree.py", "tests/tree_fixtures.py", "src/utilities/Guide_Tree_File.py"]
-sections = ["plugins", "tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"]
+sections = ["plugins", "tree_core", "tree_detail", "tree_color", "tree_select", "tree_look", "tree_open"]
 
 # The desktop probe (tests/desktop_probe) is loaded by file path and as a package of its own, which the reference
 # scan cannot follow: a change to any of its files runs the section of its tests.

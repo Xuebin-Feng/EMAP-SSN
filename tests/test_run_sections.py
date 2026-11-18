@@ -175,7 +175,7 @@ class TreeViewSectionsTests(unittest.TestCase):
     and the time of the whole suite; sections run in parallel, so the page tests are spread over several.
     """
 
-    PAGE_SECTIONS = {"tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"}
+    PAGE_SECTIONS = {"tree_core", "tree_detail", "tree_color", "tree_select", "tree_look", "tree_open"}
 
     @classmethod
     def setUpClass(cls):

@@ -4,7 +4,7 @@
 
 """What Tree View's page tests share (not collected by unittest).
 
-The tests of the page are in test_tree_page.py, test_tree_detail_page.py, test_tree_colour_page.py,
+The tests of the page are in test_tree_page.py, test_tree_detail_page.py, test_tree_color_page.py,
 test_tree_selection_page.py, test_tree_appearance_page.py, test_tree_source_page.py and test_tree_open_page.py, which
 each open tree.html in Qt WebEngine over tests/tree_page_harness.py. This module holds what more than one of them
 uses: the page's file names, JavaScript snippets, the eight-leaf tree and its colours, the spies on the drawing, and

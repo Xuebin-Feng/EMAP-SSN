@@ -9,7 +9,7 @@ tree has it too; the nodes the network has selected are outlined in the colour t
 next to them in the Viewer's connected node colour, while it identifies connected nodes; what the search and the
 legend mark is in the theme colour; and a node the Viewer has hidden is not on the tree at all, which is the tree of
 the nodes that are left. The page is opened offscreen over the real web server (tests/tree_page_harness.py), and which
-colour each part is drawn in is read from spies on the drawing, as the colour tests of test_tree_colour_page.py do.
+colour each part is drawn in is read from spies on the drawing, as the colour tests of test_tree_color_page.py do.
 """
 
 import json

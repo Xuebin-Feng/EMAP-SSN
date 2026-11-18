@@ -5,7 +5,7 @@
 """Tree View's page: pass-through points of hidden nodes, the overview map, level of detail, and a tree of 44,000 leaves.
 
 Opened offscreen over the real web server like the rest (tests/tree_page_harness.py); the first half of the page's
-tests is test_tree_page.py, the colour half test_tree_colour_page.py. The helpers are in tests/tree_page_helpers.py."""
+tests is test_tree_page.py, the colour half test_tree_color_page.py. The helpers are in tests/tree_page_helpers.py."""
 
 import json
 import os
