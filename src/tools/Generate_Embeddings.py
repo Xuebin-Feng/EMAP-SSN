@@ -39,6 +39,11 @@ Settings:
 - SAVING_MODE: Determines the on-disk storage precision (`float32` by default). `float16` halves HDF5 file size and
   RAM requirements by rounding each stored value, which is recommended for massive datasets. `float32` stores the
   values as computed.
+- DEVICE_SELECTION: The local device (`auto`, `cpu`, `cuda:0`, ...). A remote API model ignores it.
+- API_PARALLEL_REQUESTS: How many requests a remote API model (`esmc_6b`) keeps in flight at once, 1 to 64
+  (`8` by default). With 1 the sequences are sent one by one. The number in flight is lowered when the server
+  answers "too many requests" and raised again step by step up to this value. Local models ignore it.
+  Results are written in input order, so the file is the same whatever the number.
 
 Precision:
 Every plugin loads its weights as float32 and runs inference in float32, stated explicitly at the call to
@@ -82,6 +87,7 @@ from utilities.HDF5_Storage import (
     validate_manifest_records,
     write_embedding_manifest,
 )
+from tools.tool_helpers.Remote_Requests import run_in_order
 from tools.tool_helpers.Model_Plugins import (
     find_model_plugin,
     prompt_for_model_license_acceptance,
@@ -94,7 +100,8 @@ INPUT_FASTA = None
 MODEL_NAME = None
 SAVING_MODE = "float32" 
 DEVICE_SELECTION = "auto"
-                  
+API_PARALLEL_REQUESTS = 8
+
 from tools.tool_helpers.Tool_Pipeline import (
     inherited_settings_path,
     load_tool_settings,
@@ -378,6 +385,23 @@ class DeviceSelectionError(ValueError):
     """The device the settings ask for is not available on this computer."""
 
 
+MAX_API_PARALLEL_REQUESTS = 64
+
+
+def validate_api_parallel_requests(value):
+    """Return API_PARALLEL_REQUESTS as an int from 1 to 64, or refuse it."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= MAX_API_PARALLEL_REQUESTS
+    ):
+        raise ValueError(
+            "API_PARALLEL_REQUESTS must be a whole number from 1 to "
+            f"{MAX_API_PARALLEL_REQUESTS}, not {value!r}."
+        )
+    return value
+
+
 def generate_embeddings(
     input_fasta,
     output_hdf5,
@@ -396,6 +420,10 @@ def generate_embeddings(
     execution_mode = validate_loaded_plugin(plugin, model_name)
     usage_terms = getattr(plugin, "MODEL_USAGE_TERMS", {}).get(model_name)
     require_model_license_acceptance(model_name, usage_terms)
+
+    parallel_requests = 1
+    if execution_mode == "remote_api":
+        parallel_requests = validate_api_parallel_requests(API_PARALLEL_REQUESTS)
 
     target_dtype = dtype_for_saving_mode(saving_mode)
     headers, sequences, _ = load_sanitized_fasta(input_fasta)
@@ -547,6 +575,40 @@ def generate_embeddings(
             )
             device = ranked_devices[0].candidate.device
 
+        if parallel_requests > 1:
+            # Several requests at once; one thread (this one) writes, in input
+            # order, with the same checks as the loop below.
+            def write_embedding(_, item, embedding):
+                nonlocal feature_dimension
+                header, sequence = item
+                feature_dimension = validate_embedding_array(
+                    embedding,
+                    sequence,
+                    saving_mode,
+                    feature_dimension=feature_dimension,
+                    require_finite=True,
+                    header=header,
+                )
+                emb_group.create_dataset(header, data=embedding)
+                hf.flush()
+                progress.update(1)
+
+            print(
+                f"Sending up to {parallel_requests} requests at once "
+                "(results are written in input order)."
+            )
+            with tqdm(total=len(pending), desc="Embedding") as progress:
+                run_in_order(
+                    pending,
+                    lambda item: plugin.get_embedding(
+                        item[1], model_obj, device, target_dtype
+                    ),
+                    write_embedding,
+                    max_in_flight=parallel_requests,
+                )
+            mark_generation_complete(hf)
+            return len(pending)
+
         active_rank = 0
         for header, sequence in tqdm(pending, desc="Embedding"):
             while True:
@@ -645,6 +707,10 @@ def main(argv=None):
     if _handle_model_license_cli(command_args):
         return 0
     load_tool_settings(globals(), __file__, PROJECT_ROOT, command_args)
+    try:
+        validate_api_parallel_requests(API_PARALLEL_REQUESTS)
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
     try:
         configure_runtime_paths()
     except ValueError as error:

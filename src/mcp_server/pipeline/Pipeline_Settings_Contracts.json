@@ -79,6 +79,13 @@
         "default": "auto",
         "description": "Device: Hardware compute device used for neural network inference.\nAuto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.",
         "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      },
+      "API_PARALLEL_REQUESTS": {
+        "type": "integer",
+        "default": 8,
+        "description": "Parallel Requests: How many requests a remote API model keeps in flight at once (1 sends them one by one).\nOnly remote API models use it; the number is lowered when the server asks for fewer requests.",
+        "minimum": 1,
+        "maximum": 64
       }
     },
     "required": [

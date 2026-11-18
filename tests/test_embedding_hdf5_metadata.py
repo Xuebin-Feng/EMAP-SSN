@@ -10,6 +10,8 @@ import os
 import pathlib
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -31,6 +33,7 @@ from utilities import HDF5_Storage as Embedding_HDF5
 import Embedding_Injection
 import Embedding_SSEARCH
 import Generate_Embeddings
+from tools.tool_helpers import Remote_Requests
 
 
 def create_complete_database(path, records, model_name="test_model", saving_mode="float16"):
@@ -348,6 +351,357 @@ class EmbeddingWriterTests(unittest.TestCase):
             ):
                 manifest = Embedding_SSEARCH.prepare_database_embeddings()
             self.assertEqual(manifest.sequence_by_header, {"Alpha": "ACDE"})
+
+
+class OrderedRemoteRunTests(unittest.TestCase):
+    """Remote_Requests.run_in_order: several requests in flight, one writer."""
+
+    def run_items(self, work, count=24, **options):
+        consumed = []
+        lines = []
+        options.setdefault("rate_limit_wait", 0.001)
+        Remote_Requests.run_in_order(
+            list(range(count)),
+            work,
+            lambda index, item, result: consumed.append((index, item, result)),
+            report=lines.append,
+            **options,
+        )
+        return consumed, lines
+
+    def test_results_arrive_in_input_order_whatever_finishes_first(self):
+        # Earlier items take longer, so they finish last.
+        def work(item):
+            time.sleep(0.002 * (24 - item))
+            return item * 10
+
+        consumed, _ = self.run_items(work, max_in_flight=8)
+        self.assertEqual(consumed, [(i, i, i * 10) for i in range(24)])
+
+    def test_in_flight_and_unwritten_backlog_stay_bounded(self):
+        lock = threading.Lock()
+        state = {"running": 0, "peak": 0, "started": 0, "started_at_first_write": None}
+
+        def work(item):
+            with lock:
+                state["running"] += 1
+                state["started"] += 1
+                state["peak"] = max(state["peak"], state["running"])
+            try:
+                time.sleep(0.3 if item == 0 else 0.001)
+            finally:
+                with lock:
+                    state["running"] -= 1
+            return item
+
+        def consume(index, item, result):
+            if state["started_at_first_write"] is None:
+                state["started_at_first_write"] = state["started"]
+
+        Remote_Requests.run_in_order(
+            list(range(40)), work, consume, max_in_flight=4, report=lambda _: None
+        )
+        self.assertLessEqual(state["peak"], 4)
+        # While item 0 was slow nothing was written, and no more than twice the
+        # limit had been sent: the slow one plus a backlog of finished ones.
+        self.assertLessEqual(state["started_at_first_write"], 8)
+
+    def test_a_429_lowers_the_limit_and_the_sequence_is_sent_again(self):
+        lock = threading.Lock()
+        calls = {}
+        state = {"running": 0, "peak_after_lowering": 0, "lowered": False}
+
+        def work(item):
+            with lock:
+                state["running"] += 1
+                running = state["running"]
+                calls[item] = calls.get(item, 0) + 1
+                first_call = calls[item] == 1
+                if state["lowered"]:
+                    state["peak_after_lowering"] = max(
+                        state["peak_after_lowering"], running
+                    )
+            try:
+                time.sleep(0.01)
+                if item == 0 and first_call:
+                    raise Remote_Requests.RateLimitedError("slow down")
+                return item
+            finally:
+                with lock:
+                    state["running"] -= 1
+
+        consumed = []
+        lines = []
+
+        def report(text):
+            lines.append(text)
+            state["lowered"] = True
+
+        Remote_Requests.run_in_order(
+            list(range(12)),
+            work,
+            lambda index, item, result: consumed.append(result),
+            max_in_flight=2,
+            successes_per_increase=10**6,
+            rate_limit_wait=0.001,
+            report=report,
+        )
+        self.assertEqual(consumed, list(range(12)))
+        self.assertEqual(calls[0], 2)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("1 at a time", lines[0])
+        self.assertEqual(state["peak_after_lowering"], 1)
+
+    def test_successes_raise_the_limit_again_but_never_above_the_setting(self):
+        lock = threading.Lock()
+        seen = {"calls": 0, "running": 0, "peak": 0}
+
+        def work(item):
+            with lock:
+                seen["calls"] += 1
+                number = seen["calls"]
+                seen["running"] += 1
+                seen["peak"] = max(seen["peak"], seen["running"])
+            try:
+                time.sleep(0.005)
+                if number <= 8:
+                    # All eight first requests are turned away together.
+                    raise Remote_Requests.RateLimitedError("slow down")
+                return item
+            finally:
+                with lock:
+                    seen["running"] -= 1
+
+        consumed, lines = self.run_items(
+            work, count=60, max_in_flight=8, successes_per_increase=3
+        )
+        self.assertEqual([item for _, item, _ in consumed], list(range(60)))
+        # Eight answers at the same limit lower it once: 8 -> 4, not 8 -> 1.
+        numbers = [
+            int(line.split("sending ")[1].split(" at a time")[0]) for line in lines
+        ]
+        self.assertEqual(numbers[0], 4)
+        self.assertEqual(max(numbers), 8)
+        self.assertLessEqual(seen["peak"], 8)
+        self.assertEqual(numbers[1:], sorted(numbers[1:]))
+
+    def test_a_server_that_only_answers_429_ends_the_run_clearly(self):
+        def work(item):
+            raise Remote_Requests.RateLimitedError("slow down")
+
+        consumed = []
+        with self.assertRaisesRegex(RuntimeError, "too many requests"):
+            Remote_Requests.run_in_order(
+                [1, 2, 3],
+                work,
+                lambda *args: consumed.append(args),
+                max_in_flight=2,
+                max_resends=3,
+                rate_limit_wait=0.001,
+                report=lambda _: None,
+            )
+        self.assertEqual(consumed, [])
+
+    def test_a_failure_keeps_what_was_in_order_and_ends_the_run(self):
+        def work(item):
+            if item == 5:
+                time.sleep(0.05)
+                raise RuntimeError("item five failed")
+            time.sleep(0.001 if item < 5 else 0.5)
+            return item
+
+        consumed = []
+        began = time.monotonic()
+        with self.assertRaisesRegex(RuntimeError, "item five failed"):
+            Remote_Requests.run_in_order(
+                list(range(20)),
+                work,
+                lambda index, item, result: consumed.append(item),
+                max_in_flight=6,
+                report=lambda _: None,
+            )
+        self.assertEqual(consumed, [0, 1, 2, 3, 4])
+        # The run did not wait for the slow requests still in flight.
+        self.assertLess(time.monotonic() - began, 0.4)
+
+
+class RemoteEmbeddingGenerationTests(unittest.TestCase):
+    """Generate_Embeddings with a remote_api plugin and several requests at once."""
+
+    class RemotePlugin:
+        SUPPORTED_MODELS = ["remote_model"]
+        MODEL_EXECUTION_MODES = {"remote_model": "remote_api"}
+
+        def __init__(self, fail_on=None, rate_limit_every=0):
+            self.fail_on = fail_on
+            self.rate_limit_every = rate_limit_every
+            self.lock = threading.Lock()
+            self.calls = []
+            self.running = 0
+            self.peak = 0
+
+        def load_model(self, model_name, device):
+            return object()
+
+        def get_embedding(self, sequence, model_obj, device, target_dtype):
+            with self.lock:
+                self.calls.append(sequence)
+                number = len(self.calls)
+                self.running += 1
+                self.peak = max(self.peak, self.running)
+            try:
+                # Longer sequences take longer, so they finish out of order.
+                time.sleep(0.0005 * len(sequence))
+                if self.fail_on is not None and sequence == self.fail_on:
+                    raise RuntimeError("stand-in server failure")
+                if self.rate_limit_every and number % self.rate_limit_every == 0:
+                    raise Remote_Requests.RateLimitedError("slow down")
+                value = float(sum(map(ord, sequence)) % 97)
+                return np.full((len(sequence), 3), value, dtype=target_dtype)
+            finally:
+                with self.lock:
+                    self.running -= 1
+
+    SEQUENCES = [
+        "A" * (3 + (7 * index) % 11) + "CDEFGHIKLMNPQRSTVWY"[index % 19]
+        for index in range(30)
+    ]
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.fasta = self.root / "records.fasta"
+        self.fasta.write_text(
+            "".join(f">S{i:02d}\n{seq}\n" for i, seq in enumerate(self.SEQUENCES)),
+            encoding="utf-8",
+        )
+
+    def generate(self, plugin, output, parallel, saving_mode="float32"):
+        with mock.patch.object(
+            Generate_Embeddings, "API_PARALLEL_REQUESTS", parallel
+        ), mock.patch.object(Remote_Requests, "RATE_LIMIT_WAIT_SECONDS", 0.001):
+            return Generate_Embeddings.generate_embeddings(
+                self.fasta,
+                output,
+                plugin.SUPPORTED_MODELS[0],
+                saving_mode,
+                plugin_loader=lambda _: plugin,
+            )
+
+    @staticmethod
+    def read_all(path):
+        with h5py.File(path, "r") as hf:
+            data = {key: hf["embeddings"][key][()] for key in hf["embeddings"]}
+            return data, bool(hf.attrs["generation_complete"])
+
+    def test_concurrent_file_equals_serial_file_and_is_written_in_order(self):
+        serial_plugin = self.RemotePlugin()
+        serial = self.root / "serial.h5"
+        self.generate(serial_plugin, serial, 1)
+        self.assertEqual(serial_plugin.peak, 1)
+
+        plugin = self.RemotePlugin()
+        parallel = self.root / "parallel.h5"
+        written = []
+        real_validate = Generate_Embeddings.validate_embedding_array
+
+        def recording_validate(embedding, sequence, *args, **kwargs):
+            written.append(kwargs["header"])
+            return real_validate(embedding, sequence, *args, **kwargs)
+
+        with mock.patch.object(
+            Generate_Embeddings, "validate_embedding_array", recording_validate
+        ):
+            count = self.generate(plugin, parallel, 8)
+        self.assertEqual(count, len(self.SEQUENCES))
+        self.assertEqual(written, [f"S{i:02d}" for i in range(len(self.SEQUENCES))])
+        self.assertGreater(plugin.peak, 1)
+        self.assertLessEqual(plugin.peak, 8)
+
+        serial_data, serial_complete = self.read_all(serial)
+        parallel_data, parallel_complete = self.read_all(parallel)
+        self.assertTrue(serial_complete and parallel_complete)
+        self.assertEqual(set(serial_data), set(parallel_data))
+        for key, array in serial_data.items():
+            np.testing.assert_array_equal(parallel_data[key], array)
+
+    def test_429_answers_are_resent_and_the_file_is_still_complete(self):
+        plugin = self.RemotePlugin(rate_limit_every=5)
+        output = self.root / "limited.h5"
+        self.generate(plugin, output, 6)
+        data, complete = self.read_all(output)
+        self.assertTrue(complete)
+        self.assertEqual(len(data), len(self.SEQUENCES))
+        self.assertGreater(len(plugin.calls), len(self.SEQUENCES))
+
+    def test_a_failure_leaves_a_prefix_that_a_second_run_completes(self):
+        failing = self.RemotePlugin(fail_on=self.SEQUENCES[12])
+        output = self.root / "partial.h5"
+        with self.assertRaisesRegex(RuntimeError, "stand-in server failure"):
+            self.generate(failing, output, 4)
+        data, complete = self.read_all(output)
+        self.assertFalse(complete)
+        headers = [f"S{i:02d}" for i in range(len(self.SEQUENCES))]
+        # Only sequences before the failing one, written in order: a prefix.
+        self.assertEqual(sorted(data), headers[: len(data)])
+        self.assertLessEqual(len(data), 12)
+
+        resumed = self.RemotePlugin()
+        count = self.generate(resumed, output, 4)
+        self.assertEqual(count, len(self.SEQUENCES) - len(data))
+        self.assertEqual(
+            sorted(resumed.calls),
+            sorted(self.SEQUENCES[len(data):]),
+        )
+        data, complete = self.read_all(output)
+        self.assertTrue(complete)
+        self.assertEqual(len(data), len(self.SEQUENCES))
+
+    def test_a_setting_of_one_keeps_the_one_at_a_time_path(self):
+        plugin = self.RemotePlugin()
+        with mock.patch.object(
+            Generate_Embeddings, "run_in_order", side_effect=AssertionError
+        ):
+            self.generate(plugin, self.root / "one.h5", 1)
+        self.assertEqual(plugin.peak, 1)
+
+    def test_a_local_model_ignores_the_setting(self):
+        plugin = FakePlugin()
+        with mock.patch.object(
+            Generate_Embeddings, "run_in_order", side_effect=AssertionError
+        ), mock.patch.object(
+            Generate_Embeddings, "API_PARALLEL_REQUESTS", 0
+        ), mock.patch.object(Generate_Embeddings, "DEVICE_SELECTION", "cpu"):
+            count = Generate_Embeddings.generate_embeddings(
+                self.fasta,
+                self.root / "local.h5",
+                "test_model",
+                "float16",
+                plugin_loader=lambda _: plugin,
+            )
+        self.assertEqual(count, len(self.SEQUENCES))
+
+    def test_invalid_values_are_refused_with_a_clear_message(self):
+        for value in (0, 65, -3, "many", "8", 2.5, True, None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError, "API_PARALLEL_REQUESTS must be a whole number from 1 to 64"
+                ):
+                    self.generate(self.RemotePlugin(), self.root / "bad.h5", value)
+        self.assertFalse((self.root / "bad.h5").exists())
+        for value in (1, 8, 64):
+            self.assertEqual(
+                Generate_Embeddings.validate_api_parallel_requests(value), value
+            )
+
+    def test_the_command_line_run_refuses_an_invalid_value(self):
+        with mock.patch.object(
+            Generate_Embeddings, "load_tool_settings"
+        ), mock.patch.object(Generate_Embeddings, "API_PARALLEL_REQUESTS", 65):
+            with self.assertRaises(SystemExit) as raised:
+                Generate_Embeddings.main([])
+        self.assertIn("API_PARALLEL_REQUESTS must be", str(raised.exception))
 
 
 class EmbeddingCroppingTests(unittest.TestCase):

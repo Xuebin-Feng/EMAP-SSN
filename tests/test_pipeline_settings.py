@@ -56,7 +56,9 @@ class PipelineSettingsTests(unittest.TestCase):
                             for k, v in zip(field.keys, field.values):
                                 if isinstance(k, ast.Constant) and k.value == "var_name" and isinstance(v, ast.Constant) and v.value in defaults:
                                     exported_keys.add(v.value)
-                self.assertEqual(exported_keys, set(schema["properties"]))
+                # Settings a caller can pass but the Tools window does not show yet.
+                without_field = {"API_PARALLEL_REQUESTS"} if spec.tool_id == "generate_embeddings" else set()
+                self.assertEqual(exported_keys, set(schema["properties"]) - without_field)
                 # A complete GUI configuration round-trips with native values.
                 values = deepcopy(result["settings_document"][spec.settings_section])
                 for key in ("BATCH_SIZE", "NORM_THRESHOLD", "HOST_CACHE_GB"):
