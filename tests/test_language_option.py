@@ -732,18 +732,33 @@ class ConfigLanguageFollowTests(FollowCase, ConfigWindowCase):
         self.assertIsNot(replacement, window)
         self.assertEqual(installed_language(), "zh_CN")
 
-    def test_an_open_dropdown_puts_the_switch_off(self):
-        window = self.open_window()
-        # A shown window is not always the active one (a Mac gives it no focus without being asked), and
-        # follow() leaves an inactive window alone whatever else is true: the popup is the only reason here.
-        window.activateWindow()
+    def require_active_window(self, window, when, activate=True):
+        """Wait up to 2 s for the window to be active, or skip: the follower leaves an inactive window alone."""
+        if activate:
+            window.activateWindow()
         deadline = time.monotonic() + 2
         while not window.isActiveWindow() and time.monotonic() < deadline:
             QTest.qWait(20)
         flush(self.app)
         if not window.isActiveWindow():
-            self.skipTest("this desktop did not make the window active when asked, and the follower leaves "
+            self.skipTest(f"this desktop did not make the window active {when}, and the follower leaves "
                           "an inactive window alone whatever else is true")
+
+    def test_a_window_that_never_becomes_active_is_a_skip_not_a_failure(self):
+        stand_in = mock.Mock()
+        stand_in.isActiveWindow.return_value = False
+        with mock.patch.object(time, "monotonic", side_effect=[0, 0, 3]), \
+                mock.patch.object(QTest, "qWait") as wait:
+            with self.assertRaisesRegex(unittest.SkipTest, "again once the popup was hidden"):
+                self.require_active_window(stand_in, "again once the popup was hidden", activate=False)
+        wait.assert_called_once()
+        stand_in.activateWindow.assert_not_called()
+
+    def test_an_open_dropdown_puts_the_switch_off(self):
+        window = self.open_window()
+        # A shown window is not always the active one (a Mac gives it no focus without being asked), and
+        # follow() leaves an inactive window alone whatever else is true: the popup is the only reason here.
+        self.require_active_window(window, "when asked")
         save_app_setting("LANGUAGE", "zh_CN")
         window.language_selector.showPopup()
         flush(self.app)
@@ -753,7 +768,7 @@ class ConfigLanguageFollowTests(FollowCase, ConfigWindowCase):
         window.language_selector.hidePopup()
         flush(self.app)
         self.assertIsNone(QApplication.activePopupWidget())
-        self.assertTrue(window.isActiveWindow())
+        self.require_active_window(window, "again once the popup was hidden", activate=False)
         replacement = window.language_follower.follow()
         self.track(replacement)
         self.assertIsNot(replacement, window)

@@ -1268,6 +1268,8 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("10%", "".join(run.ring_texts))
         self.assertNotIn("progress 10%", run.logged())
 
+    @unittest.skipIf(sys.platform == "darwin",
+                     "a native crash on macOS leaves a crash report in the user's Library (~/Library/Logs/DiagnosticReports)")
     def test_a_native_crash_leaves_a_dump_beside_the_log(self):
         run = ProbeRun(self, "pipes", options=("crash",))
         self.assertNotEqual(run.code, 0)
