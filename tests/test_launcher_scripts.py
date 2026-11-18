@@ -1541,7 +1541,7 @@ class PosixFindUvTests(unittest.TestCase):
         program = (
             f". {shlex.quote(str(INSTALLER))}\n"
             f"uname() {{ echo {system}; }}\n"
-            f"SSN_MACOS_UV_FOLDERS={shlex.quote(f'{self.arm} {self.intel}')}\n"
+            f"SSN_MACOS_UV_FOLDERS={shlex.quote(f'{self.arm}:{self.intel}')}\n"
             "ssn_find_uv\n"
         )
         done = subprocess.run(

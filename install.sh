@@ -89,7 +89,8 @@ ssn_sanitize_managed_environment() {
 }
 
 # Where macOS has uv when it came from Homebrew. An app opened from Finder has neither folder on its PATH.
-SSN_MACOS_UV_FOLDERS="/opt/homebrew/bin /usr/local/bin"
+# A colon-separated list, like PATH, so that a folder name may contain a space.
+SSN_MACOS_UV_FOLDERS="/opt/homebrew/bin:/usr/local/bin"
 
 # Prints how to run uv and succeeds, or fails when uv is not installed. The order is PATH, then ~/.local/bin
 # (where uv's own installer puts it), then on macOS Homebrew's folders.
@@ -105,6 +106,7 @@ ssn_find_uv() {
         return 0
     fi
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        local IFS=:
         for folder in $SSN_MACOS_UV_FOLDERS; do
             if [ -f "$folder/uv" ]; then
                 printf '%s\n' "$folder/uv"
