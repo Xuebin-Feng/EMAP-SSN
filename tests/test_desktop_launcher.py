@@ -34,7 +34,8 @@ from desktop.Studio_Theme import theme_tokens  # noqa: E402
 from utilities.Terminal_Launcher import TerminalUnavailableError  # noqa: E402
 
 COPIED = (
-    "src/desktop/__init__.py", "src/desktop/Desktop_Launcher_Monitor.py", "src/utilities/__init__.py",
+    "src/desktop/__init__.py", "src/desktop/Desktop_Launcher_Monitor.py", "src/desktop/Window_Python.py",
+    "src/utilities/__init__.py",
     "src/utilities/Localization.py",
 )
 
