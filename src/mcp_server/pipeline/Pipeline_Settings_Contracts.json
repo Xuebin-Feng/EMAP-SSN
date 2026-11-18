@@ -67,7 +67,7 @@
       },
       "SAVING_MODE": {
         "type": "string",
-        "default": "float32",
+        "default": "float16",
         "description": "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.",
         "enum": [
           "float32",

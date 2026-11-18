@@ -32,6 +32,9 @@ still change before version 1.0.0.
   of the computer's hardware no longer includes its display settings (see Fixed).
 - The MCP server is 0.17.0 (0.16.0 in v0.5.0), for the new `predict_structure` action and
   the `predict_structures` pipeline tool (see Added).
+- Generate Embeddings now saves float16 by default (see Changed). To resume an interrupted
+  run that was saving float32, set Saving Mode to float32 first: a resume keeps the file's
+  saving mode and refuses a different one.
 
 ### Added
 
@@ -320,6 +323,13 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Generate Embeddings saves float16 by default** (was float32), halving embedding files
+  and the memory used to load them. Models still compute in float32; only the stored
+  values are rounded. Tested on BAliBASE sets with Ankh base, ESM C 600M and ProstT5, and on
+  one HomFam family with Ankh base: all-vs-all alignment scores kept a rank correlation of
+  0.999999 or better with float32 storage, at most 6 of 8,194 top-5% network edges changed,
+  and embedding-based MSA accuracy moved by at most 0.0008 SP F1 (TC unchanged on all 43
+  sets). Choose float32 to store values exactly as computed.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last

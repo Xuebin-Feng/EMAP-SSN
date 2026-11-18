@@ -36,9 +36,9 @@ Settings:
   ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t33_650m`), the Ankh family
   (`ankh_base`, `ankh_large`), and the Rostlab families (`prot_bert`, `prost_t5`). Model identifiers
   are always lower case.
-- SAVING_MODE: Determines the on-disk storage precision (`float32` by default). `float16` halves HDF5 file size and
-  RAM requirements by rounding each stored value, which is recommended for massive datasets. `float32` stores the
-  values as computed.
+- SAVING_MODE: Determines the on-disk storage precision (`float16` by default). `float16` halves HDF5 file size and
+  RAM requirements by rounding each stored value; on BAliBASE and HomFam sets the rounding changed alignment scores
+  only slightly and left MSA accuracy unchanged. `float32` stores the values as computed.
 - DEVICE_SELECTION: The local device (`auto`, `cpu`, `cuda:0`, ...). A remote API model ignores it.
 - API_PARALLEL_REQUESTS: How many requests a remote API model (`esmc_6b`) keeps in flight at once, 1 to 64
   (`8` by default). With 1 the sequences are sent one by one. The number in flight is lowered when the server
@@ -98,7 +98,7 @@ from tools.tool_helpers.Model_Plugins import (
 # Script configuration
 INPUT_FASTA = None
 MODEL_NAME = None
-SAVING_MODE = "float32" 
+SAVING_MODE = "float16"
 DEVICE_SELECTION = "auto"
 API_PARALLEL_REQUESTS = 8
 
