@@ -223,6 +223,7 @@ from desktop.Viewer_Dpi import canvas_dpi
 from desktop.Viewer_Vsync import apply_window_swap_interval, vsync_enabled
 from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability
 from desktop.Viewer_Legend import LegendCard
+from desktop.Viewer_Selection_Gesture import cancel_selection_gesture, gesture_is_open
 from desktop.Viewer_Jobs import BADGE_GAP, BADGE_HEIGHT, JobsBadge, ViewerJobs, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
@@ -3300,7 +3301,7 @@ class MainViewer:
                 # 8-direction lock there, and Ctrl+Z cancels the gesture whether or not it is held.
                 gesture_open = (getattr(self, 'is_multi_dragging', False)
                                 or getattr(self, 'is_box_selecting', False)
-                                or self._outside_gesture_open())
+                                or gesture_is_open(self))
                 if 'Shift' in event.modifiers and not gesture_open:
                     self.redo_by_hand()
                 else:
@@ -3336,7 +3337,7 @@ class MainViewer:
         # Clicks work while a command is typed: the command waits in
         # input_buffer, and a click's message follows it (_show_click_status).
         self._end_wheel_turn()  # a button ends the turn Ctrl + wheel notches were making
-        self._cancel_outside_gesture()  # a press on the canvas ends a selection gesture a page drives
+        cancel_selection_gesture(self)  # a press on the canvas ends a selection gesture a page drives
         # ---> 1. RIGHT-CLICK LOGIC (Drag & Select) <---
         if event.button == 2:
             self._drag_cancelled = False  # a new press: the drag Esc cancelled is over
@@ -4110,7 +4111,7 @@ class MainViewer:
         """
         self._end_wheel_turn()
         if (getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False)
-                or self._outside_gesture_open()):
+                or gesture_is_open(self)):
             return self._cancel_drag()
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
@@ -4127,7 +4128,7 @@ class MainViewer:
         """
         self._end_wheel_turn()  # a turn still open ends first, as for undo_by_hand
         if (getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False)
-                or self._outside_gesture_open()):
+                or gesture_is_open(self)):
             return False
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
@@ -4840,19 +4841,6 @@ class MainViewer:
         if queue is not None and queue.pending():
             queue.resume()
 
-    def _outside_gesture_open(self):
-        """Whether a selection gesture that a page drives is open (desktop/Viewer_Selection_Gesture.py)."""
-        gesture = getattr(self, 'outside_selection_gesture', None)
-        return gesture is not None and gesture.is_open
-
-    def _cancel_outside_gesture(self):
-        """Put back the selection from before a selection gesture a page drives, and end it, as Esc does for a box.
-
-        Returns whether there was one open. The page's later messages of it change nothing.
-        """
-        gesture = getattr(self, 'outside_selection_gesture', None)
-        return gesture is not None and gesture.cancel()
-
     def _cancel_drag(self):
         """Esc, or Ctrl+Z, during a right-button drag, or Esc during a turn by Ctrl + wheel: put everything back as it was at the start.
 
@@ -4876,7 +4864,7 @@ class MainViewer:
             self._clear_turn_status(turn)
             self.canvas.update()
             return True
-        if self._cancel_outside_gesture():
+        if cancel_selection_gesture(self):
             self.canvas.update()
             return True
         if getattr(self, 'is_multi_dragging', False):

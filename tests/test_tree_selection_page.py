@@ -1096,7 +1096,7 @@ class BoxSelectionTests(SelectionCase):
                 self.assertAlmostEqual(rect["w"], b[0] - a[0], delta=1.5)
                 self.assertAlmostEqual(rect["h"], b[1] - a[1], delta=1.5)
                 self.assertEqual(drawn["marked"], len(expected))
-                self.assertEqual(self.bodies(), [])                    # nothing is sent while the box is open
+                self.assertEqual(self.bodies(), [])                    # no plain request is sent while the box is open (its gesture is)
                 self.assertEqual(self.selection()["leaves"], network)
                 self.assertEqual(self.state("TreeView.state.selection.count"), 3)
                 self.release(b, expect=1)
@@ -1132,8 +1132,11 @@ class BoxSelectionTests(SelectionCase):
             return lengths;""")
         self.assertEqual(calls, [0, len(self.inside(a, b))])           # no neighbours, then the box's leaves
         self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
-        self.mouse("pointerdown", a)            # a new press while open ends the old box; the network's marks are untouched
-        self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
+        # A new press while open ends the old box; the network's marks are untouched as it ends (the Viewer's answer to the
+        # cancel comes later, and the page then asks for the neighbours again).
+        kept = self.script("""window.mouse('pointerdown', %d, %d, false, {});
+            return TreeView.state.selection.connected.length;""" % (a[0], a[1]))
+        self.assertEqual(kept, 5)
 
     def test_a_wheel_zoom_during_the_drag_keeps_the_first_corner_on_the_tree(self):
         self.start_box()

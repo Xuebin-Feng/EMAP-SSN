@@ -37,6 +37,8 @@ selected (selection_changed) and which has the click focus (highlight_row), and
 the page asks the Viewer to select the nodes of a clade (the tree_select action)
 or to focus on a leaf's node (tree_focus), and the Viewer does what a box
 selection or a click does; the page learns what came of it from the same two events.
+A box that is still open in the page is sent as it changes, so that the network's
+selection follows it while the button is down (handle_tree_gesture).
 """
 
 import base64

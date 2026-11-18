@@ -4,7 +4,7 @@
 
 """A selection gesture that something outside the Viewer's canvas drives, as a box selection is driven from the canvas.
 
-A web page that draws its own selection box (Tree View does) can make the network's selection follow the box while
+A web page that draws its own selection box can make the network's selection follow the box while
 the button is still down, as the network's own box makes the pages follow it. The page names the gesture with an id
 and numbers its updates; the Viewer keeps what is needed to put things right:
 
@@ -58,6 +58,15 @@ def gesture_is_open(viewer):
     return gesture is not None and gesture.is_open
 
 
+def cancel_selection_gesture(viewer):
+    """Put back the selection from before a selection gesture a page drives and end it, as Esc does for a box.
+
+    Returns whether there was one open. The page's later messages of it change nothing.
+    """
+    gesture = getattr(viewer, "outside_selection_gesture", None)
+    return gesture is not None and gesture.cancel()
+
+
 def _unique(nodes):
     return np.unique(np.asarray(nodes, dtype=np.int64))
 
@@ -71,6 +80,7 @@ class SelectionGesture:
         self.id = None
         self.closed = collections.deque(maxlen=REMEMBERED)
         self._timer = None
+        self._made = self._made_list = None
         self._reset()
 
     def _reset(self):
@@ -79,6 +89,7 @@ class SelectionGesture:
         self.epoch = 0              # selection_epoch at the start
         self.last_seq = 0
         self.heard = None           # what the pages last heard (sorted, unique)
+        self._made = self._made_list = None
 
     @property
     def is_open(self):
@@ -92,7 +103,7 @@ class SelectionGesture:
     def drive(self, gesture_id, phase, seq=0, nodes=None, toggle=False):
         """Take one message of gesture ``gesture_id``; returns {"ok", "changed", "selected", "note"} like a plain request.
 
-        ``nodes`` is the sorted array of the node numbers in the box (in range), for ``update`` and ``end``.
+        ``nodes`` is the array of the node numbers in the box (in range, sorted, without repeats), for ``update`` and ``end``.
         """
         if gesture_id in self.closed:
             return self._answer(False, "gesture_closed")
@@ -139,7 +150,7 @@ class SelectionGesture:
             return self._answer(False, "stale")
         self.last_seq = seq
         self._touch()
-        requested = _unique(nodes)
+        requested = np.asarray(nodes, dtype=np.int64)       # sorted and without repeats, as decode_node_set makes them
         from desktop.Viewer_State import low_resource_drawing, low_resource_webserver
         import EMAPSSN_Config as cfg
         if low_resource_drawing(cfg):
@@ -153,7 +164,7 @@ class SelectionGesture:
         if not self.is_open:
             self._open(gesture_id)
         viewer = self.viewer
-        requested = _unique(nodes)
+        requested = np.asarray(nodes, dtype=np.int64)
         wanted, result = self._result(requested, toggle)
         if requested.size and not wanted.size:
             result = self.base                      # nothing that was named can be selected: nothing changes
@@ -189,7 +200,13 @@ class SelectionGesture:
     # ---- the Viewer's side of it -----------------------------------------------------------------------------
 
     def _current(self):
-        return _unique(getattr(self.viewer, "selected_indices", None) or [])
+        """The selection now, sorted. What this gesture made last is remembered with the list it put in the Viewer, so
+        that an update does not sort 44,000 numbers it has just sorted: the list is the same object until something
+        else changes the selection, which it cannot while the gesture is open."""
+        selected = getattr(self.viewer, "selected_indices", None)
+        if selected is not None and selected is self._made_list:
+            return self._made
+        return _unique(selected or [])
 
     def _apply(self, result, broadcast):
         """Make ``result`` the selection if it is not already: noted as made by hand, drawn, and told to the pages if asked."""
@@ -197,6 +214,7 @@ class SelectionGesture:
         if np.array_equal(result, self._current()):
             return False
         viewer.selected_indices = result.tolist()
+        self._made, self._made_list = result, viewer.selected_indices
         viewer._note_hand_selection()
         viewer.update_selection_visual(broadcast=False)
         if broadcast:
