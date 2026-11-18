@@ -11,6 +11,11 @@
 #
 # `seconds` is a rough serial run time, used only to start the slowest sections
 # first; after a run the runner prefers the times it measured itself.
+#
+# `platforms` (optional) lists the sys.platform names a section runs on, from win32,
+# linux and darwin. On another system the runner skips the section, however it was
+# chosen, and says why; a section without the key runs everywhere. Only opt_vr
+# declares it (the VR viewer runs on Windows only).
 
 [sections.commands]
 description = "Viewer commands, selection expressions, undo/redo, alignment panel"
@@ -438,6 +443,7 @@ description = "The VR suite (opt_vr/tests, run by discovery inside opt_vr)"
 seconds = 70
 cwd = "opt_vr"
 discover = true
+platforms = ["win32"]
 
 # Files that change what every test sees: any change to them selects every section.
 [full_suite]

@@ -489,6 +489,136 @@ class RunTests(unittest.TestCase):
         self.assertIn("unknown section(s): nonexistent", out)
 
 
+class PlatformTests(unittest.TestCase):
+    """A section can declare the systems it runs on; elsewhere the runner skips it and says why."""
+
+    SKIP_LINE = "skip  vr_only"
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        passing = """\
+            import unittest
+            class PassTests(unittest.TestCase):
+                def test_passes(self):
+                    pass
+            """
+        write(self.root, {
+            "tests/__init__.py": "",
+            "tests/sections.toml": """\
+                [sections.vr_only]
+                modules = ["test_vr"]
+                platforms = ["win32"]
+                [sections.everywhere]
+                modules = ["test_plain"]
+                [sections.gone]
+                cwd = "nowhere"
+                discover = true
+                """,
+            "tests/test_vr.py": passing,
+            "tests/test_plain.py": passing,
+        })
+        patcher = mock.patch.object(run_sections, "LOG_BASE", self.root / "logs")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.logs = self.root / "run"
+        marker = mock.patch.dict(os.environ, {"EMAPSSN_TEST_ENVIRONMENT": "1"})
+        marker.start()
+        self.addCleanup(marker.stop)
+
+    def run_main(self, platform, *arguments):
+        out = io.StringIO()
+        code = run_sections.main([*arguments, "--log-dir", str(self.logs)], root=self.root,
+                                 out=out, platform=platform)
+        return code, out.getvalue()
+
+    def test_a_windows_section_is_skipped_on_linux_and_macos_and_never_started(self):
+        for platform, name in (("linux", "Linux"), ("darwin", "macOS")):
+            with self.subTest(platform=platform), \
+                    mock.patch.object(run_sections.subprocess, "Popen") as popen:
+                code, out = self.run_main(platform, "vr_only")
+                self.assertEqual(code, 0, out)
+                self.assertIn(f"skip  vr_only      runs on Windows only (this is {name})", out)
+                self.assertRegex(out, r"vr_only\s+0\s+0\s+0\s+0\s+0\.0\s+platform")
+                self.assertIn("0 tests in", out)
+                popen.assert_not_called()
+                self.assertFalse((self.logs / "vr_only.log").exists())
+
+    def test_a_windows_section_runs_on_windows(self):
+        code, out = self.run_main("win32", "vr_only")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(self.SKIP_LINE, out)
+        self.assertIn("1 tests in", out)
+        self.assertTrue((self.logs / "vr_only.log").is_file())
+
+    def test_a_section_without_the_key_runs_on_every_system(self):
+        for platform in ("win32", "linux", "darwin"):
+            with self.subTest(platform=platform):
+                code, out = self.run_main(platform, "everywhere")
+                self.assertEqual(code, 0, out)
+                self.assertNotIn("skip  everywhere", out)
+                self.assertIn("1 tests in", out)
+
+    def test_the_skip_holds_however_the_section_was_chosen(self):
+        for arguments in (("vr_only",), ("--all", "--skip", "gone", "everywhere"),
+                          ("--files", "tests/test_vr.py")):
+            with self.subTest(arguments=arguments), \
+                    mock.patch.object(run_sections.Runner, "run_one") as run_one:
+                code, out = self.run_main("linux", *arguments)
+                self.assertEqual(code, 0, out)
+                self.assertIn("skip  vr_only      runs on Windows only (this is Linux)", out)
+                run_one.assert_not_called()
+
+    def test_a_skipped_section_takes_no_lane_and_the_others_still_run(self):
+        code, out = self.run_main("linux", "vr_only", "everywhere")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Running 1 section(s), 1 at a time: everywhere", out)
+        self.assertIn("1 tests in", out)
+
+    def test_a_run_of_only_skipped_sections_exits_as_one_of_only_missing_ones_does(self):
+        # The rule: neither a "missing" nor a "platform" section fails; with nothing else
+        # chosen the run prints "No tests ran." and exits 0.
+        skipped_code, skipped = self.run_main("linux", "vr_only")
+        missing_code, missing = self.run_main("linux", "gone")
+        self.assertIn("is not here", missing)
+        self.assertEqual((skipped_code, missing_code), (0, 0), skipped + missing)
+        self.assertIn("No tests ran.", skipped)
+        self.assertIn("No tests ran.", missing)
+
+    def test_the_listing_marks_the_section_and_the_dry_run_starts_nothing(self):
+        code, out = self.run_main("linux", "--list")
+        self.assertEqual(code, 0, out)
+        self.assertRegex(out, r"vr_only .*\(Windows only\)")
+        code, out = self.run_main("linux", "vr_only", "--dry-run")
+        self.assertIn("skip  vr_only      runs on Windows only (this is Linux)", out)
+        self.assertNotIn("unittest", out)
+
+    def test_an_unlisted_system_is_shown_as_it_is(self):
+        reason = Section("a", platforms=["win32", "darwin"]).platform_skip("freebsd14")
+        self.assertEqual(reason, "runs on Windows and macOS only (this is freebsd14)")
+
+    def test_a_bad_platforms_value_is_refused_at_load(self):
+        bad = ('"win32"', "[]", "[1]", '["Windows"]', '["win32", "linux2"]', "true")
+        for value in bad:
+            with self.subTest(value=value):
+                write(self.root, {"tests/sections.toml": f"""\
+                    [sections.vr_only]
+                    modules = ["test_vr"]
+                    platforms = {value}
+                    """})
+                with self.assertRaisesRegex(run_sections.UsageError, "section 'vr_only': platforms"):
+                    load_config(self.root)
+                code, out = self.run_main("linux", "--list")
+                self.assertEqual(code, 2, out)
+                self.assertIn("error: tests/sections.toml: section 'vr_only': platforms", out)
+
+    def test_only_the_vr_section_of_the_real_file_declares_platforms(self):
+        declared = {name: section.platforms for name, section in load_config().sections.items()
+                    if section.platforms}
+        self.assertEqual(declared, {"opt_vr": ["win32"]})
+
+
 class SessionFolderTests(unittest.TestCase):
     """Each section works in a session folder of its own, which the runner removes whatever became of the process."""
 

@@ -22,6 +22,12 @@ to that module's section; a file only other source files use to the sections of
 its nearest users; plus the path rules in sections.toml. A partial run that
 touches src/**/*.py also runs the repository-wide checks listed there.
 
+A section can declare `platforms` in sections.toml: the sys.platform names (win32,
+linux, darwin) it runs on. On any other system the runner starts nothing for it, however
+it was chosen (by name, --all or --files), prints one "skip" line saying why, and reports
+it with the result "platform", which is neither a pass nor a failure and counts no tests.
+A section without the key runs everywhere.
+
 Each section writes its output to its own log file; the summary names the logs
 of failed sections and their failing tests. The exit code is 0 when every
 selected section passed, 1 when any failed, and 2 for a usage error.
@@ -84,6 +90,18 @@ FILE_NAME = re.compile(
 )
 DOTTED_NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
 MODULE_LIKE = re.compile(r"[A-Z]\w*_\w+")
+# Statuses that are not failures. "platform": the section is not meant for this system.
+NOT_FAILED = ("ok", "empty", "missing", "platform")
+PLATFORM_NAMES = {"win32": "Windows", "linux": "Linux", "darwin": "macOS"}  # sys.platform -> words
+
+
+def platform_name(platform):
+    return PLATFORM_NAMES.get(platform, platform)
+
+
+def _join_names(names):
+    names = list(names)
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 @dataclass
@@ -95,9 +113,17 @@ class Section:
     seconds: float = 0.0
     cwd: str = ""
     discover: bool = False
+    platforms: list = field(default_factory=list)  # sys.platform names it runs on; empty: everywhere
 
     def is_vr(self):
         return self.discover
+
+    def platform_skip(self, platform):
+        """Why the section does not run on `platform` (a sys.platform name), or "" if it does."""
+        if not self.platforms or platform in self.platforms:
+            return ""
+        names = _join_names(platform_name(item) for item in self.platforms)
+        return f"runs on {names} only (this is {platform_name(platform)})"
 
 
 @dataclass
@@ -140,7 +166,7 @@ class Result:
 
     @property
     def failed(self):
-        return self.status not in ("ok", "empty", "missing")
+        return self.status not in NOT_FAILED
 
 
 class UsageError(Exception):
@@ -149,6 +175,22 @@ class UsageError(Exception):
 
 # ----------------------------------------------------------------------------
 # Configuration
+
+
+def _platforms_of(name, entry):
+    """The `platforms` list of a section entry (empty: runs everywhere), checked."""
+    if "platforms" not in entry:
+        return []
+    platforms = entry["platforms"]
+    known = ", ".join(PLATFORM_NAMES)
+    if (not isinstance(platforms, list) or not platforms
+            or not all(isinstance(item, str) for item in platforms)):
+        raise UsageError(f"section {name!r}: platforms must be a non-empty list of names "
+                         f"from {known}, not {platforms!r}")
+    for item in platforms:
+        if item not in PLATFORM_NAMES:
+            raise UsageError(f"section {name!r}: platforms names {item!r}, which is not one of {known}")
+    return list(platforms)
 
 
 def load_config(root=PROJECT_ROOT):
@@ -162,6 +204,7 @@ def load_config(root=PROJECT_ROOT):
             seconds=float(entry.get("seconds", 0)),
             cwd=entry.get("cwd", ""),
             discover=bool(entry.get("discover", False)),
+            platforms=_platforms_of(name, entry),
         )
     rules = [Rule(list(rule["paths"]), list(rule["sections"])) for rule in data.get("rules", [])]
     for rule in rules:
@@ -211,7 +254,7 @@ def runnable_sections(config, modules, root=PROJECT_ROOT):
             continue
         kept = [module for module in section.modules if owner.get(module) == section.name]
         sections[section.name] = Section(section.name, section.description, kept,
-                                         seconds=section.seconds)
+                                         seconds=section.seconds, platforms=section.platforms)
     leftovers = [module for module in modules if module not in owner]
     if leftovers:
         sections[UNASSIGNED] = Section(UNASSIGNED, "test modules missing from sections.toml",
@@ -701,7 +744,8 @@ def _taskkill_tree(process):
 
 class Runner:
     def __init__(self, root, log_dir, jobs, timeout, python=None, verbose=False, patterns=(),
-                 out=None):
+                 out=None, platform=None):
+        self.platform = platform or sys.platform  # what a section's `platforms` is compared with
         self.root = Path(root)
         self.log_dir = Path(log_dir)
         self.jobs = max(1, jobs)
@@ -791,8 +835,18 @@ class Runner:
     def run(self, sections):
         self.log_dir.mkdir(parents=True, exist_ok=True)
         results = []
+        here = []
+        for section in sections:
+            # A section for other systems takes no lane and starts nothing: no session
+            # folder, no log, no process.
+            reason = section.platform_skip(self.platform)
+            if reason:
+                self._say(f"  skip  {section.name:<12} {reason}")
+                results.append(Result(section.name, "platform", log=None))
+            else:
+                here.append(section)
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs)
-        futures = [executor.submit(self.run_one, section) for section in sections]
+        futures = [executor.submit(self.run_one, section) for section in here]
         pending = set(futures)
         try:
             while pending:
@@ -921,14 +975,17 @@ def print_list(config, modules, out):
     _, problems = check_assignment(config, modules)
     for section in config.sections.values():
         size = "opt_vr suite" if section.discover else f"{len(section.modules)} modules"
+        only = f" ({_join_names(platform_name(item) for item in section.platforms)} only)" \
+            if section.platforms else ""
         print(f"  {section.name:<12} {size:<13} ~{expected_seconds(section, durations):4.0f} s  "
-              f"{section.description}", file=out)
+              f"{section.description}{only}", file=out)
     for problem in problems:
         print(f"  warning: {problem}", file=out)
 
 
-def main(argv=None, root=PROJECT_ROOT, out=None):
+def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
     out = out or sys.stdout
+    platform = platform or sys.platform  # compared with each section's `platforms`
     args = parse_arguments(sys.argv[1:] if argv is None else argv)
     root = Path(root)
     try:
@@ -999,11 +1056,18 @@ def main(argv=None, root=PROJECT_ROOT, out=None):
 
     durations = load_durations()
     to_run.sort(key=lambda section: -expected_seconds(section, durations))
-    names = ", ".join(section.name for section in to_run)
-    print(f"Running {len(to_run)} section(s), {min(args.jobs, len(to_run))} at a time: {names}",
-          file=out)
+    # Sections for other systems take no lane and count in no estimate; they are only reported.
+    here = [section for section in to_run if not section.platform_skip(platform)]
+    if here:
+        names = ", ".join(section.name for section in here)
+        print(f"Running {len(here)} section(s), {min(args.jobs, len(here))} at a time: {names}",
+              file=out)
     if args.dry_run:
         for section in to_run:
+            reason = section.platform_skip(platform)
+            if reason:
+                print(f"  skip  {section.name:<12} {reason}", file=out)
+                continue
             cwd = section.cwd or "."
             print(f"  [{cwd}] {' '.join(section_command(section, verbose=args.verbose, patterns=args.patterns))}",
                   file=out)
@@ -1011,7 +1075,7 @@ def main(argv=None, root=PROJECT_ROOT, out=None):
 
     log_dir = args.log_dir or new_log_dir()
     runner = Runner(root, log_dir, args.jobs, args.timeout, verbose=args.verbose,
-                    patterns=args.patterns, out=out)
+                    patterns=args.patterns, out=out, platform=platform)
     start = time.monotonic()
     try:
         results = runner.run(to_run)
@@ -1052,7 +1116,7 @@ def report(results, wall, log_dir, out):
                   f"session folder, and the runner stopped them: {', '.join(result.stopped)}", file=out)
         if result.session_problem:
             print(f"\n{result.name}: its session folder could not be removed: {result.session_problem}", file=out)
-    if results and all(result.status in ("empty", "missing") for result in results):
+    if results and all(result.status in ("empty", "missing", "platform") for result in results):
         print("No tests ran.", file=out)
     return 1 if failed else 0
 
