@@ -5,6 +5,8 @@ Credential storage itself is covered by test_biohub_api.
 
 import io
 import sys
+import threading
+import time
 import types
 import unittest
 from contextlib import redirect_stdout
@@ -299,6 +301,163 @@ class EmbeddingRequestTests(unittest.TestCase):
         self.assertEqual(str(error.__cause__), "API encode error (code 500): three")
         self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(10)])
         self.assertEqual(len(client.encoded), 3)
+
+
+class SeveralThreadsTests(unittest.TestCase):
+    """The adapter used from several threads at once (see Remote_Requests)."""
+
+    AuthError = esmc_6b_api.Biohub_API.BiohubAuthenticationError
+    RateLimitedError = esmc_6b_api.RateLimitedError
+
+    @staticmethod
+    def signalled(flag):
+        from tools.tool_helpers import Remote_Requests
+
+        class Context:
+            def __enter__(self):
+                Remote_Requests._thread_state.signalled = flag
+
+            def __exit__(self, *exc):
+                Remote_Requests._thread_state.signalled = False
+
+        return Context()
+
+    def test_a_429_reply_is_a_rate_limit_error_that_still_reads_as_before(self):
+        for stage, replies in (
+            ("encode", {"encode_replies": [ESMProteinError(429, "slow down")]}),
+            ("logits", {"logits_reply": ESMProteinError(429, "slow down")}),
+        ):
+            with self.subTest(stage=stage):
+                client = FakeInferenceClient(bf16_rows(6), **replies)
+                with self.assertRaises(self.RateLimitedError) as raised:
+                    esmc_6b_api._request_embedding("ACDE", client, np.float32)
+                self.assertIsInstance(raised.exception, RuntimeError)
+                self.assertEqual(
+                    str(raised.exception), f"API {stage} error (code 429): slow down"
+                )
+
+    def test_a_429_goes_straight_to_the_caller_when_it_asked_for_it(self):
+        client = FakeInferenceClient(
+            bf16_rows(6), encode_replies=[ESMProteinError(429, "slow down")]
+        )
+        sleep = mock.Mock()
+        with (
+            self.signalled(True),
+            mock.patch.object(esmc_6b_api, "time", SimpleNamespace(sleep=sleep)),
+        ):
+            with self.assertRaises(self.RateLimitedError):
+                esmc_6b_api.get_embedding("ACDE", client, None, np.float32)
+        sleep.assert_not_called()
+        self.assertEqual(len(client.encoded), 1)
+
+    def test_a_429_is_retried_like_any_error_one_request_at_a_time(self):
+        client = FakeInferenceClient(
+            bf16_rows(6), encode_replies=[ESMProteinError(429, "slow down")]
+        )
+        sleep = mock.Mock()
+        with (
+            self.signalled(False),
+            mock.patch.object(esmc_6b_api, "time", SimpleNamespace(sleep=sleep)),
+            redirect_stdout(io.StringIO()),
+        ):
+            result = esmc_6b_api.get_embedding("ACDE", client, None, np.float32)
+        np.testing.assert_array_equal(result, ACDE_ROWS)
+        self.assertEqual(sleep.call_args_list, [mock.call(5)])
+
+    def test_the_warning_filter_is_set_once_and_not_per_request(self):
+        import inspect
+        import warnings
+
+        self.assertNotIn(
+            "catch_warnings", inspect.getsource(esmc_6b_api._request_embedding)
+        )
+        self.assertTrue(
+            any(
+                entry[0] == "ignore"
+                and entry[1] is not None
+                and "To copy construct from a tensor" in entry[1].pattern
+                for entry in warnings.filters
+            )
+        )
+
+    def run_threads(self, request, count=6):
+        """Run get_embedding in `count` threads; return the results or errors."""
+        settings = {
+            "ESM_API_TOKEN": "old-token",
+            "ESM_API_URL": "https://biohub.example",
+            "ESM3_MODEL": "esm3-large-2024-03",
+        }
+        client = SimpleNamespace(
+            _ssn_biohub_settings=settings,
+            _ssn_auth_refresh_attempted=False,
+            _ssn_auth_generation=0,
+            token="old-token",
+            headers={"Authorization": "Bearer old-token"},
+        )
+        prompts = {"count": 0, "inside": 0, "most_inside": 0}
+
+        def refresh(settings, prompt):
+            prompts["inside"] += 1
+            prompts["most_inside"] = max(prompts["most_inside"], prompts["inside"])
+            prompts["count"] += 1
+            time.sleep(0.05)  # a person typing; the other threads must wait
+            prompts["inside"] -= 1
+            return dict(settings, ESM_API_TOKEN="new-token")
+
+        outcomes = [None] * count
+
+        def run(slot):
+            try:
+                outcomes[slot] = esmc_6b_api.get_embedding(
+                    "ACDE", client, None, np.float32
+                )
+            except Exception as error:
+                outcomes[slot] = error
+
+        with (
+            mock.patch.object(esmc_6b_api, "_request_embedding", request(client)),
+            mock.patch.object(
+                esmc_6b_api.Biohub_API, "refresh_api_token", side_effect=refresh
+            ),
+            mock.patch.object(esmc_6b_api, "time", SimpleNamespace(sleep=lambda _: None)),
+            redirect_stdout(io.StringIO()),
+        ):
+            threads = [threading.Thread(target=run, args=(n,)) for n in range(count)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        return outcomes, prompts, client
+
+    def test_a_rejected_token_is_replaced_once_whatever_the_thread_count(self):
+        def request(client):
+            def send(seq, model_obj, target_dtype):
+                time.sleep(0.02)  # every thread is rejected before any replaces it
+                if client.headers["Authorization"] == "Bearer old-token":
+                    raise self.AuthError(401)
+                return ACDE_ROWS.copy()
+
+            return send
+
+        outcomes, prompts, client = self.run_threads(request)
+        for outcome in outcomes:
+            np.testing.assert_array_equal(outcome, ACDE_ROWS)
+        self.assertEqual(prompts["count"], 1)
+        self.assertEqual(prompts["most_inside"], 1)
+        self.assertEqual(client._ssn_auth_generation, 1)
+
+    def test_a_second_rejection_ends_every_thread_without_a_second_prompt(self):
+        def request(client):
+            def send(seq, model_obj, target_dtype):
+                time.sleep(0.02)
+                raise self.AuthError(401)
+
+            return send
+
+        outcomes, prompts, _ = self.run_threads(request)
+        for outcome in outcomes:
+            self.assertIsInstance(outcome, self.AuthError)
+        self.assertEqual(prompts["count"], 1)
 
 
 if __name__ == "__main__":

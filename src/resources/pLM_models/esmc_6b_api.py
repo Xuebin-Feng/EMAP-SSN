@@ -15,11 +15,31 @@
 
 import getpass
 import re
+import threading
 import time
 import warnings
 
 import numpy as np
 from resources import Biohub_API
+from tools.tool_helpers.Remote_Requests import (
+    RateLimitedError,
+    notify,
+    rate_limits_signalled,
+)
+
+# ESM 3.2.x reconstructs some already-tensor response fields with
+# torch.tensor(), which emits a harmless tensor-copy advisory. The filter is
+# added once, here, because warnings.catch_warnings() changes process-wide
+# state and is not safe while several threads send requests.
+warnings.filterwarnings(
+    "ignore",
+    message=r"To copy construct from a tensor, it is recommended to use sourceTensor\.",
+    category=UserWarning,
+    module=r"esm\.utils\.misc",
+)
+
+# Only one thread at a time may replace a rejected token (and ask for it).
+_TOKEN_REPLACEMENT_LOCK = threading.Lock()
 
 
 SUPPORTED_MODELS = ["esmc_6b"]
@@ -81,6 +101,12 @@ def load_model(model_name, device):
     )
     client._ssn_biohub_settings = settings
     client._ssn_auth_refresh_attempted = False
+    # Counts token replacements, so a thread whose request used the old token
+    # can tell that another thread has already replaced it.
+    client._ssn_auth_generation = 0
+    # The SDK makes its HTTP client on first use; make it here, once, before
+    # several threads use the client.
+    getattr(client, "client", None)
     return client
 
 
@@ -94,41 +120,32 @@ def _clean_sequence(seq):
     )
 
 
+def _raise_api_error(call, error):
+    """Raise the error a server reply (an ESMProteinError) stands for."""
+    status = Biohub_API.authentication_status(error)
+    if status is not None:
+        raise Biohub_API.BiohubAuthenticationError(status)
+    # RateLimitedError is a RuntimeError, so it reads as before when the
+    # caller does not ask for it by name.
+    error_type = RateLimitedError if error.error_code == 429 else RuntimeError
+    raise error_type(
+        f"API {call} error (code {error.error_code}): {error.error_msg}"
+    )
+
+
 def _request_embedding(seq, client, target_dtype):
     from esm.sdk.api import ESMProtein, ESMProteinError, LogitsConfig
 
-    with warnings.catch_warnings():
-        # ESM 3.2.x reconstructs some already-tensor response fields with
-        # torch.tensor(), which emits a harmless tensor-copy advisory.
-        warnings.filterwarnings(
-            "ignore",
-            message=r"To copy construct from a tensor, it is recommended to use sourceTensor\.",
-            category=UserWarning,
-            module=r"esm\.utils\.misc",
-        )
+    protein_tensor = client.encode(ESMProtein(sequence=seq))
+    if isinstance(protein_tensor, ESMProteinError):
+        _raise_api_error("encode", protein_tensor)
 
-        protein_tensor = client.encode(ESMProtein(sequence=seq))
-        if isinstance(protein_tensor, ESMProteinError):
-            status = Biohub_API.authentication_status(protein_tensor)
-            if status is not None:
-                raise Biohub_API.BiohubAuthenticationError(status)
-            raise RuntimeError(
-                f"API encode error (code {protein_tensor.error_code}): "
-                f"{protein_tensor.error_msg}"
-            )
-
-        logits = client.logits(
-            protein_tensor,
-            LogitsConfig(sequence=True, return_embeddings=True),
-        )
-
+    logits = client.logits(
+        protein_tensor,
+        LogitsConfig(sequence=True, return_embeddings=True),
+    )
     if isinstance(logits, ESMProteinError):
-        status = Biohub_API.authentication_status(logits)
-        if status is not None:
-            raise Biohub_API.BiohubAuthenticationError(status)
-        raise RuntimeError(
-            f"API logits error (code {logits.error_code}): {logits.error_msg}"
-        )
+        _raise_api_error("logits", logits)
 
     embeddings = logits.embeddings
     # NumPy cannot directly convert PyTorch bfloat16 tensors. Upcast first,
@@ -164,6 +181,52 @@ def _request_embedding(seq, client, target_dtype):
     return embeddings.astype(target_dtype)
 
 
+def _wait_before_retry(attempt, error):
+    wait_seconds = attempt * RETRY_DELAY_SECONDS
+    notify(
+        f"Temporary ESMC 6B API error "
+        f"(attempt {attempt}/{MAX_API_ATTEMPTS}): {error}. "
+        f"Retrying in {wait_seconds} seconds..."
+    )
+    time.sleep(wait_seconds)
+
+
+def _replace_rejected_token(model_obj, auth_error, seen_generation):
+    """Replace a rejected token once, from one thread; return to retry.
+
+    seen_generation is the token generation the failed request was sent with.
+    A thread that waited for the lock while another replaced the token finds a
+    newer generation and simply retries. A rejection of the replacement itself
+    ends the run.
+    """
+    with _TOKEN_REPLACEMENT_LOCK:
+        if getattr(model_obj, "_ssn_auth_generation", 0) != seen_generation:
+            return
+        if getattr(model_obj, "_ssn_auth_refresh_attempted", False):
+            raise Biohub_API.BiohubAuthenticationError(
+                auth_error.error_code,
+                "Biohub rejected the API token after one replacement attempt.",
+            ) from auth_error
+        model_obj._ssn_auth_refresh_attempted = True
+        notify(
+            "Biohub rejected the saved API token. "
+            "Enter a replacement to retry once."
+        )
+        settings = getattr(model_obj, "_ssn_biohub_settings", None)
+        if settings is None:
+            settings = Biohub_API.load_api_settings()
+        refreshed = Biohub_API.refresh_api_token(
+            settings,
+            lambda: _terminal_token_prompt(True),
+        )
+        model_obj._ssn_biohub_settings = refreshed
+        Biohub_API.update_client_token(
+            model_obj,
+            refreshed["ESM_API_TOKEN"],
+        )
+        model_obj._ssn_auth_generation = seen_generation + 1
+
+
 def get_embedding(seq, model_obj, device, target_dtype):
     """Generate one residue-level embedding through the ESMC 6B API."""
     del device  # The plugin contract supplies this, but inference is remote.
@@ -175,45 +238,22 @@ def get_embedding(seq, model_obj, device, target_dtype):
     for attempt in range(1, MAX_API_ATTEMPTS + 1):
         try:
             while True:
+                token_generation = getattr(model_obj, "_ssn_auth_generation", 0)
                 try:
                     return _request_embedding(cleaned_seq, model_obj, target_dtype)
                 except Biohub_API.BiohubAuthenticationError as auth_error:
-                    if getattr(model_obj, "_ssn_auth_refresh_attempted", False):
-                        raise Biohub_API.BiohubAuthenticationError(
-                            auth_error.error_code,
-                            "Biohub rejected the API token after one replacement attempt.",
-                        ) from auth_error
-                    model_obj._ssn_auth_refresh_attempted = True
-                    print(
-                        "\nBiohub rejected the saved API token. "
-                        "Enter a replacement to retry once."
-                    )
-                    settings = getattr(model_obj, "_ssn_biohub_settings", None)
-                    if settings is None:
-                        settings = Biohub_API.load_api_settings()
-                    refreshed = Biohub_API.refresh_api_token(
-                        settings,
-                        lambda: _terminal_token_prompt(True),
-                    )
-                    model_obj._ssn_biohub_settings = refreshed
-                    Biohub_API.update_client_token(
-                        model_obj,
-                        refreshed["ESM_API_TOKEN"],
-                    )
+                    _replace_rejected_token(model_obj, auth_error, token_generation)
         except Biohub_API.BiohubAuthenticationError:
             raise
         except Exception as exc:
+            if isinstance(exc, RateLimitedError) and rate_limits_signalled():
+                # The caller keeps several requests in flight and lowers their
+                # number itself; this is not a failed attempt.
+                raise
             last_error = exc
             if attempt == MAX_API_ATTEMPTS:
                 break
-
-            wait_seconds = attempt * RETRY_DELAY_SECONDS
-            print(
-                f"\nTemporary ESMC 6B API error "
-                f"(attempt {attempt}/{MAX_API_ATTEMPTS}): {exc}. "
-                f"Retrying in {wait_seconds} seconds..."
-            )
-            time.sleep(wait_seconds)
+            _wait_before_retry(attempt, exc)
 
     raise RuntimeError(
         f"ESMC 6B API request failed after {MAX_API_ATTEMPTS} attempts."
