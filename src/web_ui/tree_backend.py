@@ -55,6 +55,7 @@ import numpy as np
 
 from desktop.Desktop_App import translate
 from desktop.Node_Colors import key_state
+from desktop.Viewer_Selection_Gesture import PHASES as GESTURE_PHASES, selection_gesture_of
 from utilities.Localization import Message
 from utilities.Guide_Tree_File import (
     MAX_LABEL_CHARACTERS, MAX_LEAVES, GuideTreeError, guide_tree_path_for_alignment, read_guide_tree,
@@ -68,6 +69,8 @@ UPLOAD_ROUTE = "/api/tree/upload"
 MISMATCH_ROUTE = "/api/tree/mismatch"
 # The ways a tree_select request combines its nodes with the selection the network has.
 SELECT_MODES = ("replace", "add", "toggle")
+# What a gesture's id may be made of: letters, digits, "_" and "-" (the page's events quote it, so no escapes).
+GESTURE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # The event that says the colours (or which nodes are hidden, or the clusters) are not what the page was sent.
 COLORS_EVENT = "tree_colors_changed"
 # A colour change is announced this long after the last one seen, so that a command that draws in a burst sends one event.
@@ -1304,6 +1307,8 @@ def handle_tree_select(viewer, data):
     def refuse(note):
         return {"ok": False, "changed": False, "selected": None, "note": note}
 
+    if isinstance(data, dict) and "gesture" in data:
+        return handle_tree_gesture(viewer, data)
     indices = data.get("indices") if isinstance(data, dict) else None
     mode = data.get("mode", "replace") if isinstance(data, dict) else None
     if mode not in SELECT_MODES:
@@ -1341,6 +1346,65 @@ def handle_tree_select(viewer, data):
     if callable(show):
         show()
     return {"ok": True, "changed": True, "selected": int(result.size), "note": None}
+
+
+def decode_node_set(text, count):
+    """The node numbers in a bit set the page sent: base64 of bytes whose bit ``n % 8`` of byte ``n // 8`` is node ``n``.
+
+    One update of a box over 44,000 leaves is then at most 5.5 KB (7.4 KB as text) whatever the box holds, and
+    decoding it is one pass over those bytes. Returns the sorted node numbers as int64, or None when the text is not
+    base64, is longer than the network needs, or names a node the network does not have.
+    """
+    if not isinstance(text, str) or len(text) > 4 * ((count + 7) // 8 // 3 + 2):
+        return None
+    try:
+        raw = base64.b64decode(text.encode("ascii"), validate=True)
+    except (ValueError, UnicodeEncodeError):
+        return None
+    if len(raw) > (count + 7) // 8:
+        return None
+    nodes = np.flatnonzero(np.unpackbits(np.frombuffer(raw, dtype=np.uint8), bitorder="little")).astype(np.int64)
+    if nodes.size and int(nodes[-1]) >= count:
+        return None
+    return nodes
+
+
+def handle_tree_gesture(viewer, data):
+    """A ``tree_select`` that belongs to a box the page is still drawing: the network's selection follows it.
+
+    ``gesture`` is {"id", "phase", "seq"}: the id names the gesture (letters, digits, "_" and "-"), ``seq`` numbers
+    its updates, and ``phase`` is "update" (the nodes in the box now), "alive" (the page is still there), "end" (the
+    button was let go: the final nodes) or "cancel" (Esc: put the selection back). ``nodes`` (update and end) is the
+    nodes in the box as a bit set (decode_node_set) and ``mode`` is "replace" or "toggle", as for a plain request. What
+    the Viewer does with them, and what it does when messages come late or not at all, is in
+    desktop/Viewer_Selection_Gesture.py; the page learns the selection from the Viewer's selection_changed events.
+    A message that is not well formed changes nothing. Returns {"ok", "changed", "selected", "note"}.
+    """
+    def refuse(note):
+        return {"ok": False, "changed": False, "selected": None, "note": note}
+
+    info = data.get("gesture")
+    if not isinstance(info, dict):
+        return refuse("bad_gesture")
+    gesture_id, phase, seq = info.get("id"), info.get("phase"), info.get("seq", 0)
+    if not isinstance(gesture_id, str) or not GESTURE_ID.fullmatch(gesture_id) or phase not in GESTURE_PHASES:
+        return refuse("bad_gesture")
+    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0 or (phase == "update" and seq < 1):
+        return refuse("bad_gesture")
+    gesture = selection_gesture_of(viewer)
+    if phase in ("alive", "cancel"):
+        return gesture.drive(gesture_id, phase)
+    mode = data.get("mode", "replace")
+    if mode not in ("replace", "toggle"):
+        return refuse("bad_mode")
+    count = int(getattr(viewer, "n_nodes", 0) or 0)
+    nodes = decode_node_set(data.get("nodes"), count)
+    if nodes is None:
+        return refuse("bad_indices")
+    visible = getattr(viewer, "visible_mask", None)
+    if visible is None or len(visible) != count:
+        return refuse("no_network")
+    return gesture.drive(gesture_id, phase, seq, nodes, mode == "toggle")
 
 
 def handle_tree_focus(viewer, data):

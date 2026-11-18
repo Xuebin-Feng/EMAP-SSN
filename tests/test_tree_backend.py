@@ -1245,6 +1245,234 @@ class TreeSelectActionTests(unittest.TestCase):
         self.assertEqual(self.select(viewer, [1])["note"], "no_network")
 
 
+class GestureViewer(FakeSelectingViewer):
+    """A FakeSelectingViewer that counts selections made by hand (selection_epoch) and keeps what the pages are told."""
+
+    def __init__(self, *args, **options):
+        super().__init__(*args, **options)
+        self.selection_epoch = 0
+        self.events = []
+
+    def _note_hand_selection(self):
+        self.selection_epoch += 1
+        super()._note_hand_selection()
+
+    def broadcast_event(self, event):
+        self.events.append({**event, "indices": list(event["indices"])})
+
+
+def bit_set(nodes, count=10):
+    """What the page sends for ``nodes``: base64 of a bit set (bit n % 8 of byte n // 8 is node n)."""
+    raw = bytearray((count + 7) // 8)
+    for node in nodes:
+        raw[node >> 3] |= 1 << (node & 7)
+    return base64.b64encode(bytes(raw)).decode("ascii")
+
+
+class TreeGestureActionTests(unittest.TestCase):
+    """A tree_select that belongs to an open box: the network's selection follows it and one release commits it."""
+
+    def setUp(self):
+        import EMAPSSN_Config as config
+        for name in ("LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER"):
+            patcher = mock.patch.object(config, name, False, create=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.config = config
+
+    def send(self, viewer, phase, nodes=None, seq=0, mode="replace", gesture_id="g1"):
+        data = {"action": "tree_select", "gesture": {"id": gesture_id, "phase": phase, "seq": seq}}
+        if nodes is not None:
+            data["nodes"] = bit_set(nodes, viewer.n_nodes)
+            data["mode"] = mode
+        return tree_backend.handle_tree_select(viewer, data)
+
+    def test_an_update_makes_the_boxed_nodes_the_selection_and_tells_the_pages_with_the_gesture(self):
+        viewer = GestureViewer(selected=[1, 2])
+        result = self.send(viewer, "update", [4, 5], seq=1)
+        self.assertEqual((result["ok"], result["changed"]), (True, True))
+        self.assertEqual(viewer.selected_indices, [4, 5])
+        self.assertEqual(viewer.events, [{"type": "selection_changed", "gesture": {"id": "g1"}, "indices": [4, 5]}])
+        self.assertNotIn(("status",), viewer.calls)                  # the status line waits for the release
+
+    def test_a_shift_update_toggles_against_the_selection_the_gesture_started_with_never_against_the_last_update(self):
+        viewer = GestureViewer(selected=[1, 2, 3])
+        self.send(viewer, "update", [2, 6], seq=1, mode="toggle")
+        self.assertEqual(viewer.selected_indices, [1, 3, 6])
+        self.send(viewer, "update", [3, 6, 7], seq=2, mode="toggle")
+        self.assertEqual(viewer.selected_indices, [1, 2, 6, 7])
+        self.send(viewer, "update", [], seq=3, mode="toggle")
+        self.assertEqual(viewer.selected_indices, [1, 2, 3])
+
+    def test_an_update_that_is_not_newer_than_the_last_one_changes_nothing(self):
+        viewer = GestureViewer(selected=[1])
+        self.send(viewer, "update", [4], seq=5)
+        for seq in (5, 4, 1):
+            self.assertEqual(self.send(viewer, "update", [7, 8], seq=seq)["note"], "stale")
+        self.assertEqual(viewer.selected_indices, [4])
+
+    def test_the_end_makes_what_one_plain_request_of_the_same_nodes_makes_whatever_the_updates_did(self):
+        for mode, nodes in (("replace", [3, 4, 5]), ("toggle", [2, 5, 6])):
+            with self.subTest(mode=mode):
+                plain = GestureViewer(selected=[1, 2, 7])
+                tree_backend.handle_tree_select(plain, {"action": "tree_select", "indices": nodes, "mode": mode})
+                moved = GestureViewer(selected=[1, 2, 7])
+                self.send(moved, "update", [0, 9], seq=1, mode=mode)
+                self.send(moved, "update", [8], seq=2, mode=mode)
+                result = self.send(moved, "end", nodes, seq=3, mode=mode)
+                self.assertEqual(moved.selected_indices, plain.selected_indices)
+                self.assertEqual(moved.selection_epoch, plain.selection_epoch)            # one step for the commands
+                self.assertEqual(moved.calls.count(("status",)), plain.calls.count(("status",)))
+                self.assertEqual(moved.calls[-1], ("status",))
+                self.assertEqual(result["changed"], True)
+                self.assertEqual(moved.events[-1], {"type": "selection_changed", "gesture": {"id": "g1", "final": True},
+                                                    "indices": plain.selected_indices})
+
+    def test_an_end_with_no_update_before_it_is_one_plain_request(self):
+        viewer = GestureViewer(selected=[1])
+        result = self.send(viewer, "end", [4, 5], seq=1)
+        self.assertEqual((viewer.selected_indices, viewer.selection_epoch, result["changed"]), ([4, 5], 1, True))
+        self.assertEqual(viewer.calls[-1], ("status",))
+
+    def test_an_end_that_leaves_the_selection_as_it_was_says_nothing_and_takes_the_epoch_back(self):
+        viewer = GestureViewer(selected=[1, 2])
+        self.send(viewer, "update", [5], seq=1)
+        result = self.send(viewer, "end", [1, 2], seq=2)
+        self.assertEqual((viewer.selected_indices, viewer.selection_epoch, result["changed"], result["note"]), ([1, 2], 0, False, "unchanged"))
+        self.assertNotIn(("status",), viewer.calls)
+        self.assertEqual(viewer.events[-1]["indices"], [1, 2])      # the pages had heard [5]: they hear it is back
+        self.assertEqual(viewer.events[-1]["gesture"], {"id": "g1", "final": True})
+
+    def test_an_end_with_nothing_to_tell_the_pages_sends_no_event(self):
+        viewer = GestureViewer(selected=[1, 2])
+        self.send(viewer, "end", [1, 2], seq=1)
+        self.assertEqual((viewer.events, viewer.calls), ([], []))
+
+    def test_cancel_puts_the_selection_and_the_epoch_back_and_tells_the_pages_once(self):
+        viewer = GestureViewer(selected=[1, 2])
+        self.send(viewer, "update", [5], seq=1)
+        self.send(viewer, "update", [6, 7], seq=2)
+        result = self.send(viewer, "cancel")
+        self.assertEqual((viewer.selected_indices, viewer.selection_epoch, result["note"]), ([1, 2], 0, "cancelled"))
+        self.assertEqual(viewer.events[-1], {"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [1, 2]})
+        self.assertNotIn(("status",), viewer.calls)
+
+    def test_a_message_after_the_end_or_the_cancel_changes_nothing(self):
+        for last in ("end", "cancel"):
+            with self.subTest(last=last):
+                viewer = GestureViewer(selected=[1])
+                self.send(viewer, "update", [4], seq=1)
+                self.send(viewer, last, [4] if last == "end" else None, seq=2)
+                after = (list(viewer.selected_indices), viewer.selection_epoch, list(viewer.events), list(viewer.calls))
+                for phase in ("update", "end", "alive", "cancel"):
+                    self.assertFalse(self.send(viewer, phase, [8, 9], seq=9)["changed"])
+                self.assertEqual((viewer.selected_indices, viewer.selection_epoch, viewer.events, viewer.calls), after)
+
+    def test_a_cancel_that_comes_before_any_update_shuts_the_gesture_for_the_updates_that_come_after_it(self):
+        viewer = GestureViewer(selected=[1])
+        self.send(viewer, "cancel")
+        self.assertEqual(self.send(viewer, "update", [4], seq=1)["note"], "gesture_closed")
+        self.assertEqual(viewer.selected_indices, [1])
+
+    def test_a_new_gesture_ends_the_one_that_was_open_by_putting_its_selection_back(self):
+        viewer = GestureViewer(selected=[1])
+        self.send(viewer, "update", [4], seq=1, gesture_id="old")
+        self.send(viewer, "update", [6], seq=1, gesture_id="new")
+        self.assertEqual(viewer.selected_indices, [6])
+        self.assertEqual(self.send(viewer, "update", [8], seq=2, gesture_id="old")["note"], "gesture_closed")
+        self.send(viewer, "cancel", gesture_id="new")
+        self.assertEqual(viewer.selected_indices, [1])                 # the new one started from the old one's start
+
+    def test_hidden_nodes_are_left_out_and_a_box_of_only_hidden_nodes_changes_nothing_at_the_end(self):
+        viewer = GestureViewer(hidden=[4], selected=[1])
+        self.send(viewer, "update", [3, 4], seq=1)
+        self.assertEqual(viewer.selected_indices, [3])
+        result = self.send(viewer, "end", [4], seq=2)
+        self.assertEqual((viewer.selected_indices, result["changed"], viewer.selection_epoch), ([1], False, 0))
+
+    def test_an_alive_message_changes_nothing_and_needs_an_open_gesture(self):
+        viewer = GestureViewer(selected=[1])
+        self.assertEqual(self.send(viewer, "alive")["note"], "no_gesture")
+        self.send(viewer, "update", [4], seq=1)
+        before = (list(viewer.selected_indices), viewer.selection_epoch, list(viewer.events))
+        self.assertEqual(self.send(viewer, "alive")["note"], "alive")
+        self.assertEqual((viewer.selected_indices, viewer.selection_epoch, viewer.events), before)
+
+    def test_while_a_gesture_is_open_it_counts_as_a_gesture_and_afterwards_it_does_not(self):
+        from Command_Queue import gesture_open
+        viewer = GestureViewer(selected=[1])
+        self.assertFalse(gesture_open(viewer))
+        self.send(viewer, "update", [4], seq=1)
+        self.assertTrue(gesture_open(viewer))
+        self.send(viewer, "end", [4], seq=2)
+        self.assertFalse(gesture_open(viewer))
+
+    def test_under_update_web_pages_after_mouse_release_the_pages_hear_of_it_once_at_the_end(self):
+        viewer = GestureViewer(selected=[1])
+        with mock.patch.object(self.config, "LOW_RESOURCE_WEBSERVER", True, create=True):
+            self.send(viewer, "update", [4], seq=1)
+            self.send(viewer, "update", [4, 5], seq=2)
+            self.assertEqual((viewer.selected_indices, viewer.events), ([4, 5], []))
+            self.send(viewer, "end", [4, 5], seq=3)
+        self.assertEqual(viewer.events, [{"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [4, 5]}])
+
+    def test_under_update_web_pages_after_mouse_release_a_cancel_tells_the_pages_nothing(self):
+        viewer = GestureViewer(selected=[1])
+        with mock.patch.object(self.config, "LOW_RESOURCE_WEBSERVER", True, create=True):
+            self.send(viewer, "update", [4], seq=1)
+            self.send(viewer, "cancel")
+        self.assertEqual((viewer.selected_indices, viewer.events), ([1], []))
+
+    def test_under_update_colors_after_mouse_release_the_updates_change_nothing_and_the_end_makes_the_selection(self):
+        viewer = GestureViewer(selected=[1])
+        with mock.patch.object(self.config, "LOW_RESOURCE_DRAWING", True, create=True):
+            self.assertEqual(self.send(viewer, "update", [4], seq=1)["note"], "held")
+            self.assertEqual((viewer.selected_indices, viewer.calls), ([1], []))
+            self.send(viewer, "end", [4, 5], seq=2)
+        self.assertEqual((viewer.selected_indices, viewer.selection_epoch), ([4, 5], 1))
+
+    def test_a_message_that_is_not_well_formed_changes_nothing(self):
+        good = {"action": "tree_select", "gesture": {"id": "g1", "phase": "update", "seq": 1}, "mode": "replace", "nodes": bit_set([4])}
+        cases = {
+            "gesture a string": {**good, "gesture": "g1"},
+            "id empty": {**good, "gesture": {"id": "", "phase": "update", "seq": 1}},
+            "id with a quote": {**good, "gesture": {"id": 'a"b', "phase": "update", "seq": 1}},
+            "id too long": {**good, "gesture": {"id": "x" * 65, "phase": "update", "seq": 1}},
+            "id a number": {**good, "gesture": {"id": 5, "phase": "update", "seq": 1}},
+            "phase unknown": {**good, "gesture": {"id": "g1", "phase": "move", "seq": 1}},
+            "seq zero": {**good, "gesture": {"id": "g1", "phase": "update", "seq": 0}},
+            "seq a boolean": {**good, "gesture": {"id": "g1", "phase": "update", "seq": True}},
+            "seq a string": {**good, "gesture": {"id": "g1", "phase": "update", "seq": "1"}},
+            "mode add": {**good, "mode": "add"},
+            "nodes missing": {key: value for key, value in good.items() if key != "nodes"},
+            "nodes a list": {**good, "nodes": [4]},
+            "nodes not base64": {**good, "nodes": "!!!"},
+            "nodes too long": {**good, "nodes": bit_set([4], 100)},
+            "a node out of the network": {**good, "nodes": bit_set([12], 16)},
+        }
+        for name, data in cases.items():
+            with self.subTest(name):
+                viewer = GestureViewer(selected=[7])
+                result = tree_backend.handle_tree_select(viewer, data)
+                self.assertFalse(result["ok"])
+                self.assertEqual((viewer.selected_indices, viewer.calls, viewer.events), ([7], [], []))
+                self.assertFalse(getattr(viewer, "outside_selection_gesture", None) and viewer.outside_selection_gesture.is_open)
+
+    def test_a_viewer_with_no_network_refuses_a_gesture_too(self):
+        viewer = GestureViewer(selected=[7])
+        viewer.visible_mask = None
+        self.assertEqual(self.send(viewer, "update", [1], seq=1)["note"], "no_network")
+
+    def test_the_bit_set_of_a_whole_44000_node_network_is_small_and_decodes_to_the_nodes(self):
+        count = 44000
+        nodes = np.arange(0, count, 3)
+        text = bit_set(nodes.tolist(), count)
+        self.assertLess(len(text), 8000)
+        self.assertTrue(np.array_equal(tree_backend.decode_node_set(text, count), nodes))
+        self.assertEqual(tree_backend.decode_node_set("", count).size, 0)
+        self.assertIsNone(tree_backend.decode_node_set(bit_set([43999], count), count - 1))
+
+
 class TreeFocusActionTests(unittest.TestCase):
     """tree_focus puts the click focus on a node that is shown, as a click on the node does."""
 

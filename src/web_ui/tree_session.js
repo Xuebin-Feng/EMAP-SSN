@@ -1169,6 +1169,8 @@ window.TreeView = window.TreeView || {};
                 return;
             }
             if (kind[1] === "selection_changed" || kind[1] === "highlight_row") {
+                // What the Viewer makes of this page's own open box is not news: the box draws its selection itself.
+                if (kind[1] === "selection_changed" && TV.isOwnGestureEcho(event.data)) return;
                 let message = null;
                 try { message = JSON.parse(event.data); } catch (error) { return; }
                 if (kind[1] === "selection_changed") {

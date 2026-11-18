@@ -85,6 +85,21 @@ class NumpyEncoder(json.JSONEncoder):
             pass
         return super().default(obj)
 
+def _gesture_message(data):
+    """(id, phase) of an action that belongs to a selection gesture a page drives, or None.
+
+    Such an action carries ``"gesture": {"id": text, "phase": "update" | "alive" | "end" | "cancel"}``
+    (desktop/Viewer_Selection_Gesture.py). Nothing here knows which page or which action it is.
+    """
+    gesture = data.get("gesture") if isinstance(data, dict) else None
+    if not isinstance(gesture, dict):
+        return None
+    gesture_id, phase = gesture.get("id"), gesture.get("phase")
+    if isinstance(gesture_id, str) and isinstance(phase, str):
+        return gesture_id, phase
+    return None
+
+
 class QtCommunicator(QtCore.QObject):
     action_signal = QtCore.Signal(dict)
     
@@ -92,11 +107,41 @@ class QtCommunicator(QtCore.QObject):
         super().__init__()
         self.viewer = viewer
         self._held = collections.deque()
+        # The newest update of each open gesture that has not run yet, by gesture id: the Viewer answers the
+        # page before it runs the action, so the page cannot pace itself on the replies, and an update that a
+        # newer one has overtaken is skipped here (coalesced), never run.
+        self._latest = {}
+        self._latest_lock = threading.Lock()
         self.action_signal.connect(self.dispatch_action)
 
     def handle_action(self, data):
         # Called from HTTP thread to safely execute on the main thread via Qt Signal
+        message = _gesture_message(data)
+        if message is not None:
+            gesture_id, phase = message
+            with self._latest_lock:
+                if phase == "update":
+                    waiting = gesture_id in self._latest
+                    self._latest[gesture_id] = data
+                    if waiting:
+                        return          # the signal that is on its way takes this one instead
+                elif phase in ("end", "cancel"):
+                    self._latest.pop(gesture_id, None)      # the end carries the final nodes itself
         self.action_signal.emit(data)
+
+    def _resolve(self, data):
+        """What to run for ``data``: for a gesture's update, the newest one waiting (or None if it is gone)."""
+        message = _gesture_message(data)
+        if message is not None and message[1] == "update":
+            with self._latest_lock:
+                return self._latest.pop(message[0], None)
+        return data
+
+    def _owns_gesture(self, data):
+        """Whether ``data`` belongs to the selection gesture that is open now: those never wait for a gesture."""
+        message = _gesture_message(data)
+        gesture = getattr(self.viewer, "outside_selection_gesture", None)
+        return message is not None and gesture is not None and gesture.owns(message[0])
 
     def _gesture_open(self):
         from Command_Queue import gesture_open
@@ -105,17 +150,26 @@ class QtCommunicator(QtCore.QObject):
     def dispatch_action(self, data):
         # An action can change the selection or the nodes, so, like a command, it waits while a drag, a box
         # or a Ctrl + wheel turn is open (Command_Queue.gesture_open), and those that waited keep their order.
+        if self._owns_gesture(data):
+            data = self._resolve(data)
+            if data is not None:
+                self._deliver(data)
+            return
         if self._held or self._gesture_open():
             self._held.append(data)
             if len(self._held) == 1:
                 QtCore.QTimer.singleShot(GESTURE_RETRY_MS, self._release_held)
             return
-        self._deliver(data)
+        data = self._resolve(data)
+        if data is not None:
+            self._deliver(data)
 
     def _release_held(self):
         try:
             while self._held and not self._gesture_open():
-                self._deliver(self._held.popleft())
+                data = self._resolve(self._held.popleft())
+                if data is not None:
+                    self._deliver(data)
         finally:
             # Whatever is still held, a gesture or a handler that raised, gets another look: a raise
             # costs its own action only, and is reported as a raising slot was.

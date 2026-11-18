@@ -3299,7 +3299,8 @@ class MainViewer:
                 # Shift+Z redoes (Cmd+Shift+Z on a Mac), except while a drag or a box is open: Shift is the
                 # 8-direction lock there, and Ctrl+Z cancels the gesture whether or not it is held.
                 gesture_open = (getattr(self, 'is_multi_dragging', False)
-                                or getattr(self, 'is_box_selecting', False))
+                                or getattr(self, 'is_box_selecting', False)
+                                or self._outside_gesture_open())
                 if 'Shift' in event.modifiers and not gesture_open:
                     self.redo_by_hand()
                 else:
@@ -3335,6 +3336,7 @@ class MainViewer:
         # Clicks work while a command is typed: the command waits in
         # input_buffer, and a click's message follows it (_show_click_status).
         self._end_wheel_turn()  # a button ends the turn Ctrl + wheel notches were making
+        self._cancel_outside_gesture()  # a press on the canvas ends a selection gesture a page drives
         # ---> 1. RIGHT-CLICK LOGIC (Drag & Select) <---
         if event.button == 2:
             self._drag_cancelled = False  # a new press: the drag Esc cancelled is over
@@ -4107,7 +4109,8 @@ class MainViewer:
         starts a new turn.
         """
         self._end_wheel_turn()
-        if getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False):
+        if (getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False)
+                or self._outside_gesture_open()):
             return self._cancel_drag()
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
@@ -4123,7 +4126,8 @@ class MainViewer:
         leaves the redo steps in place, and redoing one would change the nodes under the box).
         """
         self._end_wheel_turn()  # a turn still open ends first, as for undo_by_hand
-        if getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False):
+        if (getattr(self, 'is_multi_dragging', False) or getattr(self, 'is_box_selecting', False)
+                or self._outside_gesture_open()):
             return False
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
@@ -4836,6 +4840,19 @@ class MainViewer:
         if queue is not None and queue.pending():
             queue.resume()
 
+    def _outside_gesture_open(self):
+        """Whether a selection gesture that a page drives is open (desktop/Viewer_Selection_Gesture.py)."""
+        gesture = getattr(self, 'outside_selection_gesture', None)
+        return gesture is not None and gesture.is_open
+
+    def _cancel_outside_gesture(self):
+        """Put back the selection from before a selection gesture a page drives, and end it, as Esc does for a box.
+
+        Returns whether there was one open. The page's later messages of it change nothing.
+        """
+        gesture = getattr(self, 'outside_selection_gesture', None)
+        return gesture is not None and gesture.cancel()
+
     def _cancel_drag(self):
         """Esc, or Ctrl+Z, during a right-button drag, or Esc during a turn by Ctrl + wheel: put everything back as it was at the start.
 
@@ -4857,6 +4874,9 @@ class MainViewer:
             self._end_wheel_turn(redraw=False)
             self.update_selection_visual(broadcast=False)
             self._clear_turn_status(turn)
+            self.canvas.update()
+            return True
+        if self._cancel_outside_gesture():
             self.canvas.update()
             return True
         if getattr(self, 'is_multi_dragging', False):

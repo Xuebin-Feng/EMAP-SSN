@@ -653,7 +653,12 @@ window.TreeView = window.TreeView || {};
     function sceneNow() {
         if (!boxDrag || !boxDrag.open || !state.layout || !state.model) return state;
         const inside = boxLeaves(boxDrag);
-        const leaves = boxDrag.shift ? TV.toggleLeaves(state.selection.leaves, inside) : inside;
+        // The selection the box started from, not the network's now: the network's follows the box (see below).
+        const leaves = boxDrag.shift ? TV.toggleLeaves(boxDrag.base, inside) : inside;
+        // The network's selection follows the box while the button is down: the Viewer is told when what is in the
+        // box changed, at most once for each frame drawn.
+        if (!boxDrag.gesture) boxDrag.gesture = TV.newGesture();
+        TV.gestureUpdate(boxDrag.gesture, inside, boxDrag.shift);
         const selection = {
             leaves, connected: new Int32Array(0), clade: TV.smallestClade(state.model, leaves),
             focus: state.selection.focus, count: leaves.length,
@@ -1189,8 +1194,9 @@ window.TreeView = window.TreeView || {};
         // than a few pixels) selects the clade or leaf under it, with Shift toggles it, and on empty canvas clears the
         // selection (with Shift, changes nothing); and a drag draws a box that selects the leaves whose tips are in it:
         // those leaves replace the network's selection, with Shift they are toggled in it, and Esc takes the box back.
-        // While the box is open the tree shows the selection it would make, and nothing is sent until the button is
-        // let go. The press is the pointer's own, not the contextmenu event, which comes at the press on some systems
+        // While the box is open the tree shows the selection it makes, and the network's follows the box as it changes
+        // (TV.gestureUpdate); letting the button go sends the final leaves, Esc has the Viewer put its selection back.
+        // The press is the pointer's own, not the contextmenu event, which comes at the press on some systems
         // and at the release on others; the browser's menu stays shut.
         function pressBox(event) {
             if (drag) return;
@@ -1215,7 +1221,10 @@ window.TreeView = window.TreeView || {};
             boxDrag.x = px;
             boxDrag.y = py;
             boxDrag.shift = event.shiftKey;
-            if (!boxDrag.open && Math.hypot(px - boxDrag.px, py - boxDrag.py) >= BOX_DISTANCE_PX) boxDrag.open = true;
+            if (!boxDrag.open && Math.hypot(px - boxDrag.px, py - boxDrag.py) >= BOX_DISTANCE_PX) {
+                boxDrag.open = true;
+                boxDrag.base = state.selection.leaves;
+            }
             if (boxDrag.open) TV.requestDraw();
         }
 
@@ -1227,9 +1236,11 @@ window.TreeView = window.TreeView || {};
             return box;
         }
 
-        // Esc, a cancelled pointer or a lost capture: the box goes, nothing is sent, and the unpin stays.
+        // Esc, a cancelled pointer or a lost capture: the box goes, the Viewer puts its selection back if it was
+        // following the box, and the unpin stays.
         function cancelBox() {
-            closeBox();
+            const box = closeBox();
+            if (box && box.gesture) TV.gestureCancel(box.gesture);
         }
 
         function releaseBox(event) {
@@ -1242,7 +1253,9 @@ window.TreeView = window.TreeView || {};
             const box = closeBox(event);
             if (!live) return;
             if (leaves) {
-                if (!box.shift) TV.selectLeaves(leaves, "replace");
+                // The Viewer has followed the box: the end closes the gesture with the final leaves.
+                if (box.gesture && box.gesture.sent) TV.gestureEnd(box.gesture, leaves, box.shift, box.base);
+                else if (!box.shift) TV.selectLeaves(leaves, "replace");
                 else if (leaves.length) TV.selectLeaves(leaves, "toggle");
                 return;
             }

@@ -14,7 +14,9 @@
  *
  * Tree to network: the page asks the Viewer to select the nodes of some leaves (the tree_select action) or to focus
  * on one (tree_focus), and learns what it came to from the same two events as every other page does, never from the
- * answer. This file holds what such a request is made of; which gesture sends one is the page's to decide.
+ * answer. This file holds what such a request is made of; which gesture sends one is the page's to decide. A box
+ * that is still open is sent as it changes (see "A box that is still open" below), so that the network follows it as
+ * the tree follows the network's own box.
  *
  * Nothing here has a text to show, so nothing here is translated.
  */
@@ -231,6 +233,132 @@ window.TreeView = window.TreeView || {};
     TV.selectLeaves = function (leaves, mode) {
         const indices = Array.from(leaves, (leaf) => state.model.viewerNode[leaf]);
         return post({ action: "tree_select", indices, mode });
+    };
+
+    // ---- A box that is still open: the network's selection follows it ------------------------------------------
+    //
+    // While the right button is down the Viewer is sent the leaves in the box as they change, so that the network's
+    // selection follows the box as the tree follows the network's own. The Viewer answers a request before it runs
+    // it, so the page cannot pace itself on the replies: it sends an update only when the set in the box changed, at
+    // most once for each frame drawn (the caller is the drawing), and with two requests still out it keeps only the
+    // newest to send when one is back. The Viewer skips an update that a newer one has overtaken. An update is
+    //   { action: "tree_select", gesture: { id, phase: "update", seq }, mode: "replace" | "toggle", nodes }
+    // with nodes the Viewer's node numbers of the leaves as a bit set in base64 (bit n % 8 of byte n // 8 is node n:
+    // at most 1/8 of a byte for each node of the network, however many leaves are in the box), and seq 1, 2, 3...
+    // The end carries the final set itself, so that the result never rests on every update having arrived, and a
+    // cancel (Esc) puts the selection back. While the gesture is open a request of "alive" goes every second: a
+    // Viewer that hears nothing for a few seconds takes the page to be gone and cancels.
+    const MAX_IN_FLIGHT = 2;
+    const ALIVE_MS = 1000;
+    const RETRY_MS = 300;
+    let gestureCount = 0;
+    // The id of the last gesture this page opened: the Viewer's selection_changed events that it makes while the
+    // gesture is open carry it (TV.isOwnGestureEcho).
+    TV.ownGestureId = null;
+
+    TV.newGesture = function () {
+        gestureCount++;
+        const id = "g" + Date.now().toString(36) + "-" + gestureCount;
+        TV.ownGestureId = id;
+        return { id, seq: 0, last: null, lastShift: false, sent: false, inFlight: 0, waiting: null, timer: 0, over: false };
+    };
+
+    // The leaves as a bit set of the network's nodes, in base64.
+    TV.encodeLeaves = function (leaves) {
+        const model = state.model;
+        const bytes = new Uint8Array((TV.leafOfNode(model).length + 7) >> 3);
+        const { viewerNode } = model;
+        for (let n = 0; n < leaves.length; n++) {
+            const node = viewerNode[leaves[n]];
+            bytes[node >> 3] |= 1 << (node & 7);
+        }
+        let text = "";
+        for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode.apply(null, bytes.subarray(at, at + 8192));
+        return btoa(text);
+    };
+
+    function sameLeaves(a, b) {
+        if (!a || a.length !== b.length) return false;
+        for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
+        return true;
+    }
+
+    function sendGesture(gesture, phase, leaves, shift) {
+        const body = { action: "tree_select", gesture: { id: gesture.id, phase } };
+        if (phase === "update" || phase === "end") {
+            body.gesture.seq = ++gesture.seq;
+            body.mode = shift ? "toggle" : "replace";
+            body.nodes = TV.encodeLeaves(leaves);
+        }
+        return post(body);
+    }
+
+    // An end or a cancel is sent again once if it did not get through: the Viewer cancels a gesture it hears no more of.
+    function sendFinal(gesture, phase, leaves, shift) {
+        sendGesture(gesture, phase, leaves, shift).then((ok) => {
+            if (!ok) setTimeout(() => sendGesture(gesture, phase, leaves, shift), RETRY_MS);
+        });
+    }
+
+    function stopAlive(gesture) {
+        gesture.over = true;
+        gesture.waiting = null;
+        clearInterval(gesture.timer);
+        gesture.timer = 0;
+    }
+
+    // The leaves in the box are these now (sorted; ``shift`` toggles them against the selection the gesture started
+    // with): tell the Viewer if that is not what it was last told.
+    TV.gestureUpdate = function (gesture, leaves, shift) {
+        if (gesture.over || !state.model) return;
+        if (gesture.sent && gesture.lastShift === shift && sameLeaves(gesture.last, leaves)) return;
+        gesture.last = leaves;
+        gesture.lastShift = shift;
+        if (!gesture.timer) gesture.timer = setInterval(() => sendGesture(gesture, "alive"), ALIVE_MS);
+        if (gesture.inFlight >= MAX_IN_FLIGHT) {
+            gesture.sent = true;
+            gesture.waiting = { leaves, shift };
+            return;
+        }
+        pushUpdate(gesture, leaves, shift);
+    };
+
+    function pushUpdate(gesture, leaves, shift) {
+        gesture.sent = true;
+        gesture.inFlight++;
+        sendGesture(gesture, "update", leaves, shift).then(() => {
+            gesture.inFlight--;
+            const next = gesture.waiting;
+            gesture.waiting = null;
+            if (next && !gesture.over) pushUpdate(gesture, next.leaves, next.shift);
+        });
+    }
+
+    // The button was let go with these leaves in the box: the end carries them. The selection the tree shows is the
+    // one the end makes at once, so that it does not look as if it went back to an earlier update's until the
+    // Viewer's last event comes.
+    // ``base`` is the leaves the network had selected when the box opened, which a Shift box toggles against.
+    TV.gestureEnd = function (gesture, leaves, shift, base) {
+        stopAlive(gesture);
+        const result = shift ? TV.toggleLeaves(base, leaves) : leaves;
+        const { viewerNode } = state.model;
+        TV.applySelection(Array.from(result, (leaf) => viewerNode[leaf]));
+        sendFinal(gesture, "end", leaves, shift);
+    };
+
+    // Esc, a cancelled pointer or a lost capture, or the page going away: the Viewer puts its selection back.
+    TV.gestureCancel = function (gesture) {
+        stopAlive(gesture);
+        if (gesture.sent) sendFinal(gesture, "cancel");
+    };
+
+    // Whether a selection_changed message (its text, not parsed) is the echo of an update of this page's own open
+    // gesture, which the page leaves alone: it draws the box's selection itself, and an echo that arrives late would
+    // draw an older one over it. The message that ends or cancels a gesture says "final" and is taken as any other.
+    const OWN_ECHO = /^\{"type":\s*"selection_changed",\s*"gesture":\s*\{"id":\s*"([A-Za-z0-9_-]*)"(,\s*"final":\s*true)?\}/;
+    TV.isOwnGestureEcho = function (text) {
+        const found = OWN_ECHO.exec(text);
+        return Boolean(found) && !found[2] && found[1] === TV.ownGestureId;
     };
 
     // Ask the Viewer to clear its selection.

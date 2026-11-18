@@ -824,6 +824,7 @@ class BoxSelectionTests(SelectionCase):
         steps = 4
         for step in range(1, steps + 1):
             self.mouse("pointermove", (start[0] + (end[0] - start[0]) * step / steps, start[1] + (end[1] - start[1]) * step / steps), shift)
+        self.settle()                       # a frame is drawn: the network follows the box as it stands
         if release:
             self.release(end, shift)
 
@@ -837,8 +838,30 @@ class BoxSelectionTests(SelectionCase):
         self.pump(0.1)
         return self.viewer.action_results[before:]
 
-    def bodies(self):
+    def sent(self):
         return self.state("window.__bodies")
+
+    def bodies(self):
+        """What the page posted that is not part of a box gesture (those are in gestures())."""
+        return [body for body in self.sent() if "gesture" not in body]
+
+    def gestures(self):
+        """The messages of the box gesture the page posted, in the order it posted them."""
+        return [body for body in self.sent() if "gesture" in body]
+
+    @staticmethod
+    def decode(text):
+        """The node numbers of a bit set a gesture message carries (base64; bit n % 8 of byte n // 8 is node n)."""
+        import base64
+        raw = base64.b64decode(text)
+        return [8 * at + bit for at, byte in enumerate(raw) for bit in range(8) if byte >> bit & 1]
+
+    def assert_ended(self, nodes, mode="replace"):
+        """The last message of the box gesture ended it with exactly ``nodes`` (node numbers, any order) and ``mode``."""
+        last = self.gestures()[-1]
+        self.assertEqual(last["gesture"]["phase"], "end")
+        self.assertEqual(last["mode"], mode)
+        self.assertEqual(self.decode(last["nodes"]), sorted(nodes))
 
     def tips(self):
         return self.state("window.tips()")
@@ -872,9 +895,10 @@ class BoxSelectionTests(SelectionCase):
                 self.assertLess(len(expected), 40)
                 self.script("window.__bodies.length = 0; return 1")
                 self.drag(a, b, release=False)
-                self.assertEqual(self.bodies(), [])
+                self.assertEqual(self.bodies(), [])                    # the box's own messages are gestures
                 self.release(b, expect=1)
-                self.assertEqual(self.bodies(), [{"action": "tree_select", "indices": self.nodes_of(expected), "mode": "replace"}])
+                self.assertEqual(self.bodies(), [])
+                self.assert_ended(self.nodes_of(expected))
                 self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(expected)))
 
     def test_the_corners_can_be_dragged_in_any_direction(self):
@@ -898,7 +922,7 @@ class BoxSelectionTests(SelectionCase):
                 self.select(self.nodes_of(sorted(before)))
                 self.drag(a, b, shift=True, release=False)
                 self.release(b, shift=True, expect=1)
-                self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(sorted(expected)), "mode": "toggle"})
+                self.assert_ended(self.nodes_of(sorted(expected)), "toggle")
                 self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(sorted(expected ^ before))))
 
     def test_shift_is_read_when_the_button_is_let_go(self):
@@ -909,11 +933,11 @@ class BoxSelectionTests(SelectionCase):
         self.select(self.nodes_of([11, 30]))
         self.drag(a, b, shift=False, release=False)
         self.release(b, shift=True, expect=1)
-        self.assertEqual(self.bodies()[-1]["mode"], "toggle")
+        self.assertEqual(self.gestures()[-1]["mode"], "toggle")
         self.select(self.nodes_of([11, 30]))
         self.drag(a, b, shift=True, release=False)
         self.release(b, shift=False, expect=1)
-        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(expected), "mode": "replace"})
+        self.assert_ended(self.nodes_of(expected))
 
     def test_an_empty_box_clears_and_with_shift_changes_nothing(self):
         self.start_box()
@@ -929,7 +953,8 @@ class BoxSelectionTests(SelectionCase):
         self.assertEqual(self.viewer.selected_indices, [0, 1, 2])
         self.drag(a, b)
         self.pump(0.3)
-        self.assertEqual(self.bodies(), [{"action": "tree_select", "indices": [], "mode": "replace"}])
+        self.assertEqual(self.bodies(), [])
+        self.assert_ended([])
         self.assertEqual(self.viewer.selected_indices, [])
 
     def test_a_right_click_still_selects_a_clade_or_a_leaf_and_shift_on_empty_canvas_does_nothing(self):
@@ -966,7 +991,7 @@ class BoxSelectionTests(SelectionCase):
         self.drag([x, y], [x + 4, y + 3], release=False)               # 5 pixels: a box, which holds no tip it can reach
         self.assertEqual(self.spied("return log.filter(isBox).length"), 1)
         self.release([x + 4, y + 3], expect=1)
-        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": self.nodes_of(self.inside([x, y], [x + 4, y + 3])), "mode": "replace"})
+        self.assert_ended(self.nodes_of(self.inside([x, y], [x + 4, y + 3])))
 
     def test_the_box_takes_the_tips_edges_included(self):
         self.start_box()
@@ -992,7 +1017,7 @@ class BoxSelectionTests(SelectionCase):
         self.viewer.select([1])
         self.drag(a, b)
         self.pump(0.3)
-        self.assertEqual(self.bodies()[-1], {"action": "tree_select", "indices": [], "mode": "replace"})
+        self.assert_ended([])
 
     def test_a_folded_clade_has_no_tips_in_the_box(self):
         self.start_box()
@@ -1027,7 +1052,7 @@ class BoxSelectionTests(SelectionCase):
         self.assertTrue(set(gone) <= set(expected))
         self.drag(a, b)
         wanted = sorted(self.nodes_of([k for k in expected if k not in gone]))
-        self.assertEqual(sorted(self.bodies()[-1]["indices"]), wanted)
+        self.assert_ended(wanted)                       # the page does not send them at all
         self.assertEqual(sorted(self.viewer.selected_indices), wanted)
 
     def test_a_leaf_that_the_layout_has_left_out_is_not_in_the_box(self):
@@ -1048,7 +1073,7 @@ class BoxSelectionTests(SelectionCase):
         self.assertEqual(len(absent), 15)
         a, b = self.around(list(range(40)), margin=20)
         self.drag(a, b)
-        self.assertEqual(sorted(self.bodies()[-1]["indices"]), list(range(25)))
+        self.assert_ended(list(range(25)))
         self.assertEqual(sorted(self.viewer.selected_indices), list(range(25)))
 
     def test_the_box_is_drawn_in_the_accent_colour_and_the_selection_it_will_make_is_previewed(self):
@@ -1096,6 +1121,8 @@ class BoxSelectionTests(SelectionCase):
         self.start_box()
         self.choose("rectangular")
         a, b = self.around([10, 11, 12, 13])
+        self.viewer.select([0, 1])          # a selection to go back to when the next press ends the box
+        self.wait_for("TreeView.state.selection.count === 2")
         self.script("TreeView.applyConnected(TreeView.state.model.viewerNode.slice(20, 25)); return 1")
         self.assertEqual(self.state("TreeView.state.selection.connected.length"), 5)
         self.drag(a, b, release=False)
@@ -1127,12 +1154,10 @@ class BoxSelectionTests(SelectionCase):
         self.assertTrue(near(corner[0], left, right) and near(corner[1], top, bottom), (corner, rect))
         self.assertTrue(near(b[0], left, right) and near(b[1], top, bottom))
         self.release(b, expect=1)
-        got = self.bodies()[-1]
-        self.assertEqual(got["mode"], "replace")
-        self.assertEqual(sorted(got["indices"]), sorted(self.nodes_of(self.inside(
-            [min(corner[0], b[0]), min(corner[1], b[1])], [max(corner[0], b[0]), max(corner[1], b[1])]))))
+        self.assert_ended(self.nodes_of(self.inside(
+            [min(corner[0], b[0]), min(corner[1], b[1])], [max(corner[0], b[0]), max(corner[1], b[1])])))
 
-    def test_escape_closes_the_box_and_sends_nothing_and_the_unpin_stays(self):
+    def test_escape_closes_the_box_and_the_network_gets_its_selection_back_and_the_unpin_stays(self):
         self.start_box()
         self.choose("rectangular")
         self.viewer.select([0, 1])
@@ -1141,8 +1166,12 @@ class BoxSelectionTests(SelectionCase):
         self.script("window.__bodies.length = 0; return 1")
         a, b = self.around([10, 11, 12, 13])
         self.drag(a, b, release=False)
+        self.pump(0.3)
+        self.assertNotEqual(self.viewer.selected_indices, [0, 1])              # the network followed the box
         self.assertTrue(self.script("return fire.key('Escape')"))
         self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+        self.pump(0.3)
+        self.assertEqual(self.gestures()[-1]["gesture"]["phase"], "cancel")
         self.assertEqual(self.release(b), [])
         self.assertEqual(self.state("TreeView.state.pinned"), -1)
         self.assertEqual(self.bodies(), [{"action": "tree_focus", "index": None}])
@@ -1153,7 +1182,7 @@ class BoxSelectionTests(SelectionCase):
         self.script("fire.key('Escape'); return 1")
         self.assertEqual(self.state("TreeView.state.pinned"), -1)
 
-    def test_a_cancelled_pointer_or_a_lost_capture_closes_the_box_and_sends_nothing(self):
+    def test_a_cancelled_pointer_or_a_lost_capture_closes_the_box_and_puts_the_selection_back(self):
         self.start_box()
         self.choose("rectangular")
         self.viewer.select([0, 1])
@@ -1164,6 +1193,8 @@ class BoxSelectionTests(SelectionCase):
                 self.drag(a, b, release=False)
                 self.mouse(kind, b)
                 self.assertEqual(self.spied("return log.filter(isBox).length"), 0)
+                self.pump(0.3)
+                self.assertEqual(self.gestures()[-1]["gesture"]["phase"], "cancel")
                 self.assertEqual(self.release(b), [])
                 self.assertEqual(self.bodies(), [])
                 self.assertEqual(self.viewer.selected_indices, [0, 1])
@@ -1225,15 +1256,109 @@ class BoxSelectionTests(SelectionCase):
         self.script(f"fire.click({x}, {y}); return 1")
         self.assertGreaterEqual(self.state("TreeView.state.pinned"), 0)
 
-    def test_one_request_for_the_whole_gesture(self):
+    def test_one_end_for_the_whole_gesture_and_an_update_only_when_the_set_changed(self):
         self.start_box()
         self.choose("rectangular")
         a, b = self.around([10, 11, 12, 13])
         self.script("window.__bodies.length = 0; return 1")
         self.drag(a, b)
         self.pump(0.3)
-        self.assertEqual(len(self.bodies()), 1)
-        self.assertEqual(len(self.viewer.action_results), 1)
+        sent = self.gestures()
+        self.assertEqual(self.bodies(), [])
+        self.assertEqual([m["gesture"]["phase"] for m in sent].count("end"), 1)
+        self.assertEqual(sent[-1]["gesture"]["phase"], "end")
+        self.assertEqual(len({m["gesture"]["id"] for m in sent}), 1)
+        updates = [m for m in sent if m["gesture"]["phase"] == "update"]
+        self.assertEqual([m["gesture"]["seq"] for m in updates], list(range(1, len(updates) + 1)))
+        sets = [(m["mode"], m["nodes"]) for m in updates]
+        self.assertTrue(all(x != y for x, y in zip(sets, sets[1:])))           # none is sent twice in a row
+        self.assertEqual(len(self.viewer.selected_indices), len(self.nodes_of(self.inside(a, b))))
+        self.assertGreater(self.viewer.hand_selections, 0)
+
+    def test_the_network_follows_the_box_while_the_button_is_still_down(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1, 2])
+        a, b = self.around([10, 11, 12, 13])
+        expected = sorted(self.nodes_of(self.inside(a, b)))
+        self.drag(a, b, release=False)
+        self.pump(0.4)
+        self.assertEqual(sorted(self.viewer.selected_indices), expected)        # nothing is released yet
+        self.assertNotIn("end", [m["gesture"]["phase"] for m in self.gestures()])
+        # A smaller box: the network follows it, and the first corner stays.
+        c = self.around([11, 12])[1]
+        self.mouse("pointermove", c)
+        self.settle()
+        self.pump(0.4)
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(self.inside(a, c))))
+        self.release(c, expect=1)
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(self.inside(a, c))))
+
+    def test_a_shift_box_toggles_against_the_selection_the_box_started_with_however_many_updates_came(self):
+        self.start_box()
+        self.choose("rectangular")
+        before = {11, 30, 31}
+        self.select(self.nodes_of(sorted(before)))
+        a, b = self.around([10, 11, 12, 13])
+        self.drag(a, b, shift=True, release=False)
+        self.pump(0.4)
+        self.assertEqual(sorted(self.viewer.selected_indices), sorted(self.nodes_of(sorted(set(self.inside(a, b)) ^ before))))
+        for corner in (self.around([10, 11])[1], b, self.around([12])[1]):
+            self.mouse("pointermove", corner, shift=True)
+            self.settle()
+            self.pump(0.3)
+            self.assertEqual(sorted(self.viewer.selected_indices),
+                             sorted(self.nodes_of(sorted(set(self.inside(a, corner)) ^ before))))
+        self.release(corner, shift=True, expect=1)
+        self.assertEqual(sorted(self.viewer.selected_indices),
+                         sorted(self.nodes_of(sorted(set(self.inside(a, corner)) ^ before))))
+
+    def test_the_tree_keeps_its_own_picture_while_the_networks_events_come_back_and_after_the_release(self):
+        self.start_box()
+        self.choose("rectangular")
+        self.viewer.select([0, 1, 2])
+        self.wait_for("TreeView.state.selection.count === 3")
+        network = self.selection()["leaves"]
+        a, b = self.around([10, 11, 12, 13])
+        self.drag(a, b, release=False)
+        for corner in (self.around([10, 11])[1], b):
+            self.mouse("pointermove", corner)
+            self.settle()
+            self.pump(0.3)
+        self.assertEqual(self.selection()["leaves"], network)                  # the echoes did not touch the layer
+        self.script("""window.__seen = []; const previous = TreeView.onSelectionChanged;
+            TreeView.onSelectionChanged = () => { window.__seen.push(Array.from(TreeView.state.selection.leaves)); previous(); };
+            return 1""")
+        final = self.inside(a, b)
+        self.release(b, expect=1)
+        self.pump(0.6)
+        seen = self.state("window.__seen")
+        self.assertGreaterEqual(len(seen), 1)
+        self.assertTrue(all(leaves == final for leaves in seen), seen)       # it never showed an earlier set
+        self.assertEqual(self.selection()["leaves"], final)
+        self.assertEqual(self.selection()["count"], len(final))
+
+    def test_the_page_sends_at_most_two_updates_at_a_time_and_the_newest_wins(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        self.drag(a, b, release=False)
+        self.pump(0.3)
+        sent = self.script("""const g = TreeView.newGesture(), original = window.fetch, held = [];
+            window.fetch = (url, options) => new Promise((resolve) => held.push(() => resolve(new Response('{}'))));
+            try {
+                for (let k = 1; k <= 6; k++) TreeView.gestureUpdate(g, new Int32Array([k]), false);
+                const out = held.length;
+                held.splice(0).forEach((release) => release());
+                await new Promise((r) => setTimeout(r, 50));
+                const after = held.length;
+                held.splice(0).forEach((release) => release());
+                await new Promise((r) => setTimeout(r, 50));
+                TreeView.gestureCancel(g);
+                return [out, after, g.seq];
+            } finally { window.fetch = original; }""")
+        self.assertEqual(sent[:2], [2, 1])           # two out, then only the newest of the four that waited
+        self.mouse("pointercancel", b)
 
     def test_the_work_for_a_frame_is_quick(self):
         self.start_box()

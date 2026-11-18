@@ -44,6 +44,7 @@ import importlib
 import os
 from pathlib import Path
 import sys
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -3068,6 +3069,158 @@ class PageSelectionDuringGestureTests(GestureTestCase):
         self.release(viewer, *NODE[1])
         self.settle()
         self.assertEqual(viewer.selected_indices, [4, 5])
+
+
+class PageBoxGestureTests(GestureTestCase):
+    """A box that a web page draws (Tree View's) makes the selection follow it, and the Viewer treats it as it treats its own.
+
+    The messages go the way the web server sends them: through the QtCommunicator, which answers before the Viewer
+    runs the action, so the Viewer is the one that skips an update that a newer one has overtaken.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from PySide6 import QtCore
+        from web_ui import tree_backend
+        from web_ui.Web_Server import QtCommunicator
+        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        self.QtCore = QtCore
+        self.tree_backend = tree_backend
+        self.viewer = self.make_viewer(selected=[1, 2])
+        self.viewer.command_queue = CommandQueue(self.viewer)
+        self.addCleanup(self.viewer.command_queue.shutdown)
+        self.viewer.n_nodes = len(self.viewer.pos)
+        self.viewer._show_selection_status = mock.Mock()
+        self.viewer.handle_web_action = lambda data: tree_backend.handle_tree_select(self.viewer, data)
+        self.communicator = QtCommunicator(self.viewer)
+
+    def settle(self, milliseconds=100):
+        deadline = self.QtCore.QDeadlineTimer(milliseconds)
+        while not deadline.hasExpired():
+            self.app.processEvents()
+
+    def post(self, phase, nodes=None, seq=0, mode="replace", gesture_id="g1", wait=True):
+        """The page's POST, as the web server hands it to the GUI thread."""
+        import base64
+        data = {"action": "tree_select", "gesture": {"id": gesture_id, "phase": phase, "seq": seq}}
+        if nodes is not None:
+            raw = bytearray((self.viewer.n_nodes + 7) // 8)
+            for node in nodes:
+                raw[node >> 3] |= 1 << (node & 7)
+            data["nodes"] = base64.b64encode(bytes(raw)).decode("ascii")
+            data["mode"] = mode
+        # From another thread, as the web server's: the signal is then queued to the GUI thread.
+        thread = threading.Thread(target=self.communicator.handle_action, args=(data,))
+        thread.start()
+        thread.join()
+        if wait:
+            self.app.processEvents()
+
+    def test_the_selection_follows_the_box_and_it_counts_as_a_gesture_while_it_is_open(self):
+        from Command_Queue import gesture_open
+        viewer = self.viewer
+        self.post("update", [3, 4], seq=1)
+        self.assertEqual(viewer.selected_indices, [3, 4])
+        self.assertTrue(gesture_open(viewer))
+        self.assertFalse(viewer.is_box_selecting)
+        self.post("update", [3], seq=2)
+        self.assertEqual(viewer.selected_indices, [3])
+        self.post("end", [3], seq=3)
+        self.assertEqual(viewer.selected_indices, [3])
+        self.assertFalse(gesture_open(viewer))
+        viewer._show_selection_status.assert_called_once_with()
+
+    def test_the_updates_run_in_one_go_are_one_the_newest(self):
+        viewer = self.viewer
+        calls = []
+        original = viewer.update_selection_visual
+        viewer.update_selection_visual = lambda broadcast=True: (calls.append(list(viewer.selected_indices)), original(broadcast))[1]
+        for seq, nodes in enumerate(([3], [3, 4], [4, 5], [5]), start=1):
+            self.post("update", nodes, seq=seq, wait=False)
+        self.app.processEvents()
+        self.assertEqual(calls, [[5]])                         # the older three were skipped, never run
+        self.post("end", [5], seq=5)
+        self.assertEqual(viewer.selected_indices, [5])
+
+    def test_the_end_after_updates_that_are_still_waiting_leaves_the_final_set_whatever_arrived(self):
+        viewer = self.viewer
+        self.post("update", [3], seq=1, wait=False)
+        self.post("update", [3, 4], seq=2, wait=False)
+        self.post("end", [4, 5], seq=3, wait=False)           # the end overtakes the updates that were waiting
+        self.app.processEvents()
+        self.assertEqual(sorted(viewer.selected_indices), [4, 5])
+        self.assertEqual(viewer.selection_epoch, 1)
+        self.post("update", [0], seq=4)                       # a late one
+        self.post("end", [0], seq=5)
+        self.assertEqual(sorted(viewer.selected_indices), [4, 5])
+
+    def test_esc_in_the_viewer_puts_the_selection_back_and_the_pages_later_messages_change_nothing(self):
+        viewer = self.viewer
+        self.post("update", [4, 5], seq=1)
+        viewer.broadcast_event.reset_mock()
+        self.assertTrue(self.esc(viewer).handled)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertEqual(viewer.selection_epoch, 0)
+        self.assertFalse(viewer.outside_selection_gesture.is_open)
+        self.assertEqual(viewer.broadcast_event.call_args.args[0]["gesture"], {"id": "g1", "final": True})
+        self.post("update", [0], seq=2)
+        self.post("end", [0], seq=3)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+
+    def test_ctrl_z_cancels_the_gesture_as_it_cancels_a_box_and_redo_does_nothing_meanwhile(self):
+        viewer = self.viewer
+        viewer.console_mode = False
+        with mock.patch.object(Command_Engine, "show_status"):
+            self.post("update", [4, 5], seq=1)
+            self.assertFalse(viewer.redo_by_hand())
+            self.assertEqual(viewer.selected_indices, [4, 5])
+            self.assertTrue(viewer.undo_by_hand())
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertFalse(viewer.outside_selection_gesture.is_open)
+
+    def test_a_press_on_the_canvas_ends_the_gesture_by_putting_the_selection_back(self):
+        viewer = self.viewer
+        self.post("update", [4, 5], seq=1)
+        self.press(viewer, 30, -10)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertFalse(viewer.outside_selection_gesture.is_open)
+        self.release(viewer, 30, -10)
+
+    def test_a_plain_page_action_and_a_command_wait_for_the_gesture_as_they_wait_for_a_box(self):
+        viewer = self.viewer
+        self.post("update", [4], seq=1)
+        self.communicator.handle_action({"action": "tree_select", "indices": [0], "mode": "replace"})
+        self.settle(60)
+        self.assertEqual(viewer.selected_indices, [4])         # held
+        self.post("update", [5], seq=2)                        # the gesture's own messages are not held
+        self.assertEqual(viewer.selected_indices, [5])
+        self.post("end", [5], seq=3)
+        self.settle(100)
+        self.assertEqual(viewer.selected_indices, [0])         # the held action ran after the end, in its turn
+
+    def test_a_page_that_goes_away_in_the_middle_of_a_drag_is_taken_as_a_cancel_after_a_few_seconds(self):
+        from desktop.Viewer_Selection_Gesture import SelectionGesture
+        viewer = self.viewer
+        viewer.outside_selection_gesture = SelectionGesture(viewer, silence_ms=60)
+        self.post("update", [4, 5], seq=1)
+        self.assertEqual(viewer.selected_indices, [4, 5])
+        self.settle(30)
+        self.post("alive")                                      # the page is still there: the wait starts again
+        self.settle(40)
+        self.assertEqual(viewer.selected_indices, [4, 5])
+        self.settle(150)
+        self.assertEqual(viewer.selected_indices, [1, 2])
+        self.assertFalse(viewer.outside_selection_gesture.is_open)
+        self.assertEqual(viewer.selection_epoch, 0)
+
+    def test_the_selection_the_gesture_started_with_is_the_one_when_its_first_update_ran(self):
+        viewer = self.viewer
+        self.post("update", [4], seq=1, mode="toggle")
+        self.assertEqual(sorted(viewer.selected_indices), [1, 2, 4])
+        self.post("update", [1, 4], seq=2, mode="toggle")
+        self.assertEqual(sorted(viewer.selected_indices), [2, 4])
+        self.post("end", [1, 4], seq=3, mode="toggle")
+        self.assertEqual(sorted(viewer.selected_indices), [2, 4])
 
 
 class QtDoubleClickTests(unittest.TestCase):

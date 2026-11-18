@@ -284,12 +284,14 @@ class ManualExecutor:
 
 
 def gesture_open(viewer):
-    """Whether a mouse gesture is open: nodes are being dragged or turned, or a box drawn.
+    """Whether a mouse gesture is open: nodes are being dragged or turned, or a box drawn here or in a page.
 
     What a command, and a web page's action, waits for before it changes the nodes or the selection.
     """
+    outside = getattr(viewer, 'outside_selection_gesture', None)
     return bool(getattr(viewer, 'is_multi_dragging', False) or getattr(viewer, 'is_box_selecting', False)
-                or getattr(viewer, '_wheel_turn', None) is not None)
+                or getattr(viewer, '_wheel_turn', None) is not None
+                or (outside is not None and outside.is_open))
 
 
 class CommandQueue(QtCore.QObject):

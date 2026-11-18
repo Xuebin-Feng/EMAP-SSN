@@ -187,7 +187,8 @@ class TreePageMixin:
         viewer.action_results = []
 
         def update_selection_visual(broadcast=True):
-            viewer.broadcast_event({"type": "selection_changed", "indices": viewer.selected_indices})
+            if broadcast:
+                viewer.broadcast_event({"type": "selection_changed", "indices": viewer.selected_indices})
 
         def note_hand_selection():
             viewer.hand_selections += 1
