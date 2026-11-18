@@ -32,6 +32,7 @@ from tests.command_fixtures import (
     reported_outcomes,
     run_command,
 )
+from tests.sparse_alignment import sparse_alignment
 
 
 class SubclusterCommandTests(unittest.TestCase):
@@ -472,8 +473,8 @@ class MCLPrecisionTests(unittest.TestCase):
 
     def matrix_given_to_mcl(self, command, viewer, args):
         captured = []
-        # cluster asks markov_clusters_and_attractors, subcluster markov_clusters;
-        # both hand the matrix to this one MCL run.
+        # cluster and subcluster ask markov_clusters_and_attractors, which
+        # hands the matrix to this one MCL run.
         real = subcluster_command.network_clustering._converged_mcl_flow
 
         def capture(matrix, inflation, progress):
@@ -520,7 +521,7 @@ class SubclusterNameTests(unittest.TestCase):
         ) as leiden, mock.patch.object(
             subcluster_command.network_clustering, "jaccard_partition"
         ) as jaccard, mock.patch.object(
-            subcluster_command.network_clustering, "markov_clusters"
+            subcluster_command.network_clustering, "markov_clusters_and_attractors"
         ) as mcl:
             succeeded, failed, output = run_command(subcluster_command, viewer, args)
         failed.assert_called_once_with(viewer, message)
@@ -817,7 +818,7 @@ class SubclusterExtraArgumentTests(unittest.TestCase):
         ) as leiden, mock.patch.object(
             subcluster_command.network_clustering, "jaccard_partition"
         ) as jaccard, mock.patch.object(
-            subcluster_command.network_clustering, "markov_clusters"
+            subcluster_command.network_clustering, "markov_clusters_and_attractors"
         ) as mcl:
             succeeded, failed, output = run_command(subcluster_command, viewer, args)
         first_line = f"Error: Unrecognized subcluster argument '{argument}'."
@@ -929,7 +930,7 @@ class SubclusterParameterTests(unittest.TestCase):
         ) as leiden, mock.patch.object(
             subcluster_command.network_clustering, "jaccard_partition"
         ) as jaccard, mock.patch.object(
-            subcluster_command.network_clustering, "markov_clusters"
+            subcluster_command.network_clustering, "markov_clusters_and_attractors"
         ) as mcl:
             succeeded, failed, output = run_command(
                 subcluster_command, viewer, ["cluster_1", *args]
@@ -1032,6 +1033,145 @@ class OverlappingMCLSubclusterTests(unittest.TestCase):
         )
         for node in (0, 1):
             np.testing.assert_array_equal(viewer.current_colors[node], GREY)
+
+
+class SubclusterCentreTests(unittest.TestCase):
+    """MCL and Leiden name each subcluster's centre node, found on the
+    cluster's own edges, by its header to the right of the table; Jaccard
+    names none."""
+
+    NAMES = [f"seq_{index}" for index in range(10)]
+    # The table's rows end 52 characters in, as cluster's do.
+    TABLE_WIDTH = 52
+
+    def table(self, args, viewer=None, names=NAMES):
+        """The printed table's lines and {first cell: the text right of the table}."""
+        if viewer is None:
+            # Cluster 1 is the barbell on nodes 2-7 (bridge 4-5) and node 8,
+            # whose only edge leaves the cluster.
+            viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        if names is not None:
+            viewer.full_headers = list(names[:viewer.n_nodes])
+        _succeeded, failed, output = run_command(subcluster_command, viewer, ["cluster_1", *args])
+        failed.assert_not_called()
+        lines = output.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("="))
+        end = max(i for i, line in enumerate(lines) if line.startswith("="))
+        rows = [line for line in lines[start:end + 1] if line.startswith("| ")]
+        cells = [[cell.strip() for cell in row[1:].split("|", 3)] for row in rows]
+        return lines[start:end + 1], {row[0].lstrip("● "): row[3] for row in cells}
+
+    def test_mcl_names_each_subclusters_attractor_by_its_global_node(self):
+        # The flow settles on the bridge's ends, local nodes 2 and 3 of the
+        # subgraph: the Viewer's nodes 4 and 5.
+        _lines, beside = self.table(["mcl", "2", "1"])
+        self.assertEqual(beside, {
+            "Subcluster Name": "Centre",
+            "Noise (Unclustered)": "",
+            "subcluster_1_1": "seq_4",
+            "subcluster_1_2": "seq_5",
+            "subcluster_1_3": "seq_8",
+        })
+
+    def test_leiden_names_the_member_that_most_belongs_to_its_subcluster(self):
+        # The bridge's ends pay modularity for the bridge; of the members
+        # that don't, the lowest node is the centre.
+        _lines, beside = self.table(["leiden", "1", "1"])
+        self.assertEqual(
+            [beside[f"subcluster_1_{sid}"] for sid in (1, 2, 3)], ["seq_2", "seq_6", "seq_8"]
+        )
+
+    def test_jaccard_names_no_centre_and_no_centre_heading(self):
+        lines, beside = self.table(["jaccard", "0.5", "1"])
+        self.assertNotIn("Centre", "\n".join(lines))
+        self.assertEqual(set(beside.values()), {""})
+
+    def test_noise_has_no_centre(self):
+        lines, beside = self.table(["mcl", "2", "3"])
+        self.assertEqual(beside["Noise (Unclustered)"], "")
+        self.assertTrue(next(line for line in lines if "Noise" in line).endswith("% |"))
+        self.assertNotIn("subcluster_1_3", beside)
+
+    def test_the_table_keeps_its_width_and_a_long_name_follows_it_whole(self):
+        names = list(self.NAMES)
+        names[5] = "sp|P00000|LONG_NAME a protein with a long description"
+        lines, beside = self.table(["mcl", "2", "1"], names=names)
+        self.assertEqual(beside["subcluster_1_2"], names[5])
+        for line in lines:
+            if line.startswith("|"):
+                self.assertEqual(line[self.TABLE_WIDTH - 1], "|", line)
+                self.assertNotIn("|", line[self.TABLE_WIDTH:].replace(names[5], ""))
+            elif line.startswith("="):
+                self.assertEqual(line, "=" * 54)
+
+    def test_a_viewer_without_headers_names_nodes_by_global_index(self):
+        _lines, beside = self.table(["mcl", "2", "1"], names=None)
+        self.assertEqual(beside["subcluster_1_1"], "Node 4")
+
+    def test_overlapping_path_subclusters_keep_their_attractors(self):
+        # As cluster finds on the path 0-...-4, two places along: MCL gives
+        # (2, 3, 4) and (4, 5, 6) about attractors 3 and 5, and node 4 goes
+        # to the later one, now subcluster_1_1 by size.
+        edges = ((0, 1), (2, 3), (3, 4), (4, 5), (5, 6))
+        viewer = network_viewer(7, edges, cluster_labels=[2, 2, 1, 1, 1, 1, 1])
+        _lines, beside = self.table(["mcl", "2", "2"], viewer=viewer)
+        self.assertEqual(beside["subcluster_1_1"], "seq_5")
+        self.assertEqual(beside["subcluster_1_2"], "seq_3")
+        self.assertEqual(
+            viewer.group_labels,
+            [set(), set(), {"subcluster_1_2"}, {"subcluster_1_2"},
+             {"subcluster_1_1"}, {"subcluster_1_1"}, {"subcluster_1_1"}],
+        )
+
+
+class SubclusterIdentityTests(unittest.TestCase):
+    """With an MSA loaded, subcluster's table gives each subcluster's mean and
+    minimum pairwise % identity, reading each member's own MSA row."""
+
+    # Nodes 2-4 and 5-7 are cluster 1's subclusters; node 8 has no partner.
+    # Nodes 0, 1 and 9 are in other clusters and must not count.
+    ROWS = ["WWWW", "WWWW", "AAAA", "AAAC", "AACC", "DDDD", "D--D", "DDDD", "EEEE", "WWWW"]
+
+    def run_subcluster(self, args, alignment=True):
+        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        viewer.full_headers = [f"seq_{index}" for index in range(10)]
+        if alignment:
+            viewer.alignment = SimpleNamespace(
+                aln=sparse_alignment([(f"seq_{index}", row) for index, row in enumerate(self.ROWS)]),
+                viewer_to_aln=np.arange(10),
+            )
+        succeeded, failed, output = run_command(subcluster_command, viewer, ["cluster_1", *args])
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        lines = output.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("="))
+        end = max(i for i, line in enumerate(lines) if line.startswith("="))
+        cells = {}
+        for row in lines[start:end + 1]:
+            if row.startswith("| "):
+                parts = [cell.strip() for cell in row[1:].split("|")]
+                cells[parts[0].lstrip("● ")] = parts[1:]
+        return output, cells
+
+    def test_each_subcluster_gets_its_members_mean_and_minimum_identity(self):
+        for args in (["leiden", "1", "1"], ["mcl", "2", "1"], ["jaccard", "0.5", "1"]):
+            with self.subTest(args=args):
+                output, cells = self.run_subcluster(args)
+                self.assertEqual(cells["Subcluster Name"][2:4], ["Mean %ID", "Min %ID"])
+                self.assertEqual(cells["Noise (Unclustered)"][2:4], ["", ""])
+                # (3 + 2 + 3) / 3 of 4 columns; then node 6's internal gap
+                # leaves 2 of its 4 columns identical with either partner.
+                self.assertEqual(cells["subcluster_1_1"][2:4], ["66.7%", "50.0%"])
+                self.assertEqual(cells["subcluster_1_2"][2:4], ["66.7%", "50.0%"])
+                self.assertEqual(cells["subcluster_1_3"][2:4], ["-", "-"])
+                self.assertIn("% ID: identical standard residues / alignment length incl. internal gaps", output)
+
+    def test_without_an_msa_the_table_is_unchanged_and_a_note_says_why(self):
+        output, cells = self.run_subcluster(["leiden", "1", "1"], alignment=False)
+        self.assertNotIn("%ID", output)
+        # Node count, percent and, outside the border, the centre.
+        self.assertEqual(cells["subcluster_1_1"], ["3", "42.86%", "seq_2"])
+        self.assertIn(f"{'=' * 54}\n{subcluster_command.cluster_cmd.NO_MSA_NOTE}\n", output)
 
 
 class SubclusterSingleReportTests(unittest.TestCase):

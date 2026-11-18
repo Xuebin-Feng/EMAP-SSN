@@ -90,6 +90,7 @@ CANVAS_MARKED = frozenset({
     "commands/group.py",
     "commands/help.py",
     "commands/hide.py",
+    "commands/identity.py",
     "commands/jobs.py",
     "commands/label.py",
     "commands/logo.py",

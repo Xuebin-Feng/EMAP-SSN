@@ -26,6 +26,8 @@ if SRC_DIR not in sys.path:
 import Viewer_Command_Portal  # noqa: F401
 from commands import cluster, subcluster
 from tests.command_fixtures import BARBELL_EDGES, network_viewer, run_command
+from tests.sparse_alignment import sparse_alignment
+from utilities import Alignment_Profiles
 
 
 class ClusterNumberingTests(unittest.TestCase):
@@ -811,6 +813,112 @@ class ClusterCentreTests(unittest.TestCase):
         _lines, beside = self.table(["mcl", "2", "2"], n_nodes=5, edges=PATH_EDGES)
         self.assertEqual(beside["Cluster 1"], "seq_3")
         self.assertEqual(beside["Cluster 2"], "seq_1")
+
+
+def aligned_viewer(n_nodes, edges, rows, cluster_labels=None):
+    """A network viewer whose MSA gives node i the aligned row rows[i]; None is no row."""
+    viewer = network_viewer(n_nodes, edges, cluster_labels=cluster_labels)
+    viewer.full_headers = [f"seq_{index}" for index in range(n_nodes)]
+    records = [(f"seq_{index}", row) for index, row in enumerate(rows) if row is not None]
+    node_rows = np.cumsum([row is not None for row in rows]) - 1
+    viewer.alignment = SimpleNamespace(
+        aln=sparse_alignment(records),
+        viewer_to_aln=np.where([row is not None for row in rows], node_rows, -1),
+    )
+    return viewer
+
+
+def table_cells(output):
+    """The table's lines and {first cell: the cells after it}, each stripped."""
+    lines = output.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("="))
+    end = max(i for i, line in enumerate(lines) if line.startswith("="))
+    rows = [line for line in lines[start:end + 1] if line.startswith("| ")]
+    cells = {}
+    for row in rows:
+        parts = [cell.strip() for cell in row[1:].split("|")]
+        cells[parts[0].lstrip("● ")] = parts[1:]
+    return lines[start:end + 1], cells
+
+
+class ClusterIdentityTests(unittest.TestCase):
+    """With an MSA loaded, the table gives each cluster's mean and minimum
+    pairwise % identity inside its border; without one it says so."""
+
+    # The barbell's clusters (0, 1, 2), (3, 4, 5) and node 6. Pairs of the
+    # first: 0-1 3/4, 0-2 2/4, 1-2 3/4; 3-4 match twice over an alignment of
+    # 4 columns, the internal gap included; node 5 has no row, and node 6 has
+    # no partner.
+    ROWS = ["AAAA", "AAAC", "AACC", "DDDD", "D--D", None, "EEEE"]
+
+    def run_cluster(self, args, rows=ROWS):
+        viewer = aligned_viewer(7, BARBELL_EDGES, rows)
+        succeeded, failed, output = run_command(cluster, viewer, args)
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        return output
+
+    def test_each_cluster_gets_its_mean_and_minimum_identity(self):
+        for args in (["leiden", "1", "1"], ["mcl", "2", "1"], ["jaccard", "0.5", "1"]):
+            with self.subTest(args=args):
+                _lines, cells = table_cells(self.run_cluster(args))
+                self.assertEqual(cells["Cluster Name"][2:4], ["Mean %ID", "Min %ID"])
+                self.assertEqual(cells["Noise (Unclustered)"][2:4], ["", ""])
+                self.assertEqual(cells["Cluster 1"][2:4], ["66.7%", "50.0%"])
+                self.assertEqual(cells["Cluster 2"][2:4], ["50.0%", "50.0%"])
+                self.assertEqual(cells["Cluster 3"][2:4], ["-", "-"])
+
+    def test_notes_name_the_definition_the_dash_and_the_members_left_out(self):
+        output = self.run_cluster(["leiden", "1", "1"])
+        notes = " ".join(output.split(f"{'=' * 78}\n")[-1].split("Done!")[0].split())
+        self.assertIn("% ID: identical standard residues / alignment length incl. internal gaps, as the "
+                      "tools count a local alignment: for two MSA rows, the columns from their first to "
+                      "their last aligned residue pair where either has a residue. Mean and minimum over "
+                      "all member pairs.", notes)
+        self.assertIn("- : fewer than two members have an MSA row", notes)
+        self.assertIn("1 member(s) have no row in the MSA and are left out of % ID.", notes)
+        self.assertNotIn("~ :", notes)
+        self.assertNotIn(cluster.NO_MSA_NOTE, output)
+        for line in output.splitlines():
+            if not line.startswith(("|", "=", "---")):
+                self.assertLessEqual(len(line), 78, line)
+
+    def test_the_columns_widen_the_table_and_the_centre_stays_outside(self):
+        lines, cells = table_cells(self.run_cluster(["mcl", "2", "1"]))
+        self.assertEqual(cells["Cluster 1"][4], "seq_2")
+        for line in lines:
+            if line.startswith("|"):
+                self.assertEqual(line[75], "|", line)
+                self.assertNotIn("|", line[76:], line)
+            else:
+                self.assertTrue(line == "=" * 78 or line.startswith("---"), line)
+
+    def test_without_an_msa_the_table_is_unchanged_and_a_note_says_why(self):
+        viewer = network_viewer(7, BARBELL_EDGES)
+        _succeeded, failed, output = run_command(cluster, viewer, ["leiden", "1", "1"])
+        failed.assert_not_called()
+        self.assertNotIn("%ID", output)
+        self.assertIn(f"{'=' * 54}\n{cluster.NO_MSA_NOTE}\n", output)
+
+    def test_a_cluster_over_the_exact_limit_is_marked_as_sampled(self):
+        with mock.patch.object(Alignment_Profiles, "IDENTITY_EXACT_PAIRS", 2), \
+                mock.patch.object(Alignment_Profiles, "IDENTITY_SAMPLE_PAIRS", 400):
+            output = self.run_cluster(["leiden", "1", "1"])
+        _lines, cells = table_cells(output)
+        # Cluster 1's three pairs exceed the limit of 2; cluster 2 has one.
+        mean, low = cells["Cluster 1"][2:4]
+        self.assertTrue(mean.startswith("~") and low == "~50.0%", (mean, low))
+        self.assertAlmostEqual(float(mean[1:-1]), 66.7, delta=3)
+        self.assertEqual(cells["Cluster 2"][2:4], ["50.0%", "50.0%"])
+        self.assertIn("~ : over 2 member pairs, so 400 random pairs (seed 42) were compared",
+                      " ".join(output.split()))
+
+    def test_a_failed_identity_calculation_leaves_the_clustering_done(self):
+        with mock.patch.object(Alignment_Profiles, "group_identities", side_effect=MemoryError("too big")):
+            output = self.run_cluster(["leiden", "1", "1"])
+        self.assertNotIn("%ID", output)
+        self.assertIn("The % identity columns could not be computed: too big", output)
+        self.assertIn("Done! Found 3 clusters via LEIDEN.", output)
 
 
 class ClusterListTests(unittest.TestCase):

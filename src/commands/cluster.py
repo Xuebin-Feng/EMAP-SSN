@@ -22,6 +22,7 @@ from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import importlib.util
 import sys
+import textwrap
 import os
 import colorsys
 import math
@@ -317,6 +318,129 @@ def centre_name(viewer, node):
     return f"Node {node}"
 
 
+# --- The % identity columns of the cluster and subcluster tables ---
+
+NO_MSA_NOTE = "No MSA is loaded, so the table gives no % identity."
+
+
+@dataclass(frozen=True)
+class AlignmentInputs:
+    """The loaded MSA as the identity columns read it, taken on the GUI thread."""
+    matrix: object      # the alignment's CSR code matrix; code 0 is a gap
+    int_to_aa: dict
+    node_rows: object   # node i's matrix row, or -1 when the MSA has none
+
+
+@dataclass(frozen=True)
+class IdentityColumns:
+    """The tables' Mean %ID and Min %ID columns.
+
+    identities is {group id: Alignment_Profiles.GroupIdentity}, or None when
+    the table has no such columns, and note then says why. exact_pairs and
+    sample_pairs are the limits the values were computed with.
+    """
+    identities: object = None
+    note: str = None
+    exact_pairs: int = 0
+    sample_pairs: int = 0
+
+
+def alignment_inputs(viewer):
+    """The loaded MSA for the identity columns, or None when none is loaded."""
+    aln = getattr(getattr(viewer, 'alignment', None), 'aln', None)
+    matrix = getattr(aln, 'matrix', None)
+    if matrix is None or getattr(matrix, 'format', None) != 'csr':
+        return None
+    node_rows, _mapped = Command_Engine.get_alignment_mapping(viewer)
+    node_rows = np.array(node_rows, dtype=np.int64)
+    if node_rows.shape != (viewer.n_nodes,):
+        return None
+    return AlignmentInputs(matrix, dict(getattr(aln, 'int_to_aa', None) or {}), node_rows)
+
+
+def identity_columns(alignment, labels, nodes=None):
+    """IdentityColumns for the groups labels gives; Noise (-1) has none.
+
+    alignment comes from alignment_inputs. nodes, when given, are the network
+    nodes labels describes, in order (subcluster's subgraph). On the worker
+    thread: the identity kernels' module imports Numba (see __getattr__).
+    """
+    if alignment is None:
+        return IdentityColumns(note=NO_MSA_NOTE)
+    from utilities import Alignment_Profiles
+    node_rows = alignment.node_rows if nodes is None else alignment.node_rows[nodes]
+    exact_pairs = Alignment_Profiles.IDENTITY_EXACT_PAIRS
+    sample_pairs = Alignment_Profiles.IDENTITY_SAMPLE_PAIRS
+    try:
+        identities = Alignment_Profiles.group_identities(
+            alignment.matrix, alignment.int_to_aa, node_rows, labels,
+            exact_pairs=exact_pairs, sample_pairs=sample_pairs)
+    except Exception as exc:  # a cancelled job still stops: JobCancelled is no Exception
+        return IdentityColumns(note=f"The % identity columns could not be computed: {exc}")
+    return IdentityColumns(identities, None, exact_pairs, sample_pairs)
+
+
+def has_identity_columns(columns):
+    return columns is not None and columns.identities is not None
+
+
+def table_rule(columns):
+    """The table's ==== rule, longer by the identity columns when it has them."""
+    return "=" * (78 if has_identity_columns(columns) else 54)
+
+
+def identity_heading(columns):
+    if not has_identity_columns(columns):
+        return ""
+    return f" {'Mean %ID':>9} | {'Min %ID':>9} |"
+
+
+def identity_divider(columns):
+    return f"+{'-'*11}+{'-'*11}" if has_identity_columns(columns) else ""
+
+
+def identity_cells(columns, group_id):
+    """A row's identity cells: blank for Noise, '-' without a pair to compare,
+    and marked '~' when they come from a sample of the pairs."""
+    if not has_identity_columns(columns):
+        return ""
+    identity = columns.identities.get(group_id)
+    if identity is None:
+        mean = low = ""
+    elif not identity.pairs:
+        mean = low = "-"
+    else:
+        mark = "~" if identity.sampled else ""
+        mean, low = f"{mark}{identity.mean:.1f}%", f"{mark}{identity.minimum:.1f}%"
+    return f" {mean:>9} | {low:>9} |"
+
+
+def identity_notes(columns, sizes):
+    """The lines under the table: what its identity columns hold, or why it has none.
+
+    sizes is {group id: member count}.
+    """
+    if columns is None:
+        return []
+    if not has_identity_columns(columns):
+        return textwrap.wrap(columns.note, len(table_rule(columns))) if columns.note else []
+    identities = columns.identities
+    notes = ["% ID: identical standard residues / alignment length incl. internal gaps, as the "
+             "tools count a local alignment: for two MSA rows, the columns from their first to "
+             "their last aligned residue pair where either has a residue. Mean and minimum over "
+             "all member pairs."]
+    if any(identity.sampled for identity in identities.values()):
+        notes.append(f"~ : over {columns.exact_pairs:,} member pairs, so {columns.sample_pairs:,} "
+                     "random pairs (seed 42) were compared; the minimum may be above the true one.")
+    if any(not identity.pairs for identity in identities.values()):
+        notes.append("- : fewer than two members have an MSA row, or no pair shares an aligned residue.")
+    missing = sum(sizes.get(group_id, 0) - identity.rows for group_id, identity in identities.items())
+    if missing:
+        notes.append(f"{missing} member(s) have no row in the MSA and are left out of % ID.")
+    # Each note wrapped to the table's width.
+    return [line for note in notes for line in textwrap.wrap(note, len(table_rule(columns)))]
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -377,6 +501,28 @@ def print_help():
       Retained clusters are numbered from largest to smallest. Equal-size
       clusters are ordered by their lowest member node index.
 
+    The statistics table:
+      - Each cluster's row gives its node count and its share of all nodes.
+      - With an MSA loaded, Mean %ID and Min %ID give the pairwise sequence
+        identity of the cluster's members, counted as the Pairwise Alignment
+        and Embedding Search tools count a local alignment: identical standard
+        residues / alignment length incl. internal gaps. For two MSA rows that
+        length is the columns from their first to their last aligned residue
+        pair (both have a residue) where either has a residue; overhanging
+        ends are not counted. X and other non-standard letters count toward
+        the length but never as identical. The tools align each pair
+        themselves, so their value for a pair can differ from the MSA's.
+      - The columns hold the mean and the minimum over all member pairs.
+        Members without an MSA row are left out; '-' marks a cluster with fewer
+        than two of them. Without an MSA the table has no such columns.
+      - A cluster with over 50,000,000 member pairs (about 10,000 members)
+        compares 2,000,000 random pairs instead (seed 42), marked '~': its mean
+        stays close to the full one, but its minimum may be above the true one.
+      - MCL and Leiden name each cluster's centre node to the right of the
+        table. For MCL it is the attractor the flow settles on; for Leiden, the
+        member whose leaving would cost the most modularity at the resolution
+        used. Jaccard names none.
+
     Subclusters:
       Running cluster replaces the current clusters, so it also removes the
       subcluster groups (subcluster_N_M) the subcluster command generated for
@@ -412,6 +558,8 @@ class ClusterInputs:
     n_nodes: int
     edges: object
     scores: object
+    # The loaded MSA for the identity columns (alignment_inputs), or None.
+    alignment: object = None
 
 
 @dataclass(frozen=True)
@@ -423,6 +571,8 @@ class ClusterResult:
     color_map: dict
     # {cluster id: centre node} for MCL and Leiden; None for Jaccard, which finds none.
     centres: object = None
+    # The table's identity columns (identity_columns).
+    identity: object = None
 
 
 def plan(viewer, args):
@@ -576,7 +726,7 @@ def start(viewer, plan):
             return None
 
     # The edges and scores never change while the Viewer runs, so the worker reads them as they are.
-    return ClusterInputs(plan, viewer.n_nodes, viewer.edges, scores)
+    return ClusterInputs(plan, viewer.n_nodes, viewer.edges, scores, alignment_inputs(viewer))
 
 
 def compute(inputs, progress):
@@ -653,7 +803,8 @@ def compute(inputs, progress):
     )
     unique_clusters = [k for k in unique_labels if k != -1]
     return ClusterResult(labels, unique_labels, label_slots, counts,
-                         get_cluster_color_map(unique_clusters), centres)
+                         get_cluster_color_map(unique_clusters), centres,
+                         identity_columns(inputs.alignment, labels))
 
 
 def removed_subclusters_message(removed):
@@ -721,24 +872,33 @@ def apply(viewer, plan, result):
     def beside(text):
         return f" {text}" if text else ""
 
-    print(f"\n{'='*54}")
+    # With an MSA loaded, the mean and minimum pairwise % identity of each
+    # cluster's members follow Percent, inside the table.
+    identity = result.identity
+    rule = table_rule(identity)
+    print(f"\n{rule}")
     print(f"--- {mode.upper()} Clustering Stats (Total Nodes: {n_nodes}) ---")
-    print(f"{'='*54}")
-    print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |{beside('Centre' if centre_names else '')}")
-    print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
+    print(rule)
+    print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |"
+          f"{identity_heading(identity)}{beside('Centre' if centre_names else '')}")
+    print(f"|{'-'*24}+{'-'*12}+{'-'*12}{identity_divider(identity)}|")
 
     noise_count = label_counts.get(-1, 0)
     noise_pct = (noise_count / n_nodes) * 100
     noise_name_padded = get_colored_cluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
-    print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
+    print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |{identity_cells(identity, -1)}")
 
     sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
     for cid in sorted_clusters:
         c_count = label_counts[cid]
         c_pct = (c_count / n_nodes) * 100
         c_name_padded = get_colored_cluster_name(cid, f"{f'Cluster {cid}':<20}", color_map)
-        print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |{beside(centre_names.get(cid, ''))}")
-    print(f"{'='*54}\n")
+        print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |"
+              f"{identity_cells(identity, cid)}{beside(centre_names.get(cid, ''))}")
+    print(rule)
+    for note in identity_notes(identity, label_counts):
+        print(note)
+    print()
 
     n_clusters = len(sorted_clusters)
     msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())

@@ -177,6 +177,14 @@ def print_help():
         constant does not change the subclusters.
       - MCL needs every edge score within the cluster to be finite and above 0.
 
+    The statistics table:
+      - As in cluster's table: with an MSA loaded, Mean %ID and Min %ID give the
+        pairwise sequence identity of each subcluster's members (identical
+        standard residues / alignment length incl. internal gaps, as the tools
+        count a local alignment), and MCL and Leiden name each subcluster's
+        centre node to the right of the table, found among the cluster's own
+        nodes and edges. See 'cluster help' for the details.
+
     Examples:
       subcluster #cluster_2#
       subcluster #cluster_2# mcl 2.0 5
@@ -213,6 +221,8 @@ class SubclusterInputs:
     cluster_labels: object
     edges: object
     scores: object
+    # The loaded MSA for the identity columns (cluster.alignment_inputs), or None.
+    alignment: object = None
 
 
 @dataclass(frozen=True)
@@ -223,6 +233,10 @@ class SubclusterResult:
     local_labels: object = None
     sub_counts: dict = None
     color_map: dict = None
+    # {subcluster id: centre node, a global index} for MCL and Leiden; None for Jaccard.
+    centres: dict = None
+    # The table's identity columns (cluster.identity_columns).
+    identity: object = None
 
 
 def plan(viewer, args):
@@ -412,7 +426,7 @@ def start(viewer, plan):
 
     # The edges and scores never change while the Viewer runs, so the worker reads them as they are.
     scores = viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
-    return SubclusterInputs(plan, cluster_labels, viewer.edges, scores)
+    return SubclusterInputs(plan, cluster_labels, viewer.edges, scores, cluster_cmd.alignment_inputs(viewer))
 
 
 def compute(inputs, progress):
@@ -474,9 +488,12 @@ def compute(inputs, progress):
         matrix = cluster_cmd.mcl_adjacency(local_edges, local_edge_scores, n_sub)
 
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        clusters = network_clustering.markov_clusters(matrix, inflation, progress=progress)
+        clusters, attractors = network_clustering.markov_clusters_and_attractors(
+            matrix, inflation, progress=progress
+        )
 
         local_labels = cluster_cmd.label_mcl_clusters(clusters, n_sub, min_sz)
+        attractor_centres = cluster_cmd.mcl_attractor_centres(local_labels, clusters, attractors, min_sz)
 
     # =======================================================
     # MODE 3: LEIDEN COMMUNITY DETECTION
@@ -504,6 +521,18 @@ def compute(inputs, progress):
     if not np.any(local_labels != -1):
         return SubclusterResult(nothing_reached=True)
 
+    # Each subcluster's centre, found as cluster finds it but among the
+    # cluster's own nodes and the edges inside it, then named by global index.
+    centres = None
+    if mode == "mcl":
+        centres = cluster_cmd.mcl_centres(
+            local_labels, attractor_centres, local_edges, local_edge_scores, network_clustering)
+    elif mode == "leiden":
+        centres = network_clustering.modularity_centres(
+            local_labels, local_edges, local_edge_scores, param1)
+    if centres is not None:
+        centres = {sid: int(subgraph_nodes[node]) for sid, node in centres.items()}
+
     sub_ids, sub_sizes = np.unique(local_labels[local_labels != -1], return_counts=True)
     sub_counts = dict(zip(sub_ids.tolist(), sub_sizes.tolist()))
 
@@ -517,6 +546,7 @@ def compute(inputs, progress):
         color_map = {}
     return SubclusterResult(
         subgraph_nodes=subgraph_nodes, local_labels=local_labels, sub_counts=sub_counts, color_map=color_map,
+        centres=centres, identity=cluster_cmd.identity_columns(inputs.alignment, local_labels, subgraph_nodes),
     )
 
 
@@ -591,24 +621,40 @@ def apply(viewer, plan, result):
     viewer.update_nodes()
 
     # --- 5. Print Statistics ---
-    print(f"\n{'='*54}")
+    # As in cluster's table: MCL and Leiden name each subcluster's centre to
+    # the right of the table, outside its border; Jaccard finds none.
+    centre_names = {}
+    if result.centres is not None:
+        centre_names = {sid: cluster_cmd.centre_name(viewer, node) for sid, node in result.centres.items()}
+
+    def beside(text):
+        return f" {text}" if text else ""
+
+    identity = result.identity
+    rule = cluster_cmd.table_rule(identity)
+    print(f"\n{rule}")
     print(f"--- {mode.upper()} Subclustering Stats for Cluster {cluster_id} (Total Nodes: {n_sub}) ---")
-    print(f"{'='*54}")
-    print(f"| {'Subcluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
-    print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
+    print(rule)
+    print(f"| {'Subcluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |"
+          f"{cluster_cmd.identity_heading(identity)}{beside('Centre' if centre_names else '')}")
+    print(f"|{'-'*24}+{'-'*12}+{'-'*12}{cluster_cmd.identity_divider(identity)}|")
 
     noise_count = np.sum(local_labels == -1)
     noise_pct = (noise_count / n_sub) * 100
 
     noise_name_padded = get_colored_subcluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
-    print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
+    print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |{cluster_cmd.identity_cells(identity, -1)}")
 
     for m in sorted_subs:
         count = sub_counts[m]
         pct = (count / n_sub) * 100
         sub_name_padded = get_colored_subcluster_name(m, f"{f'subcluster_{cluster_id}_{m}':<20}", color_map)
-        print(f"| {sub_name_padded} | {count:>10} | {pct:>9.2f}% |")
-    print(f"{'='*54}\n")
+        print(f"| {sub_name_padded} | {count:>10} | {pct:>9.2f}% |"
+              f"{cluster_cmd.identity_cells(identity, m)}{beside(centre_names.get(m, ''))}")
+    print(rule)
+    for note in cluster_cmd.identity_notes(identity, sub_counts):
+        print(note)
+    print()
 
     msg = Message(
         "Done! Found %n subcluster(s) in {cluster} via {mode}.",

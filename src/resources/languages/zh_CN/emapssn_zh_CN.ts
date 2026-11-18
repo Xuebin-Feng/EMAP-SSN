@@ -4621,6 +4621,8 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
+        <location filename="../../../commands/identity.py" line="+607"/>
+        <location line="+15"/>
         <location filename="../../../commands/label.py" line="+1322"/>
         <location line="+452"/>
         <location filename="../../../commands/logo.py" line="+260"/>
@@ -4631,6 +4633,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+3"/>
+        <location filename="../../../commands/identity.py" line="-239"/>
         <location filename="../../../commands/label.py" line="+138"/>
         <location filename="../../../commands/logo.py" line="+621"/>
         <location filename="../../../commands/print.py" line="+231"/>
@@ -4943,6 +4946,8 @@ Command-line usage:
         <location line="+172"/>
         <location line="+89"/>
         <location line="+86"/>
+        <location filename="../../../commands/identity.py" line="-148"/>
+        <location line="+50"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-222"/>
@@ -4970,7 +4975,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+74"/>
-        <location filename="../../../commands/cluster.py" line="+434"/>
+        <location filename="../../../commands/cluster.py" line="+584"/>
         <location filename="../../../commands/color.py" line="+578"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
@@ -4979,6 +4984,7 @@ Command-line usage:
         <location filename="../../../commands/export.py" line="+141"/>
         <location filename="../../../commands/group.py" line="+161"/>
         <location filename="../../../commands/help.py" line="-60"/>
+        <location filename="../../../commands/identity.py" line="-35"/>
         <location filename="../../../commands/jobs.py" line="+220"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
@@ -4989,7 +4995,7 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+229"/>
-        <location filename="../../../commands/subcluster.py" line="+234"/>
+        <location filename="../../../commands/subcluster.py" line="+248"/>
         <location filename="../../../commands/tree.py" line="+130"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
@@ -5050,7 +5056,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-272"/>
+        <location filename="../../../commands/cluster.py" line="-421"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -5082,7 +5088,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+424"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -5099,7 +5105,7 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location line="+111"/>
+        <location line="+112"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
@@ -5112,7 +5118,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../../../commands/subcluster.py" line="+353"/>
+        <location filename="../../../commands/subcluster.py" line="+369"/>
         <source>Noise</source>
         <translation type="unfinished">噪声</translation>
     </message>
@@ -5122,7 +5128,7 @@ Command-line usage:
         <translation type="unfinished">聚类</translation>
     </message>
     <message numerus="yes">
-        <location line="+49"/>
+        <location line="+58"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -5133,8 +5139,8 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-198"/>
-        <location filename="../../../commands/subcluster.py" line="-187"/>
+        <location line="-208"/>
+        <location filename="../../../commands/subcluster.py" line="-203"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
@@ -5145,7 +5151,7 @@ Command-line usage:
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+172"/>
+        <location line="+182"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -5816,7 +5822,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-530"/>
+        <location filename="../../../commands/cluster.py" line="-689"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+73"/>
         <location filename="../../../commands/hide.py" line="+58"/>
@@ -5827,7 +5833,7 @@ Command-line usage:
         <location filename="../../../commands/reference.py" line="+106"/>
         <location filename="../../../commands/run.py" line="-50"/>
         <location filename="../../../commands/save.py" line="+49"/>
-        <location filename="../../../commands/subcluster.py" line="-235"/>
+        <location filename="../../../commands/subcluster.py" line="-249"/>
         <location filename="../../../commands/tree.py" line="+6"/>
         <location filename="../../../commands/undo.py" line="+73"/>
         <location line="+15"/>
@@ -6085,13 +6091,95 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location filename="../../../commands/identity.py" line="-71"/>
+        <source>Error: Give one output filename; found a second one: &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Error: identity takes one or two expressions; found %n expression(s): {expressions}. Expressions have no spaces inside.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Error: Unrecognized identity argument &apos;{argument}&apos;. A filename must end in .xlsx, .csv or .tsv.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+102"/>
+        <source>Identity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-69"/>
+        <source>Error: None of the requested positions is in the active alignment mapping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+43"/>
+        <location filename="../../../commands/logo.py" line="+16"/>
         <location filename="../../../commands/print.py" line="+98"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+21"/>
+        <source>No nodes are selected; give an expression or select nodes. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+6"/>
+        <source>Error: The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>at most {cells} cells</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>at most {cells} cells and {columns} columns</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Error: A {rows} x {columns} matrix ({cells} cells) is too large for a {format} file, which holds {limit}. Narrow an expression, or use .csv or .tsv.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>Identity failed: the background job scheduler is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+18"/>
+        <source>Identity failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+231"/>
+        <source>Saved the pairwise identity of {rows} x {columns} sequences to {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>(mean {mean}%).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../commands/logo.py" line="+111"/>
         <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
         <translation type="unfinished">无效的插入位置“{value}”：小数部分必须为正数。</translation>
     </message>
@@ -6135,23 +6223,25 @@ Command-line usage:
         <translation type="unfinished">错误：未提供位置。请使用 [...] 语法。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location filename="../../../commands/identity.py" line="-461"/>
+        <location filename="../../../commands/logo.py" line="+11"/>
         <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：请在一个 [...] 参数中给出位置；发现了第二个：“{argument}”。</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location filename="../../../commands/logo.py" line="+35"/>
         <source>Error: Unrecognized logo argument &apos;{argument}&apos;. A filename must end in .svg or .png.</source>
         <translation type="unfinished">错误：无法识别的 logo 参数“{argument}”。文件名必须以 .svg 或 .png 结尾。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location filename="../../../commands/identity.py" line="+31"/>
+        <location filename="../../../commands/logo.py" line="+9"/>
         <location filename="../../../commands/select.py" line="+162"/>
         <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished">“{expression}”不是布尔选择表达式。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location filename="../../../commands/logo.py" line="+2"/>
         <location line="+65"/>
         <source>Logo</source>
         <translation type="unfinished">序列标识图</translation>
@@ -6162,22 +6252,24 @@ Command-line usage:
         <translation type="unfinished">没有选中节点，默认使用全部节点。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location filename="../../../commands/identity.py" line="+32"/>
+        <location filename="../../../commands/logo.py" line="+13"/>
         <source>Error: Could not parse positions from brackets.</source>
         <translation type="unfinished">错误：无法从方括号中解析位置。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location filename="../../../commands/logo.py" line="+7"/>
         <source>Error: MSA not loaded in viewer. Please check inputs.</source>
         <translation type="unfinished">错误：查看器中未加载 MSA。请检查输入。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location filename="../../../commands/identity.py" line="+22"/>
+        <location filename="../../../commands/logo.py" line="+5"/>
         <source>Error: The selected MSA contains no aligned rows for the current network.</source>
         <translation type="unfinished">错误：所选 MSA 中没有当前网络的已比对行。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location filename="../../../commands/logo.py" line="+29"/>
         <source>No nodes matched the criteria for logo generation.</source>
         <translation type="unfinished">没有节点符合生成序列标识图的条件。</translation>
     </message>
@@ -6441,6 +6533,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+15"/>
+        <location filename="../../../commands/identity.py" line="-3"/>
         <location filename="../../../commands/query.py" line="+16"/>
         <source>Error: No alignment loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载比对。</translation>
@@ -7053,7 +7146,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+162"/>
         <source>Error: First argument must be &apos;clear&apos; or exactly one cluster, written cluster_N or #cluster_N# (got &apos;{argument}&apos;).</source>
         <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或恰好一个簇，写作 cluster_N 或 #cluster_N#（实际为“{argument}”）。</translation>
     </message>
@@ -7099,7 +7192,7 @@ Command-line usage:
         <translation type="unfinished">错误：{cluster} 内部没有边，无法进行子聚类。</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+109"/>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
         <translation type="unfinished">{cluster} 中没有子簇达到最小簇大小 {min_size}；未做任何更改。</translation>
     </message>
@@ -7109,7 +7202,7 @@ Command-line usage:
         <translation type="unfinished">聚类 {cluster} 的子聚类</translation>
     </message>
     <message numerus="yes">
-        <location line="+25"/>
+        <location line="+41"/>
         <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 在 {cluster} 中找到 %n 个子簇。</numerusform>
@@ -10340,7 +10433,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">正在启动…</translation>
     </message>
     <message>
-        <location line="+501"/>
+        <location line="+517"/>
         <source>The window could not be started.</source>
         <translation type="unfinished">无法启动窗口。</translation>
     </message>

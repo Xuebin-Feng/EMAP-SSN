@@ -24,6 +24,7 @@ Viewer, the VR viewer and the command scripts can all import it.
 """
 
 import os
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -593,3 +594,478 @@ def aligned_row_strings(alignment, rows):
             for offset in range(0, len(text), column_count)
         )
     return strings
+
+
+# ---------------------------------------------------------------------
+# Pairwise identity within groups of aligned rows (the cluster tables)
+# ---------------------------------------------------------------------
+
+# A pair's identity is counted as the Pairwise Alignment and Embedding Search
+# tools count a local alignment (Sequence_Utils.identity_definition("local")):
+# identical standard residues / alignment length incl. internal gaps. For two
+# MSA rows that length is the columns from their first to their last aligned
+# residue pair (both rows hold a residue) where either row holds one; columns
+# where both are gaps are not part of the pair's alignment, and the overhang
+# before the first or after the last pair is not counted. X and the other
+# non-standard letters count toward the length but are never identical.
+
+# A group with at most IDENTITY_EXACT_PAIRS member pairs (about 10,000
+# members) has every pair compared: 83.5 million pairs took 1.9 s on 18
+# threads of a busy 20-thread PC. A larger group compares IDENTITY_SAMPLE_PAIRS
+# pairs drawn at random with IDENTITY_SAMPLE_SEED, which kept the mean of
+# those 83.5 million within 0.002 percentage points.
+IDENTITY_EXACT_PAIRS = 50_000_000
+IDENTITY_SAMPLE_PAIRS = 2_000_000
+IDENTITY_SAMPLE_SEED = 42
+
+# Pairs per block in the NumPy fallback, which holds two blocks of bit planes.
+_IDENTITY_FALLBACK_BLOCK = 8192
+
+
+@dataclass(frozen=True)
+class GroupIdentity:
+    """The pairwise identity of one group's aligned members, in percent.
+
+    mean and minimum are NaN when fewer than two members have an MSA row or
+    no pair shares an aligned residue pair, which a pair needs to have an
+    alignment. pairs counts the pairs that entered them; sampled says whether
+    those were a random sample.
+    """
+
+    mean: float
+    minimum: float
+    pairs: int
+    sampled: bool
+    rows: int
+
+
+if NUMBA_AVAILABLE:
+
+    @njit(inline="always")
+    def _pair_matches_and_length(left_planes, left, right_planes, right, local):
+        """(identical standard residues, alignment length) of two rows packed
+        by _pack_local_identity_planes: row left of left_planes and row right
+        of right_planes.
+
+        With local, the length counts the columns from the pair's first to its
+        last aligned residue pair where either row holds a residue, and is 0
+        when the rows share no aligned residue pair. Without it, the length
+        counts every column where either row holds a residue: the global
+        length over the columns packed.
+        """
+        word_count = left_planes.shape[2]
+        matches = 0
+        first_word = -1
+        last_word = -1
+        first_bits = np.uint64(0)
+        last_bits = np.uint64(0)
+        for word in range(word_count):
+            both_occupied = left_planes[left, 6, word] & right_planes[right, 6, word]
+            if both_occupied == 0:
+                continue
+            if first_word < 0:
+                first_word = word
+                first_bits = both_occupied
+            last_word = word
+            last_bits = both_occupied
+            # Standard residues are residues, so identities lie in these words.
+            both_valid = left_planes[left, 0, word] & right_planes[right, 0, word]
+            if both_valid != 0:
+                different = (
+                    (left_planes[left, 1, word] ^ right_planes[right, 1, word])
+                    | (left_planes[left, 2, word] ^ right_planes[right, 2, word])
+                    | (left_planes[left, 3, word] ^ right_planes[right, 3, word])
+                    | (left_planes[left, 4, word] ^ right_planes[right, 4, word])
+                    | (left_planes[left, 5, word] ^ right_planes[right, 5, word])
+                )
+                matches += _popcount64(both_valid & ~different)
+        if not local:
+            length = 0
+            for word in range(word_count):
+                length += _popcount64(left_planes[left, 6, word] | right_planes[right, 6, word])
+            return matches, length
+        if first_word < 0:
+            return matches, 0
+        # Bit c is column c: keep the first pair's column and those after it
+        # in its word, and the last pair's column and those before it in its.
+        lowest = first_bits & (~first_bits + np.uint64(1))
+        from_first = ~(lowest - np.uint64(1))
+        to_last = last_bits
+        to_last |= to_last >> np.uint64(1)
+        to_last |= to_last >> np.uint64(2)
+        to_last |= to_last >> np.uint64(4)
+        to_last |= to_last >> np.uint64(8)
+        to_last |= to_last >> np.uint64(16)
+        to_last |= to_last >> np.uint64(32)
+        length = 0
+        for word in range(first_word, last_word + 1):
+            either = left_planes[left, 6, word] | right_planes[right, 6, word]
+            if word == first_word:
+                either &= from_first
+            if word == last_word:
+                either &= to_last
+            length += _popcount64(either)
+        return matches, length
+
+    @njit(parallel=True, nogil=True, cache=True)
+    def _all_pairs_identity_kernel(planes):
+        """For each row i: the sum, count and minimum of the identities of the
+        pairs (i, j), j > i, that share an aligned residue pair.
+
+        Rows i and n-1-i share an iteration, so each holds about n pairs. A
+        row's identities are summed in j order inside one iteration, so the
+        sums do not depend on the thread count.
+        """
+        n = planes.shape[0]
+        row_sums = np.zeros(n)
+        row_counts = np.zeros(n, dtype=np.int64)
+        row_mins = np.full(n, np.inf)
+        for step in prange((n + 1) // 2):
+            first = np.int64(step)
+            for side in range(2):
+                left = first if side == 0 else n - 1 - first
+                if side == 1 and left == first:
+                    continue
+                total = 0.0
+                count = 0
+                lowest = np.inf
+                for right in range(left + 1, n):
+                    matches, length = _pair_matches_and_length(planes, left, planes, right, True)
+                    if length > 0:
+                        value = 100.0 * matches / length
+                        total += value
+                        count += 1
+                        if value < lowest:
+                            lowest = value
+                row_sums[left] = total
+                row_counts[left] = count
+                row_mins[left] = lowest
+        return row_sums, row_counts, row_mins
+
+    @njit(parallel=True, nogil=True, cache=True)
+    def _listed_pairs_identity_kernel(planes, lefts, rights):
+        """The identity of each listed pair; NaN where no aligned residue pair exists."""
+        values = np.empty(lefts.size)
+        for index in prange(lefts.size):
+            matches, length = _pair_matches_and_length(planes, lefts[index], planes, rights[index], True)
+            values[index] = 100.0 * matches / length if length > 0 else np.nan
+        return values
+
+    @njit(parallel=True, nogil=True, cache=True)
+    def _symmetric_identity_matrix_kernel(planes, local):
+        """The (n, n) identities of the rows against each other, the diagonal
+        each row against itself; NaN where a pair has no alignment.
+
+        Rows i and n-1-i share an iteration, which fills row i's cells (i, j),
+        j >= i, and their mirrors (j, i); no two iterations write one cell.
+        """
+        n = planes.shape[0]
+        out = np.empty((n, n))
+        for step in prange((n + 1) // 2):
+            first = np.int64(step)
+            for side in range(2):
+                left = first if side == 0 else n - 1 - first
+                if side == 1 and left == first:
+                    continue
+                for right in range(left, n):
+                    matches, length = _pair_matches_and_length(planes, left, planes, right, local)
+                    value = 100.0 * matches / length if length > 0 else np.nan
+                    out[left, right] = value
+                    out[right, left] = value
+        return out
+
+    @njit(parallel=True, nogil=True, cache=True)
+    def _cross_identity_matrix_kernel(row_planes, col_planes, local):
+        """The (n, m) identities of each row of row_planes against each of
+        col_planes; NaN where a pair has no alignment."""
+        n = row_planes.shape[0]
+        m = col_planes.shape[0]
+        out = np.empty((n, m))
+        for left in prange(n):
+            for right in range(m):
+                matches, length = _pair_matches_and_length(row_planes, left, col_planes, right, local)
+                out[left, right] = 100.0 * matches / length if length > 0 else np.nan
+        return out
+
+
+def _listed_pairs_identity_numpy(left_planes, right_planes, lefts, rights, local=True):
+    """The NumPy twin of _pair_matches_and_length for listed pairs: the
+    identity of row lefts[k] of left_planes against row rights[k] of
+    right_planes, NaN where the pair has no alignment."""
+    values = np.empty(len(lefts))
+    word_count = left_planes.shape[2]
+    words = np.arange(word_count)
+    for start in range(0, len(lefts), _IDENTITY_FALLBACK_BLOCK):
+        raise_if_cancelled()
+        stop = start + _IDENTITY_FALLBACK_BLOCK
+        left = left_planes[lefts[start:stop]]
+        right = right_planes[rights[start:stop]]
+        both_valid = left[:, 0] & right[:, 0]
+        different = left[:, 1] ^ right[:, 1]
+        for plane in range(2, 6):
+            different |= left[:, plane] ^ right[:, plane]
+        matches = np.bitwise_count(both_valid & ~different).sum(axis=1, dtype=np.int64)
+        if not local:
+            length = np.bitwise_count(left[:, 6] | right[:, 6]).sum(axis=1, dtype=np.int64)
+            values[start:stop] = np.where(
+                length > 0, 100.0 * matches / np.maximum(length, 1), np.nan
+            )
+            continue
+
+        # The words of the first and last aligned residue pair, and within
+        # them the columns from the first and up to the last.
+        both_occupied = left[:, 6] & right[:, 6]
+        occupied_words = both_occupied != 0
+        first = occupied_words.argmax(axis=1)
+        last = word_count - 1 - occupied_words[:, ::-1].argmax(axis=1)
+        pairs = np.arange(len(first))
+        first_bits = both_occupied[pairs, first]
+        from_first = ~((first_bits & (~first_bits + np.uint64(1))) - np.uint64(1))
+        to_last = both_occupied[pairs, last]
+        for shift in (1, 2, 4, 8, 16, 32):
+            to_last |= to_last >> np.uint64(shift)
+        either = left[:, 6] | right[:, 6]
+        either[(words[None, :] < first[:, None]) | (words[None, :] > last[:, None])] = 0
+        either[pairs, first] &= from_first
+        either[pairs, last] &= to_last
+        length = np.bitwise_count(either).sum(axis=1, dtype=np.int64)
+        length[~occupied_words.any(axis=1)] = 0
+        values[start:stop] = np.where(
+            length > 0, 100.0 * matches / np.maximum(length, 1), np.nan
+        )
+    return values
+
+
+def _all_pairs_identity_numpy(planes):
+    """The NumPy twin of _all_pairs_identity_kernel, summed: (sum, count, minimum)."""
+    n = planes.shape[0]
+    total, count, lowest = 0.0, 0, np.inf
+    left = 0
+    while left < n - 1:
+        # Whole rows of pairs, about one fallback block at a time.
+        stop = left + 1
+        pairs = n - 1 - left
+        while stop < n - 1 and pairs + (n - 1 - stop) <= _IDENTITY_FALLBACK_BLOCK:
+            pairs += n - 1 - stop
+            stop += 1
+        lefts = np.concatenate([np.full(n - 1 - row, row) for row in range(left, stop)])
+        rights = np.concatenate([np.arange(row + 1, n) for row in range(left, stop)])
+        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights)
+        values = values[~np.isnan(values)]
+        if values.size:
+            total += float(values.sum())
+            count += int(values.size)
+            lowest = min(lowest, float(values.min()))
+        left = stop
+    return total, count, lowest
+
+
+def _sampled_pairs(row_count, pair_count, seed):
+    """pair_count random pairs of distinct rows, drawn with replacement."""
+    rng = np.random.default_rng(seed)
+    lefts = rng.integers(0, row_count, pair_count, dtype=np.int64)
+    rights = rng.integers(0, row_count - 1, pair_count, dtype=np.int64)
+    rights += rights >= lefts
+    return lefts, rights
+
+
+def standard_residue_table(int_to_aa, code_limit):
+    """Map each sparse alignment code below code_limit to 0-19 (STANDARD_AAS) or -1.
+
+    Code 0 is a gap; a code int_to_aa does not name, or names anything other
+    than a standard amino acid in either case, is -1 too.
+    """
+    table = np.full(max(1, int(code_limit)), -1, dtype=np.int8)
+    for code, residue in int_to_aa.items():
+        code = int(code)
+        if 0 < code < len(table) and isinstance(residue, str) and residue.upper() in STANDARD_AAS:
+            table[code] = STANDARD_AAS.index(residue.upper())
+    return table
+
+
+def residue_column_table(int_to_aa, code_limit):
+    """Map each sparse alignment code below code_limit to whether it holds a residue.
+
+    Any letter is a residue, X and B included. Code 0 and codes int_to_aa does
+    not name are gaps, as the sparse loaders spell a row.
+    """
+    table = np.zeros(max(1, int(code_limit)), dtype=bool)
+    for code, residue in int_to_aa.items():
+        code = int(code)
+        if 0 < code < len(table) and isinstance(residue, str) and len(residue) == 1 and residue.isalpha():
+            table[code] = True
+    return table
+
+
+def _pack_local_identity_planes(encoded, occupied, block_rows=4096):
+    """(n, 7, W) uint64 planes: _pack_identity_planes' six, then plane 6
+    marking the columns that hold any residue (occupied, an (n, L) bool array)."""
+    six, _valid_counts = _pack_identity_planes(encoded, block_rows)
+    row_count, _planes, word_count = six.shape
+    planes = np.empty((row_count, 7, word_count), dtype=np.uint64)
+    planes[:, :6] = six
+    for start in range(0, row_count, block_rows):
+        stop = min(row_count, start + block_rows)
+        padded = np.zeros((stop - start, word_count * 64), dtype=bool)
+        padded[:, :occupied.shape[1]] = occupied[start:stop]
+        planes[start:stop, 6] = np.packbits(
+            padded.reshape(stop - start, word_count, 64), axis=2, bitorder="little"
+        ).view("<u8").reshape(stop - start, word_count)
+    return planes
+
+
+def _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed):
+    """GroupIdentity of packed rows; the caller has set Numba's thread count."""
+    row_count = planes.shape[0]
+    pair_total = row_count * (row_count - 1) // 2
+    if row_count < 2:
+        return GroupIdentity(float("nan"), float("nan"), 0, False, row_count)
+    if pair_total <= exact_pairs:
+        if use_numba:
+            sums, counts, mins = _all_pairs_identity_kernel(planes)
+            total, count, lowest = float(sums.sum()), int(counts.sum()), float(mins.min())
+        else:
+            total, count, lowest = _all_pairs_identity_numpy(planes)
+        if count == 0:
+            return GroupIdentity(float("nan"), float("nan"), 0, False, row_count)
+        return GroupIdentity(total / count, lowest, count, False, row_count)
+
+    lefts, rights = _sampled_pairs(row_count, sample_pairs, seed)
+    if use_numba:
+        values = _listed_pairs_identity_kernel(planes, lefts, rights)
+    else:
+        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights)
+    values = values[~np.isnan(values)]
+    if values.size == 0:
+        return GroupIdentity(float("nan"), float("nan"), 0, True, row_count)
+    return GroupIdentity(float(values.mean()), float(values.min()), int(values.size), True, row_count)
+
+
+def group_identities(
+    matrix,
+    int_to_aa,
+    node_rows,
+    labels,
+    exact_pairs=IDENTITY_EXACT_PAIRS,
+    sample_pairs=IDENTITY_SAMPLE_PAIRS,
+    seed=IDENTITY_SAMPLE_SEED,
+):
+    """{label: GroupIdentity} for every label but -1, from a sparse alignment.
+
+    A pair's identity is identical standard residues / its local alignment
+    length, internal gaps included (see the note above IDENTITY_EXACT_PAIRS).
+    matrix is the alignment's CSR code matrix (0 a gap) and int_to_aa its code
+    table; node_rows[i] is node i's matrix row, or -1 when the alignment has
+    none; labels[i] is node i's group. Members without a row are left out,
+    and GroupIdentity.rows says how many were kept. A group with at most
+    exact_pairs member pairs has all of them compared; a larger one has
+    sample_pairs random pairs compared, drawn with the same seed for every
+    group, so a group's values depend on its members alone.
+    """
+    labels = np.asarray(labels)
+    node_rows = np.asarray(node_rows, dtype=np.int64)
+    code_limit = int(matrix.data.max()) + 1 if matrix.nnz else 1
+    table = standard_residue_table(int_to_aa, code_limit)
+    occupied_table = residue_column_table(int_to_aa, code_limit)
+
+    order = np.argsort(labels, kind="stable")
+    group_ids, starts = np.unique(labels[order], return_index=True)
+    bounds = list(starts[1:]) + [len(order)]
+
+    use_numba = NUMBA_AVAILABLE
+    previous_threads = get_num_threads() if use_numba else None
+    selected_threads = choose_balanced_thread_count(previous_threads) if use_numba else None
+    if use_numba and selected_threads != previous_threads:
+        set_num_threads(selected_threads)
+    identities = {}
+    try:
+        for group_id, start, stop in zip(group_ids.tolist(), starts.tolist(), bounds):
+            if group_id == -1:
+                continue
+            raise_if_cancelled()
+            rows = node_rows[order[start:stop]]
+            rows = rows[rows >= 0]
+            if len(rows) < 2:
+                identities[group_id] = GroupIdentity(float("nan"), float("nan"), 0, False, len(rows))
+                continue
+            codes = matrix[rows].toarray()
+            planes = _pack_local_identity_planes(table[codes], occupied_table[codes])
+            try:
+                identities[group_id] = _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed)
+            except Exception:
+                if not use_numba:
+                    raise
+                # The kernels failed to compile or run: finish on NumPy.
+                use_numba = False
+                identities[group_id] = _group_identity(planes, False, exact_pairs, sample_pairs, seed)
+    finally:
+        if selected_threads is not None and selected_threads != previous_threads:
+            set_num_threads(previous_threads)
+    return identities
+
+
+def _identity_matrix_numpy(row_planes, col_planes, symmetric, local):
+    """The NumPy twin of the identity matrix kernels, a block of rows at a time."""
+    n, m = row_planes.shape[0], col_planes.shape[0]
+    out = np.empty((n, m))
+    rows_per_block = max(1, _IDENTITY_FALLBACK_BLOCK // max(1, m))
+    for start in range(0, n, rows_per_block):
+        stop = min(n, start + rows_per_block)
+        lefts = np.repeat(np.arange(start, stop), m)
+        rights = np.tile(np.arange(m), stop - start)
+        out[start:stop] = _listed_pairs_identity_numpy(
+            row_planes, col_planes, lefts, rights, local).reshape(stop - start, m)
+    if symmetric:
+        # The same values both ways round; this keeps the matrix exactly symmetric.
+        upper = np.triu_indices(n, 1)
+        out[(upper[1], upper[0])] = out[upper]
+    return out
+
+
+def identity_matrix(matrix, int_to_aa, row_rows, col_rows=None, columns=None):
+    """The (n, m) pairwise identities, in percent, of MSA rows row_rows against col_rows.
+
+    matrix is the alignment's CSR code matrix (0 a gap) and int_to_aa its code
+    table. With col_rows None, the rows are compared with each other: the
+    matrix is square and symmetric, and its diagonal holds each row against
+    itself. A cell is NaN when its pair has no alignment.
+
+    With columns None, every column of the MSA counts and a pair's identity
+    is the tools' local one (see the note above IDENTITY_EXACT_PAIRS). With
+    columns, a sequence of MSA column indices, only those columns count, and
+    the length is every one of them where either row holds a residue: the
+    global length over the region the columns make.
+    """
+    code_limit = int(matrix.data.max()) + 1 if matrix.nnz else 1
+    table = standard_residue_table(int_to_aa, code_limit)
+    occupied_table = residue_column_table(int_to_aa, code_limit)
+    local = columns is None
+
+    def packed(rows):
+        codes = matrix[np.asarray(rows, dtype=np.int64)].toarray()
+        if columns is not None:
+            codes = codes[:, np.asarray(columns, dtype=np.int64)]
+        return _pack_local_identity_planes(table[codes], occupied_table[codes])
+
+    raise_if_cancelled()
+    row_planes = packed(row_rows)
+    symmetric = col_rows is None
+    col_planes = row_planes if symmetric else packed(col_rows)
+    raise_if_cancelled()
+    if not NUMBA_AVAILABLE:
+        return _identity_matrix_numpy(row_planes, col_planes, symmetric, local)
+
+    previous_threads = get_num_threads()
+    selected_threads = choose_balanced_thread_count(previous_threads)
+    if selected_threads != previous_threads:
+        set_num_threads(selected_threads)
+    try:
+        if symmetric:
+            return _symmetric_identity_matrix_kernel(row_planes, local)
+        return _cross_identity_matrix_kernel(row_planes, col_planes, local)
+    except Exception:
+        # The kernels failed to compile or run: compute on NumPy.
+        return _identity_matrix_numpy(row_planes, col_planes, symmetric, local)
+    finally:
+        if selected_threads != previous_threads:
+            set_num_threads(previous_threads)

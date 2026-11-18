@@ -4208,6 +4208,90 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message>
+        <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Give one output filename; found a second one: &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Error: identity takes one or two expressions; found %n expression(s): {expressions}. Expressions have no spaces inside.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized identity argument &apos;{argument}&apos;. A filename must end in .xlsx, .csv or .tsv.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Identity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Could not parse positions from brackets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: None of the requested positions is in the active alignment mapping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No nodes are selected; give an expression or select nodes. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Error: The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>at most {cells} cells</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>at most {cells} cells and {columns} columns</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: A {rows} x {columns} matrix ({cells} cells) is too large for a {format} file, which holds {limit}. Narrow an expression, or use .csv or .tsv.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Identity failed: the background job scheduler is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Identity failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved the pairwise identity of {rows} x {columns} sequences to {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(mean {mean}%).</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>%n job(s) waiting or running; the list is in the Console.</source>
         <translation type="unfinished">
@@ -4401,10 +4485,6 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4441,15 +4521,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: Unrecognized logo argument &apos;{argument}&apos;. A filename must end in .svg or .png.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4461,15 +4533,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Could not parse positions from brackets.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: MSA not loaded in viewer. Please check inputs.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: The selected MSA contains no aligned rows for the current network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

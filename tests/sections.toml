@@ -17,6 +17,7 @@ description = "Viewer commands, selection expressions, undo/redo, alignment pane
 seconds = 80
 modules = [
     "test_alignment_offset",
+    "test_alignment_profiles",
     "test_cluster_command",
     "test_color_command",
     "test_distribution_command",
@@ -32,6 +33,7 @@ modules = [
     "test_group_command",
     "test_help_command",
     "test_hide_command",
+    "test_identity_command",
     "test_incomplete_alignment",
     "test_job_cancellation",
     "test_label_analysis",

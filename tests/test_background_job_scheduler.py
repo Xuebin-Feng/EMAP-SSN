@@ -1292,7 +1292,10 @@ class SchedulerNamesNoCommandTests(unittest.TestCase):
         return found
 
     def test_the_commands_that_queue_jobs_are_found(self):
-        self.assertEqual(self.command_words()[:4], ["esmfold", "label", "logo", "print"])
+        # Among them, whatever commands are added later.
+        found = self.command_words()
+        self.assertEqual(found, sorted(found))
+        self.assertLessEqual({"esmfold", "identity", "label", "logo", "print"}, set(found))
 
     def test_the_check_finds_a_command_named_in_code_and_leaves_prose_alone(self):
         flagged = "\n".join([
