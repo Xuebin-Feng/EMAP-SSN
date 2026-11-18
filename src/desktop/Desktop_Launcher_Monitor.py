@@ -42,7 +42,11 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from desktop.Window_Python import window_python
+try:
+    from desktop.Window_Python import window_python
+except ImportError:  # a copy of this monitor without its neighbour (opt_vr's launch tests copy a fixed file list)
+    def window_python(root, kind, python=None, platform_name=None):
+        return str(sys.executable if python is None else python)
 
 try:
     from utilities.Localization import JoinedMessage, Message

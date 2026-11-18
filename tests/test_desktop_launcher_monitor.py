@@ -1236,6 +1236,24 @@ class WindowPythonTests(unittest.TestCase):
             chosen.assert_called_once_with(PROJECT_ROOT, kind, "/p/python")
             self.assertEqual(popen.call_args.args[0][0], "/p/EMAP-SSN Tools")  # one argument: the space survives
 
+    def test_a_copy_of_the_monitor_without_window_python_still_runs_windows_with_plain_python(self):
+        # opt_vr's launch tests copy a fixed list of files into a scratch tree, and its window (kind "vr", no entry
+        # in the name table) is started by this monitor: a missing neighbour must not stop the monitor.
+        import subprocess
+        tree = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tree, ignore_errors=True))
+        for relative in ("desktop/__init__.py", "desktop/Desktop_Launcher_Monitor.py", "utilities/__init__.py",
+                         "utilities/Localization.py", "utilities/Terminal_Launcher.py"):
+            (tree / relative).parent.mkdir(parents=True, exist_ok=True)
+            (tree / relative).write_bytes((SRC_DIR / relative).read_bytes())
+        program = ("from desktop import Desktop_Launcher_Monitor as m\n"
+                   "print(m.window_python('/p', 'vr', '/p/.venv/bin/python', 'darwin'))\n"
+                   "print(m.window_python('/p', 'tools', '/p/.venv/bin/python', 'darwin'))\n")
+        done = subprocess.run([sys.executable, "-I", "-c", f"import sys; sys.path.insert(0, {str(tree)!r})\n{program}"],
+                              capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.split(), ["/p/.venv/bin/python", "/p/.venv/bin/python"])
+
     def test_children_of_a_window_get_the_real_python_back(self):
         link = str(self.bin / "EMAP-SSN Tools")
         with mock.patch.object(sys, "executable", link):
