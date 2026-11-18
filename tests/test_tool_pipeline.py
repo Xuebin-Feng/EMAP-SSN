@@ -52,8 +52,8 @@ class ToolExecutionTests(unittest.TestCase):
         with contextlib.redirect_stdout(captured):
             specs = list_tool_specs()
         self.assertEqual(captured.getvalue(), "")
-        self.assertEqual(len(specs), 15)
-        self.assertEqual(len({spec.tool_id for spec in specs}), 15)
+        self.assertEqual(len(specs), 16)
+        self.assertEqual(len({spec.tool_id for spec in specs}), 16)
         self.assertTrue(all(spec.output_directories for spec in specs))
         self.assertTrue(
             all(

@@ -455,8 +455,9 @@ class ToolsWindowRowTests(ControlTestCase):
         window, _path, control = self.window()
         browse = [button for button in window.findChildren(QPushButton) if button.text() == "Browse..."]
         # One Browse button per directory of the Directories tab, one for the FASTA File row of Predict Structures,
+        # one for the ID Mapping File row of Embedding Import (its source row has File... and Folder... instead),
         # and none beside the BLASTP field.
-        self.assertEqual(len(browse), len(window.dir_inputs) + 1)
+        self.assertEqual(len(browse), len(window.dir_inputs) + 2)
         self.assertFalse(any(control.isAncestorOf(button) for button in browse))
         self.assertEqual(len(window.findChildren(BlastDirectoryControl)), 1)
 
