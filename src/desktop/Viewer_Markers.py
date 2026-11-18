@@ -74,12 +74,13 @@ POINT_LIMIT_ENV = 'SSN_MARKER_POINT_LIMIT'
 _GL_ALIASED_POINT_SIZE_RANGE = 0x846D
 
 
-def read_point_size_limit(canvas=None):
+def read_point_size_limit():
     """The largest point, in device pixels, the driver draws, or None when
     unknown (then nothing is clamped). The environment variable
     SSN_MARKER_POINT_LIMIT, when set to a number, overrides the driver (tests
     stand in for a driver with a small limit); otherwise the upper value of
-    GL_ALIASED_POINT_SIZE_RANGE is read from the canvas's current context."""
+    GL_ALIASED_POINT_SIZE_RANGE is read from the current context, so call it only where one is current
+    (while drawing)."""
     import os
     text = os.environ.get(POINT_LIMIT_ENV, '').strip()
     if text:
@@ -89,8 +90,6 @@ def read_point_size_limit(canvas=None):
             value = 0.0
         return value if np.isfinite(value) and value > 0 else None
     try:
-        if canvas is not None:
-            canvas.set_current()
         from vispy.gloo import gl
         value = float(np.asarray(gl.glGetParameter(_GL_ALIASED_POINT_SIZE_RANGE)).ravel()[1])
     except Exception:

@@ -1062,10 +1062,9 @@ class ClampMarkerSizesTests(unittest.TestCase):
             self.assertIsNone(Viewer_Markers.read_point_size_limit())
 
     def test_an_unreadable_context_clamps_nothing(self):
-        broken = mock.Mock()
-        broken.set_current.side_effect = RuntimeError("no context")
-        with mock.patch.dict(os.environ, {Viewer_Markers.POINT_LIMIT_ENV: ""}):
-            self.assertIsNone(Viewer_Markers.read_point_size_limit(broken))
+        with mock.patch.dict(os.environ, {Viewer_Markers.POINT_LIMIT_ENV: ""}), \
+                mock.patch("vispy.gloo.gl.glGetParameter", side_effect=RuntimeError("no context")):
+            self.assertIsNone(Viewer_Markers.read_point_size_limit())
 
 
 _LIMIT_SCRIPT = textwrap.dedent(
@@ -1167,6 +1166,143 @@ _LIMIT_SCRIPT = textwrap.dedent(
     print("SAME", int(np.array_equal(images["above"], images["at"])), int(np.array_equal(images["far"], images["at"])), flush=True)
     """
 )
+
+
+_FIRST_DRAW_SCRIPT = textwrap.dedent(
+    """
+    import os
+    import sys
+    from unittest import mock
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
+    os.environ.pop("SSN_MARKER_POINT_LIMIT", None)
+    import matplotlib.colors as mcolors
+    from vispy import app, gloo, scene
+    app.use_app("pyside6")
+    import EMAPSSN_Viewer as V
+    cfg = V.cfg
+    cfg.NODE_SIZE, cfg.NODE_BOUNDARY_WIDTH = 15, 2.0
+    cfg.CONNECTED_NODE_COLOR, cfg.NODE_BOUNDARY_COLOR = "red", "black"
+
+    def scene_viewer(size, probe, answer):
+        reads, updates = [], []
+        v = V.MainViewer.__new__(V.MainViewer)
+        v.n_nodes = 1
+        v.pos = np.zeros((1, 2), dtype=np.float32)
+        v.edges = np.zeros((0, 2), dtype=np.int32)
+        v.edge_layer = None
+        v.current_colors = np.tile(mcolors.to_rgba("red"), (1, 1)).astype(np.float32)
+        v.current_sizes = np.full(1, size, dtype=np.float32)
+        v.current_shapes = np.full(1, "disc", dtype=object)
+        v.visible_mask = np.ones(1, dtype=bool)
+        v.node_render_order = np.arange(1, dtype=np.int32)
+        v.selected_indices, v.selected_node_idx, v.hovered_node_idx = [], None, None
+        v.left_click_highlight_indices = None
+        v._update_hud_elements = lambda *args, **kwargs: None
+        v.canvas = scene.SceneCanvas(size=(300, 240), bgcolor="white", show=False)
+        v.view = v.canvas.central_widget.add_view()
+        v.view.camera = scene.PanZoomCamera(aspect=1)
+        v.markers = scene.visuals.Markers(parent=v.view.scene)
+        real = V.MainViewer.update_nodes
+        v.update_nodes = lambda: (updates.append(1), real(v))[1]
+        if probe:
+            v._install_point_limit_probe()
+        v.update_nodes()
+        v.view.camera.rect = (-20, -16, 40, 32)
+        return v, reads, updates
+
+    def solid_width(image):
+        mask = (255 - image[..., :3].min(axis=2).astype(int)) > 100
+        cols = np.nonzero(mask.any(axis=0))[0]
+        return int(cols.max() - cols.min() + 1)
+
+    def point_of(v):
+        p = v._marker_picker
+        scale = v.canvas.pixel_scale
+        return float(p.sizes.max() * scale + 4.0 * (p.edge_widths.max() * scale + 1.5 * p.antialias))
+
+    def run(label, size, answer, frames):
+        reads = []
+
+        def fake_read():
+            reads.append(1)
+            return answer
+
+        with mock.patch.object(V, "read_point_size_limit", fake_read):
+            v, _, updates = scene_viewer(size, True, answer)
+            before = (len(reads), len(updates), round(point_of(v), 1))
+            widths = []
+            for draw in range(frames):
+                if draw == 1:
+                    # a frame as the window draws it: into a framebuffer, no render()
+                    shape = v.canvas.render().shape[:2]
+                    window = gloo.FrameBuffer(color=gloo.RenderBuffer(shape), depth=gloo.RenderBuffer(shape))
+                    v.canvas.push_fbo(window, (0, 0), v.canvas.size)
+                    try:
+                        v.canvas._draw_scene()
+                        image = window.read()
+                    finally:
+                        v.canvas.pop_fbo()
+                else:
+                    image = v.canvas.render()
+                widths.append(solid_width(image))
+                print("FRAME", label, draw, len(reads), len(updates), widths[-1], round(point_of(v), 1), flush=True)
+            print("BEFORE", label, *before, flush=True)
+        return v
+
+    probe, _, _ = scene_viewer(10.0, False, None)
+    if (probe.canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    scale = probe.canvas.pixel_scale
+    room = (64.0 - 4.0 * (2.0 * scale + 1.5)) / scale
+    run("small", np.float32(room * 4.0), 64.0, 3)        # a driver limit of 64, a node far beyond it
+    run("fits", np.float32(room * 0.5), 64.0, 3)         # a driver limit of 64, a node within it
+    run("large", np.float32(room * 4.0), 2047.0, 3)      # this PC's limit: nothing to change
+    run("unknown", np.float32(room * 4.0), None, 3)      # an unreadable answer: nothing clamped, asked once
+    # What the large limit draws is what no probe at all draws.
+    plain, _, _ = scene_viewer(np.float32(room * 4.0), False, None)
+    probed = run("same", np.float32(room * 4.0), 2047.0, 1)
+    print("SAMEPIC", int(np.array_equal(plain.canvas.render(), probed.canvas.render())), flush=True)
+    """
+)
+
+
+class FirstDrawLimitTests(unittest.TestCase):
+    """The driver's point limit is read where a context is current, at the
+    markers' first draw, once; a node beyond it is whole in that picture (a
+    window frame, or a capture by canvas.render()) with no user action; later
+    draws read nothing and send nothing; a large limit changes nothing."""
+
+    def test_the_limit_is_read_at_the_first_draw_and_the_nodes_follow(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _FIRST_DRAW_SCRIPT, scale)
+                lines = [line.split() for line in output.splitlines()]
+                frames = {}
+                for line in lines:
+                    if line[:1] == ["FRAME"]:
+                        frames.setdefault(line[1], []).append([float(x) for x in line[2:]])
+                before = {line[1]: [float(x) for x in line[2:]] for line in lines if line[:1] == ["BEFORE"]}
+                # Nothing is read before the first draw, and the first send is unclamped.
+                for label in ("small", "fits", "large", "unknown"):
+                    self.assertEqual(before[label][:2], [0.0, 1.0], output)
+                self.assertGreater(before["small"][2], 64.0, output)
+                # Read once, at the first draw, never again.
+                for label in ("small", "fits", "large", "unknown"):
+                    self.assertEqual({row[1] for row in frames[label][:1]}, {1.0}, output)
+                    self.assertEqual({row[1] for row in frames[label]}, {1.0}, output)
+                # A node beyond the limit: one more update, in the first draw, whole at once.
+                self.assertEqual([row[2] for row in frames["small"]], [2.0, 2.0, 2.0], output)
+                for row in frames["small"]:
+                    self.assertLessEqual(row[3], 64.0, output)
+                    self.assertLessEqual(row[4], 64.0 + 1e-3, output)
+                # Nothing changes when the limit is large, unknown, or the node fits.
+                for label in ("fits", "large", "unknown"):
+                    self.assertEqual([row[2] for row in frames[label]], [1.0, 1.0, 1.0], output)
+                self.assertEqual(before["large"][2], frames["large"][-1][4], output)
+                self.assertIn("SAMEPIC 1", output)
 
 
 class PointLimitPixelTests(unittest.TestCase):

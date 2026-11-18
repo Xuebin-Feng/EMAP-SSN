@@ -2643,6 +2643,7 @@ class MainViewer:
         # before their nodes so their layer relationship remains exact.
         self.left_click_highlight = None
         self.markers = scene.visuals.Markers(parent=self.view.scene)
+        self._install_point_limit_probe()
         self.update_nodes()
         
         # --- MODIFIED: Parent changed to canvas.scene ---
@@ -2986,19 +2987,48 @@ class MainViewer:
         return edge_colors, edge_widths
 
     def _marker_point_limit(self):
-        """The driver's largest point in device pixels, read from the live GL
-        context once (None when unreadable, which is asked again next time)."""
+        """The driver's largest point in device pixels, or None while it is not
+        known (nothing is clamped). The environment stand-in answers at once;
+        otherwise the limit is learned at the markers' first draw
+        (_install_point_limit_probe), never by making a context current here."""
         from desktop.Viewer_Markers import POINT_LIMIT_ENV
         if os.environ.get(POINT_LIMIT_ENV, '').strip():
             return read_point_size_limit()
-        limit = getattr(self, '_point_size_limit', None)
-        if limit is None:
-            limit = read_point_size_limit(getattr(self, 'canvas', None))
-            self._point_size_limit = limit
-        return limit
+        return getattr(self, '_point_size_limit', None)
+
+    def _install_point_limit_probe(self):
+        """Read the driver's point limit once, when the node markers are first
+        drawn (the GL context is certainly current then, on screen and in
+        canvas.render() for a capture), and send the nodes again if the limit
+        changes any of them, before that same draw goes on."""
+        markers = self.markers
+        original = markers._prepare_draw
+
+        def prepare(*args, **kwargs):
+            if not getattr(self, '_point_limit_probed', False):
+                self._point_limit_probed = True
+                try:
+                    self._learn_point_limit()
+                except Exception as error:
+                    print(f"Warning: the driver's point-size limit was not applied: {error}")
+            return original(*args, **kwargs)
+
+        markers._prepare_draw = prepare
+
+    def _learn_point_limit(self):
+        limit = read_point_size_limit()
+        self._point_size_limit = limit
+        data = getattr(self, '_submitted_marker_data', None)
+        if limit is None or data is None:
+            return
+        sizes = np.asarray(data['size'])
+        clamped = clamp_marker_sizes(sizes, data['edge_width'], getattr(self.canvas, 'pixel_scale', 1.0),
+                                     getattr(self.markers, 'antialias', 1.0), limit)
+        if not np.array_equal(clamped, sizes):
+            self.update_nodes()
 
     def update_nodes(self):
-        colors =self.current_colors.copy()
+        colors = self.current_colors.copy()
         import matplotlib.colors as mcolors
         # A PNG capture (commands/print.py) sets transient_marks_hidden to leave
         # out the hover colour and the left-click rings. Only their drawing
@@ -3062,6 +3092,7 @@ class MainViewer:
                 marker_edge_colors[ring_slots] = 0.0
                 marker_edge_widths[ring_slots] = 0.0
                 marker_sizes[ring_slots] *= 2.0
+
             # No point beyond what the driver draws (Viewer_Markers): a larger
             # node is drawn whole at the limit; the picker gets the same sizes.
             marker_sizes = clamp_marker_sizes(
