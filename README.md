@@ -598,9 +598,11 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    ```
 
    > [!NOTE]
-   > An optional VR viewer is available as the `opt_vr` submodule, for Windows with a
-   > supported NVIDIA or AMD GPU and a VR headset with an OpenXR runtime such as
-   > SteamVR. GitHub source archives do not include it. Fetch it by cloning with
+   > An optional VR viewer is available as the `opt_vr` submodule. It runs on Windows
+   > only, with a supported NVIDIA or AMD GPU and a VR headset with an OpenXR runtime
+   > such as SteamVR. On Linux and macOS, leave it out: use the plain `git clone`
+   > above, since nothing in it is used there. GitHub source archives do not include
+   > it. On Windows, fetch it by cloning with
    > `git clone --recurse-submodules https://github.com/Xuebin-Feng/EMAP-SSN.git`,
    > or run `git submodule update --init opt_vr` in an existing clone. Update with
    > `git pull --recurse-submodules`, which keeps `opt_vr` at the commit this
