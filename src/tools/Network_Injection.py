@@ -111,6 +111,7 @@ from Embedding_Alignment_Engine import (
     tiled_accelerator_support,
 )
 from utilities.HDF5_Storage import read_embedding_manifest
+from utilities import Prefilter_Calibration
 
 # ==========================================
 # CONFIGURATION
@@ -1499,6 +1500,9 @@ def run_injection():
         old_l_len = hf_old_net['l_len'][:]
         old_g_score = hf_old_net['g_score'][:]
         old_g_len = hf_old_net['g_len'][:]
+        # An Edge Pre-filtering network's calibration sample lies below its
+        # cut on purpose, so it must not set the cut for the new pairs.
+        old_prefilter = Prefilter_Calibration.read_record(hf_old_net)
         inherited_precision = _decode_attr(
             hf_old_net.attrs.get("matmul_precision", "ieee_fp32")
         ).strip().lower()
@@ -1614,12 +1618,27 @@ def run_injection():
         cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
         
         new_header_to_idx = {h: idx for idx, h in enumerate(new_headers)}
-        
+
+        calibration_edges = set()
+        if old_prefilter is not None and len(old_prefilter.sample):
+            sample_keys = Prefilter_Calibration.pair_keys(
+                old_prefilter.sample.rows, old_prefilter.sample.cols, old_N
+            )
+            edge_keys = Prefilter_Calibration.pair_keys(old_i, old_j, old_N)
+            calibration_edges = set(np.flatnonzero(np.isin(edge_keys, sample_keys)).tolist())
+            del edge_keys
+            print(
+                f"  > Leaving out the input network's {len(calibration_edges):,} calibration "
+                "pairs, which its prefilter aligned below its cut."
+            )
+
         if total_old_pairs > 0:
             min_cos_val = 1.0
             min_cos_k = -1
-            
+
             for k in range(total_old_pairs):
+                if k in calibration_edges:
+                    continue
                 u_h = old_headers[old_i[k]]
                 v_h = old_headers[old_j[k]]
                 if u_h in new_header_to_idx and v_h in new_header_to_idx:
@@ -1644,6 +1663,8 @@ def run_injection():
             print("  > Scanning original network for edges below the threshold...")
             reported_count = 0
             for k in range(total_old_pairs):
+                if k in calibration_edges:
+                    continue
                 u_h = old_headers[old_i[k]]
                 v_h = old_headers[old_j[k]]
                 if u_h in new_header_to_idx and v_h in new_header_to_idx:

@@ -6429,6 +6429,10 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Length-adjusted embedding cosine similarity</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6446,6 +6450,10 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Observed pairs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calibration pairs, aligned below the prefilter cut</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7817,8 +7825,8 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
-Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
+        <source>Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.
+Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8086,6 +8094,10 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>A calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Percentage of candidate sequence pairs with lowest cosine similarity to discard.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8286,11 +8298,15 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Displays a diagnostic scatter plot for sparse networks.</source>
+        <source>When the network&apos;s Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
+        <source>Displays a diagnostic chart of the imputation fit for sparse networks.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

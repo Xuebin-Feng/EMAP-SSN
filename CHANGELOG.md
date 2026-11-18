@@ -35,6 +35,12 @@ still change before version 1.0.0.
 - Generate Embeddings now saves float16 by default (see Changed). To resume an interrupted
   run that was saving float32, set Saving Mode to float32 first: a resume keeps the file's
   saving mode and refuses a different one.
+- A network made with Edge Pre-filtering by an earlier version has no calibration sample
+  (see Changed), and neither has a BLAST network or one made by Network Injection or Network
+  Extraction. Embedding MSA imputes their missing pairs as before and warns that the
+  estimates are unchecked. To rebuild a prefiltered network with its sample, move the
+  network file aside and run Align Similarity Matrix again: while its `_network_temp` batch
+  folder is still there, only the calibration pairs are aligned.
 
 ### Added
 
@@ -417,6 +423,30 @@ still change before version 1.0.0.
   0.999999 or better with float32 storage, at most 6 of 8,194 top-5% network edges changed,
   and embedding-based MSA accuracy moved by at most 0.0008 SP F1 (TC unchanged on all 43
   sets). Choose float32 to store values exactly as computed.
+- **Edge Pre-filtering aligns a calibration sample of the pairs it skips, and Embedding MSA
+  fits and checks its estimates of a sparse network's missing pairs on it.** Before, the
+  isotonic fit saw only the kept pairs, so every skipped pair below the lowest of them got
+  one and the same estimate, and the R² it printed was measured on the kept pairs.
+  - Align Similarity Matrix aligns 1% of the skipped pairs (at least 2,000 and at most
+    50,000; all of them when fewer are skipped), the same number from each of 20
+    equal-count similarity bands, with seed 42. They are stored as ordinary edges, and the
+    network file records which pairs they are, how many skipped pairs each stands for, and
+    the prefilter's settings.
+  - Embedding MSA reads that record, uses the prefilter's pooling and length exponent (and
+    warns when its own settings differ), and fits on the kept pairs and the sample,
+    weighted. A fit without every second calibration pair is scored on those pairs: its
+    Spearman ρ, MAE and R² against their computed scores are printed, shown in the
+    regression chart (with the sample as dots) and saved in the guide tree's
+    `MISSING_PAIRS` note, with the share of missing pairs outside the fit's range.
+  - Tested offline on 15 dense networks with 20–75% of their pairs hidden as the prefilter
+    would hide them: the 12,927-sequence aminotransferase set with E1, Ankh base and ESM C
+    600M, and four HomFam families with Ankh base, ESM C 600M and ProstT5. The estimates'
+    R² on hidden pairs rose from a median of −0.47 (0 or below in all 60 cases) to 0.61,
+    and the held-out check came within 0.004 of the true R² (median). The guide tree's
+    topology barely changed; its agreement with the dense tree's distances rose in 39 of
+    the 60 cases and fell in 12.
+  - Network Injection leaves an input network's calibration pairs out when it takes the
+    lowest similarity among the network's edges as the cut for new pairs.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last

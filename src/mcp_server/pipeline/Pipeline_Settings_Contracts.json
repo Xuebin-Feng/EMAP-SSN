@@ -181,7 +181,7 @@
       "EDGE_PREFILTERING": {
         "type": "boolean",
         "default": false,
-        "description": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."
+        "description": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.\nA calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs."
       },
       "PREFILTER_STRENGTH": {
         "type": "integer",
@@ -408,7 +408,7 @@
           "null"
         ],
         "default": null,
-        "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression."
+        "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression.\nWhen the network's Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores."
       },
       "TREE_METHOD": {
         "type": "string",
@@ -448,7 +448,7 @@
       "SHOW_REGRESSION_PLOT": {
         "type": "boolean",
         "default": false,
-        "description": "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\nVisualizes the isotonic regression fit between mean embedding cosine distances and network scores."
+        "description": "Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.\nShows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network's calibration pairs and their held-out check when it stores them."
       },
       "NORMALIZATION_MODE": {
         "type": "string",

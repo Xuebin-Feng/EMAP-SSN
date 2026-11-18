@@ -1,4 +1,6 @@
-"""Embedding_MSA's isotonic regression chart: when a run shows it, and how it looks."""
+"""Embedding_MSA's isotonic regression: how a sparse run fits and checks it
+against a network's calibration sample, when the run shows its chart, and how
+the chart looks."""
 
 import contextlib
 import gc
@@ -26,6 +28,147 @@ import Embedding_MSA  # noqa: E402  msa_fixtures puts src/tools on the path
 
 OPENING = "Displaying Isotonic Regression plot."
 FAILED = "Could not open plot window: "
+UNCHECKED = "⚠️ This network stores no calibration sample of its missing pairs"
+
+
+class ImputationFitTests(unittest.TestCase):
+    """fit_imputation, held_out_check, outside_fit_fraction and the texts that report them."""
+
+    def setUp(self):
+        rng = np.random.default_rng(11)
+        # Observed pairs above a cut at 0.5, and a calibration sample below it.
+        self.above_x = rng.uniform(0.5, 1.0, 600)
+        self.below_x = rng.uniform(0.0, 0.5, 40)
+        self.x = np.concatenate([self.above_x, self.below_x])
+        self.y = 3 * self.x + rng.normal(0, 0.1, self.x.size)
+        # The sample's edges, listed in sample order (not edge order), each
+        # standing for a different number of skipped pairs.
+        self.positions = np.arange(600, 640)[::-1]
+        self.weights = rng.uniform(5.0, 50.0, 40)
+
+    def test_without_a_sample_the_fit_is_the_one_it_always_was(self):
+        fit = Embedding_MSA.fit_imputation(self.x, self.y, fit_pairs=100)
+        np.random.seed(42)
+        pick = np.random.choice(self.x.size, size=100, replace=False)
+        expected = IsotonicRegression(out_of_bounds="clip").fit(self.x[pick], self.y[pick])
+        np.testing.assert_array_equal(fit.fit_x, self.x[pick])
+        np.testing.assert_array_equal(fit.iso.X_thresholds_, expected.X_thresholds_)
+        np.testing.assert_array_equal(fit.iso.y_thresholds_, expected.y_thresholds_)
+        self.assertIsNone(fit.check)
+        self.assertIsNone(fit.calibration_x)
+        # Too few sample pairs to check: the same fit.
+        few = Embedding_MSA.fit_imputation(
+            self.x, self.y, self.positions[:Embedding_MSA.MIN_CALIBRATION_PAIRS - 1],
+            self.weights[:Embedding_MSA.MIN_CALIBRATION_PAIRS - 1], fit_pairs=100,
+        )
+        np.testing.assert_array_equal(few.iso.X_thresholds_, expected.X_thresholds_)
+        self.assertIsNone(few.check)
+
+    def test_a_sample_extends_the_fit_below_the_cut_weighted(self):
+        fit = Embedding_MSA.fit_imputation(self.x, self.y, self.positions, self.weights)
+        self.assertAlmostEqual(fit.iso.X_min_, self.below_x.min())
+        np.testing.assert_array_equal(fit.calibration_x, self.x[self.positions])
+        np.testing.assert_array_equal(np.sort(fit.fit_x), np.sort(self.above_x))
+        # The fit weights the sample by the skipped pairs each stands for.
+        expected = IsotonicRegression(out_of_bounds="clip").fit(
+            np.concatenate([self.above_x, self.x[self.positions]]),
+            np.concatenate([self.y[:600], self.y[self.positions]]),
+            sample_weight=np.concatenate([np.ones(600), self.weights]),
+        )
+        np.testing.assert_allclose(fit.iso.predict(self.x), expected.predict(self.x))
+        # Below the cut the estimates now follow the scores instead of one value.
+        self.assertGreater(np.ptp(fit.iso.predict(self.below_x)), 1.0)
+
+    def test_the_check_scores_every_second_pair_on_a_fit_without_them(self):
+        fit = Embedding_MSA.fit_imputation(self.x, self.y, self.positions, self.weights)
+        first = self.positions[0::2]
+        held = self.positions[1::2]
+        half = IsotonicRegression(out_of_bounds="clip").fit(
+            np.concatenate([self.above_x, self.x[first]]),
+            np.concatenate([self.y[:600], self.y[first]]),
+            sample_weight=np.concatenate([np.ones(600), self.weights[0::2] * 2]),
+        )
+        expected = Embedding_MSA.held_out_check(half.predict(self.x[held]), self.y[held])
+        self.assertEqual(fit.check.pairs, 20)
+        self.assertAlmostEqual(fit.check.spearman, expected.spearman)
+        self.assertAlmostEqual(fit.check.mae, expected.mae)
+        self.assertAlmostEqual(fit.check.r2, expected.r2)
+        self.assertGreater(fit.check.r2, 0.8)
+
+    def test_a_sampled_fit_takes_a_random_share_of_the_pairs_above_the_cut(self):
+        fit = Embedding_MSA.fit_imputation(self.x, self.y, self.positions, self.weights, fit_pairs=50)
+        self.assertEqual(fit.fit_x.size, 50)
+        self.assertTrue(np.all(fit.fit_x >= 0.5))
+        self.assertEqual(fit.calibration_x.size, 40)
+
+    def test_held_out_check_numbers(self):
+        check = Embedding_MSA.held_out_check([1.0, 2.0, 4.0], [1.0, 3.0, 3.0])
+        self.assertEqual(check.pairs, 3)
+        self.assertAlmostEqual(check.mae, 2 / 3)
+        centred = np.array([1.0, 3.0, 3.0]) - 7 / 3
+        self.assertAlmostEqual(check.r2, 1 - 2 / float(np.dot(centred, centred)))
+        self.assertAlmostEqual(check.spearman, 0.8660254, places=6)
+        # One predicted value, or one actual value: no rank correlation, and no R² for the latter.
+        self.assertTrue(np.isnan(Embedding_MSA.held_out_check([2, 2, 2], [1, 2, 3]).spearman))
+        flat = Embedding_MSA.held_out_check([1, 2, 3], [2, 2, 2])
+        self.assertTrue(np.isnan(flat.spearman))
+        self.assertTrue(np.isnan(flat.r2))
+
+    def test_outside_fraction_counts_the_missing_pairs_beyond_the_fit(self):
+        rng = np.random.default_rng(2)
+        n = 1_300  # more rows than one block
+        matrix = rng.uniform(0, 1, (n, n))
+        matrix = (matrix + matrix.T) / 2
+        rows, cols = np.triu_indices(n, k=1)
+        observed = rng.random(rows.size) < 0.3
+        observed_x = matrix[rows[observed], cols[observed]]
+        iso = IsotonicRegression(out_of_bounds="clip").fit([0.2, 0.9], [0.0, 1.0])
+        missing = int(np.count_nonzero(~observed))
+        values = matrix[rows[~observed], cols[~observed]]
+        expected = np.count_nonzero((values < 0.2) | (values > 0.9)) / missing
+        got = Embedding_MSA.outside_fit_fraction(matrix, iso, observed_x, missing)
+        self.assertAlmostEqual(got, expected)
+        self.assertEqual(Embedding_MSA.outside_fit_fraction(matrix, iso, observed_x, 0), 0.0)
+
+    def test_the_guide_tree_note_says_how_missing_pairs_were_filled(self):
+        check = Embedding_MSA.CalibrationCheck(1234, 0.81234, 0.41234, 0.63456)
+        cases = (
+            (False, None, "None. Every pair is in the network."),
+            (True, None, "Regression-imputed from embedding distances"),
+            (True, Embedding_MSA.ImputationSummary(9_000, 0.001, check, 2_468),
+             "Regression-imputed from embedding distances; checked on 1,234 held-out "
+             "calibration pairs: Spearman 0.8123, MAE 0.4123, R^2 0.6346; 0.1% of missing "
+             "pairs outside the fit's range"),
+            (True, Embedding_MSA.ImputationSummary(9_000, 1.0),
+             "Regression-imputed from embedding distances; the network has no calibration "
+             "pairs, so the estimates are unchecked; 100.0% of missing pairs outside the "
+             "fit's range"),
+        )
+        for imputed, summary, note in cases:
+            with self.subTest(note=note):
+                self.assertEqual(Embedding_MSA.missing_pairs_note(imputed, summary), note)
+
+    def test_the_report_gives_the_check_or_warns_without_one(self):
+        rng = np.random.default_rng(3)
+        x = rng.uniform(0, 1, 200)
+        y = 2 * x
+        sampled = Embedding_MSA.fit_imputation(x, y, np.arange(20), np.ones(20))
+        summary = Embedding_MSA.ImputationSummary(5_000, 0.002, sampled.check, 20)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            Embedding_MSA.report_imputation(sampled, summary)
+        text = printed.getvalue()
+        self.assertIn("Calibration check (20 directly computed pairs from below the prefilter cut):", text)
+        self.assertIn("A fit without every second one predicts those 10: Spearman rho", text)
+        self.assertIn("Missing pairs outside the fit's range: 0.2% of 5,000", text)
+        self.assertNotIn(UNCHECKED, text)
+
+        plain = Embedding_MSA.fit_imputation(x, y)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            Embedding_MSA.report_imputation(plain, Embedding_MSA.ImputationSummary(5_000, 0.97))
+        text = printed.getvalue()
+        self.assertIn("Missing pairs outside the fit's range: 97.0% of 5,000", text)
+        self.assertIn(UNCHECKED, text)
+        self.assertNotIn("Calibration check", text)
 
 
 class RegressionPlotRunTests(unittest.TestCase):
@@ -91,6 +234,72 @@ class RegressionPlotRunTests(unittest.TestCase):
         output = self.run_builder(fixture, plot, SHOW_REGRESSION_PLOT=True)
         self.assertIn(FAILED + "no display", output)
 
+    def test_a_network_without_a_sample_warns_that_its_estimates_are_unchecked(self):
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        plot = mock.Mock()
+        output = self.run_builder(fixture, plot, SHOW_REGRESSION_PLOT=True)
+        self.assertIn(UNCHECKED, output)
+        self.assertIn("Missing pairs outside the fit's range: ", output)
+        self.assertNotIn("Calibration check", output)
+        fit = plot.call_args.kwargs["calibration"]
+        self.assertIsNone(fit.check)
+
+    def test_a_calibrated_run_fits_and_checks_on_the_networks_sample(self):
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        record = fixture.add_calibration_sample(count=12)
+        plot = mock.Mock()
+        output = self.run_builder(fixture, plot, SHOW_REGRESSION_PLOT=True)
+
+        self.assertIn(
+            "The network's prefilter aligned a calibration sample of 12 pairs below its cut; "
+            "12 are among this run's sequences.",
+            output,
+        )
+        self.assertIn("Calibration check (12 directly computed pairs from below the prefilter cut):", output)
+        self.assertIn("A fit without every second one predicts those 6: ", output)
+        self.assertNotIn(UNCHECKED, output)
+        iso_reg, x, y, rho, r2, pairs = plot.call_args.args
+        fit = plot.call_args.kwargs["calibration"]
+        self.assertIs(fit.iso, iso_reg)
+        self.assertEqual(fit.calibration_x.size, 12)
+        self.assertEqual(fit.check.pairs, 6)
+        # The hexagons hold the other observed pairs; the sample goes apart.
+        self.assertEqual(len(x) + 12, pairs)
+        self.assertEqual(float(iso_reg.X_min_), float(min(x.min(), fit.calibration_x.min())))
+        self.assertEqual(len(record.sample), 12)
+
+    def test_the_imputation_uses_the_prefilters_pooling_and_power(self):
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        fixture.add_calibration_sample(count=12, pooling="mean", length_power=1.0)
+        calibration = Embedding_MSA.Prefilter_Calibration
+        real_pooled = calibration.pooled_vectors
+        real_similarity = calibration.length_adjusted_similarity
+        used = {}
+
+        # Only the settings are kept: holding the HDF5 group would keep the file open.
+        def pooled(embeddings, names, pooling, progress=None):
+            used["pooling"] = pooling
+            return real_pooled(embeddings, names, pooling, progress)
+
+        def similarity(vectors, lengths, power):
+            used["power"] = power
+            return real_similarity(vectors, lengths, power)
+
+        with mock.patch.object(calibration, "pooled_vectors", pooled), \
+                mock.patch.object(calibration, "length_adjusted_similarity", similarity):
+            output = self.run_builder(fixture, mock.Mock(), POOLING_METHOD="max", LENGTH_RATIO_POWER=2.0)
+        self.assertEqual(used, {"pooling": "mean", "power": 1.0})
+        self.assertIn(
+            "⚠️ The network's prefilter used mean pooling and length-ratio power 1, but this run "
+            "is set to max and 2. The imputation uses the network's",
+            output,
+        )
+        # Matching settings say nothing.
+        fixture = NetworkFixture(self.directory / "same", complete=False, seed=2)
+        fixture.add_calibration_sample(count=12)
+        output = self.run_builder(fixture, mock.Mock())
+        self.assertNotIn("The network's prefilter used", output)
+
 
 class RegressionStatisticsTests(unittest.TestCase):
     def test_the_line_gives_rho_r2_and_the_pairs(self):
@@ -130,15 +339,16 @@ class RegressionChartTests(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         self.app_settings = pathlib.Path(temp_dir.name) / "app_settings.json"
 
-    def draw(self, pairs=400, color=None, saved=None, language="en", environment=None):
+    def draw(self, pairs=400, color=None, saved=None, language="en", environment=None,
+             calibration=None):
         """The figure plt.show was given, drawn; color is the Tools window's saved one.
 
         pairs counts the observed pairs, of which the class's 400 are a sample
         when it is larger. language is the saved LANGUAGE, English unless a
         test asks, whatever the system's; environment adds variables, as
         SSN_PSEUDO_TRANSLATION. saved, when given, is the whole
-        app_settings.json text instead. The warnings raised while drawing
-        are left in self.warnings.
+        app_settings.json text instead. calibration is passed on to the
+        chart. The warnings raised while drawing are left in self.warnings.
         """
         if saved is None:
             settings = {"LANGUAGE": language}
@@ -160,7 +370,9 @@ class RegressionChartTests(unittest.TestCase):
                 mock.patch.object(self.plt, "show", side_effect=show), \
                 warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            Embedding_MSA.plot_regression_fit(self.iso, self.x, self.y, 0.5, 0.25, pairs)
+            Embedding_MSA.plot_regression_fit(
+                self.iso, self.x, self.y, 0.5, 0.25, pairs, calibration=calibration
+            )
         self.warnings = [str(warning.message) for warning in caught]
         self.assertEqual(len(shown), 1)
         self.assertFalse(self.plt.fignum_exists("Isotonic Regression Fit"))
@@ -257,6 +469,65 @@ class RegressionChartTests(unittest.TestCase):
         axes = self.draw(pairs=len(self.x)).axes[0]
         self.assertEqual(axes.get_legend().get_texts()[0].get_text(), "Observed pairs")
 
+    def calibrated(self):
+        """A fit over the class's pairs and a 60-pair sample below them, as a run makes it."""
+        rng = np.random.default_rng(8)
+        below = rng.uniform(0.1, 0.6, 60).astype(np.float32)
+        x = np.concatenate([self.x, below])
+        y = np.concatenate([self.y, (1 + 2 * below + rng.normal(0, 0.3, 60)).astype(np.float32)])
+        return Embedding_MSA.fit_imputation(x, y, np.arange(400, 460), np.full(60, 50.0))
+
+    def test_a_calibration_sample_shows_as_dots_with_its_check(self):
+        from matplotlib.collections import PathCollection
+        from matplotlib.colors import to_rgba
+        from matplotlib.text import Text
+        from desktop.Studio_Theme import theme_tokens
+
+        tokens = theme_tokens("teal")
+        fit = self.calibrated()
+        figure = self.draw(pairs=2_060, color="teal", calibration=fit)
+        axes = figure.axes[0]
+        (dots,) = [item for item in axes.collections if isinstance(item, PathCollection)]
+        np.testing.assert_array_equal(
+            dots.get_offsets(), np.column_stack([fit.calibration_x, fit.calibration_y])
+        )
+        self.assertEqual(to_rgba(dots.get_facecolor()[0])[:3], to_rgba(tokens["text_muted"])[:3])
+        # Over the hexagons, under the fit's line.
+        self.assertGreater(dots.get_zorder(), self.hexagons(figure).get_zorder())
+        self.assertLess(dots.get_zorder(), axes.lines[0].get_zorder())
+        legend = [text.get_text() for text in axes.get_legend().get_texts()]
+        self.assertEqual(legend, [
+            "Observed pairs (random sample of 400)",
+            "Calibration pairs, aligned below the prefilter cut",
+            "Isotonic fit",
+        ])
+        texts = {text.get_text(): text for text in figure.findobj(Text) if text.get_text()}
+        check = texts[str(Embedding_MSA.calibration_statistics(fit.check))]
+        self.assertTrue(check.get_text().startswith("Held-out check on 30 calibration pairs · Spearman ρ "))
+        statistics = texts[str(Embedding_MSA.regression_statistics(0.5, 0.25, 2_060))]
+        title = texts["Isotonic Regression Fit"]
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        canvas = FigureCanvasAgg(figure)
+        canvas.draw()
+        renderer = canvas.get_renderer()
+        # Bottom up: the legend, the check line, the statistics line, the title.
+        boxes = [axes.get_legend(), check, statistics, title]
+        extents = [item.get_window_extent(renderer) for item in boxes]
+        for lower, upper in zip(extents, extents[1:]):
+            self.assertLess(lower.y1, upper.y0)
+        # 400 hexagon pairs stand for all 2,000 besides the sample: a random sample.
+        axes = self.draw(pairs=460, calibration=fit).axes[0]
+        self.assertEqual(axes.get_legend().get_texts()[0].get_text(), "Observed pairs")
+
+    def test_a_fit_without_a_sample_draws_as_before(self):
+        from matplotlib.collections import PathCollection
+
+        plain = Embedding_MSA.fit_imputation(self.x, self.y)
+        axes = self.draw(calibration=plain).axes[0]
+        self.assertFalse([item for item in axes.collections if isinstance(item, PathCollection)])
+        self.assertEqual(len(axes.get_legend().get_texts()), 2)
+
     def test_the_colour_bar_counts_pairs_per_hexagon(self):
         figure = self.draw()
         colour_bar = figure.axes[1]
@@ -285,14 +556,24 @@ class RegressionChartTests(unittest.TestCase):
         for text in words + [self.window_title]:
             self.assertTrue(is_pseudo_translated(text), text)
         self.assertEqual(self.warnings, [])
+        # A calibration sample adds its legend entry and its check line.
+        figure = self.draw(pairs=2_060, environment={"SSN_PSEUDO_TRANSLATION": "1"},
+                           calibration=self.calibrated())
+        words = self.words(figure)
+        self.assertEqual(len(words), 9, words)
+        for text in words:
+            self.assertTrue(is_pseudo_translated(text), text)
+        self.assertEqual(self.warnings, [])
 
     def test_simplified_chinese_draws_in_its_bundled_font_with_no_glyph_missing(self):
         # Nor a face: matplotlib logs one a family lacks, as Noto Sans SC lacks semibold.
         with self.assertNoLogs("matplotlib", level="WARNING"):
-            figure = self.draw(pairs=2_000, language="zh_CN")
+            figure = self.draw(pairs=2_060, language="zh_CN", calibration=self.calibrated())
         title = figure.axes[0].get_title(loc="left")
         self.assertEqual(self.window_title, title)
-        for text in self.words(figure):
+        words = self.words(figure)
+        self.assertEqual(len(words), 9, words)
+        for text in words:
             self.assertRegex(text, "[一-鿿]", "every text shows in Chinese")
         self.assertEqual(self.warnings, [])
 

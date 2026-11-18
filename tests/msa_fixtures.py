@@ -138,6 +138,41 @@ class NetworkFixture:
                 network.create_dataset("l_score", data=self.score / 2)
                 network.create_dataset("l_len", data=self.length)
 
+    def add_calibration_sample(self, count=12, pooling="max", length_power=2.0, weight=3.0):
+        """Record count of the network's listed pairs as an Edge Pre-filtering calibration sample.
+
+        The pairs are distinct, in range and between sequences that have
+        embeddings, so a run finds every one. Returns the record written.
+        """
+        from utilities import Prefilter_Calibration
+
+        node_count = len(self.net_headers)
+        embedded = set(self.emb_headers)
+        rows, cols, seen = [], [], set()
+        for a, b in zip(self.arr_i.tolist(), self.arr_j.tolist()):
+            if a == b or max(a, b) >= node_count:
+                continue
+            if self.net_headers[a] not in embedded or self.net_headers[b] not in embedded:
+                continue
+            pair = (min(a, b), max(a, b))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            rows.append(pair[0])
+            cols.append(pair[1])
+            if len(rows) == count:
+                break
+        record = Prefilter_Calibration.PrefilterRecord(
+            strength=20.0, threshold=0.5, pooling=pooling, length_power=length_power,
+            kept=int(self.arr_i.size) - len(rows), skipped=len(rows) * int(weight),
+            sample=Prefilter_Calibration.CalibrationSample(
+                np.array(rows), np.array(cols), np.full(len(rows), float(weight))
+            ),
+        )
+        with h5py.File(self.network_dir / NETWORK_NAME, "a") as network:
+            Prefilter_Calibration.write_record(network, record, np.uint16)
+        return record
+
 
 class InProcessPool:
     """Runs bootstrap trees in this process, in seed order.

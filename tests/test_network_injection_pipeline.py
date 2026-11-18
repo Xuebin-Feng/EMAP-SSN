@@ -29,6 +29,7 @@ for path in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
 # The tests package points tool imports at a missing settings file.
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     from utilities import HDF5_Storage as Embedding_HDF5
+    from utilities import Prefilter_Calibration
     import Network_Injection as network_injection
 
 from tests.alignment_fixtures import BatchResumeScanFixture, RecordingTrial  # noqa: E402
@@ -1142,6 +1143,81 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             actual[:2],
             [(0, 1, 31.5, 31, 32.5, 32), (0, 2, 21.5, 21, 22.5, 22)],
         )
+
+    def test_a_calibration_sample_does_not_lower_the_cut_for_new_pairs(self):
+        # One-residue embeddings, so each mean is the vector itself. A-B and
+        # A-C are kept pairs (cosine about 0.98 and up); C-D is the prefilter's
+        # calibration pair, far below its cut (about -0.92). The new sequence
+        # E's cosines to A-D lie between the two, so counting the calibration
+        # pair as the lowest kept edge would align all four E pairs.
+        vectors = {
+            "A": [1.0, 0.0], "B": [1.0, 0.1], "C": [1.0, 0.2], "D": [-1.0, 0.2], "E": [0.0, 1.0],
+        }
+        old_headers = ["A", "B", "C", "D"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            embed_dir = os.path.join(temp_dir, "embed")
+            network_dir = os.path.join(temp_dir, "network")
+            os.makedirs(embed_dir)
+            os.makedirs(network_dir)
+            with h5py.File(os.path.join(embed_dir, "newset_[esm2_t6_8m]_embeddings.h5"), "w") as hf:
+                group = Embedding_HDF5.create_metadata_first_file(
+                    hf, list(vectors), ["K"] * len(vectors), "esm2_t6_8m", "float32",
+                )
+                for header, vector in vectors.items():
+                    group.create_dataset(header, data=np.asarray([vector], np.float32))
+                Embedding_HDF5.mark_generation_complete(hf)
+            with h5py.File(os.path.join(network_dir, "oldset_[esm2_t6_8m]_network.h5"), "w") as hf:
+                hf.attrs["model_name"] = "esm2_t6_8m"
+                hf.attrs["saving_mode"] = "float32"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], np.float32)
+                hf.attrs["matmul_precision"] = "ieee_fp32"
+                hf.create_dataset(
+                    "headers", data=np.array(old_headers, dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
+                )
+                hf.create_dataset("seq_lens", data=np.ones(4, np.uint16))
+                for name, data, dtype in (
+                    ("i", [0, 0, 2], np.uint16), ("j", [1, 2, 3], np.uint16),
+                    ("l_score", [9.0, 8.0, 1.0], np.float32), ("l_len", [1, 1, 1], np.uint16),
+                    ("g_score", [9.0, 8.0, 1.0], np.float32), ("g_len", [1, 1, 1], np.uint16),
+                ):
+                    hf.create_dataset(name, data=np.asarray(data, dtype))
+                Prefilter_Calibration.write_record(hf, Prefilter_Calibration.PrefilterRecord(
+                    strength=50.0, threshold=0.9, pooling="max", length_power=2.0, kept=2, skipped=4,
+                    sample=Prefilter_Calibration.CalibrationSample(
+                        np.array([2]), np.array([3]), np.array([4.0])
+                    ),
+                ), np.uint16)
+
+            cpu_tasks = mock.Mock(return_value=[])
+            assigned = (
+                "_old_seq_set", "_new_seq_set", "_model_name", "RESULTS_DIR",
+                "FINAL_OUTPUT_NET", "CONFIG_FILE", "LOCAL_GAP_P", "GLOBAL_GAP_P",
+            )
+            plan = mock.Mock(variant="scalar", lanes=1)
+            plan.candidate.is_cpu = True
+            plan.candidate.device = torch.device("cpu")
+            with mock.patch.multiple(
+                network_injection,
+                **{name: getattr(network_injection, name) for name in assigned},
+                OLD_NETWORK="oldset_[esm2_t6_8m]_network.h5",
+                NEW_EMBEDDINGS="newset_[esm2_t6_8m]_embeddings.h5",
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=network_dir,
+                EXECUTION_MODE="auto",
+                DEVICE_SELECTION="auto",
+                set_start_method=mock.DEFAULT,
+                _benchmark_injection_plans=mock.Mock(return_value=[plan]),
+                process_cpu_tasks=cpu_tasks,
+            ), redirect_stdout(io.StringIO()) as printed, redirect_stderr(io.StringIO()):
+                network_injection.run_injection()
+
+        text = printed.getvalue()
+        self.assertIn("Leaving out the input network's 1 calibration pairs", text)
+        cosine_ac = 1.0 / np.linalg.norm(vectors["C"])
+        self.assertIn(f"Setting cosine similarity prefiltering threshold to: {cosine_ac:.6f}", text)
+        tasks = [task for call in cpu_tasks.call_args_list for task in call.args[0]]
+        self.assertEqual([task for task in tasks if "E" in task[2:]], [])
 
 
 class InjectionResumeScanTests(BatchResumeScanFixture, unittest.TestCase):

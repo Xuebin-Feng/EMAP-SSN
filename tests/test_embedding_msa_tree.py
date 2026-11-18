@@ -615,6 +615,31 @@ class BuilderGuideTreeTests(unittest.TestCase):
             atol=1e-6,
         )
 
+    def test_a_sparse_tree_notes_how_its_missing_pairs_were_filled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plain = NetworkFixture(pathlib.Path(directory) / "plain", complete=False, seed=4)
+            unchecked = nexus_notes(self.run_builder(plain)["text"])["MISSING_PAIRS"]
+            sampled = NetworkFixture(pathlib.Path(directory) / "sampled", complete=False, seed=4)
+            sampled.add_calibration_sample(count=12)
+            checked = nexus_notes(self.run_builder(sampled)["text"])["MISSING_PAIRS"]
+            complete = NetworkFixture(pathlib.Path(directory) / "complete", seed=4)
+            dense = nexus_notes(self.run_builder(complete)["text"])["MISSING_PAIRS"]
+
+        number = r"(-?\d+\.\d{4}|nan)"
+        self.assertRegex(
+            unchecked,
+            r"^Regression-imputed from embedding distances; the network has no calibration "
+            r"pairs, so the estimates are unchecked; \d+\.\d% of missing pairs outside the "
+            r"fit's range$",
+        )
+        self.assertRegex(
+            checked,
+            rf"^Regression-imputed from embedding distances; checked on 6 held-out calibration "
+            rf"pairs: Spearman {number}, MAE {number}, R\^2 {number}; \d+\.\d% of missing pairs "
+            rf"outside the fit's range$",
+        )
+        self.assertEqual(dense, "None. Every pair is in the network.")
+
     def test_neighbor_joining_tree_keeps_its_branch_lengths_and_labels_splits(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = NetworkFixture(directory, seed=6)

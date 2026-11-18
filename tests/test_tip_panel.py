@@ -1992,7 +1992,7 @@ class ToolsWindowTipTests(WithApplication):
             text = re.sub(r"\s+", " ", plain_text(self.shown()))
             self.assertIn("Incomplete network: 10 sequences and 20/45 observed pairs", text)
             # The state's note joins the tip's own text; the tooltip is that tip as plain text.
-            self.assertIn("Displays a diagnostic scatter plot for sparse networks.", text)
+            self.assertIn("Displays a diagnostic chart of the imputation fit for sparse networks.", text)
             self.assertEqual(switch.toolTip(), tip_plain(self.window.tip_db[switch]))
             self.assertEqual(switch.property("registeredTooltip"), switch.toolTip())
             self.assertEqual(

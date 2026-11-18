@@ -62,7 +62,7 @@
       "requirements": "A GPU, when available, computes each pair's residue score matrix; the dynamic-programming alignment itself always runs on CPU workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
       "notes": [
         "Layouts of this network choose ALIGNMENT_SCORE (global or local) and NORM_MODE; scores are normalized alignment scores, not identities.",
-        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high.",
+        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. It still aligns a 1% calibration sample of the skipped pairs, which embedding_msa uses to fit and check its imputation of the rest.",
         "The log states Total Required pairs and, during the benchmark, each plan's throughput in pairs/s; divide to estimate the run time before committing to a large job."
       ]
     },

@@ -116,6 +116,7 @@ from utilities.Network_Kernels import (
     global_local_scores,
 )
 from utilities.HDF5_Storage import read_embedding_manifest
+from utilities import Prefilter_Calibration
 
 # ==========================================
 # CONFIGURATION
@@ -2273,6 +2274,64 @@ def _count_computed_required_pairs(computed_mask, required_mask):
         return int(np.count_nonzero(computed_mask & required_mask))
     return int(np.count_nonzero(computed_mask) // 2)
 
+def prefilter_pairs(safe_headers, seq_lens):
+    """Edge Pre-filtering: the pairs to align, and the record the network keeps of the cut.
+
+    The required mask marks, in its upper triangle, every pair whose
+    length-adjusted pooled-embedding similarity reaches the
+    PREFILTER_STRENGTH percentile, plus the calibration sample of the pairs
+    below it (see utilities.Prefilter_Calibration).
+    """
+    print(f"\n--- 🛠️ Edge Prefiltering: Calculating {POOLING_METHOD} Pooled Length-Adjusted Similarities ---")
+    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
+        pooled = Prefilter_Calibration.pooled_vectors(
+            hf["embeddings"],
+            safe_headers,
+            POOLING_METHOD,
+            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({POOLING_METHOD})"),
+        )
+    # All-vs-all on the CPU.
+    similarity = Prefilter_Calibration.length_adjusted_similarity(
+        pooled, seq_lens, LENGTH_RATIO_POWER
+    )
+    del pooled
+    n = len(safe_headers)
+    total_pairs = n * (n - 1) // 2
+    upper = np.triu(np.ones((n, n), dtype=bool), k=1)
+    values = similarity[upper]
+    threshold = float(np.percentile(values, PREFILTER_STRENGTH))
+    required_mask = (similarity >= threshold) & upper
+    del similarity, upper
+    num_kept = int(np.count_nonzero(required_mask))
+    skipped = total_pairs - num_kept
+
+    sample = Prefilter_Calibration.select_calibration(values, threshold, n)
+    del values
+    required_mask[sample.rows, sample.cols] = True
+
+    print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
+    print(f"  > Adjusted Similarity Threshold: {threshold:.6f}")
+    print(f"  > Retaining {num_kept} / {total_pairs} pairs ({100.0 * num_kept / total_pairs:.2f}%)")
+    if skipped:
+        print(
+            f"  > Calibration sample: {len(sample):,} of the {skipped:,} skipped pairs "
+            f"({100.0 * len(sample) / skipped:.2f}%), drawn evenly from "
+            f"{Prefilter_Calibration.BINS} similarity bands (seed {Prefilter_Calibration.SEED}). "
+            "Embedding MSA uses their scores to fit and check its estimates of the skipped pairs."
+        )
+    print("-----------------------------------------------------------\n")
+    record = Prefilter_Calibration.PrefilterRecord(
+        strength=float(PREFILTER_STRENGTH),
+        threshold=threshold,
+        pooling=POOLING_METHOD,
+        length_power=float(LENGTH_RATIO_POWER),
+        kept=num_kept,
+        skipped=skipped,
+        sample=sample,
+    )
+    return required_mask, record
+
+
 def compile_final_output(
     headers,
     seq_lens,
@@ -2283,6 +2342,7 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
     matmul_precision="ieee_fp32",
+    prefilter_record=None,
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -2350,6 +2410,7 @@ def compile_final_output(
             model_name,
             gap_penalties,
             matmul_precision,
+            prefilter_record,
         )
         os.replace(partial_output, FINAL_OUTPUT_NET)
     except BaseException:
@@ -2375,6 +2436,7 @@ def _merge_batches_into(
     model_name,
     gap_penalties,
     matmul_precision,
+    prefilter_record=None,
 ):
     with h5py.File(output_path, "w") as hf_out:
         if current_checksum is not None:
@@ -2383,6 +2445,8 @@ def _merge_batches_into(
         if gap_penalties is not None:
             hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
         hf_out.attrs["matmul_precision"] = matmul_precision
+        if prefilter_record is not None:
+            Prefilter_Calibration.write_record(hf_out, prefilter_record, idx_dtype)
 
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf_out.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
@@ -2495,57 +2559,9 @@ def run_job_distributor():
     
     # Prefiltering logic
     required_mask = None
+    prefilter_record = None
     if EDGE_PREFILTERING and PREFILTER_STRENGTH > 0 and n >= 2:
-        print(f"\n--- 🛠️ Edge Prefiltering: Calculating {POOLING_METHOD} Pooled Length-Adjusted Similarities ---")
-        mean_embs = []
-        with h5py.File(FULL_INPUT_HDF5, "r") as hf:
-            for h in tqdm(safe_headers, desc=f"Pooling Embeddings ({POOLING_METHOD})"):
-                emb = hf["embeddings"][h][:]
-                if POOLING_METHOD == "max":
-                    pooled = np.max(emb, axis=0)
-                else:
-                    pooled = np.mean(emb, axis=0)
-                mean_embs.append(pooled)
-        mean_embs = np.array(mean_embs, dtype=np.float32)
-        
-        # Calculate all-vs-all cosine similarities on CPU
-        norms = np.linalg.norm(mean_embs, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1e-8, norms)
-        norm_embs = mean_embs / norms
-        cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
-        
-        # Apply sequence length ratio adjustment
-        seq_lens_array = np.array(seq_lens, dtype=np.int32)
-        lens_col = seq_lens_array[:, np.newaxis]
-        lens_row = seq_lens_array[np.newaxis, :]
-        min_lens = np.minimum(lens_col, lens_row)
-        max_lens = np.maximum(lens_col, lens_row)
-        max_lens = np.maximum(max_lens, 1)
-        length_ratio_mat = min_lens / max_lens
-        
-        if LENGTH_RATIO_POWER != 1.0:
-            length_ratio_mat = length_ratio_mat ** LENGTH_RATIO_POWER
-            
-        cos_sim = cos_sim * length_ratio_mat
-        
-        # Memory-efficient percentile extraction
-        mask = np.triu(np.ones((n, n), dtype=bool), k=1)
-        triu_values = cos_sim[mask]
-        del mask
-        
-        threshold = np.percentile(triu_values, PREFILTER_STRENGTH)
-        del triu_values
-        
-        # Get indices of kept pairs
-        mask = np.triu(np.ones((n, n), dtype=bool), k=1)
-        required_mask = (cos_sim >= threshold) & mask
-        del mask, cos_sim
-        
-        num_kept = np.sum(required_mask)
-        print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
-        print(f"  > Adjusted Similarity Threshold: {threshold:.6f}")
-        print(f"  > Retaining {num_kept} / {total_pairs} pairs ({100.0 * num_kept / total_pairs:.2f}%)")
-        print("-----------------------------------------------------------\n")
+        required_mask, prefilter_record = prefilter_pairs(safe_headers, seq_lens)
 
     # Allocate computed mask
     computed_mask = np.zeros((n, n), dtype=bool)
@@ -2732,6 +2748,7 @@ def run_job_distributor():
         current_saving_mode,
         current_gap_penalties,
         active_matmul_precision,
+        prefilter_record=prefilter_record,
     )
 
 def main(argv=None):

@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 4e667ffc68c4085db36c28030b05572b0372419f1d4e3867316f10a1edd5bfad -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 117972b3dbc8026880f32d36a95e4cb346a6108ba0242512af4a443581022509 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -16,7 +16,7 @@
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 启用边预过滤 **`EDGE_PREFILTERING`** | 切换是否用全局余弦相似度（cosine similarity）对序列对进行预过滤。启用时，相似度低于阈值的序列对会跳过完整的残基级比对。 |
+| 启用边预过滤 **`EDGE_PREFILTERING`** | 切换是否用全局余弦相似度（cosine similarity）对序列对进行预过滤。启用时，相似度低于阈值的序列对会跳过完整的残基级比对，但其中的一个校准样本除外，Embedding 多序列比对用它拟合并检验对其余序列对的估计（见算法详情）。 |
 | 预过滤强度 **`PREFILTER_STRENGTH`** | 全局余弦相似度得分最低、要从比对计算中排除的序列对所占的百分比。数值越高速度越快，但可能漏掉亲缘关系较远的蛋白质之间的比对。 |
 | CPU 工作线程数 **`WORKERS`** | 分配给并行比对计算的 CPU 进程/线程数。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）使用的空位罚分（gap penalty）值。数值越负，对空位（gap）的惩罚越重，产生的空位越少。 |
@@ -41,6 +41,7 @@
     - `/seq_lens`：按序列标题（FASTA header）顺序排列的已清理序列长度。
     - `/headers`：序列标题数组。
     - 属性 `model_name`、`embedding_checksum` 和 `gap_penalties`，用于校验以及兼容的增量复用。
+    - 启用边预过滤时，记录截断及其校准样本：属性 `prefilter_strength`、`prefilter_threshold`、`prefilter_pooling`、`prefilter_length_ratio_power`、`prefilter_kept_pairs`、`prefilter_skipped_pairs`、`calibration_bins` 和 `calibration_seed`，以及数据集 `/calibration_i` 和 `/calibration_j`（样本中的序列对，它们同样作为边存储）和 `/calibration_weight`（每个序列对所代表的被跳过序列对数量）。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>
@@ -59,6 +60,8 @@
      $$\text{Adj}(i, j) = \text{Sim}_{\text{cos}}(i, j) \times \left(\frac{\min(L_i, L_j)}{\max(L_i, L_j)}\right)^P$$
      
      得分处于 `PREFILTER_STRENGTH` 所对应最低百分位的序列对会被跳过。
+
+     被跳过的序列对中有一个校准样本仍会照常比对：占被跳过序列对的 1%，至少 2,000 个、至多 50,000 个（被跳过的不足此数时全部比对），从被跳过序列对按相似度划分的 20 个等数量区段中各取相同数量（包括最低区段），抽样种子为 42。它们的得分与其他边一同存储。Embedding 多序列比对也用它们拟合对被跳过序列对的插补，并报告该插补对其计算得分的预测效果。
 
 3. **残基级相似性矩阵计算**：
      对每个通过预过滤的序列对 $(i, j)$，计算一个两两余弦距离矩阵。首先，沿隐藏维度对残基 embedding 做 L2 归一化：

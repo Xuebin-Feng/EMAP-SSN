@@ -486,8 +486,9 @@ def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
         return False, note
     fallback = translate(
         "Tools",
-        "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\n"
-        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.",
+        "Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.\n"
+        "Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, "
+        "with the network's calibration pairs and their held-out check when it stores them.",
     )
     return True, " ".join([note, default_tip or fallback])
 
@@ -1814,7 +1815,10 @@ class ToolsGUI(QMainWindow):
                 ),
                 "EDGE_PREFILTERING": Tip(
                     translate("Tools", "Pre-filters sequence pairs using cosine similarity of global pooled embeddings."),
-                    details=(translate("Tools", "Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),),
+                    details=(
+                        translate("Tools", "Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),
+                        translate("Tools", "A calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs."),
+                    ),
                 ),
                 "PREFILTER_STRENGTH": Tip(
                     translate("Tools", "Percentage of candidate sequence pairs with lowest cosine similarity to discard."),
@@ -1929,11 +1933,14 @@ class ToolsGUI(QMainWindow):
                 ),
                 "INPUT_NETWORK": Tip(
                     translate("Tools", "Pairwise similarity network (`.h5`) used to construct the guide tree."),
-                    details=(translate("Tools", "For sparse networks, missing edge scores are automatically imputed using isotonic regression."),),
+                    details=(
+                        translate("Tools", "For sparse networks, missing edge scores are automatically imputed using isotonic regression."),
+                        translate("Tools", "When the network's Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores."),
+                    ),
                 ),
                 "SHOW_REGRESSION_PLOT": Tip(
-                    translate("Tools", "Displays a diagnostic scatter plot for sparse networks."),
-                    details=(translate("Tools", "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores."),),
+                    translate("Tools", "Displays a diagnostic chart of the imputation fit for sparse networks."),
+                    details=(translate("Tools", "Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network's calibration pairs and their held-out check when it stores them."),),
                 ),
                 "TREE_METHOD": Tip(
                     translate("Tools", "Algorithm used to construct the evolutionary guide tree."),

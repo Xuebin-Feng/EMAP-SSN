@@ -9399,7 +9399,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+1799"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+1997"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -9414,7 +9414,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+5"/>
+        <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished">{count} 个校准序列对的留出检验 · Spearman ρ {rho} · MAE {mae} · R² {r2}</translation>
+    </message>
+    <message>
+        <location line="+95"/>
         <source>Length-adjusted embedding cosine similarity</source>
         <translation type="unfinished">长度校正的 embedding 余弦相似性</translation>
     </message>
@@ -9429,7 +9434,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">每个六边形中的序列对数</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+6"/>
         <source>Observed pairs (random sample of {count})</source>
         <translation type="unfinished">已观测的序列对（随机抽取 {count} 个）</translation>
     </message>
@@ -9439,7 +9444,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已观测的序列对</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
+        <source>Calibration pairs, aligned below the prefilter cut</source>
+        <translation type="unfinished">校准序列对（在预过滤截断以下照常比对）</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Isotonic fit</source>
         <translation type="unfinished">保序回归拟合曲线</translation>
     </message>
@@ -10839,7 +10849,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">在 UPGMA 下启用“噪声扰动树”后才能更改此设置。</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Isotonic regression plots are unavailable for BLAST networks.</source>
         <translation type="unfinished">BLAST 网络不提供保序回归图。</translation>
     </message>
@@ -10854,14 +10864,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">完整的网络：{sequences:,} 条序列，已观测 {observed:,}/{expected:,} 个序列对。所有序列对均已观测，保序回归和诊断图只适用于稀疏网络。</translation>
     </message>
     <message>
-        <location line="-24"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
-        <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
+        <translation type="obsolete">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="+209"/>
+        <location line="+185"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -10928,20 +10937,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+612"/>
-        <location line="+295"/>
+        <location line="+615"/>
+        <location line="+298"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-907"/>
-        <location line="+613"/>
-        <location line="+295"/>
+        <location line="-913"/>
+        <location line="+616"/>
+        <location line="+298"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-906"/>
+        <location line="-912"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -11507,7 +11516,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+940"/>
+        <location line="+946"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -11536,7 +11545,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1951"/>
+        <location line="-1958"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -11560,7 +11569,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message numerus="yes">
-        <location line="+756"/>
+        <location line="+757"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
@@ -11744,12 +11753,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">利用全局池化 embedding 的余弦相似度预先过滤序列对。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.</source>
         <translation type="unfinished">对差异很大的序列对跳过完整的残基级动态规划，以加快计算。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+5"/>
         <source>Percentage of candidate sequence pairs with lowest cosine similarity to discard.</source>
         <translation type="unfinished">要丢弃的余弦相似度最低的候选序列对所占百分比。</translation>
     </message>
@@ -11770,23 +11779,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+393"/>
+        <location line="+396"/>
         <source>Gap penalty applied in Smith-Waterman local alignment.</source>
         <translation type="unfinished">Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。</translation>
     </message>
     <message>
-        <location line="-392"/>
+        <location line="-395"/>
         <source>More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished">数值越负，对插入和延伸空位（gap）的惩罚越重，空位越少。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+393"/>
+        <location line="+396"/>
         <source>Gap penalty applied in Needleman-Wunsch global alignment.</source>
         <translation type="unfinished">Needleman-Wunsch 全局比对（global alignment）中使用的空位罚分。</translation>
     </message>
     <message>
-        <location line="-392"/>
+        <location line="-395"/>
         <source>Controls gap insertion penalties across end-to-end full-length alignments.</source>
         <translation type="unfinished">控制端到端全长比对中插入空位的罚分。</translation>
     </message>
@@ -11822,24 +11831,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+292"/>
+        <location line="+295"/>
         <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished">两两得分矩阵的处理方式。</translation>
     </message>
     <message>
-        <location line="-290"/>
-        <location line="+292"/>
+        <location line="-293"/>
+        <location line="+295"/>
         <source>Benchmarks the scalar and tiled plans where they are supported.</source>
         <translation type="unfinished">在支持时对标量和分块（tile）方案进行基准测试。</translation>
     </message>
     <message>
-        <location line="-291"/>
-        <location line="+292"/>
+        <location line="-294"/>
+        <location line="+295"/>
         <source>Processes one pairwise score matrix at a time.</source>
         <translation type="unfinished">一次处理一个两两得分矩阵。</translation>
     </message>
     <message>
-        <location line="-291"/>
+        <location line="-294"/>
         <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
         <translation type="unfinished">在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
@@ -11850,23 +11859,23 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+295"/>
+        <location line="+298"/>
         <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
         <translation type="unfinished">选择最多 {cap:g} GiB 的安全系统内存预算。</translation>
     </message>
     <message>
-        <location line="-294"/>
+        <location line="-297"/>
         <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
         <translation type="unfinished">可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+443"/>
+        <location line="+446"/>
         <source>Numeric format the accelerator uses for the score matrices.</source>
         <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
     </message>
     <message>
-        <location line="-441"/>
+        <location line="-444"/>
         <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
         <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
     </message>
@@ -11882,12 +11891,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+441"/>
+        <location line="+444"/>
         <source>Low precision; explicit and never automatic.</source>
         <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
     </message>
     <message>
-        <location line="-438"/>
+        <location line="-441"/>
         <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
@@ -11918,12 +11927,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+140"/>
+        <location line="+143"/>
         <source>For either score, the strongest hit of a pair, in either direction, is kept.</source>
         <translation type="unfinished">无论采用哪种得分，每对序列都保留最强的比对（任一方向）。</translation>
     </message>
     <message>
-        <location line="-138"/>
+        <location line="-141"/>
         <source>The negative log10 of the BLAST E-value; saved as `&lt;set&gt;_[BLAST]_EValue.h5`.</source>
         <translation type="unfinished">BLAST 期望值（E-value）的负对数（log10）；保存为 `&lt;set&gt;_[BLAST]_EValue.h5`。</translation>
     </message>
@@ -11997,22 +12006,20 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">用于构建引导树的两两相似性网络（`.h5`）。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>For sparse networks, missing edge scores are automatically imputed using isotonic regression.</source>
         <translation type="unfinished">对于稀疏网络，缺失的边得分会用保序回归自动插补。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Displays a diagnostic scatter plot for sparse networks.</source>
-        <translation type="unfinished">为稀疏网络显示诊断散点图。</translation>
+        <translation type="obsolete">为稀疏网络显示诊断散点图。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
-        <translation type="unfinished">展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
+        <translation type="obsolete">展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+9"/>
         <source>Algorithm used to construct the evolutionary guide tree.</source>
         <translation type="unfinished">用于构建进化引导树的算法。</translation>
     </message>
@@ -13022,7 +13029,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="-2520"/>
+        <location line="-2527"/>
         <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
         <translation type="unfinished">FASTA 文件 (*.fasta *.fa *.faa *.fna *.fas *.fsa);;所有文件 (*)</translation>
     </message>
@@ -13047,7 +13054,14 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">结构预测</translation>
     </message>
     <message>
-        <location line="+1415"/>
+        <location line="+150"/>
+        <source>Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.
+Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
+        <translation type="unfinished">显示保序回归图：为稀疏网络显示插补拟合的诊断图。
+展示归一化网络得分对经长度校正的池化 embedding 相似度的保序拟合；若网络存有校准样本，还会显示这些校准序列对及其留出检验结果。</translation>
+    </message>
+    <message>
+        <location line="+1266"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
@@ -13098,7 +13112,27 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">只能使用小写字母、数字、`_` 和 `-`。它不能是 EMAP-SSN 自己计算的模型的标识符（例如 `prot_t5`）：请使用你自己的标签，例如 `uniprot_prot_t5`。</translation>
     </message>
     <message>
-        <location line="+278"/>
+        <location line="+19"/>
+        <source>A calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs.</source>
+        <translation type="unfinished">被跳过的序列对中仍有一个校准样本（1%，2,000 至 50,000 个序列对）会照常比对，使 Embedding 多序列比对能够拟合并检验对被跳过序列对的估计。</translation>
+    </message>
+    <message>
+        <location line="+118"/>
+        <source>When the network&apos;s Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores.</source>
+        <translation type="unfinished">若网络的边预过滤存有校准样本，拟合会覆盖缺失的序列对，并报告它对这些序列对计算得分的预测效果。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Displays a diagnostic chart of the imputation fit for sparse networks.</source>
+        <translation type="unfinished">为稀疏网络显示插补拟合的诊断图。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
+        <translation type="unfinished">展示归一化网络得分对经长度校正的池化 embedding 相似度的保序拟合；若网络存有校准样本，还会显示这些校准序列对及其留出检验结果。</translation>
+    </message>
+    <message>
+        <location line="+142"/>
         <source>Chooses what is folded: one typed sequence, or every sequence of a FASTA file.</source>
         <translation type="unfinished">选择要折叠的内容：一条键入的序列，或 FASTA 文件中的每条序列。</translation>
     </message>
@@ -14075,7 +14109,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5400"/>
+        <location line="-5407"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -14202,7 +14236,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">插补的序列对参与每棵重复树，并在最终矩阵中替换为各重复树平均的树距离。</translation>
     </message>
     <message>
-        <location line="+369"/>
+        <location line="+370"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -14254,7 +14288,7 @@ Fedora / RHEL：
         <translation type="obsolete">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+1079"/>
+        <location line="+1082"/>
         <source>If left blank, BLAST+ is searched for automatically: the system PATH, then the standard install folder (the newest version) or the usual Unix folders. The field shows what that search finds.</source>
         <translation type="unfinished">留空时会自动查找 BLAST+：先查系统 PATH，然后是标准安装文件夹（取最新版本）或常见的 Unix 文件夹。字段会显示该查找的结果。</translation>
     </message>
@@ -14264,7 +14298,7 @@ Fedora / RHEL：
         <translation type="unfinished">已设置的目录必须同时包含这两个程序。下载按钮会把 NCBI BLAST+ 安装到你选择的文件夹，并填入此字段。</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+36"/>
         <source>Selects whether to weight guide tree branches using global or local network scores.</source>
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
