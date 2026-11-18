@@ -154,9 +154,11 @@ still change before version 1.0.0.
     These colours are the ones set in Config. Right-clicking a clade or a leaf selects its
     nodes in the network, Shift+right-click adds or removes them, and right-clicking empty
     space clears the selection. Dragging with the right button draws a box, as in the
-    network, that selects the leaves whose tips are in it: the tree shows the selection it
-    would make while the box is drawn, and the network gets it when the button is let go.
-    Shift+right-drag adds or removes them, and Esc takes the box back. Clicking a leaf
+    network, that selects the leaves whose tips are in it: the network's selection follows
+    the box while the button is down, as the tree follows a box drawn in the network.
+    Shift+right-drag adds or removes them against the selection the drag started with,
+    and Esc takes the box back and restores the network's selection. Commands and other
+    pages wait until the button is let go. Clicking a leaf
     focuses its node in the network, and a right-click anywhere on the tree takes that focus
     off again, as one in the network does.
   - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
