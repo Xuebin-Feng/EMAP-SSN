@@ -7434,7 +7434,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1711"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1712"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7466,7 +7466,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+339"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -7516,7 +7516,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+718"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+720"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7531,7 +7531,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="-572"/>
+        <location line="-574"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -9300,7 +9300,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+24"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+33"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+35"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -9590,7 +9590,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Queue.py" line="+345"/>
+        <location filename="../../../Command_Queue.py" line="+347"/>
         <source>The command queue is shutting down.</source>
         <translation type="unfinished">命令队列正在关闭。</translation>
     </message>
@@ -9895,7 +9895,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">树视图界面</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="+1541"/>
+        <location filename="../../../web_ui/tree_backend.py" line="+1615"/>
         <source>the network threshold tree</source>
         <translation type="unfinished">网络阈值树</translation>
     </message>
@@ -10758,7 +10758,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">分块</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+106"/>
         <source>The network metadata could not be validated.</source>
         <translation type="unfinished">无法验证网络元数据。</translation>
     </message>
@@ -12979,7 +12979,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="-2519"/>
+        <location line="-2520"/>
         <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
         <translation type="unfinished">FASTA 文件 (*.fasta *.fa *.faa *.fna *.fas *.fsa);;所有文件 (*)</translation>
     </message>
@@ -13004,7 +13004,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">结构预测</translation>
     </message>
     <message>
-        <location line="+1414"/>
+        <location line="+1415"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
@@ -14032,7 +14032,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5399"/>
+        <location line="-5400"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -14107,7 +14107,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">Embedding 裁剪</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+53"/>
         <source>global (Needleman-Wunsch)</source>
         <comment>alignment mode</comment>
         <translation type="unfinished">全局（Needleman-Wunsch）</translation>
@@ -14333,7 +14333,7 @@ Fedora / RHEL：
         <translation type="obsolete">簇 {id}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_nav.js" line="+893"/>
+        <location filename="../../../web_ui/tree_nav.js" line="+898"/>
         <source>A node of this network</source>
         <translation type="unfinished">此网络的节点</translation>
     </message>
@@ -15410,7 +15410,7 @@ Fedora / RHEL：
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+67"/>
         <source>Could not copy</source>
         <translation type="unfinished">无法复制</translation>
     </message>
@@ -16138,7 +16138,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2446"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2450"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -16203,7 +16203,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2128"/>
+        <location line="+2130"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -16305,7 +16305,7 @@ Fedora / RHEL：
         <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/tree_backend.py" line="-745"/>
+        <location filename="../../../web_ui/tree_backend.py" line="-814"/>
         <location line="+56"/>
         <source>Tree View does not know a tree called {name}.</source>
         <translation type="unfinished">树视图不认识名为 {name} 的树。</translation>
@@ -16316,7 +16316,7 @@ Fedora / RHEL：
         <translation type="unfinished">树视图需要指定一棵树的名称。</translation>
     </message>
     <message>
-        <location line="+690"/>
+        <location line="+759"/>
         <source>Tree View</source>
         <translation type="unfinished">树视图</translation>
     </message>
