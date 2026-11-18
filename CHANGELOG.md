@@ -363,6 +363,14 @@ still change before version 1.0.0.
   - **Input:** ProtTrans's published preprocessing: residues separated by spaces, and B,
     Z, U and O mapped to X. J, which the vocabulary lacks, and `.` or `-` inside a
     sequence become X, as for ProtBERT and ProstT5.
+  - **Checked against UniProt:** for 50 E. coli proteins and the three selenoproteins
+    in UniProt's per-residue file, every residue's embedding agrees with UniProt's to a
+    cosine of 0.99999 or better; ten of them aligned from either set get scores
+    within 0.2% of each other.
+  - **GPU memory:** the encoder takes 4.5 GiB, and a 3,000-residue sequence peaks at
+    8.2 GiB. A longer one needs more than a 12 GB card has: on Windows the NVIDIA driver
+    then lends shared system memory, which is far slower (53 s for 4,000 residues
+    against 2 s for 3,000); elsewhere the sequence moves to the next device.
   - **License:** the weights are under AFL-3.0, as ProtBERT's are, so no acknowledgement
     is asked before the download.
   - **MCP:** jobs accept `prot_t5` as the model, and the server's guide lists its
