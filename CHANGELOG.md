@@ -451,7 +451,11 @@ still change before version 1.0.0.
   - **Where to set it:** a settings file, the command line and MCP. The Tools window
     has no field for it yet and uses 8.
   - **Unchanged:** local models, and the two server calls per sequence.
-  - Not yet run against the real API.
+  - **First run against the Biohub API (2026-11-18):** 657 sequences in about 106
+    seconds with 8 in flight, all correct. That server allowed 500 requests a minute
+    for this model on the account used, so about 500 sequences a minute is the most any
+    value can reach. The tool sends faster than that at first: about one request in
+    ten was turned down and sent again, most of them by the esm package itself.
 
 ### Fixed
 
