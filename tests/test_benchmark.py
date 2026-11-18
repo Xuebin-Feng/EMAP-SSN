@@ -193,6 +193,42 @@ class BenchmarkRepositoryTests(unittest.TestCase):
                                  f"{relative}: text: unset")
 
 
+class BenchmarkGitAvailabilityTests(unittest.TestCase):
+    """On a Mac without Apple's command-line tools /usr/bin/git is a stub that opens an install dialog;
+    the benchmark must not start it, and records the version as it does when git fails."""
+
+    @staticmethod
+    def mac(tools):
+        calls = []
+
+        def run(command, **keywords):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, tools)
+
+        return calls, run
+
+    def test_apples_stub_without_the_tools_is_not_started_and_the_commit_is_unknown(self):
+        calls, run = self.mac(2)
+        stub = dict(platform="darwin", which=lambda name: "/usr/bin/git", run=run)
+        self.assertIn("command-line tools", benchmark.git_problem(**stub))
+        self.assertEqual(calls, [["xcode-select", "-p"]])
+        with mock.patch.object(benchmark, "git_problem", return_value="stub"), \
+                mock.patch.object(benchmark.subprocess, "run", side_effect=AssertionError("git started")), \
+                mock.patch.object(Path, "exists", return_value=True):
+            found = benchmark.program_version()
+        self.assertEqual((found["commit"], found["describe"], found["dirty"]), (None, None, None))
+
+    def test_the_other_cases_agree_with_tests_git_availability(self):
+        from tests.git_availability import git_problem as tests_problem
+        for platform in ("win32", "linux", "darwin"):
+            for found in (None, "/usr/bin/git", "/opt/homebrew/bin/git"):
+                for tools in (0, 2):
+                    with self.subTest(platform=platform, found=found, tools=tools):
+                        _, run = self.mac(tools)
+                        arguments = dict(platform=platform, which=lambda name: found, run=run)
+                        self.assertEqual(benchmark.git_problem(**arguments), tests_problem(None, **arguments))
+
+
 class BenchmarkFolderTests(unittest.TestCase):
     """temp/ holds one run's files under a lock and is cleared; reports are never overwritten."""
 

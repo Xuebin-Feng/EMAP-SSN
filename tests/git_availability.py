@@ -42,6 +42,9 @@ def _tools_installed(platform, run):
 def git_problem(root=None, *, platform=None, which=None, run=None, has_git_entry=None):
     """Why git cannot be used here (a sentence), or None when it can.
 
+    src/resources/benchmark/Run_Benchmark.py keeps a small copy of the executable part of this
+    (program code cannot import from tests/); change both together.
+
     root: a folder whose repository the test asks about, or None for a test that only
     needs the executable. The other arguments stand in for the host in tests.
     """

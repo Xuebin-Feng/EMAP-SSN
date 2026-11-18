@@ -60,8 +60,9 @@ except ImportError:
     psutil = None
 
 if __package__:
-    from . import session_folder
+    from . import git_availability, session_folder
 else:  # run as a script: tests/ itself is on sys.path
+    import git_availability
     import session_folder
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -247,10 +248,24 @@ def path_matches(path, patterns):
     return any(_glob_regex(pattern).match(path) for pattern in patterns)
 
 
+_GIT_EXECUTABLE = []  # the answer for this process: [path] or [None], worked out on first use
+
+
+def _git_executable():
+    """The git to run, or None when git cannot be used (not installed, or Apple's stub on a Mac
+    without the command-line tools, which would open an install dialog). Asked once per process."""
+    if not _GIT_EXECUTABLE:
+        _GIT_EXECUTABLE.append(None if git_availability.git_problem() else shutil.which("git"))
+    return _GIT_EXECUTABLE[0]
+
+
 def _git_lines(folder, *args):
+    git = _git_executable()
+    if git is None:
+        return None
     try:
         completed = subprocess.run(
-            ["git", "--no-optional-locks", "-C", str(folder), *args],
+            [git, "--no-optional-locks", "-C", str(folder), *args],
             capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
         )
     except (OSError, subprocess.CalledProcessError):

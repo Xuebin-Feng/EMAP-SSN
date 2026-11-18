@@ -824,8 +824,31 @@ class GitAvailabilityTests(unittest.TestCase):
     # Files that may name git without the helper, and why.
     ALLOWED = {
         "tests/git_availability.py": "the helper itself",
-        "tests/run_sections.py": "the runner asks git only for --changed and treats any failure as no answer",
     }
+    # What a file shows once it asks first: the test helper, or the benchmark's copy of it.
+    ASKS_FIRST = ("git_availability", "git_problem")
+
+    def test_the_runner_does_not_start_git_where_git_cannot_be_used(self):
+        stub = dict(platform="darwin", which=lambda name: "/usr/bin/git",
+                    run=lambda command, **keywords: subprocess.CompletedProcess(command, 2))
+        real = run_sections.git_availability.git_problem
+        with mock.patch.object(run_sections, "_GIT_EXECUTABLE", []), \
+                mock.patch.object(run_sections.git_availability, "git_problem", lambda root=None: real(root, **stub)), \
+                mock.patch.object(run_sections.subprocess, "run", side_effect=AssertionError("git started")) as run:
+            self.assertIsNone(run_sections._git_lines(PROJECT_ROOT, "ls-files"))
+            self.assertIsNone(run_sections._git_lines(PROJECT_ROOT, "diff", "--name-only"))
+            run.assert_not_called()
+            self.assertEqual(run_sections._GIT_EXECUTABLE, [None])  # asked once
+            self.assertTrue(run_sections.list_files(PROJECT_ROOT))  # falls back to walking the folder
+
+    def test_the_runner_runs_the_git_it_found(self):
+        with mock.patch.object(run_sections, "_GIT_EXECUTABLE", []), \
+                mock.patch.object(run_sections.git_availability, "git_problem", return_value=None), \
+                mock.patch.object(run_sections.shutil, "which", return_value="/opt/x/git"), \
+                mock.patch.object(run_sections.subprocess, "run",
+                                  return_value=subprocess.CompletedProcess([], 0, stdout="a\nb\n")) as run:
+            self.assertEqual(run_sections._git_lines("/p", "ls-files"), ["a", "b"])
+        self.assertEqual(run.call_args.args[0][0], "/opt/x/git")
 
     def problem(self, platform="darwin", found="/usr/bin/git", tools=0, git_entry=True, root="/project"):
         def which(name):
@@ -899,19 +922,25 @@ class GitAvailabilityTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertFalse(self.runs_git(ast.parse(text)))
 
-    def test_every_test_that_runs_git_asks_tests_git_availability_first(self):
-        tests_folder = PROJECT_ROOT / "tests"
+    def test_every_python_file_that_runs_git_asks_first(self):
         found = []
-        for path in sorted(tests_folder.rglob("*.py")):
-            relative = path.relative_to(PROJECT_ROOT).as_posix()
-            if relative in self.ALLOWED:
-                continue
-            source = path.read_text(encoding="utf-8")
-            if "git" not in source:
-                continue
-            if self.runs_git(ast.parse(source)) and "git_availability" not in source:
-                found.append(relative)
-        self.assertEqual(found, [], "these run git without tests.git_availability (git_executable_for / git_problem)")
+        for folder in ("tests", "src"):
+            for path in sorted((PROJECT_ROOT / folder).rglob("*.py")):
+                relative = path.relative_to(PROJECT_ROOT).as_posix()
+                if relative in self.ALLOWED or ".venv" in path.parts:
+                    continue
+                source = path.read_text(encoding="utf-8")
+                if "git" not in source:
+                    continue
+                if self.runs_git(ast.parse(source)) and not any(mark in source for mark in self.ASKS_FIRST):
+                    found.append(relative)
+        self.assertEqual(found, [], "these run git without asking tests.git_availability or git_problem first")
+
+    def test_the_scan_covers_the_runner_and_the_benchmark(self):
+        for relative in ("tests/run_sections.py", "tests/git_availability.py", "src/resources/benchmark/Run_Benchmark.py"):
+            source = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(relative=relative):
+                self.assertTrue(any(mark in source for mark in self.ASKS_FIRST))
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ import itertools
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import socket
@@ -620,8 +621,33 @@ PACKAGES = (
 )
 
 
+def git_problem(platform=None, which=None, run=None):
+    """Why git cannot be run here (a sentence), or None when it can.
+
+    A small copy of git_problem in tests/git_availability.py (program code cannot import from
+    tests/, and the test runner must run without the program's packages); keep the two the same.
+    On a Mac without Apple's command-line tools /usr/bin/git is a stub that opens an "Install
+    Command Line Developer Tools" dialog when run; `xcode-select -p` shows no dialog."""
+    platform = sys.platform if platform is None else platform
+    which = shutil.which if which is None else which
+    run = subprocess.run if run is None else run
+    found = which("git")
+    if not found:
+        return "git is not installed"
+    if platform == "darwin" and posixpath.normpath(found) == "/usr/bin/git":
+        try:
+            installed = run(["xcode-select", "-p"], capture_output=True, timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            installed = False
+        if not installed:
+            return "/usr/bin/git is Apple's stub and the command-line tools are not installed"
+    return None
+
+
 def _git(*arguments):
     """git's output in the project, or None when git or the repository is missing."""
+    if git_problem():
+        return None
     try:
         completed = subprocess.run(
             ["git", "--no-optional-locks", "-C", str(PROJECT_ROOT), *arguments],
