@@ -17,7 +17,8 @@ and numbers its updates; the Viewer keeps what is needed to put things right:
 * ``end``: the page let go. The message carries the final nodes, so that the result never depends on every update
   having arrived: it is what one plain request of those nodes would have made (the same selection, the status line,
   one step for the commands: selection_epoch is one more than at the start, whatever the updates did), and the
-  pages are told if they have not heard it. A request that named nodes none of which can be selected changes nothing.
+  pages are always told once, with the selection as it is, so that the page can confirm or correct what it drew.
+  An end that is refused as not well formed (``refuse``) cancels the gesture and tells the same. A request that named nodes none of which can be selected changes nothing.
 * ``cancel``: the selection from before the gesture comes back, as Esc does for the network's own box.
 
 While a gesture is open it counts as a mouse gesture (Command_Queue.gesture_open): the commands and the web pages'
@@ -173,8 +174,9 @@ class SelectionGesture:
         self._apply(result, broadcast=False)
         net_change = not np.array_equal(result, base)
         viewer.selection_epoch = epoch + 1 if net_change else epoch
-        if not np.array_equal(result, heard):
-            self._tell(final_id, result, final=True)
+        # Always one final event with the selection as it is, whether or not the pages heard it already: the page
+        # that drives the gesture drew its own guess of it at release, and this confirms or corrects it.
+        self._tell(final_id, result, final=True)
         self._close()
         if net_change:
             show = getattr(viewer, "_show_selection_status", None)
@@ -183,18 +185,35 @@ class SelectionGesture:
         self._resume()
         return self._answer(net_change, None if net_change else "unchanged")
 
-    def cancel(self):
-        """Put the selection from before the gesture back, and end it (the page's cancel, Esc, a press, a silent page)."""
+    def cancel(self, tell=False):
+        """Put the selection from before the gesture back, and end it (the page's cancel, Esc, a press, a silent page).
+
+        The pages are told if they had heard something else; with ``tell`` they are told in any case."""
         if not self.is_open:
             return False
         viewer = self.viewer
         base, epoch, heard, gesture_id = self.base, self.epoch, self.heard, self.id
         self._apply(base, broadcast=False)
         viewer.selection_epoch = epoch                 # as if the gesture had not been made
-        if not np.array_equal(base, heard):
+        if tell or not np.array_equal(base, heard):
             self._tell(gesture_id, base, final=True)
         self._close()
         self._resume()
+        return True
+
+    def refuse(self, gesture_id):
+        """The end of gesture ``gesture_id`` was refused (it was not well formed): leave the page the truth.
+
+        A gesture that is open under that id is cancelled (its selection is put back), and in every case one final
+        event for the id tells the pages the selection as it is. An id that has ended already is left alone. Returns
+        whether it did anything.
+        """
+        if gesture_id in self.closed:
+            return False
+        if self.owns(gesture_id):
+            return self.cancel(tell=True)
+        self._tell(gesture_id, self._current(), final=True)
+        self.closed.append(gesture_id)
         return True
 
     # ---- the Viewer's side of it -----------------------------------------------------------------------------

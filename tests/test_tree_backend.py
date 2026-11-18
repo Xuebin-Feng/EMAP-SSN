@@ -1343,10 +1343,53 @@ class TreeGestureActionTests(unittest.TestCase):
         self.assertEqual(viewer.events[-1]["indices"], [1, 2])      # the pages had heard [5]: they hear it is back
         self.assertEqual(viewer.events[-1]["gesture"], {"id": "g1", "final": True})
 
-    def test_an_end_with_nothing_to_tell_the_pages_sends_no_event(self):
+    def test_an_end_with_nothing_to_change_still_tells_the_pages_once_so_that_the_page_can_confirm_its_guess(self):
         viewer = GestureViewer(selected=[1, 2])
         self.send(viewer, "end", [1, 2], seq=1)
-        self.assertEqual((viewer.events, viewer.calls), ([], []))
+        self.assertEqual(viewer.events, [{"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [1, 2]}])
+        self.assertEqual(viewer.calls, [])
+
+    def test_an_end_equal_to_the_last_update_still_makes_exactly_one_final_event(self):
+        viewer = GestureViewer(selected=[1])
+        self.send(viewer, "update", [4, 5], seq=1)
+        self.send(viewer, "end", [4, 5], seq=2)
+        finals = [event for event in viewer.events if event["gesture"].get("final")]
+        self.assertEqual(finals, [{"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [4, 5]}])
+        self.assertEqual(viewer.events[-1], finals[0])
+
+    def test_a_refused_end_cancels_the_open_gesture_and_tells_the_true_selection_once(self):
+        bad = {"action": "tree_select", "gesture": {"id": "g1", "phase": "end", "seq": 2}, "mode": "replace",
+               "nodes": bit_set([12], 16)}
+        for name, change in (("bad nodes", {}), ("bad mode", {"mode": "add"}), ("bad seq", {"gesture": {"id": "g1", "phase": "end", "seq": "2"}})):
+            with self.subTest(name):
+                viewer = GestureViewer(selected=[1])
+                self.send(viewer, "update", [4], seq=1)
+                result = tree_backend.handle_tree_select(viewer, {**bad, **change})
+                self.assertFalse(result["ok"])
+                self.assertEqual((viewer.selected_indices, viewer.selection_epoch), ([1], 0))
+                self.assertFalse(viewer.outside_selection_gesture.is_open)
+                finals = [event for event in viewer.events if event["gesture"].get("final")]
+                self.assertEqual(finals, [{"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [1]}])
+                count = len(viewer.events)
+                self.assertEqual(self.send(viewer, "update", [7], seq=3)["note"], "gesture_closed")
+                self.assertEqual((viewer.selected_indices, len(viewer.events)), ([1], count))
+
+    def test_a_refused_end_with_no_gesture_open_tells_the_truth_once_and_an_ended_id_is_left_alone(self):
+        viewer = GestureViewer(selected=[1, 2])
+        viewer.visible_mask = None
+        self.assertEqual(self.send(viewer, "end", [3], seq=1)["note"], "no_network")
+        self.assertEqual(viewer.events, [{"type": "selection_changed", "gesture": {"id": "g1", "final": True}, "indices": [1, 2]}])
+        self.assertEqual(self.send(viewer, "end", [3], seq=2)["note"], "no_network")      # the id is closed: no second event
+        self.assertEqual(len(viewer.events), 1)
+        self.assertEqual(self.send(viewer, "end", [3], seq=1, gesture_id="other")["note"], "no_network")
+        self.assertEqual(len(viewer.events), 2)
+
+    def test_a_refused_update_does_not_end_anything(self):
+        viewer = GestureViewer(selected=[1])
+        self.send(viewer, "update", [4], seq=1)
+        data = {"action": "tree_select", "gesture": {"id": "g1", "phase": "update", "seq": 2}, "nodes": "!!!"}
+        self.assertFalse(tree_backend.handle_tree_select(viewer, data)["ok"])
+        self.assertTrue(viewer.outside_selection_gesture.is_open)
 
     def test_cancel_puts_the_selection_and_the_epoch_back_and_tells_the_pages_once(self):
         viewer = GestureViewer(selected=[1, 2])

@@ -1341,6 +1341,48 @@ class BoxSelectionTests(SelectionCase):
         self.assertEqual(self.selection()["leaves"], final)
         self.assertEqual(self.selection()["count"], len(final))
 
+    def test_after_a_shift_box_the_page_shows_the_viewers_selection_with_nodes_that_are_not_leaves_of_the_tree(self):
+        # Five nodes of the network (40..44) are no leaf of the tree: the page cannot guess a selection that holds them.
+        headers = headers_of(45)
+        self.start_box(headers=headers[:40], network=headers)
+        self.choose("rectangular")
+        self.select([41, 42, 11, 30])
+        a, b = self.around([10, 11, 12, 13])
+        self.drag(a, b, shift=True, release=False)
+        self.release(b, shift=True, expect=1)
+        self.pump(0.5)
+        self.assertEqual(self.gestures()[-1]["gesture"]["phase"], "end")
+        truth = sorted(self.viewer.selected_indices)
+        self.assertIn(41, truth)
+        self.assertEqual(self.state("TreeView.state.selection.count"), len(truth))
+        leaves = self.nodes_of(self.selection()["leaves"])
+        self.assertEqual(sorted(leaves), [node for node in truth if node < 40])
+
+    def test_the_final_event_corrects_the_pages_guess_when_the_viewer_ends_with_another_selection(self):
+        self.start_box()
+        self.choose("rectangular")
+        a, b = self.around([10, 11, 12, 13])
+        expected = self.nodes_of(self.inside(a, b))
+        original = self.viewer.handle_web_action
+
+        def handle(data):
+            gesture = data.get("gesture")
+            if gesture and gesture.get("phase") == "end":
+                self.viewer.action_results.append(("tree_select", {"ok": True}))
+                self.viewer.selected_indices = [0, 1]          # what the Viewer really made of it
+                self.viewer.broadcast_event({"type": "selection_changed", "gesture": {"id": gesture["id"], "final": True},
+                                             "indices": [0, 1]})
+                return
+            original(data)
+
+        self.viewer.handle_web_action = handle
+        self.drag(a, b, release=False)
+        self.pump(0.3)
+        self.release(b, expect=1)
+        self.wait_for("TreeView.state.selection.count === 2")
+        self.assertEqual(sorted(self.nodes_of(self.selection()["leaves"])), [0, 1])
+        self.assertNotEqual(sorted(expected), [0, 1])
+
     def test_the_page_sends_at_most_two_updates_at_a_time_and_the_newest_wins(self):
         self.start_box()
         self.choose("rectangular")

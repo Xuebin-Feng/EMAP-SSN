@@ -1391,21 +1391,29 @@ def handle_tree_gesture(viewer, data):
     gesture_id, phase, seq = info.get("id"), info.get("phase"), info.get("seq", 0)
     if not isinstance(gesture_id, str) or not GESTURE_ID.fullmatch(gesture_id) or phase not in GESTURE_PHASES:
         return refuse("bad_gesture")
-    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0 or (phase == "update" and seq < 1):
-        return refuse("bad_gesture")
     gesture = selection_gesture_of(viewer)
+
+    def refuse_message(note):
+        # A refused end must still leave the page the truth: the gesture it opened is cancelled, and one final event
+        # tells the selection as it is.
+        if phase == "end":
+            gesture.refuse(gesture_id)
+        return refuse(note)
+
+    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0 or (phase == "update" and seq < 1):
+        return refuse_message("bad_gesture")
     if phase in ("alive", "cancel"):
         return gesture.drive(gesture_id, phase)
     mode = data.get("mode", "replace")
     if mode not in ("replace", "toggle"):
-        return refuse("bad_mode")
+        return refuse_message("bad_mode")
     count = int(getattr(viewer, "n_nodes", 0) or 0)
     nodes = decode_node_set(data.get("nodes"), count)
     if nodes is None:
-        return refuse("bad_indices")
+        return refuse_message("bad_indices")
     visible = getattr(viewer, "visible_mask", None)
     if visible is None or len(visible) != count:
-        return refuse("no_network")
+        return refuse_message("no_network")
     return gesture.drive(gesture_id, phase, seq, nodes, mode == "toggle")
 
 
