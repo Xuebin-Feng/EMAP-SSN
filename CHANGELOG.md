@@ -556,6 +556,14 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **ProstT5 and ProtBERT no longer download a second copy of their weights.** Their
+  Hugging Face repositories hold only `pytorch_model.bin`, so on a first load Transformers
+  also downloaded a converter bot's `model.safetensors` in the background (11.3 GB for
+  ProstT5, 1.7 GB for ProtBERT), and Generate Embeddings could not end until it arrived.
+  They now load as ProtT5 does, with that download turned off. The weights in use came
+  from the `.bin` either way, so embeddings do not change. A copy already downloaded
+  stays in the Hugging Face cache, in the repository's `refs/pr` snapshot, and can be
+  deleted.
 - **The Viewer's web pages work from the keyboard, with input methods and with screen
   readers** (first round of a modern-web-guidance audit of the Agent, Fold View, Meta Data
   and Tree View pages).

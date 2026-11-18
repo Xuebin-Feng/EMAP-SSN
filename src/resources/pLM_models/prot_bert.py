@@ -15,6 +15,8 @@
 
 import re
 
+from tools.tool_helpers.Model_Plugins import safetensors_conversion_disabled
+
 SUPPORTED_MODELS = ["prot_bert"]
 MODEL_EXECUTION_MODES = {"prot_bert": "local"}
 # What the Tools dropdowns show; the identifier above stays what settings and files hold.
@@ -50,9 +52,14 @@ def load_model(model_name, device):
     # Transformers 5 defaults to dtype="auto", which adopts whatever type
     # the publisher uploaded, so the compute precision would otherwise be
     # theirs to change rather than ours to declare.
-    model = BertModel.from_pretrained(
-        f"Rostlab/{model_name}", dtype=torch.float32
-    ).to(device)
+    # The repository holds only pytorch_model.bin, so Transformers would also
+    # fetch the converter bot's safetensors copy (as large again) in the
+    # background; the weights come from the .bin either way.
+    with safetensors_conversion_disabled():
+        model = BertModel.from_pretrained(
+            f"Rostlab/{model_name}", dtype=torch.float32
+        )
+    model = model.to(device)
     model.eval()
     return tokenizer, model
 

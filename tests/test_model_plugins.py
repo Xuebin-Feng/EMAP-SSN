@@ -365,6 +365,31 @@ class SafetensorsConversionSwitchTests(unittest.TestCase):
         with PLM_Plugin_Utils.safetensors_conversion_disabled():
             self.assertTrue(is_env_variable_true(self.SWITCH))
 
+    def test_every_bin_only_rostlab_checkpoint_loads_inside_the_switch(self):
+        # Rostlab/prot_bert, Rostlab/ProstT5 and Rostlab/prot_t5_xl_uniref50 hold
+        # only pytorch_model.bin; without the switch their first load also
+        # fetches the bot's safetensors copy and the tool cannot exit until it ends.
+        import importlib
+
+        for name, tokenizer, model in (("prot_bert", "BertTokenizer", "BertModel"),
+                                       ("prost_t5", "T5Tokenizer", "T5EncoderModel"),
+                                       ("prot_t5", "T5Tokenizer", "T5EncoderModel")):
+            with self.subTest(plugin=name):
+                plugin = importlib.import_module(f"resources.pLM_models.{name}")
+                seen = {}
+
+                def load(*args, **kwargs):
+                    seen["during"] = os.environ.get(self.SWITCH)
+                    return mock.Mock()
+
+                os.environ.pop(self.SWITCH, None)
+                with mock.patch(f"transformers.{tokenizer}.from_pretrained", return_value="tokenizer"), \
+                        mock.patch(f"transformers.{model}.from_pretrained", side_effect=load) as loader:
+                    plugin.load_model(name, "cpu")
+                loader.assert_called_once()
+                self.assertEqual(seen["during"], "1")
+                self.assertNotIn(self.SWITCH, os.environ)
+
 
 if __name__ == "__main__":
     unittest.main()
