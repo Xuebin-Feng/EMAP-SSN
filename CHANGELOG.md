@@ -583,6 +583,11 @@ still change before version 1.0.0.
     for this model on the account used, so about 500 sequences a minute is the most any
     value can reach. The tool sends faster than that at first: about one request in
     ten was turned down and sent again, most of them by the esm package itself.
+- **VR is left out on Linux and macOS.** The VR viewer runs on Windows only, and its
+  programs already refuse to start anywhere else. The READMEs now say to clone without
+  the `opt_vr` submodule on Linux and macOS. The test runner skips the VR tests there
+  even when the folder has files, and says why: a section lists the systems it runs on
+  with `platforms` in `tests/sections.toml`.
 
 ### Fixed
 
@@ -897,6 +902,29 @@ still change before version 1.0.0.
   dialog; the Ctrl and Cmd texts are checked for each system by name; and the size tests
   no longer assume the fonts of a Windows test run. The desktop probe's key press now
   fails with a reason when nothing has the keyboard focus, where it reported success.
+- **Large nodes were cut off where the graphics driver limits the size of a point.** The
+  Viewer draws each node as one point, and a driver has a largest point: 64 pixels on
+  the Mac of the third test round, 2,047 on the Windows test computer. Above it a node
+  first lost its outline and was then cut off straight. Such a node is now drawn whole
+  at the largest size the driver allows, a click or the pointer finds it at that size,
+  and `print` shows it so. `print svg` still writes the size that was asked for. Not
+  yet confirmed on a Mac.
+- **macOS: the Dock named every window "python".** Config and the Viewer now start
+  through a link named `EMAP-SSN` in `.venv/bin`, and Tools through one named
+  `EMAP-SSN Tools`, and the Dock shows those names. Setup makes the links. A start that
+  finds one missing makes it again, or uses plain `python` when it cannot. Programs the
+  windows start still run with the real `python`. A link made by hand gave the right
+  name on a Mac in the third round; the launchers' own use of it is not yet confirmed
+  there.
+- **macOS: the benchmark could raise the "Install Command Line Developer Tools"
+  dialog.** It asks git which commit it is timing, and on a Mac without Apple's
+  developer tools `git` is a stub that opens that dialog. The benchmark now checks for
+  the stub first and leaves the commit out. The test runner made the same call, the
+  likely cause of the two dialogs during the third round's suite, and checks first too.
+  Also for the suite on a Mac: the test that ends a program with a real crash is
+  skipped, because macOS files a crash report for each one, and the language test skips
+  when the window does not get the keyboard back after its list closes. Not yet
+  confirmed on a Mac.
 
 ## [0.5.0] - 2026-10-30
 
