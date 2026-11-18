@@ -527,10 +527,16 @@ class ToolsOptionLabelTests(unittest.TestCase):
                 combo = self.combo(window, script, setting)
                 self.assertIsInstance(combo, QComboBox)
                 # Measured the same way: under the dropdown's own parent, so the window's style sheet and
-                # font pad the reference as they pad the dropdown (a bare widget takes the platform's style).
+                # font pad the reference as they pad the dropdown. A dropdown's minimum is a number of
+                # characters (the window's responsive setup, or the cap), each counted as a wide letter, so
+                # the old texts count as their longest's number of characters. Their pixel width does not
+                # do: in a proportional font (Linux, macOS) text is narrower than the same number of wide
+                # letters, while the font of Windows' test runs has letters of one width.
                 reference = NoScrollComboBox(combo.parentWidget())
                 self.addCleanup(reference.deleteLater)
                 reference.addItems(texts)
+                reference.setMinimumContentsLength(max(len(text) for text in texts))
+                reference.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
                 self.assertLessEqual(
                     combo.minimumSizeHint().width(), reference.minimumSizeHint().width()
                 )
