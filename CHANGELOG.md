@@ -429,6 +429,16 @@ still change before version 1.0.0.
   files and the FASTA backup of an interrupted run, is now used. A folder with a
   manifest or any other file is still left alone. Config and VR Config look for a saved
   cache by the same rule.
+- **A ready program starts without uv.** The check at every start used uv for one step,
+  so a missing uv sent the launch to the setup console, which downloaded uv before it
+  looked at anything. The check now runs without uv and says that the package
+  consistency step was skipped. Setup itself still needs uv.
+- **Setup on Linux and macOS downloads uv only when something has to be installed, and
+  leaves the shell start-up files alone.** uv's installer used to add a line to
+  `~/.zshrc`, `~/.bash_profile` or `~/.profile`. uv still goes to `~/.local/bin`, where
+  the launchers look for it. To run `uv` in your own terminal, add that folder to PATH
+  yourself. A download that leaves no uv now stops setup with a message. The Windows
+  launchers are unchanged.
 
 ### Fixed
 
@@ -638,14 +648,17 @@ still change before version 1.0.0.
   determined on an empty distance matrix"). It now stops at the start and says that an
   alignment needs at least two sequences.
 - **macOS: fixes from the first test on a real Mac.** That round had no screen and no
-  GPU, so it covered setup, the pipelines and the layouts on the CPU. None of the fixes
-  below has been run on a Mac yet.
+  GPU, so it covered setup, the pipelines and the layouts on the CPU. A second round, on
+  a MacBook with an Apple M3 and macOS 14.6, confirmed the fixes below, with two
+  exceptions: its screen reports a size, so the display with no size was not tested,
+  and folding still failed (see the next entry).
   - **A project folder on an iCloud-synced Desktop or Documents stopped every window.**
     iCloud can mark the files of the Python environment as hidden. Qt then finds no
     platform plugin and aborts. The readiness check now detects this and says to move
     the folder, and the launchers stop there, since setup cannot repair it.
     `./install.sh` warns when the folder is in Desktop, Documents or iCloud Drive, and
-    clears the hidden mark from an environment that was moved out.
+    clears the hidden mark from an environment that was moved out, saying so when it
+    removed one.
   - **A display change asked for setup again.** The record of the computer's hardware
     held every line of the Mac's display report, so a new resolution, an external
     monitor or the automatic-brightness switch changed it. It now holds only the names
@@ -669,6 +682,14 @@ still change before version 1.0.0.
   - **`./install.sh` ended with "Setup Complete!"** although it installs no dependencies
     on a Mac. It now says that the two apps were created and that the first start sets
     up the environment.
+- **Local folding failed on every device except an NVIDIA or AMD GPU.** On the CPU each
+  structure failed with "mat1 and mat2 must have the same dtype", and on a Mac's GPU the
+  process stopped at the first step with no message. The ESM3 weights are stored as
+  bfloat16, which the `esm` library handles only on CUDA. On other devices the model now
+  runs in float32, which takes about twice the memory for the model. This applies to
+  `esmfold`, the Predict Structures tool and `predict_structure`. A real fold on a
+  Windows CPU now succeeds. A Mac folded after the same conversion was made by hand; the
+  fix itself has not been run there.
 - **Layout caches and settings exports could not be saved on drives without hard
   links,** such as exFAT and FAT32 drives and some network shares, on any system. A
   layout job failed there after the whole calculation. Saving now falls back to a second
@@ -693,8 +714,11 @@ still change before version 1.0.0.
   The tool moves that file into `Full_Alignments`, and the job now lists it there too.
 - **MCP: `get_compute_capabilities` gave no reason for a missing accelerator.** When the
   installer approved a backend that PyTorch cannot use now, the reply's `errors` say so.
-- **The readiness check said nothing when it wanted setup** on Linux and macOS: no uv,
-  no environment, or an environment on another Python. It now prints the reason. The
+- **MCP: a job whose program was ended by a signal said only "exited with code -6".** On
+  Linux and macOS the job's message now names the signal, such as "was ended by signal 6
+  (SIGABRT)". Windows codes read as before.
+- **The readiness check said nothing when it wanted setup** on Linux and macOS: no
+  environment, or an environment on another Python. It now prints the reason. The
   launchers, VR's included, also clear `PYTHONSAFEPATH`, which kept the program from
   starting when it was set.
 - **A Viewer web reply could be lost when the request body was left unread.** For a body
@@ -707,7 +731,7 @@ still change before version 1.0.0.
   are not yet cleared away, and the job manager did not expect that answer. It now
   counts as stopped once the program it started has ended. If that program is still
   alive, the signal was refused: the job is then reported as still running, never as
-  stopped. The test runner follows the same rule. Not yet run on a Mac.
+  stopped. The test runner follows the same rule. Confirmed on a Mac in the second round.
 - **VR: `meta upload` and `run` could not take a path with a space,** such as a file in
   a user folder named `First Last`. `meta upload` looked up each word as its own file.
   It now tries the whole text as one file first, and accepts quotes, as the desktop
@@ -715,7 +739,12 @@ still change before version 1.0.0.
 - **Tests that assumed Windows now hold on macOS:** a folder listing in a fixed order,
   the Tree View's key names, a Retina screen's doubled scale, a colour read back one
   step off, and a message box found by its title, which macOS does not show. The last
-  one made the suite hang on a Mac.
+  one made the suite hang on a Mac. After the second round: tests that run git skip
+  where git is missing, is Apple's install prompt, or the folder is a downloaded
+  archive, so the suite no longer raises the "Install Command Line Developer Tools"
+  dialog; the Ctrl and Cmd texts are checked for each system by name; and the size tests
+  no longer assume the fonts of a Windows test run. The desktop probe's key press now
+  fails with a reason when nothing has the keyboard focus, where it reported success.
 
 ## [0.5.0] - 2026-10-30
 
