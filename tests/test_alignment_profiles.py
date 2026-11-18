@@ -106,6 +106,28 @@ class GroupIdentityTests(unittest.TestCase):
                     self.assert_matches(
                         group_identities(code_matrix(rows), INT_TO_AA, node_rows, labels), expected)
 
+    def test_a_column_region_counts_only_its_columns_on_numba_and_on_numpy(self):
+        rng = np.random.default_rng(23)
+        for trial in range(6):
+            count, length = int(rng.integers(2, 30)), int(rng.integers(2, 140))
+            rows = random_rows(rng, count, length, gap_share=rng.uniform(0, 0.9))
+            labels = rng.integers(-1, 3, count)
+            columns = sorted(rng.choice(length, size=max(1, length // 3), replace=False).tolist())
+            for numba in (True, False):
+                with self.subTest(trial=trial, numba=numba), \
+                        mock.patch.object(Alignment_Profiles, "NUMBA_AVAILABLE", numba):
+                    identities = group_identities(code_matrix(rows), INT_TO_AA, np.arange(count), labels,
+                                                  columns=columns)
+                    for label in set(labels.tolist()) - {-1}:
+                        members = np.flatnonzero(labels == label)
+                        values = [region_identity(rows[a], rows[b], columns)
+                                  for i, a in enumerate(members) for b in members[i + 1:]]
+                        values = [value for value in values if value is not None]
+                        self.assertEqual(identities[label].pairs, len(values))
+                        if values:
+                            self.assertAlmostEqual(identities[label].mean, sum(values) / len(values), places=9)
+                            self.assertAlmostEqual(identities[label].minimum, min(values), places=9)
+
     def test_internal_gaps_count_and_overhanging_ends_do_not(self):
         cases = [
             # The overhang before and after the shared span is not counted.
@@ -199,7 +221,7 @@ class GroupIdentityTests(unittest.TestCase):
         try:
             for threads in sorted({1, 2, min(previous, 7)}):
                 Alignment_Profiles.set_num_threads(threads)
-                results.append(Alignment_Profiles._all_pairs_identity_kernel(planes))
+                results.append(Alignment_Profiles._all_pairs_identity_kernel(planes, True))
         finally:
             Alignment_Profiles.set_num_threads(previous)
         for sums, counts, mins in results[1:]:

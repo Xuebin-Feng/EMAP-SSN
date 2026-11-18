@@ -24,6 +24,7 @@ shows a summary and at most PREVIEW x PREVIEW cells of it.
 import csv
 import io
 import os
+from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
@@ -36,13 +37,15 @@ from utilities.Job_Cancellation import (
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import new_partial_file, validate_output_basename
 from utilities.Sequence_Utils import rejoin_split_brackets
-from desktop.Command_Metadata import argument, entry, EXPRESSION
+from desktop.Command_Metadata import argument, choice, entry, EXPRESSION
 
 # --- What this command declares about itself ---
-# Writes a file into the analysis results folder.
+# Writes a file into the analysis results folder. identity summary only prints, but an Agent reply waits for
+# the user's review in every form: running a form unreviewed is the user's decision (RUNS_WITHOUT_REVIEW).
 AGENT_POLICY = 'approve'
 
-CATALOG_ENTRY = entry('Write the pairwise % sequence identity of one or two node selections, read from the loaded MSA, to an .xlsx, .csv or .tsv file; requires a nonempty MSA.',
+CATALOG_ENTRY = entry('Write the pairwise % sequence identity of one or two node selections, read from the loaded MSA, to an .xlsx, .csv or .tsv file, or print one selection\'s mean and minimum; requires a nonempty MSA.',
+    argument('summary', 'Print the mean and minimum pairwise % identity of one selection (one expression, or the selected nodes), counted as for the matrix and with its optional positions, and write no file. A second expression or a filename is refused. Up to 50,000,000 pairs are all compared; beyond that 2,000,000 random pairs (seed 42), said in the result.', choice('summary')),
     argument('expressions', EXPRESSION + ' One or two expressions, separated by a space. With one, every matched sequence is compared with every other; with two, each sequence the first matches with each the second matches. The first expression\'s sequences are the rows of the matrix and the second\'s the columns. Without an expression the selected nodes are used. Hidden nodes count; nodes without an MSA row are left out and counted. An expression that matches no node succeeds with a note and writes nothing.'),
     argument('positions', 'Optional brackets of displayed alignment positions, numbered as in query and logo: [45-120], [10,12,15.1]. Ranges expand to whole reference positions; insertion positions are listed explicitly. Without them a pair\'s identity is identical standard residues / alignment length incl. internal gaps, the length from the pair\'s first to its last aligned residue pair; with them, only those columns count and the length is every one of them where either sequence has a residue.'),
     argument('filename', 'Optional output name ending in .xlsx (the default), .csv or .tsv, written to the analysis results folder\'s Sequence_Identity folder; an existing file of that name is replaced. Without one, identity_<time>.xlsx. An .xlsx holds at most 4,000,000 cells and 16,383 columns, a .csv or .tsv 16,000,000 cells; a larger matrix is refused before anything runs.'),
@@ -51,7 +54,8 @@ CATALOG_ENTRY = entry('Write the pairwise % sequence identity of one or two node
 # The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
 AGENT_PROMPT_ORDER = 215
 AGENT_PROMPT = """
-`identity [EXPRESSION] [EXPRESSION] [POSITIONS] [FILENAME]`
+`identity [EXPRESSION] [EXPRESSION] [POSITIONS] [FILENAME] | identity summary [EXPRESSION] [POSITIONS]`
+- `identity summary` prints one selection's mean and minimum pairwise % identity, and writes nothing.
 - Requires a loaded MSA. Writes the pairwise % sequence identity of the sequences one expression matches (all against all) or of the first expression's sequences against the second's, as a matrix whose rows are the first expression's sequences and whose columns are the second's, to FILENAME in the Sequence_Identity results folder: `.xlsx` (the default, with Summary and mean sheets), `.csv` or `.tsv`. Without an expression, the selected nodes are used. Hidden nodes count; nodes without an MSA row are left out.
 - A pair's identity is identical standard residues / alignment length incl. internal gaps, as the tools count a local alignment. With bracketed POSITIONS such as `[45-120]`, only those columns count and the length is every one of them where either sequence has a residue.
 - The Console shows the mean, median, minimum and maximum, the sequences with the highest and lowest mean identity, and at most 20 x 20 cells of the matrix. An `.xlsx` holds at most 4,000,000 cells, a `.csv`/`.tsv` 16,000,000; a larger matrix is refused.
@@ -65,6 +69,8 @@ MAX_CELLS = {'.xlsx': 4_000_000, '.csv': 16_000_000, '.tsv': 16_000_000}
 XLSX_MAX_COLUMNS = 16_383  # Excel's 16,384 columns, one of them holding the row names
 XLSX_MAX_ROWS = 1_048_575  # Excel's 1,048,576 rows, one of them holding the column names
 PREVIEW = 20
+# The word that asks for one selection's mean and minimum, printed, instead of a file.
+SUMMARY_WORDS = ('summary',)
 # Rows of the matrix per write: each write is a check point where a stop request is honoured.
 _ROWS_PER_WRITE = 200
 
@@ -78,12 +84,20 @@ def print_help():
     Pairwise Identity Tool
     ======================
     Usage: identity [EXPRESSION] [EXPRESSION] [POSITIONS] [FILENAME]
+           identity summary [EXPRESSION] [POSITIONS]
            identity help
 
     Description:
       Computes the pairwise % sequence identity of sequences from the loaded MSA
       and writes the matrix to a file. The Console shows a summary and at most
       20 x 20 cells of the matrix.
+
+      * summary: only the mean and the minimum % identity over every pair of one
+        selection, printed; no file is written. It takes one expression (or the
+        selected nodes) and optional positions, counts pairs as below, and runs
+        in the background. Up to 50,000,000 pairs (about 10,000 sequences) are
+        all compared; beyond that, 2,000,000 random pairs (seed 42), and the
+        minimum may then be above the true one.
 
       * One expression: every matched sequence against every other. The matrix
         is square and symmetric, and its diagonal is each sequence against itself.
@@ -133,6 +147,8 @@ def print_help():
       & (AND), | (OR), ! (NOT) and ^ (XOR).
 
     Examples:
+      identity summary $sele$                     (Mean and minimum % identity of the selection, printed)
+      identity summary #cluster_3# [45-120]       (The same for cluster 3, over positions 45-120)
       identity #cluster_3#                        (All against all in cluster 3)
       identity #cluster_3# #cluster_5#            (Cluster 3's sequences as rows, cluster 5's as columns)
       identity #cluster_3# [45-120] c3_core.csv   (Over positions 45-120 only, as CSV)
@@ -243,35 +259,81 @@ def _region_columns(viewer, positions):
     return unique_columns, found, missing
 
 
-def run(viewer, args):
+# --- The command's steps (Command_Queue): plan when given, start at its turn, then compute and apply ---
+
+@dataclass(frozen=True)
+class IdentityPlan:
+    """identity writing its matrix to a file: the start step queues the background job and ends the command."""
+    expressions: tuple
+    positions: object
+    filename: str
+    automatic_filename: bool
+    heavy = False
+
+
+@dataclass(frozen=True)
+class IdentitySummaryPlan:
+    """identity summary: one selection's mean and minimum, computed on the worker thread and printed."""
+    expression: str
+    positions: object
+    heavy = True
+
+
+@dataclass(frozen=True)
+class SummaryInputs:
+    """What compute() reads: its own copy of the selection's MSA rows, nothing live."""
+    matrix: object
+    int_to_aa: dict
+    rows: object
+    columns: object
+    unaligned: int
+
+
+@dataclass(frozen=True)
+class SummaryResult:
+    identity: object  # Alignment_Profiles.GroupIdentity
+    unaligned: int
+    column_count: object  # None without positions
+    exact_pairs: int  # the limits the pairs were counted with
+    sample_pairs: int
+
+
+def plan(viewer, args):
+    """Read the arguments: an IdentityPlan or IdentitySummaryPlan, or None when help ran or they were refused."""
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("Help information printed to the Console"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
-        return
+        return None
 
-    alignment = getattr(viewer, 'alignment', None)
-    if alignment is None or alignment.aln is None:
-        _fail(viewer, Message("Error: No alignment loaded in the viewer."))
-        return
-    if len(alignment.aln) == 0:
-        _fail(viewer, Message(
-            "Error: The selected MSA contains no aligned rows for the current network."
-        ))
-        return
-
-    # --- 1. The arguments: one or two expressions, positions and a filename, in any order ---
+    # --- The arguments: one or two expressions, positions and a filename, or summary, in any order ---
+    summary = any(arg.lower() in SUMMARY_WORDS for arg in args)
     try:
-        expressions, positions, filename = _split_arguments(args)
+        expressions, positions, filename = _split_arguments(
+            [arg for arg in args if arg.lower() not in SUMMARY_WORDS])
     except ValueError as exc:
         _fail(viewer, exc.args[0])
-        return
+        return None
+    if summary and filename is not None:
+        _fail(viewer, Message(
+            "Error: identity summary prints its figures and writes no file; leave out '{argument}'.",
+            argument=filename,
+        ))
+        return None
+    if summary and len(expressions) > 1:
+        _fail(viewer, Message(
+            "Error: identity summary takes one expression; found %n expression(s): {expressions}.",
+            n=len(expressions), expressions=" ".join(expressions),
+        ))
+        return None
     if not expressions:
         expressions = ["$sele$"]
     for expression in expressions:
         if expression != "$sele$" and not _check_expression(viewer, expression):
-            return
+            return None
+    if summary:
+        return IdentitySummaryPlan(expressions[0], positions)
 
     automatic_filename = filename is None
     if automatic_filename:
@@ -283,49 +345,157 @@ def run(viewer, args):
             raise ValueError(Message("Filename '{file}' needs a name before its extension.", file=filename))
     except ValueError as exc:
         _fail(viewer, Message("Error: {error}", error=exc))
-        return
+        return None
+    return IdentityPlan(tuple(expressions), positions, filename, automatic_filename)
 
-    columns = None
-    if positions is not None:
-        try:
-            columns, _found_positions, missing_positions = _region_columns(viewer, positions)
-        except ValueError as exc:
-            _fail(viewer, exc.args[0])
-            return
-        for position in missing_positions:
-            print(f"Warning: Position {position} was not found in the active alignment mapping.")
 
-    # --- 2. The sequences each expression matches ---
-    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
-    viewer_to_aln = np.asarray(viewer_to_aln)
+def _matched_sides(viewer, expressions, viewer_to_aln, valid_indices, writes_file):
+    """[(expression, aligned nodes, matched nodes without an MSA row)], or None when the command ended here."""
     sides = []
     for expression in expressions:
         if expression == "$sele$" and not Command_Engine.command_selection(viewer):
-            _note(viewer, Message("No nodes are selected; give an expression or select nodes. Nothing was written."))
-            return
+            _note(viewer, Message("No nodes are selected; give an expression or select nodes. Nothing was written.")
+                  if writes_file else Message("No nodes are selected; give an expression or select nodes."))
+            return None
         try:
             matched = _matched_nodes(viewer, expression, viewer_to_aln, valid_indices)
         except Exception as error:
             Command_Engine.report_selection_error(viewer, expression, error, Message("Identity"))
-            return
+            return None
         if len(matched) == 0:
             _note(viewer, Message(
                 "No sequences matched the expression '{expression}'. Nothing was written.", expression=expression,
+            ) if writes_file else Message(
+                "No sequences matched the expression '{expression}'.", expression=expression,
             ))
-            return
+            return None
         aligned = matched[viewer_to_aln[matched] >= 0]
         if len(aligned) == 0:
             _fail(viewer, Message(
                 "Error: The expression '{expression}' matched %n node(s), but none is in the alignment.",
                 n=len(matched), expression=expression,
             ))
-            return
+            return None
         sides.append((expression, aligned, matched[viewer_to_aln[matched] < 0]))
+    return sides
 
+
+def start(viewer, plan):
+    """At its turn: check the MSA and match the expressions.
+
+    A file plan queues its background job here and ends the command (None); a
+    summary plan returns its SummaryInputs for compute().
+    """
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is None or alignment.aln is None:
+        _fail(viewer, Message("Error: No alignment loaded in the viewer."))
+        return None
+    if len(alignment.aln) == 0:
+        _fail(viewer, Message(
+            "Error: The selected MSA contains no aligned rows for the current network."
+        ))
+        return None
+
+    columns = None
+    if plan.positions is not None:
+        try:
+            columns, _found_positions, missing_positions = _region_columns(viewer, plan.positions)
+        except ValueError as exc:
+            _fail(viewer, exc.args[0])
+            return None
+        for position in missing_positions:
+            print(f"Warning: Position {position} was not found in the active alignment mapping.")
+
+    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
+    viewer_to_aln = np.asarray(viewer_to_aln)
+    summary = isinstance(plan, IdentitySummaryPlan)
+    expressions = (plan.expression,) if summary else plan.expressions
+    sides = _matched_sides(viewer, expressions, viewer_to_aln, valid_indices, writes_file=not summary)
+    if sides is None:
+        return None
+    if summary:
+        _expression, aligned, unaligned = sides[0]
+        msa_rows = viewer_to_aln[aligned]
+        order = np.unique(msa_rows, return_inverse=True)
+        return SummaryInputs(
+            alignment.aln.matrix[order[0]].tocsr(copy=True), dict(alignment.aln.int_to_aa),
+            np.asarray(order[1], dtype=np.int64), columns, len(unaligned),
+        )
+    _queue_file_job(viewer, plan, alignment, viewer_to_aln, sides, columns)
+    return None
+
+
+def compute(inputs, progress):
+    """identity summary on the command queue's worker thread: the selection's pairwise identity.
+
+    No viewer and no Qt here. The pairs are counted as the cluster tables count
+    them (Alignment_Profiles.group_identities), all of them up to its exact limit.
+    """
+    from utilities import Alignment_Profiles
+    exact_pairs = Alignment_Profiles.IDENTITY_EXACT_PAIRS
+    sample_pairs = Alignment_Profiles.IDENTITY_SAMPLE_PAIRS
+    identity = Alignment_Profiles.group_identities(
+        inputs.matrix, inputs.int_to_aa, inputs.rows, np.ones(len(inputs.rows), dtype=np.int64),
+        exact_pairs=exact_pairs, sample_pairs=sample_pairs, columns=inputs.columns,
+    )[1]
+    return SummaryResult(identity, inputs.unaligned, None if inputs.columns is None else len(inputs.columns),
+                         exact_pairs, sample_pairs)
+
+
+def apply(viewer, plan, result):
+    """Print identity summary's figures; nothing in the viewer changes."""
+    identity = result.identity
+    expression = plan.expression
+    if identity.pairs:
+        figures = dict(expression=expression, mean=f"{identity.mean:.1f}", minimum=f"{identity.minimum:.1f}",
+                       sequences=f"{identity.rows:,}", n=identity.pairs)
+        if identity.sampled:
+            message = Message(
+                "{expression}: mean {mean}% and minimum {minimum}% identity over %n random pair(s) of "
+                "{sequences} sequences; the minimum may be above the true one.", **figures)
+        else:
+            message = Message(
+                "{expression}: mean {mean}% and minimum {minimum}% identity over %n pair(s) of {sequences} "
+                "sequences.", **figures)
+    else:
+        message = Message(
+            "{expression}: no pair of its %n aligned sequence(s) has an identity value.",
+            expression=expression, n=identity.rows,
+        )
+    lines = ["", str(message)]
+    if result.column_count is None:
+        lines.append(f"Identity: {LOCAL_DEFINITION}, over all MSA columns.")
+    else:
+        lines.append(f"Identity: {REGION_DEFINITION}, over positions [{plan.positions}] "
+                     f"({result.column_count:,} columns).")
+    if identity.sampled:
+        lines.append(f"Over {result.exact_pairs:,} member pairs, so {result.sample_pairs:,} random pairs "
+                     "(seed 42) were compared.")
+    if result.unaligned:
+        lines.append(f"{result.unaligned:,} matched node(s) have no MSA row and are left out.")
+    print("\n".join(lines))
+    Command_Engine.show_status(viewer, message)
+    Command_Engine.command_succeeded(viewer, message)
+
+
+def run(viewer, args):
+    """Run the command at once: its plan, start, compute and apply steps in a row."""
+    command_plan = plan(viewer, args)
+    if command_plan is None:
+        return
+    inputs = start(viewer, command_plan)
+    if inputs is None:
+        return
+    apply(viewer, command_plan, compute(inputs, None))
+
+
+def _queue_file_job(viewer, plan, alignment, viewer_to_aln, sides, columns):
+    """Refuse a matrix too large for its file, or queue the background job that computes and writes it."""
+    filename, file_format = plan.filename, next(
+        suffix for suffix in FILE_FORMATS if plan.filename.lower().endswith(suffix))
     rows, columns_nodes = sides[0][1], sides[-1][1]
     n_rows, n_columns = len(rows), len(columns_nodes)
 
-    # --- 3. A matrix the file can hold, refused before anything runs ---
     cells = n_rows * n_columns
     if cells > MAX_CELLS[file_format] or (
             file_format == '.xlsx' and (n_columns > XLSX_MAX_COLUMNS or n_rows > XLSX_MAX_ROWS)):
@@ -340,7 +510,7 @@ def run(viewer, args):
         ))
         return
 
-    # --- 4. The data the job reads: its own copy of the rows it compares, nothing live ---
+    # The data the job reads: its own copy of the rows it compares, nothing live.
     msa_rows = np.unique(viewer_to_aln[np.concatenate([rows, columns_nodes])])
     frozen = alignment.aln.matrix[msa_rows].tocsr(copy=True)
     local_row = {int(row): index for index, row in enumerate(msa_rows.tolist())}
@@ -356,23 +526,23 @@ def run(viewer, args):
         "col_nodes": columns_nodes,
         "row_headers": [str(headers[node]) for node in rows],
         "col_headers": [str(headers[node]) for node in columns_nodes],
-        "expressions": tuple(expressions),
+        "expressions": tuple(side[0] for side in sides),
         "unaligned": tuple((side[0], [str(headers[node]) for node in side[2]]) for side in sides),
         "columns": columns,
-        "positions": None if positions is None else f"[{positions}]",
+        "positions": None if plan.positions is None else f"[{plan.positions}]",
         "numbering": (f"reference {getattr(alignment, 'resolved_ref_full', '')}" if has_reference else "occupancy"),
         "msa_file": str(getattr(alignment, 'msa_file', '') or ''),
         "filename": filename,
         "file_format": file_format,
     }
 
-    # --- 5. One background job computes the matrix and writes the file ---
+    # One background job computes the matrix and writes the file.
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
         _fail(viewer, Message("Identity failed: the background job scheduler is unavailable."))
         return
     out_dir = cfg.resolve_directory_path(IDENTITY_DIRECTORY)
-    if automatic_filename:
+    if plan.automatic_filename:
         filename, output_path = _available_automatic_filename(scheduler, out_dir, filename)
         payload["filename"] = filename
     else:
@@ -385,7 +555,7 @@ def run(viewer, args):
             return
     payload["out_dir"] = out_dir
     payload["output_path"] = output_path
-    payload["allow_overwrite"] = not automatic_filename
+    payload["allow_overwrite"] = not plan.automatic_filename
     try:
         scheduler.enqueue(
             command_name="identity",
@@ -393,7 +563,7 @@ def run(viewer, args):
             payload=payload,
             worker=_write_identity_artifact,
             output_path=output_path,
-            allow_overwrite=not automatic_filename,
+            allow_overwrite=not plan.automatic_filename,
         )
     except (FileExistsError, RuntimeError) as exc:
         _fail(viewer, Message("Identity failed: {error}", error=exc))

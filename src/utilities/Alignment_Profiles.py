@@ -708,7 +708,7 @@ if NUMBA_AVAILABLE:
         return matches, length
 
     @njit(parallel=True, nogil=True, cache=True)
-    def _all_pairs_identity_kernel(planes):
+    def _all_pairs_identity_kernel(planes, local):
         """For each row i: the sum, count and minimum of the identities of the
         pairs (i, j), j > i, that share an aligned residue pair.
 
@@ -730,7 +730,7 @@ if NUMBA_AVAILABLE:
                 count = 0
                 lowest = np.inf
                 for right in range(left + 1, n):
-                    matches, length = _pair_matches_and_length(planes, left, planes, right, True)
+                    matches, length = _pair_matches_and_length(planes, left, planes, right, local)
                     if length > 0:
                         value = 100.0 * matches / length
                         total += value
@@ -743,11 +743,11 @@ if NUMBA_AVAILABLE:
         return row_sums, row_counts, row_mins
 
     @njit(parallel=True, nogil=True, cache=True)
-    def _listed_pairs_identity_kernel(planes, lefts, rights):
+    def _listed_pairs_identity_kernel(planes, lefts, rights, local):
         """The identity of each listed pair; NaN where no aligned residue pair exists."""
         values = np.empty(lefts.size)
         for index in prange(lefts.size):
-            matches, length = _pair_matches_and_length(planes, lefts[index], planes, rights[index], True)
+            matches, length = _pair_matches_and_length(planes, lefts[index], planes, rights[index], local)
             values[index] = 100.0 * matches / length if length > 0 else np.nan
         return values
 
@@ -836,7 +836,7 @@ def _listed_pairs_identity_numpy(left_planes, right_planes, lefts, rights, local
     return values
 
 
-def _all_pairs_identity_numpy(planes):
+def _all_pairs_identity_numpy(planes, local=True):
     """The NumPy twin of _all_pairs_identity_kernel, summed: (sum, count, minimum)."""
     n = planes.shape[0]
     total, count, lowest = 0.0, 0, np.inf
@@ -850,7 +850,7 @@ def _all_pairs_identity_numpy(planes):
             stop += 1
         lefts = np.concatenate([np.full(n - 1 - row, row) for row in range(left, stop)])
         rights = np.concatenate([np.arange(row + 1, n) for row in range(left, stop)])
-        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights)
+        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights, local)
         values = values[~np.isnan(values)]
         if values.size:
             total += float(values.sum())
@@ -914,7 +914,7 @@ def _pack_local_identity_planes(encoded, occupied, block_rows=4096):
     return planes
 
 
-def _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed):
+def _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed, local=True):
     """GroupIdentity of packed rows; the caller has set Numba's thread count."""
     row_count = planes.shape[0]
     pair_total = row_count * (row_count - 1) // 2
@@ -922,19 +922,19 @@ def _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed):
         return GroupIdentity(float("nan"), float("nan"), 0, False, row_count)
     if pair_total <= exact_pairs:
         if use_numba:
-            sums, counts, mins = _all_pairs_identity_kernel(planes)
+            sums, counts, mins = _all_pairs_identity_kernel(planes, local)
             total, count, lowest = float(sums.sum()), int(counts.sum()), float(mins.min())
         else:
-            total, count, lowest = _all_pairs_identity_numpy(planes)
+            total, count, lowest = _all_pairs_identity_numpy(planes, local)
         if count == 0:
             return GroupIdentity(float("nan"), float("nan"), 0, False, row_count)
         return GroupIdentity(total / count, lowest, count, False, row_count)
 
     lefts, rights = _sampled_pairs(row_count, sample_pairs, seed)
     if use_numba:
-        values = _listed_pairs_identity_kernel(planes, lefts, rights)
+        values = _listed_pairs_identity_kernel(planes, lefts, rights, local)
     else:
-        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights)
+        values = _listed_pairs_identity_numpy(planes, planes, lefts, rights, local)
     values = values[~np.isnan(values)]
     if values.size == 0:
         return GroupIdentity(float("nan"), float("nan"), 0, True, row_count)
@@ -949,6 +949,7 @@ def group_identities(
     exact_pairs=IDENTITY_EXACT_PAIRS,
     sample_pairs=IDENTITY_SAMPLE_PAIRS,
     seed=IDENTITY_SAMPLE_SEED,
+    columns=None,
 ):
     """{label: GroupIdentity} for every label but -1, from a sparse alignment.
 
@@ -960,13 +961,19 @@ def group_identities(
     and GroupIdentity.rows says how many were kept. A group with at most
     exact_pairs member pairs has all of them compared; a larger one has
     sample_pairs random pairs compared, drawn with the same seed for every
-    group, so a group's values depend on its members alone.
+    group, so a group's values depend on its members alone. With columns, a
+    sequence of MSA column indices, only those columns count, and a pair's
+    length is every one of them where either row holds a residue, as in
+    identity_matrix.
     """
     labels = np.asarray(labels)
     node_rows = np.asarray(node_rows, dtype=np.int64)
     code_limit = int(matrix.data.max()) + 1 if matrix.nnz else 1
     table = standard_residue_table(int_to_aa, code_limit)
     occupied_table = residue_column_table(int_to_aa, code_limit)
+    local = columns is None
+    if not local:
+        columns = np.asarray(columns, dtype=np.int64)
 
     order = np.argsort(labels, kind="stable")
     group_ids, starts = np.unique(labels[order], return_index=True)
@@ -989,15 +996,17 @@ def group_identities(
                 identities[group_id] = GroupIdentity(float("nan"), float("nan"), 0, False, len(rows))
                 continue
             codes = matrix[rows].toarray()
+            if not local:
+                codes = codes[:, columns]
             planes = _pack_local_identity_planes(table[codes], occupied_table[codes])
             try:
-                identities[group_id] = _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed)
+                identities[group_id] = _group_identity(planes, use_numba, exact_pairs, sample_pairs, seed, local)
             except Exception:
                 if not use_numba:
                     raise
                 # The kernels failed to compile or run: finish on NumPy.
                 use_numba = False
-                identities[group_id] = _group_identity(planes, False, exact_pairs, sample_pairs, seed)
+                identities[group_id] = _group_identity(planes, False, exact_pairs, sample_pairs, seed, local)
     finally:
         if selected_threads is not None and selected_threads != previous_threads:
             set_num_threads(previous_threads)

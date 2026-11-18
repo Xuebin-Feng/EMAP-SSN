@@ -280,5 +280,80 @@ class RefusalTests(IdentityCommandCase):
         self.assertIn("($sele$)", printed)
 
 
+class SummaryTests(IdentityCommandCase):
+    """identity summary prints one selection's mean and minimum and writes nothing."""
+
+    def summary(self, args, viewer=None):
+        viewer, succeeded, failed, output, job = self.queue(args, viewer)
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        self.assertIsNone(job)
+        self.assertEqual(os.listdir(self.folder.name), [])
+        return str(succeeded.call_args.args[1]), output
+
+    def test_the_mean_and_minimum_of_every_pair_are_printed_and_nothing_written(self):
+        for args in (["summary", "#cluster_1#"], ["#cluster_1#", "SUMMARY"]):
+            with self.subTest(args=args):
+                message, output = self.summary(args)
+                self.assertEqual(message, "#cluster_1#: mean 66.7% and minimum 50.0% identity over 3 pairs of 3 "
+                                          "sequences.")
+                self.assertIn(message, output)
+                self.assertIn("incl. internal gaps", output)
+
+    def test_positions_count_only_their_columns(self):
+        rows = ["AAAA", "A-AC", "AC-C", "--DD"]
+        message, output = self.summary(["summary", "#cluster_1#", "[2-3]"], aligned_viewer(rows, [1, 1, 1, 1]))
+        # Of the six pairs over columns 2-3 only the first two rows share a residue there, and half of it.
+        self.assertEqual(message, "#cluster_1#: mean 8.3% and minimum 0.0% identity over 6 pairs of 4 sequences.")
+        self.assertIn("over positions [2-3] (2 columns)", output)
+
+    def test_matched_nodes_without_an_msa_row_are_left_out_and_counted(self):
+        message, output = self.summary(["summary", "#cluster_2#"])
+        self.assertTrue(message.startswith("#cluster_2#: mean"), message)
+        self.assertIn("over 1 pair of 2 sequences.", message)
+        self.assertIn("1 matched node(s) have no MSA row and are left out.", output)
+
+    def test_a_selection_without_a_pair_to_compare_says_so(self):
+        message, _output = self.summary(["summary", "#cluster_1#"], aligned_viewer(["AA--", "--AA"], [1, 1]))
+        self.assertEqual(message, "#cluster_1#: no pair of its 2 aligned sequences has an identity value.")
+        viewer = aligned_viewer()
+        viewer.selected_indices = [0]
+        message, _output = self.summary(["summary"], viewer)
+        self.assertEqual(message, "$sele$: no pair of its 1 aligned sequence has an identity value.")
+
+    def test_a_selection_over_the_exact_limit_is_sampled_and_says_so(self):
+        from utilities import Alignment_Profiles
+        with mock.patch.object(Alignment_Profiles, "IDENTITY_EXACT_PAIRS", 2), \
+                mock.patch.object(Alignment_Profiles, "IDENTITY_SAMPLE_PAIRS", 500):
+            message, output = self.summary(["summary", "#cluster_1#"])
+        self.assertIn("random pairs of 3 sequences; the minimum may be above the true one.", message)
+        self.assertIn("Over 2 member pairs, so 500 random pairs (seed 42) were compared.", output)
+
+    def test_a_second_expression_or_a_filename_is_refused(self):
+        for args, text in ((["summary", "#cluster_1#", "#cluster_2#"],
+                            "identity summary takes one expression; found 2 expressions"),
+                           (["summary", "#cluster_1#", "c1.csv"],
+                            "identity summary prints its figures and writes no file; leave out 'c1.csv'.")):
+            with self.subTest(args=args):
+                viewer, succeeded, failed, _output, job = self.queue(args)
+                succeeded.assert_not_called()
+                self.assertIn(text, str(failed.call_args.args[1]))
+                self.assertIsNone(job)
+
+    def test_the_summary_computes_on_the_worker_and_the_file_form_only_queues_its_job(self):
+        viewer = aligned_viewer()
+        with mock.patch("builtins.print"):
+            summary_plan = identity_command.plan(viewer, ["summary", "#cluster_1#"])
+            file_plan = identity_command.plan(viewer, ["#cluster_1#"])
+        self.assertTrue(summary_plan.heavy)
+        self.assertFalse(file_plan.heavy)
+
+    def test_an_agent_reply_waits_for_review_in_every_form(self):
+        from desktop.Command_Metadata import agent_policy
+        for command in ("identity summary #cluster_1#", "identity #cluster_1#", "identity #cluster_1# summary"):
+            with self.subTest(command=command):
+                self.assertEqual(agent_policy(command), "approve")
+
+
 if __name__ == "__main__":
     unittest.main()

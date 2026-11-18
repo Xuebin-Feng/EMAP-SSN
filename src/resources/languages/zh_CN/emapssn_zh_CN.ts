@@ -4621,7 +4621,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/identity.py" line="+607"/>
+        <location filename="../../../commands/identity.py" line="+777"/>
         <location line="+15"/>
         <location filename="../../../commands/label.py" line="+1322"/>
         <location line="+452"/>
@@ -4946,8 +4946,8 @@ Command-line usage:
         <location line="+172"/>
         <location line="+89"/>
         <location line="+86"/>
-        <location filename="../../../commands/identity.py" line="-148"/>
-        <location line="+50"/>
+        <location filename="../../../commands/identity.py" line="-302"/>
+        <location line="+96"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-222"/>
@@ -4984,7 +4984,7 @@ Command-line usage:
         <location filename="../../../commands/export.py" line="+141"/>
         <location filename="../../../commands/group.py" line="+161"/>
         <location filename="../../../commands/help.py" line="-60"/>
-        <location filename="../../../commands/identity.py" line="-35"/>
+        <location filename="../../../commands/identity.py" line="-41"/>
         <location filename="../../../commands/jobs.py" line="+220"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
@@ -6091,7 +6091,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/identity.py" line="-71"/>
+        <location filename="../../../commands/identity.py" line="-111"/>
         <source>Error: Give one output filename; found a second one: &apos;{argument}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6109,30 +6109,52 @@ Command-line usage:
     </message>
     <message>
         <location line="+9"/>
-        <location line="+102"/>
+        <location line="+140"/>
         <source>Identity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-69"/>
+        <location line="-107"/>
         <source>Error: None of the requested positions is in the active alignment mapping.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+63"/>
+        <source>Error: identity summary prints its figures and writes no file; leave out &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+6"/>
+        <source>Error: identity summary takes one expression; found %n expression(s): {expressions}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+20"/>
         <location filename="../../../commands/logo.py" line="+16"/>
         <location filename="../../../commands/print.py" line="+98"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+12"/>
         <source>No nodes are selected; give an expression or select nodes. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No nodes are selected; give an expression or select nodes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+8"/>
         <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No sequences matched the expression &apos;{expression}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
@@ -6142,8 +6164,29 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location line="+79"/>
+        <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n random pair(s) of {sequences} sequences; the minimum may be above the true one.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n pair(s) of {sequences} sequences.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>{expression}: no pair of its %n aligned sequence(s) has an identity value.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+14"/>
+        <location line="+41"/>
         <source>at most {cells} cells</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6223,7 +6266,7 @@ Command-line usage:
         <translation type="unfinished">错误：未提供位置。请使用 [...] 语法。</translation>
     </message>
     <message>
-        <location filename="../../../commands/identity.py" line="-461"/>
+        <location filename="../../../commands/identity.py" line="-615"/>
         <location filename="../../../commands/logo.py" line="+11"/>
         <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：请在一个 [...] 参数中给出位置；发现了第二个：“{argument}”。</translation>
@@ -6263,7 +6306,7 @@ Command-line usage:
         <translation type="unfinished">错误：查看器中未加载 MSA。请检查输入。</translation>
     </message>
     <message>
-        <location filename="../../../commands/identity.py" line="+22"/>
+        <location filename="../../../commands/identity.py" line="+141"/>
         <location filename="../../../commands/logo.py" line="+5"/>
         <source>Error: The selected MSA contains no aligned rows for the current network.</source>
         <translation type="unfinished">错误：所选 MSA 中没有当前网络的已比对行。</translation>

@@ -4243,8 +4243,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: The selected MSA contains no aligned rows for the current network.</source>
+        <source>Error: identity summary prints its figures and writes no file; leave out &apos;{argument}&apos;.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Error: identity summary takes one expression; found %n expression(s): {expressions}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
@@ -4255,11 +4261,41 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>No nodes are selected; give an expression or select nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No sequences matched the expression &apos;{expression}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
         <source>Error: The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n random pair(s) of {sequences} sequences; the minimum may be above the true one.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n pair(s) of {sequences} sequences.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>{expression}: no pair of its %n aligned sequence(s) has an identity value.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
