@@ -317,11 +317,39 @@ still change before version 1.0.0.
     per sequence (name, path, length, status, mean pLDDT), and a longer one comes back
     with its job to wait on. The server's guide and `list_tools` name it, a workflow
     recipe shows it, and the guide's word limit goes from 1,850 to 2,000.
-- **The `cluster` table names each cluster's centre.** To the right of each MCL or Leiden
-  cluster's row, the table names the cluster's centre: for MCL its strongest attractor,
-  and for Leiden the member whose leaving would cost the most modularity at the
-  resolution used. Jaccard clusters have none. The centre is only printed: `cluster
-  list`, undo and `subcluster` do not use it.
+- **The `cluster` and `subcluster` tables name each cluster's centre.** To the right of
+  each MCL or Leiden cluster's row, the table names the cluster's centre: for MCL its
+  strongest attractor, and for Leiden the member whose leaving would cost the most
+  modularity at the resolution used. `subcluster` names each subcluster's centre the
+  same way, found among the nodes and edges of the cluster it splits. Jaccard clusters
+  have none. The centre is only printed: `cluster list` and undo do not use it.
+- **The `cluster` and `subcluster` tables give each cluster's sequence identity.** With
+  an MSA loaded, two more columns, Mean %ID and Min %ID, give the mean and the lowest
+  pairwise % identity of each cluster's members.
+  - **How a pair is counted:** identical standard residues over the alignment length,
+    internal gaps included, as the Pairwise Alignment and Embedding Search tools count
+    a local alignment. The tools align each pair themselves, so their value for a pair
+    can differ from the MSA's.
+  - **Large clusters:** up to 50,000,000 member pairs (about 10,000 members) are all
+    compared. A larger cluster compares 2,000,000 random pairs instead and its values
+    are marked `~`: the mean stays close to the full one, and the minimum may be above
+    the true one.
+  - **Without an MSA** the table is as before, and a note says why the columns are
+    missing.
+- **`identity` writes the pairwise % sequence identity of a selection to a file.** It
+  reads the loaded MSA and writes a matrix to the Sequence_Identity folder of the
+  analysis results.
+  - **One or two selections:** with one expression every matched sequence is compared
+    with every other. With two, the first expression's sequences are the rows and the
+    second's the columns. Without an expression the selected nodes are used.
+  - **How a pair is counted:** as in the cluster tables. With bracketed positions such
+    as `[45-120]`, only those columns count.
+  - **Files:** `.xlsx` by default, or `.csv` or `.tsv` by the name's ending. An `.xlsx`
+    also holds a Summary sheet and each sequence's mean identity to the others. A
+    matrix over 4,000,000 cells for `.xlsx`, or 16,000,000 for the others, is refused
+    before anything runs.
+  - **In the Console:** a summary and at most 20 x 20 cells of the matrix.
+  - **From the Agent,** a reply that runs it waits for the user to press Run.
 
 ### Changed
 
