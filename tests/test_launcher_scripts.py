@@ -1640,5 +1640,182 @@ class PosixHiddenMarkMessageTests(unittest.TestCase):
         self.assertEqual(output, "")
 
 
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class MacosWindowNameTests(unittest.TestCase):
+    """macOS shows a window under the name of its program file: the shell side of the links in .venv/bin.
+
+    Nothing here has run on a Mac: a stand-in `uname` says Darwin. The project folder's name has a space.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.root = self.base / "my project"
+        self.bin = self.root / ".venv" / "bin"
+        self.bin.mkdir(parents=True)
+        self.python = self.bin / "python"
+        # Says which name it was started under, then what it was given.
+        self.python.write_text('#!/bin/bash\nprintf \'%s|%s\\n\' "${0##*/}" "$*"\n', encoding="utf-8", newline="\n")
+        self.python.chmod(0o755)
+
+    def shell(self, body, system="Darwin"):
+        program = f". {shlex.quote(str(INSTALLER))}\nuname() {{ echo {system}; }}\n{body}\n"
+        done = subprocess.run(["/bin/bash", "-c", program], capture_output=True, text=True, check=False)
+        return done
+
+    def window_python(self, kind, system="Darwin", before=""):
+        done = self.shell(f'{before}\nssn_window_python {shlex.quote(str(self.root))} {kind}', system)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.rstrip("\n")
+
+    def test_the_shell_names_the_windows_as_the_python_launcher_does(self):
+        sys.path.insert(0, str(PROJECT_ROOT / "src"))
+        try:
+            from desktop import Window_Python
+        finally:
+            sys.path.pop(0)
+        for kind, name in Window_Python.WINDOW_NAMES.items():
+            with self.subTest(kind=kind):
+                self.assertEqual(self.shell(f"ssn_window_name {kind}").stdout.rstrip("\n"), name)
+        self.assertNotEqual(self.shell("ssn_window_name vr").returncode, 0)
+
+    def test_on_macos_each_window_gets_a_link_to_python_made_when_it_is_missing(self):
+        for kind, name in (("viewer", "EMAP-SSN"), ("session", "EMAP-SSN"), ("tools", "EMAP-SSN Tools")):
+            with self.subTest(kind=kind):
+                path = self.window_python(kind)
+                self.assertEqual(path, str(self.bin / name))
+                self.assertTrue(os.path.islink(path))
+                self.assertEqual(os.readlink(path), "python")
+        # A start through the link runs the same interpreter, and the space in the name survives.
+        done = subprocess.run([str(self.bin / "EMAP-SSN Tools"), "-u", "x y.py"], capture_output=True, text=True)
+        self.assertEqual(done.stdout, "EMAP-SSN Tools|-u x y.py\n")
+
+    def test_a_link_that_is_there_stays_and_a_wrong_or_dangling_one_is_replaced(self):
+        first = self.window_python("tools")
+        before = os.lstat(first).st_ino
+        self.assertEqual(self.window_python("tools"), first)
+        self.assertEqual(os.lstat(first).st_ino, before)
+        os.unlink(first)
+        os.symlink("gone", first)
+        self.assertEqual(self.window_python("tools"), first)
+        self.assertEqual(os.readlink(first), "python")
+
+    def test_after_the_environment_is_rebuilt_the_next_start_makes_the_link_again(self):
+        first = self.window_python("viewer")
+        os.unlink(first)  # a uv sync that rebuilds the environment
+        self.assertFalse(os.path.lexists(first))
+        self.assertEqual(self.window_python("viewer"), first)
+        self.assertTrue(os.path.islink(first))
+
+    def test_a_link_that_cannot_be_made_means_plain_python_and_no_failure(self):
+        self.assertEqual(self.window_python("tools", before="ln() { return 1; }"), str(self.python))
+        self.assertFalse(os.path.lexists(self.bin / "EMAP-SSN Tools"))
+        # A real file with the link's name is left alone.
+        (self.bin / "EMAP-SSN").write_text("mine", encoding="utf-8")
+        self.assertEqual(self.window_python("viewer"), str(self.python))
+        self.assertEqual((self.bin / "EMAP-SSN").read_text(encoding="utf-8"), "mine")
+
+    def test_linux_and_a_missing_python_get_plain_python_and_no_link(self):
+        self.assertEqual(self.window_python("tools", system="Linux"), str(self.python))
+        self.assertEqual(sorted(path.name for path in self.bin.iterdir()), ["python"])
+        self.python.unlink()
+        self.assertEqual(self.window_python("tools"), str(self.python))
+        self.assertEqual(list(self.bin.iterdir()), [])
+
+    def test_the_links_stay_inside_the_environments_bin_folder(self):
+        before = sorted(path.relative_to(self.base).as_posix() for path in self.base.rglob("*"))
+        self.window_python("viewer")
+        self.window_python("tools")
+        after = sorted(path.relative_to(self.base).as_posix() for path in self.base.rglob("*"))
+        added = sorted(set(after) - set(before))
+        self.assertEqual(added, ["my project/.venv/bin/EMAP-SSN", "my project/.venv/bin/EMAP-SSN Tools"])
+
+    def test_the_app_bundle_executable_starts_the_launcher_through_the_link_of_its_window(self):
+        fake_bin = self.base / "fake-bin"
+        fake_bin.mkdir()
+        (fake_bin / "uname").write_text("#!/bin/bash\nprintf Darwin\n", encoding="utf-8", newline="\n")
+        (fake_bin / "uname").chmod(0o755)
+        (self.root / "install.sh").write_bytes(_lf_bytes(INSTALLER))
+        (self.root / "src" / "desktop").mkdir(parents=True)
+        (self.root / "src" / "desktop" / "Desktop_Launcher.py").write_text("# stand-in\n", encoding="utf-8")
+        for name, kind, bundle_id, link in (
+            ("EMAP-SSN", "viewer", "ca.utoronto.emapssn", "EMAP-SSN"),
+            ("EMAP-SSN Tools", "tools", "ca.utoronto.emapssn.tools", "EMAP-SSN Tools"),
+        ):
+            with self.subTest(app=name):
+                done = subprocess.run(
+                    ["/bin/bash", "-c", f'. "{self.root}/install.sh" && '
+                     f'ssn_create_macos_app_launcher "{self.root}" "{name}" "{kind}" "{bundle_id}"'],
+                    capture_output=True, text=True, check=False)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                executable = self.root / f"{name}.app" / "Contents" / "MacOS" / "launcher"
+                self.assertEqual(subprocess.run(["/bin/bash", "-n", str(executable)]).returncode, 0)
+                env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+                done = subprocess.run(["/bin/bash", str(executable)], capture_output=True, text=True, env=env,
+                                      cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL, timeout=60, check=False)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(
+                    done.stdout, f"{link}|-u {self.root / 'src' / 'desktop' / 'Desktop_Launcher.py'} {kind} --caller-opens-console\n")
+                self.assertTrue(os.path.islink(self.bin / link))
+
+    def test_the_app_bundle_falls_back_to_plain_python_when_the_link_cannot_be_made(self):
+        fake_bin = self.base / "fake-bin"
+        fake_bin.mkdir()
+        for name, body in (("uname", "printf Darwin"), ("ln", "exit 1")):
+            (fake_bin / name).write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8", newline="\n")
+            (fake_bin / name).chmod(0o755)
+        (self.root / "install.sh").write_bytes(_lf_bytes(INSTALLER))
+        (self.root / "src" / "desktop").mkdir(parents=True)
+        (self.root / "src" / "desktop" / "Desktop_Launcher.py").write_text("# stand-in\n", encoding="utf-8")
+        done = subprocess.run(
+            ["/bin/bash", "-c", f'. "{self.root}/install.sh" && '
+             f'ssn_create_macos_app_launcher "{self.root}" "EMAP-SSN Tools" tools ca.utoronto.emapssn.tools'],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        executable = self.root / "EMAP-SSN Tools.app" / "Contents" / "MacOS" / "launcher"
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+        done = subprocess.run(["/bin/bash", str(executable)], capture_output=True, text=True, env=env,
+                              cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL, timeout=60, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith("python|-u "), done.stdout)
+
+    def test_the_scripts_that_start_a_window_use_the_link_helper_for_their_kind(self):
+        expected = {
+            "EMAPSSN.sh": 'ssn_window_python "$PROJECT_ROOT" viewer',
+            "EMAPSSN_Tools.sh": 'ssn_window_python "$PROJECT_ROOT" tools',
+        }
+        for script, call in expected.items():
+            with self.subTest(script=script):
+                text = (PROJECT_ROOT / "src" / "bin" / script).read_text(encoding="utf-8")
+                self.assertEqual(text.count(f'"$({call})" src/EMAPSSN_'), 2)  # --run-only and the direct start
+                self.assertNotIn('"$VENV_PYTHON" src/EMAPSSN_', text)
+        text = (PROJECT_ROOT / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh").read_text(encoding="utf-8")
+        self.assertIn('ssn_window_python "$PROJECT_ROOT" "$APP_KIND"', text)
+
+    def test_the_run_only_start_runs_the_window_through_its_link_on_macos(self):
+        # EMAPSSN_Tools.sh --run-only over a scratch project, on a "Mac": the window's interpreter is the link.
+        (self.root / "src" / "bin").mkdir(parents=True)
+        for relative in ("src/bin/EMAPSSN_Tools.sh", "install.sh"):
+            (self.root / relative).write_bytes(_lf_bytes(PROJECT_ROOT / relative))
+        # The version probe (-c) succeeds, the single-instance probe says no window is open, the window prints its name.
+        self.python.write_text(
+            '#!/bin/bash\nif [ "$1" = "-c" ]; then exit 0; fi\n'
+            'case "$1" in */Single_Instance_Probe.py) exit 1 ;; esac\n'
+            'printf \'%s|%s\\n\' "${0##*/}" "$*"\n',
+            encoding="utf-8", newline="\n")
+        fake_bin = self.base / "fake-bin"
+        fake_bin.mkdir()
+        (fake_bin / "uname").write_text("#!/bin/bash\nprintf Darwin\n", encoding="utf-8", newline="\n")
+        (fake_bin / "uname").chmod(0o755)
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+        done = subprocess.run(
+            ["/bin/bash", str(self.root / "src" / "bin" / "EMAPSSN_Tools.sh"), "--run-only"],
+            capture_output=True, text=True, env=env, cwd=tempfile.gettempdir(),
+            stdin=subprocess.DEVNULL, timeout=60, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "EMAP-SSN Tools|src/EMAPSSN_Tools.py\n")
+
+
 if __name__ == "__main__":
     unittest.main()

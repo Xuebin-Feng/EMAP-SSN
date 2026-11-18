@@ -22,6 +22,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from desktop import Desktop_Launcher_Monitor  # noqa: E402
+from desktop import Window_Python  # noqa: E402
 
 
 class DesktopLauncherMonitorTests(unittest.TestCase):
@@ -1074,7 +1075,8 @@ class ViewerSessionStartTests(unittest.TestCase):
         self.assertEqual(Path(command[2]), PROJECT_ROOT / "src" / "desktop" / "Desktop_Launcher.py")
         self.assertEqual(command[3:], ["session", "--settings", "/t/s.json", "--delete-settings"])
         self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT, executable="/py")[3:], ["session"])
-        self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT)[0], sys.executable)
+        with mock.patch.object(sys, "platform", "linux"):  # on a Mac the default would be the window's link
+            self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT)[0], sys.executable)
 
     def test_launch_viewer_session_runs_that_command(self):
         with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen") as popen:
@@ -1118,6 +1120,143 @@ class ViewerSessionStartTests(unittest.TestCase):
                 self.assertIsNone(wait(self.launcher(None), snapshot, patience=60))  # the Viewer took it, so it ends at once
             self.assertIsNone(wait(self.launcher(3), snapshot, patience=60))  # and then the launcher ended badly: not ours
             self.assertEqual(wait(self.launcher(3), None, patience=60), 3)
+
+
+def _symlinks_work():
+    with tempfile.TemporaryDirectory() as folder:
+        try:
+            os.symlink("target", Path(folder) / "link")
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+class WindowPythonTests(unittest.TestCase):
+    """macOS shows the name of the program file in the Dock: windows start through a link to python named for them.
+
+    Nothing here has run on a Mac. The platform is passed in, over a scratch project (its name has a space) whose
+    .venv/bin/python is a stand-in file.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name) / "my project"
+        self.bin = self.root / ".venv" / "bin"
+        self.bin.mkdir(parents=True)
+        self.python = self.bin / "python"
+        self.python.write_text("#!/bin/sh\n", encoding="utf-8")
+        self.python.chmod(0o755)
+
+    def test_the_names_are_the_macos_bundles(self):
+        self.assertEqual(Window_Python.WINDOW_NAMES, {"viewer": "EMAP-SSN", "session": "EMAP-SSN", "tools": "EMAP-SSN Tools"})
+
+    def test_linux_and_windows_commands_are_unchanged_and_nothing_is_made(self):
+        for platform_name in ("linux", "win32"):
+            for kind in ("viewer", "tools", "session"):
+                with self.subTest(platform=platform_name, kind=kind):
+                    self.assertEqual(Window_Python.window_python(self.root, kind, self.python, platform_name), str(self.python))
+        self.assertEqual(sorted(path.name for path in self.bin.iterdir()), ["python"])
+
+    @unittest.skipUnless(_symlinks_work(), "symbolic links are not available here")
+    def test_each_window_gets_its_own_link_to_python_made_when_missing(self):
+        for kind, name in (("viewer", "EMAP-SSN"), ("session", "EMAP-SSN"), ("tools", "EMAP-SSN Tools")):
+            with self.subTest(kind=kind):
+                command = Window_Python.window_python(self.root, kind, self.python, "darwin")
+                self.assertEqual(command, str(self.bin / name))
+                self.assertTrue(os.path.islink(command))
+                self.assertEqual(os.readlink(command), "python")  # relative: the link follows the folder
+        self.assertEqual(sorted(path.name for path in self.bin.iterdir()), ["EMAP-SSN", "EMAP-SSN Tools", "python"])
+
+    @unittest.skipUnless(_symlinks_work(), "symbolic links are not available here")
+    def test_a_link_that_is_there_is_kept_and_a_wrong_or_dangling_one_is_replaced(self):
+        first = Window_Python.window_python(self.root, "tools", self.python, "darwin")
+        before = os.lstat(first).st_ino
+        self.assertEqual(Window_Python.window_python(self.root, "tools", self.python, "darwin"), first)
+        self.assertEqual(os.lstat(first).st_ino, before)
+        os.unlink(first)
+        os.symlink("elsewhere", first)
+        self.assertEqual(Window_Python.window_python(self.root, "tools", self.python, "darwin"), first)
+        self.assertEqual(os.readlink(first), "python")
+
+    @unittest.skipUnless(_symlinks_work(), "symbolic links are not available here")
+    def test_the_link_is_made_again_after_the_environment_was_rebuilt(self):
+        link = Window_Python.window_python(self.root, "viewer", self.python, "darwin")
+        os.unlink(link)  # what a uv sync that rebuilds the environment leaves
+        self.assertEqual(Window_Python.window_python(self.root, "viewer", self.python, "darwin"), link)
+        self.assertTrue(os.path.islink(link))
+
+    def test_a_link_that_cannot_be_made_leaves_plain_python(self):
+        with mock.patch.object(Window_Python.os, "symlink", side_effect=PermissionError("no")):
+            self.assertEqual(Window_Python.window_python(self.root, "tools", self.python, "darwin"), str(self.python))
+        # A real file with the link's name is not overwritten.
+        (self.bin / "EMAP-SSN Tools").write_text("mine", encoding="utf-8")
+        self.assertEqual(Window_Python.window_python(self.root, "tools", self.python, "darwin"), str(self.python))
+        self.assertEqual((self.bin / "EMAP-SSN Tools").read_text(encoding="utf-8"), "mine")
+
+    def test_no_python_in_the_environment_means_no_link(self):
+        self.python.unlink()
+        self.assertIsNone(Window_Python.ensure_link(self.bin, "EMAP-SSN"))
+        self.assertEqual(list(self.bin.iterdir()), [])
+
+    def test_only_the_projects_own_interpreter_is_replaced(self):
+        other = Path(self.root).parent / "other" / "bin"
+        other.mkdir(parents=True)
+        (other / "python").write_text("#!/bin/sh\n", encoding="utf-8")
+        for python in (other / "python", "/usr/bin/python3", self.bin / "pythonw"):
+            with self.subTest(python=str(python)):
+                self.assertEqual(Window_Python.window_python(self.root, "tools", python, "darwin"), str(python))
+        self.assertEqual(list(other.iterdir()), [other / "python"])
+
+    def test_an_unknown_kind_such_as_another_programs_window_keeps_its_interpreter(self):
+        self.assertEqual(Window_Python.window_python(self.root, "vr", self.python, "darwin"), str(self.python))
+
+    @unittest.skipUnless(_symlinks_work(), "symbolic links are not available here")
+    def test_the_monitor_and_the_session_command_use_the_link_on_macos_and_python_elsewhere(self):
+        with mock.patch.object(sys, "platform", "darwin"):
+            command = Desktop_Launcher_Monitor.viewer_session_command(self.root, settings_path="s.json", executable=str(self.python))
+            self.assertEqual(command[0], str(self.bin / "EMAP-SSN"))
+            # Started from a window that runs through its own link (Tools starting a Viewer): still the Viewer's name.
+            tools_link = Window_Python.window_python(self.root, "tools", self.python, "darwin")
+            self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(self.root, executable=tools_link)[0],
+                             str(self.bin / "EMAP-SSN"))
+        with mock.patch.object(sys, "platform", "linux"):
+            self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(self.root, executable=str(self.python))[0],
+                             str(self.python))
+
+    def test_the_monitor_starts_each_window_with_the_interpreter_the_table_gives_it(self):
+        process = mock.Mock(pid=1)
+        process.wait.return_value = 0
+        for kind in ("viewer", "tools", "session"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                Desktop_Launcher_Monitor, "_console_python", return_value="/p/python"
+            ), mock.patch.object(Desktop_Launcher_Monitor, "window_python", return_value="/p/EMAP-SSN Tools") as chosen, \
+                    mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=process) as popen:
+                Desktop_Launcher_Monitor.run_monitor(kind, Path(temp_dir) / "state")
+            chosen.assert_called_once_with(PROJECT_ROOT, kind, "/p/python")
+            self.assertEqual(popen.call_args.args[0][0], "/p/EMAP-SSN Tools")  # one argument: the space survives
+
+    def test_children_of_a_window_get_the_real_python_back(self):
+        link = str(self.bin / "EMAP-SSN Tools")
+        with mock.patch.object(sys, "executable", link):
+            Window_Python.restore_real_python("linux")
+            self.assertEqual(sys.executable, link)  # not on this platform
+            Window_Python.restore_real_python("darwin")
+            self.assertEqual(sys.executable, str(self.python))
+        with mock.patch.object(sys, "executable", str(self.python)):
+            Window_Python.restore_real_python("darwin")
+            self.assertEqual(sys.executable, str(self.python))
+        with mock.patch.object(sys, "executable", link):  # no python beside it: left alone
+            self.python.unlink()
+            Window_Python.restore_real_python("darwin")
+            self.assertEqual(sys.executable, link)
+
+    def test_every_window_script_puts_the_real_python_back_before_it_starts_anything(self):
+        for script in ("EMAPSSN_Config.py", "EMAPSSN_Tools.py", "EMAPSSN_Viewer.py"):
+            with self.subTest(script=script):
+                text = (SRC_DIR / script).read_text(encoding="utf-8")
+                self.assertIn("restore_real_python()", text)
+                self.assertLess(text.index("restore_real_python()"), text.index("start_console_capture("))
 
 
 if __name__ == "__main__":
