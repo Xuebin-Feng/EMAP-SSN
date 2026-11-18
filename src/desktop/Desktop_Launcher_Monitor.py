@@ -42,6 +42,8 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from desktop.Window_Python import window_python
+
 try:
     from utilities.Localization import JoinedMessage, Message
     from utilities.Terminal_Launcher import (
@@ -459,7 +461,7 @@ def viewer_session_command(
     same wherever it came from.
     """
     command = [
-        executable or sys.executable,
+        window_python(project_root, "session", executable or sys.executable),
         "-u",
         str(Path(project_root).resolve() / "src" / "desktop" / "Desktop_Launcher.py"),
         "session",
@@ -630,7 +632,8 @@ def run_monitor(
             if sys.platform == "win32"
             else 0
         )
-        command = [_console_python(), "-u", str(app_script), *app_args]
+        # macOS: the window runs under a link named for it, which is what the Dock shows (desktop/Window_Python.py).
+        command = [window_python(project_root, app_kind, _console_python()), "-u", str(app_script), *app_args]
         if supervised is None:
             with log_path.open("w", encoding="utf-8", newline="\n") as log_handle:
                 process = subprocess.Popen(

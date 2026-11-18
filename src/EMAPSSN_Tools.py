@@ -17,6 +17,9 @@
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 import sys
 if __name__ == "__main__":
+    # macOS starts the window through a link named for it (desktop/Window_Python.py); what it starts runs the real python.
+    from desktop.Window_Python import restore_real_python
+    restore_real_python()
     # Before any output: the desktop launcher gives this process a hidden console, and --headless output may be piped.
     # A headless run, or --console, only gets UTF-8 streams (utilities.Console_Capture).
     from utilities.Console_Capture import start as start_console_capture

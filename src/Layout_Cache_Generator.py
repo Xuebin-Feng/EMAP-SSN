@@ -986,6 +986,7 @@ def _hand_off_to_viewer(
     for it to be read; on Linux and macOS the Viewer runs in this terminal, as it always did.
     """
     from desktop.Desktop_Launcher_Monitor import launch_viewer_session, wait_for_viewer_session
+    from desktop.Window_Python import window_python
 
     platform_name = platform_name or sys.platform
     failure = None
@@ -1007,7 +1008,7 @@ def _hand_off_to_viewer(
     print("Starting the Viewer in this terminal.", flush=True)
     try:
         return subprocess.call(
-            [sys.executable, "-u", os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py"),
+            [window_python(PROJECT_ROOT, "session"), "-u", os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py"),
              "--settings", snapshot, "--delete-settings"],
             cwd=str(PROJECT_ROOT),
             env=env,

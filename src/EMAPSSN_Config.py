@@ -16,6 +16,9 @@
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 import sys
 if __name__ == "__main__":
+    # macOS starts the window through a link named for it (desktop/Window_Python.py); what it starts runs the real python.
+    from desktop.Window_Python import restore_real_python
+    restore_real_python()
     # Before any output: the desktop launcher gives this process a hidden console, MCP a pipe.
     # A headless run, or --console, only gets UTF-8 streams (utilities.Console_Capture).
     from utilities.Console_Capture import start as start_console_capture
@@ -52,6 +55,7 @@ from desktop.Desktop_App import (
     set_app_user_model_id,
 )
 from desktop.Desktop_Launcher_Monitor import launch_viewer_session, viewer_session_failed
+from desktop.Window_Python import window_python
 from Layout_Cache_Generator import LayoutGenerationSettings
 from desktop.Viewer_State import (
     INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, DESKTOP_VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
@@ -499,7 +503,7 @@ if NODE_FASTA_FILE:
 def _viewer_terminal_command(project_root, settings_path, executable):
     """The Viewer's command line, for the terminal launch."""
     viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
-    argv = [executable, "-u", viewer_script]
+    argv = [window_python(project_root, "session", executable), "-u", viewer_script]
     if settings_path:
         argv.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
     return argv
