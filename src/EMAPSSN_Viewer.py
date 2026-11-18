@@ -225,7 +225,8 @@ from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_
 from desktop.Viewer_Legend import LegendCard
 from desktop.Viewer_Selection_Gesture import cancel_selection_gesture, gesture_is_open
 from desktop.Viewer_Jobs import BADGE_GAP, BADGE_HEIGHT, JobsBadge, ViewerJobs, job_lines
-from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
+from desktop.Viewer_Markers import (HoverMarkers, MarkerPicker, clamp_marker_sizes, read_point_size_limit,
+                                  symbol_codes_of, uniform_symbol)
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -2984,8 +2985,20 @@ class MainViewer:
             edge_widths[selected] = 2.0
         return edge_colors, edge_widths
 
+    def _marker_point_limit(self):
+        """The driver's largest point in device pixels, read from the live GL
+        context once (None when unreadable, which is asked again next time)."""
+        from desktop.Viewer_Markers import POINT_LIMIT_ENV
+        if os.environ.get(POINT_LIMIT_ENV, '').strip():
+            return read_point_size_limit()
+        limit = getattr(self, '_point_size_limit', None)
+        if limit is None:
+            limit = read_point_size_limit(getattr(self, 'canvas', None))
+            self._point_size_limit = limit
+        return limit
+
     def update_nodes(self):
-        colors = self.current_colors.copy()
+        colors =self.current_colors.copy()
         import matplotlib.colors as mcolors
         # A PNG capture (commands/print.py) sets transient_marks_hidden to leave
         # out the hover colour and the left-click rings. Only their drawing
@@ -3049,7 +3062,12 @@ class MainViewer:
                 marker_edge_colors[ring_slots] = 0.0
                 marker_edge_widths[ring_slots] = 0.0
                 marker_sizes[ring_slots] *= 2.0
-            
+            # No point beyond what the driver draws (Viewer_Markers): a larger
+            # node is drawn whole at the limit; the picker gets the same sizes.
+            marker_sizes = clamp_marker_sizes(
+                marker_sizes, marker_edge_widths, getattr(self.canvas, 'pixel_scale', 1.0),
+                getattr(self.markers, 'antialias', 1.0), self._marker_point_limit())
+
             # One name when every node has the same shape: VisPy looks a list
             # up name by name in Python (3 ms at 60,000 nodes).
             marker_shapes = shapes[marker_node_order]

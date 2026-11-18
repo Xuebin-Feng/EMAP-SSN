@@ -60,6 +60,60 @@ def marker_layout_problem(markers, count):
     return None
 
 
+# --------------------------------------------------------------------------
+# The largest point the graphics driver draws.
+#
+# VisPy draws a marker as a GL point of T = size + 4 * (outline + 1.5 * antialias)
+# device pixels (size and outline in logical pixels times the display scale).
+# A driver draws no point beyond GL_ALIASED_POINT_SIZE_RANGE's upper value (64
+# on Apple's) and clamps the square, while the shader still draws the disc of
+# the size asked for: the node is cut off. clamp_marker_sizes keeps T within
+# the limit, so a larger node is drawn whole at the limit.
+
+POINT_LIMIT_ENV = 'SSN_MARKER_POINT_LIMIT'
+_GL_ALIASED_POINT_SIZE_RANGE = 0x846D
+
+
+def read_point_size_limit(canvas=None):
+    """The largest point, in device pixels, the driver draws, or None when
+    unknown (then nothing is clamped). The environment variable
+    SSN_MARKER_POINT_LIMIT, when set to a number, overrides the driver (tests
+    stand in for a driver with a small limit); otherwise the upper value of
+    GL_ALIASED_POINT_SIZE_RANGE is read from the canvas's current context."""
+    import os
+    text = os.environ.get(POINT_LIMIT_ENV, '').strip()
+    if text:
+        try:
+            value = float(text)
+        except ValueError:
+            value = 0.0
+        return value if np.isfinite(value) and value > 0 else None
+    try:
+        if canvas is not None:
+            canvas.set_current()
+        from vispy.gloo import gl
+        value = float(np.asarray(gl.glGetParameter(_GL_ALIASED_POINT_SIZE_RANGE)).ravel()[1])
+    except Exception:
+        return None
+    return value if np.isfinite(value) and value >= 1.0 else None
+
+
+def clamp_marker_sizes(sizes, edge_widths, pixel_scale, antialias, limit):
+    """sizes (logical pixels) with none larger than the limit allows: the point
+    VisPy draws, size * scale + 4 * (edge * scale + 1.5 * antialias) device
+    pixels, then fits the limit. Sizes already within it come back unchanged,
+    bit for bit; with no limit, all of them do."""
+    sizes = np.asarray(sizes)
+    if limit is None or sizes.size == 0:
+        return sizes
+    scale = float(pixel_scale)
+    padding = 4.0 * (np.asarray(edge_widths, dtype=np.float64) * scale + 1.5 * float(antialias))
+    room = np.maximum((float(limit) - padding) / scale, 1.0 / scale)
+    if not bool(np.any(sizes > room)):
+        return sizes
+    return np.minimum(sizes, room.astype(sizes.dtype, copy=False))
+
+
 class HoverMarkers:
     """What update_nodes sent, so that a hover can rewrite two face colours.
 

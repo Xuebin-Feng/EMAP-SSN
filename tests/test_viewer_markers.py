@@ -1036,6 +1036,177 @@ _DRAG_SCRIPT = textwrap.dedent(
 )
 
 
+class ClampMarkerSizesTests(unittest.TestCase):
+    """The arithmetic of the point-size clamp (Viewer_Markers.clamp_marker_sizes)."""
+
+    def test_sizes_within_the_limit_come_back_unchanged(self):
+        sizes = np.array([1.0, 10.0, 15.5], dtype=np.float32)
+        clamped = Viewer_Markers.clamp_marker_sizes(sizes, np.full(3, 2.0), 2.0, 1.0, 64.0)
+        self.assertIs(clamped, sizes)
+        self.assertIs(Viewer_Markers.clamp_marker_sizes(sizes * 100, np.full(3, 2.0), 2.0, 1.0, None).dtype,
+                      sizes.dtype)
+
+    def test_a_clamped_point_is_exactly_the_limit_across(self):
+        sizes = np.array([5.0, 100.0], dtype=np.float32)
+        edges = np.array([2.0, 2.0], dtype=np.float32)
+        for scale in (1.0, 2.0):
+            clamped = Viewer_Markers.clamp_marker_sizes(sizes, edges, scale, 1.0, 64.0)
+            self.assertEqual(clamped.dtype, np.float32)
+            self.assertEqual(clamped[0], 5.0)
+            self.assertAlmostEqual(float(clamped[1]) * scale + 4.0 * (2.0 * scale + 1.5), 64.0, places=3)
+
+    def test_the_environment_stands_in_for_the_driver(self):
+        with mock.patch.dict(os.environ, {Viewer_Markers.POINT_LIMIT_ENV: "64"}):
+            self.assertEqual(Viewer_Markers.read_point_size_limit(), 64.0)
+        with mock.patch.dict(os.environ, {Viewer_Markers.POINT_LIMIT_ENV: "nonsense"}):
+            self.assertIsNone(Viewer_Markers.read_point_size_limit())
+
+    def test_an_unreadable_context_clamps_nothing(self):
+        broken = mock.Mock()
+        broken.set_current.side_effect = RuntimeError("no context")
+        with mock.patch.dict(os.environ, {Viewer_Markers.POINT_LIMIT_ENV: ""}):
+            self.assertIsNone(Viewer_Markers.read_point_size_limit(broken))
+
+
+_LIMIT_SCRIPT = textwrap.dedent(
+    """
+    import os
+    import sys
+    from types import SimpleNamespace
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
+    import matplotlib.colors as mcolors
+    from vispy import app, scene
+    app.use_app("pyside6")
+    import EMAPSSN_Viewer as V
+    from desktop import Viewer_Markers as VM
+    cfg = V.cfg
+    cfg.NODE_SIZE, cfg.NODE_BOUNDARY_WIDTH = 15, 2.0
+    cfg.CONNECTED_NODE_COLOR, cfg.NODE_BOUNDARY_COLOR = "red", "black"
+    cfg.INITIAL_NODE_COLOR = "red"
+    LIMIT = 64.0
+
+    def scene_viewer(size):
+        v = V.MainViewer.__new__(V.MainViewer)
+        v.n_nodes = 1
+        v.pos = np.zeros((1, 2), dtype=np.float32)
+        v.edges = np.zeros((0, 2), dtype=np.int32)
+        v.edge_layer = None
+        v.current_colors = np.tile(mcolors.to_rgba("red"), (1, 1)).astype(np.float32)
+        v.current_sizes = np.full(1, size, dtype=np.float32)
+        v.current_shapes = np.full(1, "disc", dtype=object)
+        v.visible_mask = np.ones(1, dtype=bool)
+        v.node_render_order = np.arange(1, dtype=np.int32)
+        v.selected_indices, v.selected_node_idx, v.hovered_node_idx = [], None, None
+        v.left_click_highlight_indices = None
+        v._update_hud_elements = lambda *args, **kwargs: None
+        v.canvas = scene.SceneCanvas(size=(300, 240), bgcolor="white", show=False)
+        v.view = v.canvas.central_widget.add_view()
+        v.view.camera = scene.PanZoomCamera(aspect=1)
+        v.markers = scene.visuals.Markers(parent=v.view.scene)
+        v.update_nodes()
+        v.view.camera.rect = (-20, -16, 40, 32)
+        return v
+
+    def draw(size, limit):
+        os.environ[VM.POINT_LIMIT_ENV] = str(limit)
+        v = scene_viewer(size)
+        return v, v.canvas.render()
+
+    probe = scene_viewer(10.0)
+    if (probe.canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    scale = probe.canvas.pixel_scale
+    print("SCALE", scale, flush=True)
+    edge = 2.0
+    room = (LIMIT - 4.0 * (edge * scale + 1.5)) / scale          # the largest size the limit allows
+    print("ROOM", room, flush=True)
+
+    def solid(image):
+        return (255 - image[..., :3].min(axis=2).astype(int)) > 100
+
+    def extent(image):
+        rows, cols = np.nonzero(solid(image))
+        return cols.min(), cols.max(), rows.min(), rows.max()
+
+    images = {}
+    for label, factor in (("below", 0.5), ("at", 1.0), ("above", 1.5), ("far", 4.0)):
+        size = np.float32(room * factor)
+        v, limited = draw(size, 64)
+        _, free = draw(size, 100000)
+        images[label] = limited
+        x0, x1, y0, y1 = extent(limited)
+        width, height = x1 - x0 + 1, y1 - y0 + 1
+        area = int(solid(limited).sum())
+        round_area = np.pi * (width / 2.0) ** 2
+        print("DRAW", label, width, height, round(area / round_area, 3), int(np.array_equal(limited, free)), flush=True)
+        picker = v._marker_picker
+        point = picker.sizes.max() * scale + 4.0 * (picker.edge_widths.max() * scale + 1.5 * picker.antialias)
+        print("POINT", label, round(float(point), 3), flush=True)
+        # The pick against the drawing, on a grid of pixels over the node.
+        mask = solid(limited)
+        eroded = mask.copy()
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                eroded &= np.roll(np.roll(mask, dy, axis=0), dx, axis=1)
+        centre = np.array([(x0 + x1) / 2.0, (y0 + y1) / 2.0])
+        missed = leaked = checked = 0
+        for py in range(0, mask.shape[0], 2):
+            for px in range(0, mask.shape[1], 2):
+                picked = v.pick_hovered_node(((px + 0.5) / scale, (py + 0.5) / scale))
+                distance = np.hypot(px - centre[0], py - centre[1])
+                if eroded[py, px]:
+                    checked += 1
+                    missed += picked != 0
+                elif distance > width / 2.0 + 3.0 + VM.HOVER_MARGIN_PX * scale + 2.0:
+                    checked += 1
+                    leaked += picked is not None
+        print("PICK", label, checked, missed, leaked, flush=True)
+    print("SAME", int(np.array_equal(images["above"], images["at"])), int(np.array_equal(images["far"], images["at"])), flush=True)
+    """
+)
+
+
+class PointLimitPixelTests(unittest.TestCase):
+    """A driver that draws no point beyond 64 device pixels, stood in for by
+    SSN_MARKER_POINT_LIMIT=64, on a real canvas at display scales 1 and 2.
+
+    A node of half the size the limit allows, one of that size, one and a half
+    times it and four times it are drawn. Below the limit the picture is the
+    one drawn with no limit, bit for bit; at it, too; above it, the node is a
+    whole disc with its outline, the same picture as at the limit, within 64
+    pixels; and the pick agrees with each drawing."""
+
+    def test_a_node_larger_than_the_limit_is_drawn_whole_and_picked_as_drawn(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _LIMIT_SCRIPT, scale)
+                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
+                draws = {line.split()[1]: line.split()[2:] for line in output.splitlines() if line.startswith("DRAW ")}
+                points = {line.split()[1]: float(line.split()[2]) for line in output.splitlines() if line.startswith("POINT ")}
+                picks = {line.split()[1]: line.split()[2:] for line in output.splitlines() if line.startswith("PICK ")}
+                self.assertEqual(set(draws), {"below", "at", "above", "far"}, output)
+                for label, (width, height, roundness, unchanged) in draws.items():
+                    with self.subTest(size=label):
+                        self.assertLessEqual(int(width), 64, output)
+                        self.assertLessEqual(abs(int(width) - int(height)), 1, output)
+                        self.assertAlmostEqual(float(roundness), 1.0, delta=0.1, msg=output)
+                        self.assertLessEqual(points[label], 64.0 + 1e-3, output)
+                        checked, missed, leaked = map(int, picks[label])
+                        self.assertGreater(checked, 500, output)
+                        self.assertEqual((missed, leaked), (0, 0), output)
+                        if label in ("below", "at"):
+                            self.assertEqual(unchanged, "1", output)
+                        else:
+                            self.assertEqual(unchanged, "0", output)   # the clamp acted
+                self.assertGreaterEqual(int(draws["at"][0]), 38, output)
+                self.assertLess(int(draws["below"][0]), int(draws["at"][0]), output)
+                self.assertEqual(draws["above"][:2], draws["at"][:2], output)
+                self.assertIn("SAME 1 1", output)
+
+
 class DragPickPixelTests(unittest.TestCase):
     """On a real canvas: a node dragged with the right button is drawn and
     picked where it went, so it drags again; the place it left picks nothing;
