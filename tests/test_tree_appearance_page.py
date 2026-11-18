@@ -9,7 +9,7 @@ tree has it too; the nodes the network has selected are outlined in the colour t
 next to them in the Viewer's connected node colour, while it identifies connected nodes; what the search and the
 legend mark is in the theme colour; and a node the Viewer has hidden is not on the tree at all, which is the tree of
 the nodes that are left. The page is opened offscreen over the real web server (tests/tree_page_harness.py), and which
-colour each part is drawn in is read from spies on the drawing, as the colour tests of test_tree_page.py do.
+colour each part is drawn in is read from spies on the drawing, as the colour tests of test_tree_colour_page.py do.
 """
 
 import json
@@ -27,7 +27,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.test_tree_page import BASE_PAINT, EIGHT_LEAVES, NO_CLASS, SPY, write_tree_file  # noqa: E402
+from tests.tree_page_helpers import BASE_PAINT, EIGHT_LEAVES, NO_CLASS, SPY, write_tree_file  # noqa: E402
 from tests.tree_fixtures import headers_of, node_colors  # noqa: E402
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
@@ -73,7 +73,7 @@ SPY_ALL = SPY + """
 
 
 class AppearanceCase(TreePageMixin, unittest.TestCase):
-    """A page over the eight-leaf tree of test_tree_page.py (a to h, node 0 to 7), whose network the Viewer has coloured."""
+    """A page over the eight-leaf tree of tests/tree_page_helpers.py (a to h, node 0 to 7), whose network the Viewer has coloured."""
 
     def open_tree(self, painted=None, *, hidden=(), network=None, edges=None, text=EIGHT_LEAVES, headers=None):
         headers = headers or list("abcdefgh")

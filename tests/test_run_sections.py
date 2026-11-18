@@ -168,6 +168,53 @@ class FoldViewSectionsTests(unittest.TestCase):
                 self.assertNotEqual(self.PAGE_SECTIONS - chosen, set(), "a change here would run every page section")
 
 
+class TreeViewSectionsTests(unittest.TestCase):
+    """Tree View's page tests have sections of their own, and what changes them selects those sections.
+
+    They open tree.html in Qt WebEngine and load it afresh for every test, which made them one section of 470 tests
+    and the time of the whole suite; sections run in parallel, so the page tests are spread over several.
+    """
+
+    PAGE_SECTIONS = {"tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = load_config()
+        cls.selector = Selector(cls.config, root=PROJECT_ROOT)
+
+    def test_every_test_module_that_uses_the_harness_is_in_a_page_section(self):
+        owner, _ = check_assignment(self.config, list_test_modules())
+        using = [name for name in list_test_modules()
+                 if name != "test_run_sections"
+                 and "tree_page_harness" in (PROJECT_ROOT / "tests" / f"{name}.py").read_text(encoding="utf-8")]
+        self.assertIn("test_tree_page", using)
+        self.assertIn("test_tree_open_page", using)
+        for name in using:
+            with self.subTest(module=name):
+                self.assertIn(owner[name], self.PAGE_SECTIONS)
+
+    def test_the_page_sections_hold_only_tree_view_page_modules(self):
+        for name in self.PAGE_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, self.config.sections)
+                self.assertLessEqual(len(name), 12, "the runner's tables fit names of 12 characters")
+                modules = self.config.sections[name].modules
+                self.assertTrue(modules)
+                for module in modules:
+                    self.assertTrue(module.startswith("test_tree_") and module.endswith("_page"), module)
+
+    def test_the_page_its_scripts_and_the_helpers_that_open_it_select_every_page_section(self):
+        for path in ("src/web_ui/tree.html", "src/web_ui/tree_layout.js", "src/web_ui/tree_select.js", "src/web_ui/page_text.js",
+                     "tests/tree_page_harness.py", "tests/tree_page_helpers.py", "tests/tree_fixtures.py"):
+            with self.subTest(path=path):
+                self.assertLessEqual(self.PAGE_SECTIONS, self.selector.explain(path)[0])
+
+    def test_the_backend_selects_plugins_and_every_page_section(self):
+        for path in ("src/web_ui/tree_backend.py", "src/commands/tree.py"):
+            with self.subTest(path=path):
+                self.assertLessEqual(self.PAGE_SECTIONS | {"plugins"}, self.selector.explain(path)[0])
+
+
 class AssignmentTests(unittest.TestCase):
     def config(self, **sections):
         return run_sections.Config(

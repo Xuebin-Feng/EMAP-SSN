@@ -27,7 +27,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.test_tree_page import EIGHT_LEAVES, SPY, write_tree_file  # noqa: E402
+from tests.tree_page_helpers import EIGHT_LEAVES, SPY, write_tree_file  # noqa: E402
 from tests.tree_fixtures import headers_of, node_colors, random_linkage, shaped_linkage, writer  # noqa: E402
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 

@@ -26,7 +26,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.test_tree_page import SPY  # noqa: E402
+from tests.tree_page_helpers import SPY  # noqa: E402
 from tests.tree_fixtures import give_edges, headers_of, node_colors  # noqa: E402
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 from web_ui import tree_backend  # noqa: E402

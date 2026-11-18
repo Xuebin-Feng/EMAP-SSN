@@ -130,14 +130,51 @@ modules = [
     "test_vendored_assets",
 ]
 
-[sections.tree_page]
-description = "Tree View page: the guide tree in Qt WebEngine over the real web server (drawing, zoom, search, hover, the report)"
-seconds = 60
+# The Tree View page tests (tests/tree_page_harness.py) open tree.html in Qt WebEngine over the real web server,
+# and every test loads the page afresh (about half a second before the test itself starts). They were one
+# section of 470 tests that took 675 to 750 s alone, which was the time of the whole run (the next slowest took
+# 380 to 540 s); sections run in parallel, so these six share the work, each of them 85 to 180 s. What they share
+# is in tests/tree_page_helpers.py.
+[sections.tree_core]
+description = "Tree View page: empty states, drawing, zoom, hover, keys, search, the three layouts, hit tests and folding"
+seconds = 135
 modules = [
     "test_tree_page",
+]
+
+[sections.tree_detail]
+description = "Tree View page: pass-through points of hidden nodes, the overview map, level of detail, a tree of 44,000 leaves"
+seconds = 115
+modules = [
+    "test_tree_detail_page",
+]
+
+[sections.tree_colour]
+description = "Tree View page: the network's colours, the legend and its key, the notes, text and safety, fitting names"
+seconds = 120
+modules = [
+    "test_tree_colour_page",
+]
+
+[sections.tree_select]
+description = "Tree View page: the link to the network's selection (right click, box, keys), the stability of the splits"
+seconds = 180
+modules = [
     "test_tree_selection_page",
+]
+
+[sections.tree_look]
+description = "Tree View page: how the network's colours, selection, neighbours and hidden nodes look on the tree; the threshold tree and the chooser"
+seconds = 125
+modules = [
     "test_tree_appearance_page",
     "test_tree_source_page",
+]
+
+[sections.tree_open]
+description = "Tree View page: opening a tree file, its report, the banner"
+seconds = 85
+modules = [
     "test_tree_open_page",
 ]
 
@@ -429,11 +466,11 @@ sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_la
 # through an import. Its backend and the helpers it shares with the backend's tests select the sections that run them.
 [[rules]]
 paths = ["src/web_ui/tree.html", "src/web_ui/tree_*.js", "src/web_ui/page_text.js", "tests/tree_*"]
-sections = ["tree_page"]
+sections = ["tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"]
 
 [[rules]]
 paths = ["src/web_ui/tree_backend.py", "src/commands/tree.py", "tests/tree_fixtures.py", "src/utilities/Guide_Tree_File.py"]
-sections = ["plugins", "tree_page"]
+sections = ["plugins", "tree_core", "tree_detail", "tree_colour", "tree_select", "tree_look", "tree_open"]
 
 # The desktop probe (tests/desktop_probe) is loaded by file path and as a package of its own, which the reference
 # scan cannot follow: a change to any of its files runs the section of its tests.
