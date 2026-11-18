@@ -95,7 +95,8 @@ if [ "$LAUNCH_MODE" = "--run-only" ]; then
         printf 'Managed Python is unavailable; run setup before --run-only.\n' >&2
         exit 10
     fi
-    exec "$VENV_PYTHON" src/EMAPSSN_Config.py
+    # On macOS the window runs through a link named for it, which the Dock shows (ssn_window_python, install.sh).
+    exec "$(ssn_window_python "$PROJECT_ROOT" viewer)" src/EMAPSSN_Config.py
 fi
 
 # Healthy direct launches take the same read-only fast path as desktop launches.
@@ -147,6 +148,9 @@ if [ "$environment_ready" -ne 1 ]; then
         echo ""
     fi
     ssn_release_dependency_setup_lock
+    # A new or rebuilt environment has no window links yet (macOS only; elsewhere this prints plain python).
+    ssn_window_python "$PROJECT_ROOT" viewer >/dev/null
+    ssn_window_python "$PROJECT_ROOT" tools >/dev/null
 fi
 
 if [ "$LAUNCH_MODE" = "--setup-only" ]; then
@@ -158,4 +162,4 @@ if activate_existing_instance; then
     exit 0
 fi
 echo "Starting EMAPSSN_Config..."
-"$VENV_PYTHON" src/EMAPSSN_Config.py
+"$(ssn_window_python "$PROJECT_ROOT" viewer)" src/EMAPSSN_Config.py

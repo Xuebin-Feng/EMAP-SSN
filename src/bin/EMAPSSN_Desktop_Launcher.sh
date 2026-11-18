@@ -83,11 +83,13 @@ open_startup_terminal() {
 start_without_terminal() {
     local venv_python="$PROJECT_ROOT/.venv/bin/python"
     local launcher="$PROJECT_ROOT/src/desktop/Desktop_Launcher.py"
-    local launcher_result
+    local launcher_result window_python
 
     [ -x "$venv_python" ] && [ -f "$launcher" ] || return 1
     cd "$PROJECT_ROOT" || return 1
-    "$venv_python" -u "$launcher" "$APP_KIND"
+    # On macOS the launcher (and the window it starts) runs through a link named for the window, which the Dock shows.
+    window_python=$(ssn_window_python "$PROJECT_ROOT" "$APP_KIND")
+    "$window_python" -u "$launcher" "$APP_KIND"
     launcher_result=$?
     if [ "$launcher_result" -ne 0 ]; then
         printf 'The start-up screen could not start %s (exit code %s); starting it in a terminal.\n' \

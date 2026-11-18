@@ -144,6 +144,52 @@ ssn_check_environment() {
     fi
 }
 
+# macOS names a running program after its program file, and the managed environment's file is .venv/bin/python, so
+# the Dock and the menu bar call every window "python". A symbolic link in .venv/bin that points at python and is
+# named for the window ("EMAP-SSN", "EMAP-SSN Tools") runs the same interpreter and environment under that name.
+# Only windows start through it (src/desktop/Window_Python.py does the same for Python callers); the names are the
+# macOS bundles'. Takes the window kind (viewer, tools or session) and prints the name, or fails for another kind.
+ssn_window_name() {
+    case "$1" in
+        viewer|session) printf '%s\n' "EMAP-SSN" ;;
+        tools) printf '%s\n' "EMAP-SSN Tools" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Makes <venv bin folder>/<name> a link to python in the same folder, unless it already is one. A link that points
+# elsewhere or nowhere is replaced; a real file of that name is left alone. Fails when it cannot be had.
+ssn_make_window_link() {
+    local bin_dir="$1" name="$2"
+
+    [ -x "$bin_dir/python" ] || return 1
+    if [ -L "$bin_dir/$name" ]; then
+        if [ "$(readlink "$bin_dir/$name" 2>/dev/null)" = "python" ] && [ -x "$bin_dir/$name" ]; then
+            return 0
+        fi
+        rm -f "$bin_dir/$name" 2>/dev/null || return 1
+    elif [ -e "$bin_dir/$name" ]; then
+        return 1
+    fi
+    ln -s python "$bin_dir/$name" 2>/dev/null && return 0
+    # Another launcher may have made it a moment ago.
+    [ -L "$bin_dir/$name" ] && [ "$(readlink "$bin_dir/$name" 2>/dev/null)" = "python" ] && [ -x "$bin_dir/$name" ]
+}
+
+# Prints the interpreter to start the window of the given kind with: on macOS its link in the project's .venv/bin
+# (made when missing), otherwise, and when the link cannot be made, .venv/bin/python. Never fails.
+# Usage: ssn_window_python <project folder> <kind>
+ssn_window_python() {
+    local project_root="$1" kind="$2" name
+
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && name=$(ssn_window_name "$kind") &&
+            ssn_make_window_link "$project_root/.venv/bin" "$name"; then
+        printf '%s\n' "$project_root/.venv/bin/$name"
+    else
+        printf '%s\n' "$project_root/.venv/bin/python"
+    fi
+}
+
 ssn_setup_lock_path() {
     printf '%s\n' "$1/temp/dependency_setup.lock"
 }
@@ -400,8 +446,16 @@ unset DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
 export PATH="\$PATH:/opt/homebrew/bin:/usr/local/bin"
 VENV_PYTHON="\$PROJECT_ROOT/.venv/bin/python"
 LAUNCHER="\$PROJECT_ROOT/src/desktop/Desktop_Launcher.py"
+# The Dock shows the name of the program file, so the window starts through a link to python named for it
+# (.venv/bin/$app_name), which install.sh's ssn_window_python makes when it is missing. It prints plain python when
+# the link cannot be had, and a failure here never stops the start.
+WINDOW_PYTHON="\$VENV_PYTHON"
+if [ -x "\$VENV_PYTHON" ] && [ -r "\$PROJECT_ROOT/install.sh" ]; then
+    WINDOW_PYTHON=\$(. "\$PROJECT_ROOT/install.sh" && ssn_window_python "\$PROJECT_ROOT" $app_kind) || WINDOW_PYTHON="\$VENV_PYTHON"
+    [ -x "\$WINDOW_PYTHON" ] || WINDOW_PYTHON="\$VENV_PYTHON"
+fi
 if [ -x "\$VENV_PYTHON" ] && [ -f "\$LAUNCHER" ] && cd "\$PROJECT_ROOT" &&
-        "\$VENV_PYTHON" -u "\$LAUNCHER" $app_kind --caller-opens-console; then
+        "\$WINDOW_PYTHON" -u "\$LAUNCHER" $app_kind --caller-opens-console; then
     exit 0
 fi
 exec /usr/bin/open -a Terminal "\$APP_ROOT/Contents/Resources/start.command"
@@ -508,6 +562,13 @@ ssn_install_macos() {
         "$PROJECT_ROOT" "EMAP-SSN" "viewer" "ca.utoronto.emapssn"
     ssn_create_macos_app_launcher \
         "$PROJECT_ROOT" "EMAP-SSN Tools" "tools" "ca.utoronto.emapssn.tools"
+
+    # The windows show their own names in the Dock through links in .venv/bin (see ssn_window_python). A ready
+    # environment gets them now; a new one gets them when its setup ends, and a launcher makes a missing one.
+    if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+        ssn_window_python "$PROJECT_ROOT" viewer >/dev/null
+        ssn_window_python "$PROJECT_ROOT" tools >/dev/null
+    fi
 
     # Remove generated legacy launchers; direct shell scripts remain available
     # under src/bin, while Finder users launch the generated application bundles.
