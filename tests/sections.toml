@@ -133,39 +133,39 @@ modules = [
 # The Tree View page tests (tests/tree_page_harness.py) open tree.html in Qt WebEngine over the real web server,
 # and every test loads the page afresh (about half a second before the test itself starts). They were one
 # section of 470 tests that took 675 to 750 s alone, which was the time of the whole run (the next slowest took
-# 380 to 540 s); sections run in parallel, so these six share the work, each of them 85 to 180 s. What they share
+# 380 to 540 s); sections run in parallel, so these six share the work, each of them 70 to 155 s. What they share
 # is in tests/tree_page_helpers.py.
 [sections.tree_core]
 description = "Tree View page: empty states, drawing, zoom, hover, keys, search, the three layouts, hit tests and folding"
-seconds = 135
+seconds = 126
 modules = [
     "test_tree_page",
 ]
 
 [sections.tree_detail]
 description = "Tree View page: pass-through points of hidden nodes, the overview map, level of detail, a tree of 44,000 leaves"
-seconds = 115
+seconds = 85
 modules = [
     "test_tree_detail_page",
 ]
 
 [sections.tree_colour]
 description = "Tree View page: the network's colours, the legend and its key, the notes, text and safety, fitting names"
-seconds = 120
+seconds = 100
 modules = [
     "test_tree_colour_page",
 ]
 
 [sections.tree_select]
 description = "Tree View page: the link to the network's selection (right click, box, keys), the stability of the splits"
-seconds = 180
+seconds = 155
 modules = [
     "test_tree_selection_page",
 ]
 
 [sections.tree_look]
 description = "Tree View page: how the network's colours, selection, neighbours and hidden nodes look on the tree; the threshold tree and the chooser"
-seconds = 125
+seconds = 93
 modules = [
     "test_tree_appearance_page",
     "test_tree_source_page",
@@ -173,7 +173,7 @@ modules = [
 
 [sections.tree_open]
 description = "Tree View page: opening a tree file, its report, the banner"
-seconds = 85
+seconds = 71
 modules = [
     "test_tree_open_page",
 ]
