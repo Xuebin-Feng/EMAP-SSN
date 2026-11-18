@@ -349,7 +349,11 @@ still change before version 1.0.0.
     matrix over 4,000,000 cells for `.xlsx`, or 16,000,000 for the others, is refused
     before anything runs.
   - **In the Console:** a summary and at most 20 x 20 cells of the matrix.
-  - **From the Agent,** a reply that runs it waits for the user to press Run.
+  - **`identity summary`** prints one selection's mean and lowest % identity (one
+    expression or the selected nodes, with optional positions) and writes no file. It
+    runs in the background, with the cluster tables' pair limits.
+  - **From the Agent,** a reply that runs it, in either form, waits for the user to
+    press Run.
 - **ProtT5 embeddings.** Generate Embeddings and Pairwise Embedding Alignment offer
   ProtT5-XL-U50 as ProtT5 (`prot_t5`, 1,024 values per residue). It is the model behind
   the embeddings UniProt publishes for Swiss-Prot and for reference proteomes.
