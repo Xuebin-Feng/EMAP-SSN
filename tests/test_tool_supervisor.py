@@ -6,6 +6,7 @@ and report its processes). No GPU and no network are used.
 """
 
 import ast
+import contextlib
 import io
 import json
 import os
@@ -36,6 +37,12 @@ GIB = 1024 ** 3
 CRASH_SIGNED = -1073740791
 CRASH_UNSIGNED = 0xC0000409
 CTRL_C_SIGNED = -1073741510
+
+# A stand-in that dies of a crash signal leaves a crash report in the Mac owner's DiagnosticReports folder.
+NO_CRASH_ON_MAC = unittest.skipIf(
+    sys.platform == "darwin",
+    "a real process ended by a crash signal leaves a crash report on macOS; RestartDecisionTests covers the rule there",
+)
 
 STAND_IN = r'''
 import json, os, signal, subprocess, sys, time
@@ -218,6 +225,7 @@ class ExitCodeTests(StandInCase):
                 self.assertEqual(result.stdout.count("start"), 1)
                 self.assertNotIn("[Hardware]", result.stdout)
 
+    @NO_CRASH_ON_MAC
     def test_an_abnormal_exit_without_a_note_is_passed_on_and_not_restarted(self):
         result = self.run_tool("crash_no_note", self.counter)
         self.assertEqual(self.runs(), 1)
@@ -225,7 +233,7 @@ class ExitCodeTests(StandInCase):
         if WINDOWS:
             self.assertEqual(result.returncode & 0xFFFFFFFF, CRASH_UNSIGNED)
         else:
-            self.assertEqual(result.returncode, -signal.SIGABRT)
+            self.assertEqual(result.returncode, 128 + signal.SIGABRT)
         self.assertNoNotes()
 
     def test_output_through_a_pipe_and_a_file_and_stdin_reach_the_child(self):
@@ -275,35 +283,38 @@ class ExitCodeTests(StandInCase):
 
 
 class RestartTests(StandInCase):
+    @NO_CRASH_ON_MAC
     def test_a_note_and_a_crash_restart_the_tool_once_then_it_succeeds(self):
         result = self.run_tool("crash_once", self.counter)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.runs(), 2)
         self.assertEqual(result.stdout.count("[Hardware] Warning:"), 1)
-        self.assertIn("Starting the tool once more", result.stdout)
+        self.assertIn("Starting it once more", result.stdout)
         recorded = json.loads(result.stdout.split("second run ", 1)[1].splitlines()[0])
         self.assertEqual(recorded["device"], "cuda:0")
         self.assertEqual(recorded["free_bytes"], 11 * GIB)
         self.assertEqual(recorded["total_bytes"], 12 * GIB)
         self.assertNoNotes()
 
+    @NO_CRASH_ON_MAC
     def test_a_second_crash_is_passed_on_with_a_message_and_not_restarted_again(self):
         result = self.run_tool("crash_always", self.counter)
         self.assertEqual(self.runs(), 2)
         if WINDOWS:
             self.assertEqual(result.returncode & 0xFFFFFFFF, CRASH_UNSIGNED)
         else:
-            self.assertEqual(result.returncode, -signal.SIGABRT)
+            self.assertEqual(result.returncode, 128 + signal.SIGABRT)
         self.assertEqual(result.stdout.count("[Hardware] Warning:"), 1)
-        self.assertIn("ended again", result.stdout)
+        self.assertIn("ended abnormally again", result.stdout)
         self.assertIn("Finished work is kept", result.stdout)
         self.assertNoNotes()
 
+    @NO_CRASH_ON_MAC
     def test_the_final_message_does_not_need_a_console_that_shows_every_character(self):
         environment = self.environment(PYTHONIOENCODING="cp1252")
         environment.pop("PYTHONUTF8")
         result = self.run_tool("crash_always", self.counter, env=environment)
-        self.assertIn("ended again", result.stdout)
+        self.assertIn("ended abnormally again", result.stdout)
 
     def test_a_normal_failure_with_a_note_is_not_restarted(self):
         result = self.run_tool("note_exit1", self.counter)
@@ -611,6 +622,7 @@ class EngineWaitTests(unittest.TestCase):
         readings = iter([(2 * GIB, 12 * GIB), (11 * GIB, 12 * GIB)] + [(11 * GIB, 12 * GIB)] * 5)
         with mock.patch.object(Tool_Supervisor, "_restart_info", info), \
                 mock.patch.object(Tool_Supervisor, "_wait_done", False), \
+                mock.patch.object(type(backend), "device_context", lambda _self: contextlib.nullcontext()), \
                 mock.patch("torch.cuda.mem_get_info", side_effect=lambda *_a: next(readings)), \
                 mock.patch.object(Tool_Supervisor.time, "sleep") as sleeper, \
                 redirect_stdout(io.StringIO()) as output:
@@ -627,10 +639,143 @@ class EngineWaitTests(unittest.TestCase):
 
         backend = get_accelerator_backend(torch.device("cuda:0"))
         with mock.patch.object(Tool_Supervisor, "_restart_info", None), \
+                mock.patch.object(type(backend), "device_context", lambda _self: contextlib.nullcontext()), \
                 mock.patch("torch.cuda.mem_get_info", return_value=(5, 10)), \
                 mock.patch.object(Tool_Supervisor.time, "sleep") as sleeper:
             self.assertEqual(backend.memory_info(), (5, 10))
         sleeper.assert_not_called()
+
+
+class FakeChild:
+    """Stands in for subprocess.Popen: ends with the next code of a script, and may leave a note first."""
+
+    def __init__(self, script, env):
+        self.env = env
+        self.code, note = script.pop(0)
+        if note:
+            with open(env[Tool_Supervisor.NOTE_VARIABLE], "w", encoding="utf-8") as handle:
+                json.dump({"device": "cuda:0", "free_bytes": 11 * GIB, "total_bytes": 12 * GIB}, handle)
+
+    def wait(self, timeout=None):
+        return self.code
+
+    def send_signal(self, _signal):
+        pass
+
+
+class RestartDecisionTests(unittest.TestCase):
+    """The whole restart rule of _run_parent, on every platform, with no real process."""
+
+    CASES = {
+        "win32": {"crash": 0xC0000409, "abort": 3, "ctrl_c": 0xC000013A},
+        "linux": {"crash": -signal.SIGABRT, "abort": -signal.SIGSEGV, "ctrl_c": -signal.SIGTERM},
+    }
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(directory.cleanup)
+        self.folder = directory.name
+
+    def run_parent(self, platform, script):
+        """Run the parent over a script of (exit code, wrote a note) per start; return (code, starts, output)."""
+        starts = []
+        real_abnormal, real_describe = Tool_Supervisor.is_abnormal_exit, Tool_Supervisor._describe_exit
+
+        def popen(command, env=None, **_kw):
+            child = FakeChild(script, env)
+            starts.append(child)
+            return child
+
+        output = io.StringIO()
+        with mock.patch.object(Tool_Supervisor.subprocess, "Popen", popen), \
+                mock.patch.object(Tool_Supervisor.tempfile, "gettempdir", return_value=self.folder), \
+                mock.patch.object(Tool_Supervisor, "_forward_stop_signals"), \
+                mock.patch.object(Tool_Supervisor, "is_abnormal_exit", lambda code: real_abnormal(code, platform)), \
+                mock.patch.object(Tool_Supervisor, "_describe_exit", lambda code: real_describe(code, platform)), \
+                redirect_stdout(output):
+            code = Tool_Supervisor._run_parent()
+        self.assertEqual([], os.listdir(self.folder), "A note was left behind.")
+        return code, starts, output.getvalue()
+
+    def test_a_note_and_a_crash_restart_once_then_the_second_run_decides(self):
+        for platform, codes in self.CASES.items():
+            with self.subTest(platform=platform, case="restart then success"):
+                code, starts, text = self.run_parent(platform, [(codes["crash"], True), (0, False)])
+                self.assertEqual((code, len(starts)), (0, 2))
+                self.assertEqual(text.count("[Hardware] Warning:"), 1)
+                self.assertNotIn("❌", text)
+                self.assertNotIn(Tool_Supervisor.WAIT_VARIABLE, starts[0].env)
+                self.assertEqual(json.loads(starts[1].env[Tool_Supervisor.WAIT_VARIABLE])["free_bytes"], 11 * GIB)
+            with self.subTest(platform=platform, case="second crash"):
+                code, starts, text = self.run_parent(platform, [(codes["crash"], True), (codes["abort"], True)])
+                self.assertEqual((code, len(starts)), (codes["abort"], 2))
+                self.assertEqual(text.count("[Hardware] Warning:"), 1)
+                self.assertIn("ended abnormally again", text)
+            with self.subTest(platform=platform, case="second crash without a note"):
+                code, starts, text = self.run_parent(platform, [(codes["crash"], True), (codes["crash"], False)])
+                self.assertEqual((code, len(starts)), (codes["crash"], 2))
+                self.assertIn("ended abnormally again", text)
+
+    def test_no_restart_without_a_note_for_a_normal_failure_or_for_ctrl_c(self):
+        for platform, codes in self.CASES.items():
+            for name, script in (
+                ("crash without a note", [(codes["crash"], False)]),
+                ("exit 1 with a note", [(1, True)]),
+                ("exit 0 with a note", [(0, True)]),
+                ("ctrl+c with a note", [(codes["ctrl_c"], True)]),
+            ):
+                with self.subTest(platform=platform, case=name):
+                    code, starts, text = self.run_parent(platform, list(script))
+                    self.assertEqual((code, len(starts), text), (script[0][0], 1, ""))
+
+    def test_a_child_that_cannot_be_started_leaves_the_tool_to_run_in_this_process(self):
+        with mock.patch.object(Tool_Supervisor.subprocess, "Popen", side_effect=OSError("no process")), \
+                mock.patch.object(Tool_Supervisor.tempfile, "gettempdir", return_value=self.folder), \
+                mock.patch.object(Tool_Supervisor, "_pass_on") as pass_on, \
+                mock.patch.dict(os.environ), mock.patch.object(sys, "argv", [__file__]):
+            for name in [n for n in os.environ if n.startswith("SSN_TOOL_SUPERVISOR")]:
+                del os.environ[name]
+            self.assertIsNone(Tool_Supervisor.supervise("__main__", __file__))
+        pass_on.assert_not_called()
+        self.assertEqual([], os.listdir(self.folder))
+
+    def test_a_restart_that_cannot_be_started_ends_as_the_first_run_did(self):
+        first = FakeChild([(0xC0000409, True)], {Tool_Supervisor.NOTE_VARIABLE: os.path.join(self.folder, "n.json")})
+        with mock.patch.object(Tool_Supervisor.subprocess, "Popen", side_effect=[first, OSError("no process")]), \
+                mock.patch.object(Tool_Supervisor.tempfile, "gettempdir", return_value=self.folder), \
+                mock.patch.object(Tool_Supervisor, "_forward_stop_signals"), \
+                mock.patch.object(Tool_Supervisor, "is_abnormal_exit", lambda code: True), \
+                mock.patch.object(Tool_Supervisor, "_read_note", return_value={"device": "cuda:0"}), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(Tool_Supervisor._run_parent(), 0xC0000409)
+
+    def test_the_stale_note_sweep_keeps_a_note_a_long_run_wrote_days_ago(self):
+        old = os.path.join(self.folder, Tool_Supervisor.NOTE_PREFIX + "old.json")
+        recent = os.path.join(self.folder, Tool_Supervisor.NOTE_PREFIX + "recent.json")
+        for path, age in ((old, 8 * 24 * 3600), (recent, 3 * 24 * 3600)):
+            with open(path, "w") as handle:
+                handle.write("{}")
+            os.utime(path, (time.time() - age, time.time() - age))
+        Tool_Supervisor._sweep_stale_notes(self.folder)
+        self.assertEqual(os.listdir(self.folder), [os.path.basename(recent)])
+
+    def test_the_signals_that_are_raised_again_are_the_stop_signals_and_never_a_crash_signal(self):
+        stops = set(Tool_Supervisor._STOP_SIGNALS)
+        self.assertFalse(stops & set(Tool_Supervisor._POSIX_CRASH_SIGNALS))
+        self.assertLessEqual({signal.SIGINT, signal.SIGTERM}, stops)
+
+    def test_posix_passes_on_only_a_stop_signal_by_raising_it_again(self):
+        for number, raised in ((signal.SIGABRT, False), (signal.SIGSEGV, False),
+                               (signal.SIGTERM, True), (signal.SIGINT, True), (9, True)):
+            with self.subTest(signal=int(number)), mock.patch.object(Tool_Supervisor.os, "name", "posix"), \
+                    mock.patch.object(Tool_Supervisor.os, "kill") as kill, \
+                    mock.patch.object(Tool_Supervisor.signal, "signal"), \
+                    mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", (2, 15, 1, 9)), \
+                    mock.patch.object(Tool_Supervisor.time, "sleep"):
+                with self.assertRaises(SystemExit) as stop:
+                    Tool_Supervisor._pass_on(-int(number))
+                self.assertEqual(stop.exception.code, 128 + int(number))
+                self.assertEqual(kill.called, raised)
 
 
 TOOLS = (
@@ -702,10 +847,10 @@ class LineKindTests(unittest.TestCase):
         from utilities.Line_Kinds import ERROR, WARNING, classify
 
         restart = (
-            "[Hardware] Warning: the GPU ended the tool during a plan test (exit code 0xC0000409) after "
-            "a GPU out-of-memory error. Finished work is kept. Starting the tool once more."
+            "[Hardware] Warning: the tool ended abnormally (exit code 0xC0000409) after a GPU "
+            "out-of-memory error. Finished work is kept. Starting it once more."
         )
-        final = "❌ The tool was ended again by a GPU out of memory error (exit code 0xC0000409) after one restart."
+        final = "❌ Error: the tool ended abnormally again (exit code 0xC0000409) after one restart. Finished work is kept."
         self.assertEqual(classify(restart), WARNING)
         self.assertEqual(classify(final), ERROR)
 

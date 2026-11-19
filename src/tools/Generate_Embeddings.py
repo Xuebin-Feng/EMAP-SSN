@@ -300,6 +300,7 @@ def _benchmark_embedding_devices(
 
     for candidate in candidates:
         move_seconds = 0.0
+        free_memory = Hardware_Utils.begin_gpu_trial(candidate)
         try:
             model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
             Hardware_Utils.release_device_cache(candidate)
@@ -342,11 +343,13 @@ def _benchmark_embedding_devices(
                 f"{predicted:>17.3f}   ok"
             )
         except Exception as error:
-            Hardware_Utils.note_gpu_failure(candidate, error, where="embedding device test")
+            memory_text = Hardware_Utils.note_gpu_failure(
+                candidate, error, free_memory, where="embedding device test"
+            )
             result = Hardware_Utils.BenchmarkResult(
                 candidate,
                 None,
-                error=f"{type(error).__name__}: {error}",
+                error=f"{type(error).__name__}: {error}{memory_text}",
             )
             print(
                 f"{candidate.display_name[:30]:30}  {move_seconds:>8.3f}   "

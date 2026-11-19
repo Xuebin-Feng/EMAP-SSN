@@ -41,7 +41,7 @@ WAIT_VARIABLE = "SSN_TOOL_SUPERVISOR_WAIT"  # the failed run's memory, set for t
 _MARKERS = (PARENT_VARIABLE, NOTE_VARIABLE, WAIT_VARIABLE)
 
 NOTE_PREFIX = "ssn_tool_oom_"
-STALE_NOTE_SECONDS = 24 * 3600
+STALE_NOTE_SECONDS = 7 * 24 * 3600  # longer than any run: a live tool's note is never taken for a stale one
 WATCH_INTERVAL_SECONDS = 1.0
 GPU_WAIT_SECONDS = 60.0
 GPU_WAIT_INTERVAL_SECONDS = 1.0
@@ -49,6 +49,9 @@ GIB = 1024 ** 3
 
 _WINDOWS_ABORT_CODE = 3  # the C runtime's abort()
 _WINDOWS_CONTROL_C = 0xC000013A  # Ctrl+C, or the console closed
+_STOP_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGKILL") if hasattr(signal, name)
+)
 _POSIX_CRASH_SIGNALS = tuple(
     getattr(signal, name) for name in ("SIGABRT", "SIGSEGV", "SIGBUS", "SIGILL", "SIGFPE")
     if hasattr(signal, name)
@@ -357,7 +360,13 @@ def _forward_stop_signals(process):
 
 
 def _pass_on(code):
-    """End this process with the child's status."""
+    """End this process with the child's status.
+
+    Windows: the same code. POSIX: a child that someone stopped (SIGINT, SIGTERM, SIGHUP, SIGKILL)
+    is mirrored by ending the same way, so the status stays truthful. Any other signal is passed on
+    as 128+n and not raised again: re-raising a crash signal would write a second core dump (Linux)
+    or crash report (macOS) for a process that did not crash.
+    """
     try:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -366,13 +375,13 @@ def _pass_on(code):
     if os.name == "nt":
         sys.exit(code - 0x100000000 if code >= 0x80000000 else code)
     if code < 0:
-        # Ended by a signal: end the same way, so the status stays truthful.
-        try:
-            signal.signal(-code, signal.SIG_DFL)
-            os.kill(os.getpid(), -code)
-            time.sleep(1.0)
-        except (ValueError, OSError):
-            pass
+        if -code in _STOP_SIGNALS:
+            try:
+                signal.signal(-code, signal.SIG_DFL)
+                os.kill(os.getpid(), -code)
+                time.sleep(1.0)
+            except (ValueError, OSError):
+                pass
         sys.exit(128 - code)
     sys.exit(code)
 
@@ -393,6 +402,7 @@ def _run_parent():
     _sweep_stale_notes(folder)
     restarted = False
     wait_info = None
+    code = None
     while True:
         note_path = os.path.join(folder, f"{NOTE_PREFIX}{os.getpid()}_{uuid.uuid4().hex[:8]}.json")
         environment = dict(os.environ)
@@ -402,7 +412,11 @@ def _run_parent():
         if wait_info:
             environment[WAIT_VARIABLE] = json.dumps(wait_info)
         try:
-            process = subprocess.Popen(command, env=environment)
+            try:
+                process = subprocess.Popen(command, env=environment)
+            except OSError:
+                # No child: the tool runs in this process, as with the switch off (or, after a restart, ends as it did).
+                return code
             _forward_stop_signals(process)
             code = _wait_for_child(process)
             note = _read_note(note_path)
@@ -412,9 +426,9 @@ def _run_parent():
         if restarted:
             if abnormal:
                 _say(
-                    f"❌ The tool was ended again by a GPU out of memory error ({_describe_exit(code)}) "
-                    "after one restart. Finished work is kept. Start it again when nothing else is using "
-                    "the GPU, or choose the CPU as the device."
+                    f"❌ Error: the tool ended abnormally again ({_describe_exit(code)}) after one restart. "
+                    "Finished work is kept. Start it again when nothing else is using the GPU, "
+                    "or choose the CPU as the device."
                 )
             return code
         if note is None or not abnormal:
@@ -422,8 +436,8 @@ def _run_parent():
         restarted = True
         wait_info = {key: note.get(key) for key in ("device", "free_bytes", "total_bytes")}
         _say(
-            f"[Hardware] Warning: the GPU ended the tool during a plan test ({_describe_exit(code)}) after "
-            "a GPU out-of-memory error. Finished work is kept. Starting the tool once more."
+            f"[Hardware] Warning: the tool ended abnormally ({_describe_exit(code)}) after a GPU "
+            "out-of-memory error. Finished work is kept. Starting it once more."
         )
 
 
@@ -441,4 +455,6 @@ def supervise(module_name, module_file):
         return
     if not _supervision_wanted(module_name, module_file):
         return
-    _pass_on(_run_parent())
+    code = _run_parent()
+    if code is not None:  # None: no child could be started, so this process runs the tool itself
+        _pass_on(code)
