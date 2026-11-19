@@ -1006,7 +1006,9 @@ def accelerator_memory_plan(
     # A tool restarted after a GPU out-of-memory crash plans from a fraction of the free memory. Only the
     # budgets see it: free_bytes stays the real free memory, so the estimate's baseline and its
     # "Est. VRAM peak" show the real size of the plan.
-    planning_free = Tool_Supervisor.planning_free_bytes(backend.device, free_bytes, total_bytes)
+    planning_free = Tool_Supervisor.planning_free_bytes(
+        getattr(backend, "device", device), free_bytes, total_bytes
+    )
     if planning_free != free_bytes:
         usable = max(0, planning_free - reserve)
     inflight_slots = 1 if backend.device_type == "mps" else max(2, lanes * 2)
