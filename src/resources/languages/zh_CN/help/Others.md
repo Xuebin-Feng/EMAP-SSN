@@ -177,7 +177,7 @@
 | 序列 **`SEQUENCE`** | 键入的一条氨基酸序列。批量输入关闭时使用，此时必填。 |
 | 序列名称 **`SEQUENCE_NAME`** | 键入序列的可选名称。 |
 | FASTA 文件 **`INPUT_FASTA`** | 要折叠的 FASTA 文件，用浏览选择。批量输入开启时使用，此时必填。不会被保存。 |
-| 折叠模型 **`PREDICTION_MODEL`** | `local`（默认）在本机运行 ESM3 开放模型（`biohub/esm3-sm-open-v1`），使用第一个可用的加速器，只有没有加速器时才使用 CPU（CPU 极慢）；没有设备设置，运行时会输出所用设备。`remote` 使用已保存的 API 令牌和已保存 API 设置中的模型，将序列发送到 Biohub API。只有此项为 `remote` 时才会使用远程服务；本地模型绝不会替代它，缺少令牌会使运行失败。 |
+| 折叠模型 **`PREDICTION_MODEL`** | `local`（默认）在本机运行 ESM3 开放模型（`biohub/esm3-sm-open-v1`），使用第一个可用的加速器，只有没有加速器时才使用 CPU（CPU 极慢）；没有设备设置，运行时会输出所用设备。`remote` 使用已保存的 API 令牌和已保存 API 设置中的模型（`FOLD_MODEL`，默认 `esmfold2-2026-05`），将序列发送到 Biohub API，由 ESMFold 2 折叠，同时最多保持 `FOLD_PARALLEL_REQUESTS` 个请求在进行中（同一设置，默认 4）。长于 Biohub 文档中单次折叠请求所允许的 768 个残基的序列不会被发送，并以此为原因失败；Biohub 的额度（credit）上限会使运行以 Biohub 的原话结束，已折叠的结构会保留。只有此项为 `remote` 时才会使用远程服务；本地模型绝不会替代它，缺少令牌会使运行失败。 |
 | 最大序列数 **`MAX_SEQUENCES`** | 一次运行最多折叠的序列数（默认 20）。会折叠更多序列的运行在折叠之前被拒绝，并说明序列数。已存在的结构不计入。调大该值或改用更小的 FASTA 文件即可折叠更多。 |
 | 折叠结构目录 **`STRUCTURE_DIR`** | 保存结构的文件夹（“目录”标签页）。默认为 `Analysis_Results/Folded_Structure`。 |
 

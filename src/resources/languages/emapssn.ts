@@ -3822,6 +3822,12 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>%n structure(s) failed before then.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>The folding worker failed: {reason}</source>
         <translation type="unfinished"></translation>
@@ -3987,7 +3993,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
+        <source>Queued %n structure(s) for folding with Biohub ESMFold 2 as job #{job}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>

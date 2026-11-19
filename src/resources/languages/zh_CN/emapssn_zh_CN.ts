@@ -5367,6 +5367,13 @@ Command-line usage:
             <numerusform>另有 %n 个结构也失败了。</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location line="+0"/>
+        <source>%n structure(s) failed before then.</source>
+        <translation type="unfinished">
+            <numerusform>此前已有 %n 个结构失败。</numerusform>
+        </translation>
+    </message>
     <message>
         <location line="+3"/>
         <source>The folding worker failed: {reason}</source>
@@ -5532,9 +5539,9 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <location line="+22"/>
-        <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
+        <source>Queued %n structure(s) for folding with Biohub ESMFold 2 as job #{job}.</source>
         <translation type="unfinished">
-            <numerusform>已将 %n 个结构加入 Biohub ESM3 折叠队列，任务 #{job}。</numerusform>
+            <numerusform>已将 %n 个结构加入 Biohub ESMFold 2 折叠队列，任务 #{job}。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
