@@ -4183,8 +4183,9 @@ class ToolsGUI(QMainWindow):
                 ui_element = BlastDirectoryControl(clean_val_str, _PROJECT_ROOT)
 
             else:
-                # A default of None shows as an empty field, as the Browse and BLASTP Directory fields do:
-                # the run treats an empty value as not given, and the text "None" would be a value.
+                # A default of None shows as an empty field, as the Browse and BLASTP Directory fields do.
+                # The run treats an empty value as not given; the text "None" showed in the field, was saved
+                # as text and was exported as text (the tool's loader reads it back as None).
                 ui_element = QLineEdit("" if actual_val is None else str(actual_val))
 
             label = QLabel(s_def['display'])

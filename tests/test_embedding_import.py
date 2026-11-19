@@ -608,19 +608,43 @@ class ToolsCardTests(unittest.TestCase):
         self.assertGreater(label_x("ID Mapping (.tsv/.csv):"), label_x("Sequence Set (.fasta):"))
 
     def test_the_saving_mode_label_starts_where_the_id_mapping_label_does_at_every_width(self):
+        # Measured (offscreen, the window's fonts): the first row is stacked at the default window (a 600 px
+        # panel) and up to 1000 px, and side by side from 1100 px; the third row stacks below about 700 px.
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
-        group = card.findChild(QWidget, "compactRow_MODEL_LABEL_SAVING_MODE")
-        self.assertIsNotNone(group)
-        for width in (None, 1400, 1900):
+        found = lambda: self.label_positions(card, scroll)
+        for width in (None, 1000, 1400, 1900, 2000):
             if width:
                 self.resize_panel(window, width)
             with self.subTest(width=width):
-                if group.property("stacked"):
-                    self.assertIsNone(width)
-                    continue
-                self.assertEqual(label_x("Saving Mode:"), label_x("ID Mapping (.tsv/.csv):"))
-        self.resize_panel(window, 1400)
-        self.assertFalse(group.property("stacked"))
+                positions = found()
+                (id_x, id_left, id_stacked), (mode_x, mode_left, mode_stacked) = positions["ID Mapping (.tsv/.csv):"], positions["Saving Mode:"]
+                if width is None:
+                    self.assertTrue(id_stacked and mode_stacked, positions)
+                    self.assertEqual((id_x, mode_x), (id_left, mode_left), positions)
+                elif width == 1000:
+                    # Each row is laid out on its own: the first is stacked, the third side by side.
+                    self.assertTrue(id_stacked and not mode_stacked, positions)
+                    self.assertEqual(id_x, id_left, positions)
+                    self.assertGreater(mode_x, mode_left + 100, positions)
+                else:
+                    self.assertFalse(id_stacked or mode_stacked, positions)
+                    self.assertGreater(id_x, id_left + 100, positions)
+                    self.assertEqual(mode_x, id_x, positions)
+
+    def label_positions(self, card, scroll):
+        """For each second label: (its x, the x of its row's left edge, whether its row is stacked)."""
+        from PySide6.QtWidgets import QLabel, QWidget
+        found = {}
+        for group_name, text in (("compactRow_INPUT_FASTA_ID_MAP_FILE", "ID Mapping (.tsv/.csv):"),
+                                 ("compactRow_MODEL_LABEL_SAVING_MODE", "Saving Mode:")):
+            group = card.findChild(QWidget, group_name)
+            self.assertIsNotNone(group, group_name)
+            labels = [label for label in group.findChildren(QLabel) if label.text() == text]
+            self.assertEqual(len(labels), 1, text)
+            x = labels[0].mapTo(scroll.widget(), labels[0].rect().topLeft()).x()
+            left = group.mapTo(scroll.widget(), group.rect().topLeft()).x()
+            found[text] = (x, left, bool(group.property("stacked")))
+        return found
 
     def test_the_tab_key_follows_the_new_rows(self):
         from PySide6.QtCore import Qt
@@ -642,21 +666,24 @@ class ToolsCardTests(unittest.TestCase):
                 break
         self.assertEqual(seen, list(order))
 
-    def test_the_rows_stack_without_overlap_when_the_panel_is_narrow(self):
+    def test_the_rows_stack_without_overlap_below_the_width_they_need(self):
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
-        self.resize_panel(window, 600)
-        for name in ("compactRow_INPUT_FASTA_ID_MAP_FILE", "compactRow_MODEL_LABEL_SAVING_MODE"):
-            self.assertTrue(card.findChild(QWidget, name).property("stacked"), name)
-        for widget in [card] + card.findChildren(QWidget):
-            layout = widget.layout()
-            if layout is None:
-                continue
-            children = [layout.itemAt(index).widget() for index in range(layout.count())]
-            children = [child for child in children if child is not None and child.isVisibleTo(card)]
-            for index, child in enumerate(children):
-                self.assertTrue(widget.rect().contains(child.geometry()), child.objectName())
-                for other in children[index + 1:]:
-                    self.assertFalse(child.geometry().intersects(other.geometry()), type(child).__name__)
+        # Measured: both rows stack at 600 and 700 px, the first still at 1000 px.
+        for width, stacked_rows in ((600, ("compactRow_INPUT_FASTA_ID_MAP_FILE", "compactRow_MODEL_LABEL_SAVING_MODE")),
+                                    (1000, ("compactRow_INPUT_FASTA_ID_MAP_FILE",))):
+            self.resize_panel(window, width)
+            for name in stacked_rows:
+                self.assertTrue(card.findChild(QWidget, name).property("stacked"), (width, name))
+            for widget in [card] + card.findChildren(QWidget):
+                layout = widget.layout()
+                if layout is None:
+                    continue
+                children = [layout.itemAt(index).widget() for index in range(layout.count())]
+                children = [child for child in children if child is not None and child.isVisibleTo(card)]
+                for index, child in enumerate(children):
+                    self.assertTrue(widget.rect().contains(child.geometry()), (width, child.objectName()))
+                    for other in children[index + 1:]:
+                        self.assertFalse(child.geometry().intersects(other.geometry()), (width, type(child).__name__))
 
 
 class McpValidationTests(unittest.TestCase):
