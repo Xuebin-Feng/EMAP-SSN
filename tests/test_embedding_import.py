@@ -611,6 +611,10 @@ class ToolsCardTests(unittest.TestCase):
         # Measured (offscreen, the window's fonts): the first row is stacked at the default window (a 600 px
         # panel) and up to 1000 px, and side by side from 1100 px; the third row stacks below about 700 px.
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
+        # The equal columns line the labels up by themselves while both rows are side by side; the
+        # declaration keeps them lined up if a row's columns ever differ, so it is tested as declared.
+        first = card.findChild(QWidget, "compactRow_INPUT_FASTA_ID_MAP_FILE").layout()
+        self.assertIs(card.findChild(QWidget, "compactRow_MODEL_LABEL_SAVING_MODE").layout().align_to, first)
         found = lambda: self.label_positions(card, scroll)
         for width in (None, 1000, 1400, 1900, 2000):
             if width:
