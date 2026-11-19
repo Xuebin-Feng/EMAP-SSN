@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 97472947d6c877a188dbb52ea4c5e7a2c68498fce7e5bd55d6182df43a2cdf8c -->
+<!-- Translation of Others.md, sha256 1060d6a024985f2165fd53cc990c6768d6f04340945d964cf7f9d37b479d18b4 -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。

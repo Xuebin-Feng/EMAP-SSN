@@ -1101,7 +1101,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="d745cc3654021ea0e36c162c394f2422092c3e3add04c22bb807ae23d0de08a3">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="83a5a3fe54878ba9a9755ef80f650de0b5b1a5166a2b00a44393f84a9408436f">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -1119,7 +1119,7 @@
                 <ul>
                     <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，即使点击过某个节点也不会折叠任何结构：命令会在控制台中添加“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。没有选中节点时，<code>multi</code>、<code>large</code> 和 <code>refold</code> 会失败。结构已保存的选中节点不会再次折叠，而是直接显示（见 <code>refold</code>）。</li>
                     <li><strong>multi：</strong>在一个后台任务中处理当前选中的所有节点：本地仅主链模式下依次处理，与 <code>large</code> 组合时则同时发出多个请求。</li>
-                    <li><strong>large：</strong>通过 Biohub 用 ESMFold 2 远程预测选中的节点。模型取自 <code>src/resources/Biohub_API.json</code> 的 <code>FOLD_MODEL</code>（默认 <code>esmfold2-2026-05</code>；只含旧的 <code>ESM3_MODEL</code> 设置的文件仍然可用，该设置会被忽略）。与本地仅主链的输出不同，Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行远程批量预测：同时最多保持 <code>FOLD_PARALLEL_REQUESTS</code> 个请求在进行中（同一文件；默认 4，范围 1 到 16，设为 1 时一次只折叠一个结构）。当 Biohub 答复已达到每分钟的限额时，会降低这个数目并重新发送该请求。当它说明已达到额度（credit）上限时，运行会立即停止并给出 Biohub 的原话，已折叠的结构仍然保存；待上限解除后再运行该命令，已保存的结构会直接显示，不会再次折叠。长于 Biohub 文档中单次折叠请求所允许的 768 个残基的序列不会被发送，其结构会以此为原因失败。早期版本用 ESM3 Large 折叠的结构仍以原文件名（<code>&lt;name&gt;_esm3-large-2024-03.pdb</code>）保存，<code>large</code> 不会使用它，而是写出 <code>&lt;name&gt;_esmfold2-2026-05.pdb</code>。停止折叠时已经发出的请求，Biohub 仍可能计费。</li>
+                    <li><strong>large：</strong>通过 Biohub 用 ESMFold 2 远程预测选中的节点。模型取自 <code>FOLD_MODEL</code>，位于 <code>src/resources/Biohub_API.json</code>（默认 <code>esmfold2-2026-05</code>；只含旧的 <code>ESM3_MODEL</code> 设置的文件仍然可用，该设置会被忽略）。与本地仅主链的输出不同，Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行远程批量预测：同时最多保持 <code>FOLD_PARALLEL_REQUESTS</code> 个请求在进行中（同一文件；默认 4，范围 1 到 16，设为 1 时一次只折叠一个结构）。当 Biohub 答复已达到每分钟的限额时，会降低这个数目并重新发送该请求。当它说明已达到额度（credit）上限时，运行会立即停止并给出 Biohub 的原话，已折叠的结构仍然保存；待上限解除后再运行该命令，已保存的结构会直接显示，不会再次折叠。长于 Biohub 文档中单次折叠请求所允许的 768 个残基的序列不会被发送，其结构会以此为原因失败。早期版本用 ESM3 Large 折叠的结构仍以原文件名（<code>&lt;name&gt;_esm3-large-2024-03.pdb</code>）保存，<code>large</code> 不会使用它，而是写出 <code>&lt;name&gt;_esmfold2-2026-05.pdb</code>。停止折叠时已经发出的请求，Biohub 仍可能计费。</li>
                     <li><strong>refold：</strong>即使选中节点的结构已经保存，也照常折叠它们。不带该参数时，若选中节点的结构文件已经保存（即此命令将要写出的文件，且不为空；本地折叠与 Biohub 折叠写出的文件不同），就不会再次折叠它：命令会直接从该文件在 Mol* 中显示该结构，不为它排队任务，并在结果中列出该节点，说明 <code>refold</code> 会再次折叠它们。所有选中节点都已保存时，不排队任何任务，命令成功并给出这一说明；已加载比对时，显示的结构还会写出它的逐残基数据文件。<code>refold</code> 可与 <code>large</code> 和 <code>multi</code> 以任意顺序组合。</li>
                     <li><strong>stop：</strong>结束正在运行的折叠及其启动的所有进程，并把等待中的折叠移出队列，不影响其他任何内容。已保存的结构会保留，写到一半的结构会被删除，每个折叠的任务都会报告为已取消。没有折叠在运行或等待时，命令也会成功并说明这一点。只包含停止命令的请求会立即运行，即使它所结束的 esmfold 请求仍在等待其工作进程。</li>
                     <li><strong>help：</strong>打印命令行帮助和用法说明。</li>

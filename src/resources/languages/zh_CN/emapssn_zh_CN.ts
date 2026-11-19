@@ -683,7 +683,7 @@
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+194"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+198"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -4941,11 +4941,11 @@ Command-line usage:
         <location line="+16"/>
         <location line="+127"/>
         <location filename="../../../commands/distribution.py" line="+123"/>
-        <location filename="../../../commands/esmfold.py" line="+156"/>
-        <location line="+574"/>
+        <location filename="../../../commands/esmfold.py" line="+167"/>
+        <location line="+587"/>
         <location line="+172"/>
         <location line="+89"/>
-        <location line="+86"/>
+        <location line="+87"/>
         <location filename="../../../commands/identity.py" line="-302"/>
         <location line="+96"/>
         <location filename="../../../commands/label.py" line="-115"/>
@@ -4980,7 +4980,7 @@ Command-line usage:
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
         <location filename="../../../commands/embedding.py" line="+82"/>
-        <location filename="../../../commands/esmfold.py" line="-239"/>
+        <location filename="../../../commands/esmfold.py" line="-240"/>
         <location filename="../../../commands/export.py" line="+141"/>
         <location filename="../../../commands/group.py" line="+161"/>
         <location filename="../../../commands/help.py" line="-60"/>
@@ -5308,7 +5308,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-628"/>
+        <location filename="../../../commands/esmfold.py" line="-641"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -5341,7 +5341,7 @@ Command-line usage:
         <translation type="unfinished">未保存逐残基比对数据：未加载比对。</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+123"/>
         <source>Getting the model ready…</source>
         <translation type="unfinished">正在准备模型…</translation>
     </message>
@@ -5356,7 +5356,7 @@ Command-line usage:
         <translation type="unfinished">正在折叠第 {index} 个，共 {total} 个：{name}</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+25"/>
         <source>Folding {name} failed: {reason}</source>
         <translation type="unfinished">折叠 {name} 失败：{reason}</translation>
     </message>
@@ -5368,14 +5368,15 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+0"/>
+        <location line="-6"/>
         <source>%n structure(s) failed before then.</source>
         <translation type="unfinished">
             <numerusform>此前已有 %n 个结构失败。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-1"/>
+        <location line="+10"/>
         <source>The folding worker failed: {reason}</source>
         <translation type="unfinished">折叠工作进程失败：{reason}</translation>
     </message>
@@ -5528,7 +5529,7 @@ Command-line usage:
         <translation type="unfinished">所选节点都已在排队或正在折叠：{nodes}。</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+77"/>
         <source>Folding</source>
         <translation type="unfinished">折叠</translation>
     </message>
@@ -5557,7 +5558,7 @@ Command-line usage:
         <translation type="unfinished">它在折叠队列中排第 {position} 位。</translation>
     </message>
     <message numerus="yes">
-        <location line="-316"/>
+        <location line="-317"/>
         <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
         <translation type="unfinished">
             <numerusform>已省略 %n 个所选节点，它们被另一个折叠占用：{nodes}。</numerusform>
@@ -7323,7 +7324,7 @@ Command-line usage:
         <translation type="obsolete">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+207"/>
+        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+213"/>
         <source>EMAP-SSN Application Failure</source>
         <translation type="unfinished">EMAP-SSN 应用程序故障</translation>
     </message>
@@ -7484,7 +7485,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1712"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1716"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7511,7 +7512,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+636"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+684"/>
         <source>Continued: type the rest and press Enter.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
@@ -8239,7 +8240,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
     <message>
-        <location filename="../../benchmark/Run_Benchmark.py" line="+115"/>
+        <location filename="../../benchmark/Run_Benchmark.py" line="+116"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
         <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
@@ -8269,7 +8270,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">基准测试无法清空临时文件夹 {folder}，为避免使用旧文件，已停止运行。请关闭正在使用这些文件的程序后重新启动。{problems}</translation>
     </message>
     <message>
-        <location line="+608"/>
+        <location line="+633"/>
         <source>Completed</source>
         <translation type="unfinished">已完成</translation>
     </message>
@@ -9406,7 +9407,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+1997"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2002"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -10677,7 +10678,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+141"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+144"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -16222,7 +16223,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2450"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2498"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -16287,7 +16288,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2130"/>
+        <location line="+2178"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

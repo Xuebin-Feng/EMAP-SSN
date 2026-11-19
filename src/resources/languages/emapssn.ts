@@ -3813,14 +3813,8 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Folding {name} failed: {reason}</source>
+        <source>The folding worker failed: {reason}</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>%n more structure(s) failed too.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
     </message>
     <message numerus="yes">
         <source>%n structure(s) failed before then.</source>
@@ -3829,8 +3823,14 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>The folding worker failed: {reason}</source>
+        <source>Folding {name} failed: {reason}</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n more structure(s) failed too.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>The folding worker stopped (exit code {code}); its output is in {log}.</source>
