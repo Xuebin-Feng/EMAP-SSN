@@ -11,6 +11,7 @@ residue's pLDDT, on a scale of 0 to 100, as the B-factor the way ESM does.
 
 import ast
 import contextlib
+import contextvars
 import hashlib
 import io
 import json
@@ -107,9 +108,12 @@ def stand_in_esm():
     api_module.ESMProtein = StandInProtein
     api_module.ESMProteinError = StandInError
     api_module.GenerationConfig = StandInConfig
+    retry_module = types.ModuleType("esm.sdk.retry")
+    retry_module.skip_retries_var = contextvars.ContextVar("skip_retries", default=False)
     esm_module.sdk = sdk_module
     sdk_module.api = api_module
-    return {"esm": esm_module, "esm.sdk": sdk_module, "esm.sdk.api": api_module}
+    sdk_module.retry = retry_module
+    return {"esm": esm_module, "esm.sdk": sdk_module, "esm.sdk.api": api_module, "esm.sdk.retry": retry_module}
 
 
 class Candidate:
@@ -337,14 +341,16 @@ class RefusalTests(EngineCase):
             self.refused([("a", SEQUENCE)], "cannot be used: broken file", mode=prediction.REMOTE)
 
 class RemoteTests(EngineCase):
-    SETTINGS = {"ESM_API_TOKEN": "never-shown", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"}
+    SETTINGS = {"ESM_API_TOKEN": "never-shown", "ESM_API_URL": "https://biohub.ai", "FOLD_MODEL": "esmfold2-2026-05",
+                "FOLD_PARALLEL_REQUESTS": 1}
+    CREDIT = "Failure in fold: You have exceeded your daily credit limit of 1000 credits."
 
     def remote(self, results):
         client = mock.Mock()
-        client.generate.side_effect = list(results)
+        client.fold.side_effect = list(results)
         patches = [
             mock.patch.object(Biohub_API, "credentials_state", return_value=("saved", None)),
-            mock.patch.object(Biohub_API, "remote_model_name", return_value="esm3-large-2024-03"),
+            mock.patch.object(Biohub_API, "remote_model_name", return_value="esmfold2-2026-05"),
             mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, dict(self.SETTINGS))),
         ]
         for patch in patches:
@@ -356,14 +362,37 @@ class RemoteTests(EngineCase):
         client = self.remote([StandInOutput(SEQUENCE)])
         record, = self.predict([("x", SEQUENCE)], mode=prediction.REMOTE)
         self.assertEqual(record.status, prediction.FOLDED)
-        self.assertEqual(os.path.basename(record.path), "x_esm3-large-2024-03.pdb")
-        self.assertEqual(self.files(), ["x_esm3-large-2024-03.pdb"])
+        self.assertEqual(os.path.basename(record.path), "x_esmfold2-2026-05.pdb")
+        self.assertEqual(self.files(), ["x_esmfold2-2026-05.pdb"])
         sending = [line for line in self.log if "Biohub API" in line]
         self.assertEqual(len(sending), 1)
         self.assertIn("Sending 1 sequence(s) to the Biohub API", sending[0])
+        self.assertIn("ESMFold 2 model esmfold2-2026-05", sending[0])
         self.assertNotIn("never-shown", "\n".join(self.log))
         self.assertEqual(self.model.calls, [])
-        self.assertEqual(client.generate.call_count, 1)
+        self.assertEqual(client.fold.call_count, 1)
+
+    def test_a_remote_run_sends_the_sequence_to_the_fold_call_and_nothing_else(self):
+        client = self.remote([StandInOutput(SEQUENCE)])
+        self.predict([("x", SEQUENCE)], mode=prediction.REMOTE)
+        client.fold.assert_called_once_with(SEQUENCE)
+        self.assertFalse(client.generate.called, "the ESM3 generate call is no longer used")
+
+    def test_a_credit_limit_keeps_the_folded_structures_and_fails_the_rest_with_biohubs_words(self):
+        client = self.remote([StandInOutput(SEQUENCE), StandInError(429, self.CREDIT), StandInOutput(OTHER)])
+        first, second = self.predict([("x", SEQUENCE), ("y", OTHER)], mode=prediction.REMOTE)
+        self.assertEqual((first.status, second.status), (prediction.FOLDED, prediction.FAILED))
+        self.assertEqual(second.note, "You have exceeded your daily credit limit of 1000 credits.")
+        self.assertEqual(self.files(), ["x_esmfold2-2026-05.pdb"])
+        self.assertEqual(client.fold.call_count, 2)
+
+    def test_a_sequence_over_the_documented_limit_fails_with_that_reason_and_is_not_sent(self):
+        client = self.remote([])
+        record, = self.predict([("long", "A" * 769)], mode=prediction.REMOTE)
+        self.assertEqual(record.status, prediction.FAILED)
+        self.assertIn("769 residues, more than the 768 residues Biohub documents for one fold request", record.note)
+        client.fold.assert_not_called()
+        self.assertEqual(self.files(), [])
 
     def test_a_remote_run_that_finds_everything_saved_sends_nothing(self):
         client = self.remote([StandInOutput(SEQUENCE)])
@@ -372,7 +401,7 @@ class RemoteTests(EngineCase):
         record, = self.predict([("x", SEQUENCE)], mode=prediction.REMOTE)
         self.assertEqual(record.status, prediction.EXISTING)
         self.assertEqual(self.log, [])
-        self.assertEqual(client.generate.call_count, 1)
+        self.assertEqual(client.fold.call_count, 1)
 
     def test_a_rejected_token_fails_the_records_without_asking_for_another(self):
         self.remote([StandInError(401, "bad token")])
@@ -402,11 +431,14 @@ class RemoteTests(EngineCase):
             state, error = Biohub_API.credentials_state(path, environ={})
             self.assertEqual(state, "invalid")
             self.assertNotIn("token", str(error).lower().replace("api token", ""))
+            # An ESM3_MODEL, which older versions wrote, is ignored: the fold model is ESMFold 2.
             Path(path).write_text(json.dumps({"ESM_API_TOKEN": "t", "ESM3_MODEL": "esm3-open"}), encoding="utf-8")
             self.assertEqual(Biohub_API.credentials_state(path, environ={}), ("saved", None))
-            self.assertEqual(Biohub_API.remote_model_name(path), "esm3-open")
+            self.assertEqual(Biohub_API.remote_model_name(path), Biohub_API.DEFAULT_FOLD_MODEL)
+            Path(path).write_text(json.dumps({"ESM_API_TOKEN": "t", "FOLD_MODEL": "esmfold2-fast-2026-05"}), encoding="utf-8")
+            self.assertEqual(Biohub_API.remote_model_name(path), "esmfold2-fast-2026-05")
             self.assertEqual(Biohub_API.remote_model_name(os.path.join(directory, "none.json")),
-                             Biohub_API.DEFAULT_ESM3_MODEL)
+                             Biohub_API.DEFAULT_FOLD_MODEL)
 
 
 class GatedWeightsTests(EngineCase):

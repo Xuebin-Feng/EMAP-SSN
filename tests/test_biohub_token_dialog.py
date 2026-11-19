@@ -84,18 +84,26 @@ class SaveTests(unittest.TestCase):
         with open(self.path, encoding="utf-8") as handle:
             return json.load(handle)
 
-    def test_a_new_token_is_saved_with_the_default_url_and_model(self):
+    def test_a_new_token_is_saved_with_the_default_url_and_no_fold_setting(self):
         dialog_module.save_token("brand-new")
         self.assertEqual(self.saved(), {
-            "ESM_API_TOKEN": "brand-new", "ESM_API_URL": Biohub_API.DEFAULT_API_URL,
-            "ESM3_MODEL": Biohub_API.DEFAULT_ESM3_MODEL})
+            "ESM_API_TOKEN": "brand-new", "ESM_API_URL": Biohub_API.DEFAULT_API_URL})
 
-    def test_a_replacement_keeps_the_url_and_model_of_the_saved_settings(self):
+    def test_a_replacement_keeps_the_url_and_fold_settings_of_the_saved_settings(self):
         Biohub_API.write_api_settings(
-            {"ESM_API_TOKEN": "old", "ESM_API_URL": "https://biohub.example", "ESM3_MODEL": "esm3-large-2024-03"}, self.path)
+            {"ESM_API_TOKEN": "old", "ESM_API_URL": "https://biohub.example", "FOLD_MODEL": "esmfold2-fast-2026-05",
+             "FOLD_PARALLEL_REQUESTS": 2}, self.path)
         dialog_module.save_token("new", replacement=True)
         self.assertEqual(self.saved(), {
-            "ESM_API_TOKEN": "new", "ESM_API_URL": "https://biohub.example", "ESM3_MODEL": "esm3-large-2024-03"})
+            "ESM_API_TOKEN": "new", "ESM_API_URL": "https://biohub.example", "FOLD_MODEL": "esmfold2-fast-2026-05",
+            "FOLD_PARALLEL_REQUESTS": 2})
+
+    def test_a_replacement_drops_the_esm3_model_an_older_version_wrote(self):
+        Path(self.path).write_text(json.dumps(
+            {"ESM_API_TOKEN": "old", "ESM_API_URL": "https://biohub.example", "ESM3_MODEL": "esm3-large-2024-03"}),
+            encoding="utf-8")
+        dialog_module.save_token("new", replacement=True)
+        self.assertEqual(self.saved(), {"ESM_API_TOKEN": "new", "ESM_API_URL": "https://biohub.example"})
 
     def test_a_replacement_with_nothing_saved_yet_writes_the_defaults(self):
         dialog_module.save_token("from-the-environment-case", replacement=True)

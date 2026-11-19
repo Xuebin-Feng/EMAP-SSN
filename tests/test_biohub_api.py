@@ -39,16 +39,109 @@ class BiohubAPITests(unittest.TestCase):
             environ={} if environ is None else environ,
         )
 
-    def test_first_prompt_writes_complete_default_settings(self):
+    def test_first_prompt_writes_the_token_and_url_and_reads_the_fold_defaults(self):
         settings = self.load(prompt=lambda: "  secret-token  ")
 
         self.assertEqual(settings["ESM_API_TOKEN"], "secret-token")
         self.assertEqual(settings["ESM_API_URL"], Biohub_API.DEFAULT_API_URL)
-        self.assertEqual(settings["ESM3_MODEL"], Biohub_API.DEFAULT_ESM3_MODEL)
+        self.assertEqual(settings["FOLD_MODEL"], Biohub_API.DEFAULT_FOLD_MODEL)
+        self.assertEqual(settings["FOLD_PARALLEL_REQUESTS"], Biohub_API.DEFAULT_FOLD_PARALLEL_REQUESTS)
+        # A default is read each time, never written: a later change of it must reach this file too.
         self.assertEqual(
             json.loads(self.shared_path.read_text(encoding="utf-8")),
-            settings,
+            {"ESM_API_TOKEN": "secret-token", "ESM_API_URL": Biohub_API.DEFAULT_API_URL},
         )
+
+    def test_the_default_fold_model_is_the_sdks_esmfold2(self):
+        try:
+            from esm.utils.constants.models import ESMFOLD2
+        except ImportError:
+            self.skipTest("the esm package is not installed")
+        self.assertEqual(Biohub_API.DEFAULT_FOLD_MODEL, ESMFOLD2)
+        self.assertEqual(Biohub_API.DEFAULT_FOLD_MODEL, "esmfold2-2026-05")
+
+    def write_raw(self, document):
+        self.shared_path.write_text(json.dumps(document), encoding="utf-8")
+
+    def test_a_file_that_holds_only_the_old_esm3_model_stays_valid_and_folds_with_esmfold2(self):
+        self.write_raw({"ESM_API_TOKEN": "token", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"})
+
+        self.assertEqual(Biohub_API.credentials_state(self.shared_path, environ={}), ("saved", None))
+        self.assertEqual(Biohub_API.remote_model_name(self.shared_path), "esmfold2-2026-05")
+        self.assertNotIn("ESM3_MODEL", Biohub_API.read_api_settings(self.shared_path))
+        loaded = self.load()
+        self.assertEqual((loaded["FOLD_MODEL"], loaded["FOLD_PARALLEL_REQUESTS"]), ("esmfold2-2026-05", 4))
+
+    def test_an_esm3_model_is_ignored_whatever_it_holds(self):
+        for value in ("esm3-medium-2024-08", "", 7, None, "not-esm3"):
+            with self.subTest(value=value):
+                self.write_raw({"ESM_API_TOKEN": "token", "ESM3_MODEL": value})
+                self.assertEqual(Biohub_API.credentials_state(self.shared_path, environ={}), ("saved", None))
+                self.assertEqual(Biohub_API.remote_model_name(self.shared_path), Biohub_API.DEFAULT_FOLD_MODEL)
+
+    def test_the_esm3_model_is_dropped_by_the_next_write_and_not_copied_by_the_migration(self):
+        self.write_raw({"ESM_API_TOKEN": "old", "ESM_API_URL": "https://example.test", "ESM3_MODEL": "esm3-large-2024-03"})
+        stored = Biohub_API.read_api_settings(self.shared_path)
+        Biohub_API.refresh_api_token(stored, lambda: "new", path=self.shared_path)
+        self.assertEqual(
+            json.loads(self.shared_path.read_text(encoding="utf-8")),
+            {"ESM_API_TOKEN": "new", "ESM_API_URL": "https://example.test"},
+        )
+
+        self.shared_path.unlink()
+        self.legacy_path.parent.mkdir(parents=True)
+        self.legacy_path.write_text(json.dumps({"ESM_API_TOKEN": "legacy", "ESM3_MODEL": "esm3-large-2024-03"}), encoding="utf-8")
+        self.load()
+        self.assertEqual(json.loads(self.shared_path.read_text(encoding="utf-8")),
+                         {"ESM_API_TOKEN": "legacy", "ESM_API_URL": Biohub_API.DEFAULT_API_URL})
+
+    def test_fold_model_and_parallel_requests_are_validated(self):
+        valid = {"ESM_API_TOKEN": "token", "FOLD_MODEL": " esmfold2-fast-2026-05 ", "FOLD_PARALLEL_REQUESTS": 16}
+        settings = Biohub_API.validate_api_settings(valid)
+        self.assertEqual((settings["FOLD_MODEL"], settings["FOLD_PARALLEL_REQUESTS"]), ("esmfold2-fast-2026-05", 16))
+        for key, value in (
+            ("FOLD_MODEL", "esm3-large-2024-03"), ("FOLD_MODEL", ""), ("FOLD_MODEL", 5), ("FOLD_MODEL", None),
+            ("FOLD_PARALLEL_REQUESTS", 0), ("FOLD_PARALLEL_REQUESTS", 17), ("FOLD_PARALLEL_REQUESTS", True),
+            ("FOLD_PARALLEL_REQUESTS", "4"), ("FOLD_PARALLEL_REQUESTS", 2.0),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(Biohub_API.BiohubSettingsError) as captured:
+                    Biohub_API.validate_api_settings({"ESM_API_TOKEN": "token", key: value})
+                self.assertIn(key, str(captured.exception))
+        self.assertEqual(Biohub_API.validate_api_settings({"ESM_API_TOKEN": "token", "FOLD_PARALLEL_REQUESTS": 1})
+                         ["FOLD_PARALLEL_REQUESTS"], 1)
+
+    def test_a_file_with_an_unusable_fold_setting_is_invalid_not_missing(self):
+        self.write_raw({"ESM_API_TOKEN": "token", "FOLD_MODEL": "esm3-large-2024-03"})
+        state, error = Biohub_API.credentials_state(self.shared_path, environ={"ESM_API_KEY": "x"})
+        self.assertEqual(state, "invalid")
+        self.assertIn("FOLD_MODEL", str(error))
+        self.assertEqual(Biohub_API.remote_model_name(self.shared_path), Biohub_API.DEFAULT_FOLD_MODEL)
+
+    def test_the_fold_settings_a_file_holds_are_read_and_kept_by_a_token_replacement(self):
+        self.write_raw({"ESM_API_TOKEN": "old", "FOLD_MODEL": "esmfold2-fast-2026-05", "FOLD_PARALLEL_REQUESTS": 8})
+        self.assertEqual(Biohub_API.remote_model_name(self.shared_path), "esmfold2-fast-2026-05")
+        self.assertEqual(self.load()["FOLD_PARALLEL_REQUESTS"], 8)
+        Biohub_API.refresh_api_token(Biohub_API.read_api_settings(self.shared_path), lambda: "new", path=self.shared_path)
+        self.assertEqual(
+            json.loads(self.shared_path.read_text(encoding="utf-8")),
+            {"ESM_API_TOKEN": "new", "ESM_API_URL": Biohub_API.DEFAULT_API_URL,
+             "FOLD_MODEL": "esmfold2-fast-2026-05", "FOLD_PARALLEL_REQUESTS": 8},
+        )
+
+    def test_a_token_replacement_given_resolved_settings_does_not_write_the_defaults(self):
+        self.write_raw({"ESM_API_TOKEN": "old"})
+        resolved = self.load()
+        self.assertEqual(resolved["FOLD_MODEL"], Biohub_API.DEFAULT_FOLD_MODEL)
+        Biohub_API.refresh_api_token(resolved, lambda: "new", path=self.shared_path)
+        self.assertEqual(
+            json.loads(self.shared_path.read_text(encoding="utf-8")),
+            {"ESM_API_TOKEN": "new", "ESM_API_URL": Biohub_API.DEFAULT_API_URL},
+        )
+
+    def test_the_environment_fallback_has_the_fold_defaults(self):
+        settings = self.load(environ={"ESM_API_KEY": "environment-token"})
+        self.assertEqual((settings["FOLD_MODEL"], settings["FOLD_PARALLEL_REQUESTS"]), ("esmfold2-2026-05", 4))
 
     def test_environment_fallback_is_not_persisted(self):
         settings = self.load(environ={"ESM_API_KEY": "environment-token"})
@@ -79,13 +172,13 @@ class BiohubAPITests(unittest.TestCase):
             {
                 "ESM_API_TOKEN": "token",
                 "ESM_API_URL": "https://example.test/api/",
-                "ESM3_MODEL": "esm3-medium-2024-08",
+                "FOLD_MODEL": "esmfold2-fast-2026-05",
             },
             self.shared_path,
         )
 
         self.assertEqual(settings["ESM_API_URL"], "https://example.test/api")
-        self.assertEqual(settings["ESM3_MODEL"], "esm3-medium-2024-08")
+        self.assertEqual(settings["FOLD_MODEL"], "esmfold2-fast-2026-05")
 
     def test_invalid_settings_do_not_echo_the_token(self):
         token = "do-not-print-this-token"
@@ -104,7 +197,7 @@ class BiohubAPITests(unittest.TestCase):
         original = {
             "ESM_API_TOKEN": "old-token",
             "ESM_API_URL": "https://example.test",
-            "ESM3_MODEL": "esm3-medium-2024-08",
+            "FOLD_MODEL": "esmfold2-fast-2026-05",
         }
         refreshed = Biohub_API.refresh_api_token(
             original,
@@ -114,7 +207,7 @@ class BiohubAPITests(unittest.TestCase):
 
         self.assertEqual(refreshed["ESM_API_TOKEN"], "new-token")
         self.assertEqual(refreshed["ESM_API_URL"], original["ESM_API_URL"])
-        self.assertEqual(refreshed["ESM3_MODEL"], original["ESM3_MODEL"])
+        self.assertEqual(refreshed["FOLD_MODEL"], original["FOLD_MODEL"])
 
     def test_authentication_detection_and_client_refresh(self):
         chained = RuntimeError("outer")

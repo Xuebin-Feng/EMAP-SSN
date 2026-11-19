@@ -157,7 +157,7 @@ class CommandCase(unittest.TestCase):
         patcher = mock.patch.object(esmfold_command, "_credentials_state", return_value=("saved", None))
         self.credentials = patcher.start()
         self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(esmfold_command, "_model_suffix", side_effect=lambda large: "esm3-large-2024-03" if large else None)
+        patcher = mock.patch.object(esmfold_command, "_model_suffix", side_effect=lambda large: "esmfold2-2026-05" if large else None)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(esmfold_command.RUNS.clear)
@@ -249,6 +249,8 @@ class RoutingTests(CommandCase):
         self.assertEqual(os.path.abspath(command[1]), os.path.join(COMMAND_SRC, "resources", "esmfold", "esmfold_worker.py"))
         self.assertNotIn("--mode", command)
         self.assertNotIn("--skip-existing", command)
+        self.assertNotIn("--fold-model", command, "a local fold has no Biohub model")
+        self.assertIsNone(run.fold_model)
 
     def test_the_records_are_fixed_when_the_command_is_given_and_the_input_file_holds_them(self):
         viewer = make_viewer(1)
@@ -266,8 +268,10 @@ class RoutingTests(CommandCase):
             run, _ = self.queued(viewer, ["large"])
         get_device.assert_not_called()
         command = run.command()
-        self.assertEqual(command[-8:], ["--delete-input", "--mode", "large", "--action-url", URL,
-                                        "--noninteractive", "--run-id", run.run_id])
+        # The model the file names were reserved for goes to the worker too (the patched suffix of CommandCase).
+        self.assertEqual(command[-10:], ["--delete-input", "--mode", "large", "--action-url", URL,
+                                         "--fold-model", "esmfold2-2026-05", "--noninteractive", "--run-id", run.run_id])
+        self.assertEqual(run.fold_model, "esmfold2-2026-05")
         # The Viewer neither loads nor forwards credentials to the worker.
         self.assertNotIn("ESM_API_TOKEN", " ".join(command))
         self.assertFalse(hasattr(esmfold_command, "Biohub_API"))
@@ -370,8 +374,8 @@ class QueuedFoldTests(CommandCase):
         viewer = make_viewer(2)
         run, _ = self.queued(viewer, ["large", "multi"])
         folder = os.path.abspath(self.structures_dir)
-        names = ["node_0_esm3-large-2024-03.pdb", "node_0_esm3-large-2024-03.residues.json",
-                 "node_1_esm3-large-2024-03.pdb", "node_1_esm3-large-2024-03.residues.json"]
+        names = ["node_0_esmfold2-2026-05.pdb", "node_0_esmfold2-2026-05.residues.json",
+                 "node_1_esmfold2-2026-05.pdb", "node_1_esmfold2-2026-05.residues.json"]
         [paths] = viewer.background_job_scheduler.reserved
         self.assertEqual([os.path.relpath(path, folder) for path in paths], names)
 
@@ -444,11 +448,11 @@ class QueuedFoldTests(CommandCase):
         message = succeeded.call_args.args[1]
         self.assertEqual(
             message,
-            f"Queued Biohub ESM3 folding for 1 structure(s) as job #1. {NO_ALIGNMENT} "
+            f"Queued Biohub ESMFold 2 folding for 1 structure(s) as job #1. {NO_ALIGNMENT} "
             f"The worker runs without a window; its output is in {run.log_path}.",
         )
         self.assertEqual(
-            viewer.console_text.text, f"Queued 1 structure for folding with Biohub ESM3 as job #1. {NO_ALIGNMENT}")
+            viewer.console_text.text, f"Queued 1 structure for folding with Biohub ESMFold 2 as job #1. {NO_ALIGNMENT}")
 
     def test_a_second_fold_says_where_it_waits(self):
         viewer = make_viewer(1)
@@ -497,7 +501,7 @@ class SavedStructureTests(CommandCase):
             "Showed 1 structure from saved files instead of folding them again. Run esmfold refold to fold them again.")
 
     def test_the_command_to_fold_them_again_repeats_the_words_given(self):
-        folder = self.folder_with("node_0_esm3-large-2024-03.pdb", "node_1_esm3-large-2024-03.pdb")
+        folder = self.folder_with("node_0_esmfold2-2026-05.pdb", "node_1_esmfold2-2026-05.pdb")
         succeeded, _ = self.run_reporting(make_viewer(2), ["multi", "large"], structures=folder)
         self.assertEqual(
             succeeded.call_args.args[1],
@@ -526,7 +530,7 @@ class SavedStructureTests(CommandCase):
         }
         for arguments, description in cases.items():
             with self.subTest(arguments=arguments):
-                folder = self.folder_with("node_0.pdb", "node_0_esm3-large-2024-03.pdb")
+                folder = self.folder_with("node_0.pdb", "node_0_esmfold2-2026-05.pdb")
                 viewer = make_viewer(1)
                 with self.cpu():
                     run, _ = self.queued(viewer, list(arguments), structures=folder)
@@ -631,7 +635,7 @@ class SavedStructureTests(CommandCase):
         self.assertEqual(run.mode, "large")
         self.shown.assert_not_called()
 
-        folder = self.folder_with("node_0_esm3-large-2024-03.pdb")
+        folder = self.folder_with("node_0_esmfold2-2026-05.pdb")
         viewer = make_viewer(1)
         with self.cpu():
             run, _ = self.queued(viewer, [], structures=folder)
@@ -685,7 +689,7 @@ class SavedStructureTests(CommandCase):
 
     def test_a_run_that_shows_only_needs_no_credentials_and_no_token(self):
         self.credentials.return_value = ("invalid", RuntimeError("a settings file that cannot be used"))
-        folder = self.folder_with("node_0_esm3-large-2024-03.pdb")
+        folder = self.folder_with("node_0_esmfold2-2026-05.pdb")
         with mock.patch.object(esmfold_command.token_dialog, "ask_token", side_effect=AssertionError("asked for a token")):
             succeeded, failed = self.run_reporting(make_viewer(1), ["large"], structures=folder)
         failed.assert_not_called()
@@ -800,7 +804,8 @@ class TokenTests(CommandCase):
         with open(self.settings_path, encoding="utf-8") as handle:
             saved = json.load(handle)
         self.assertEqual(saved["ESM_API_TOKEN"], SECRET)
-        self.assertEqual(saved["ESM3_MODEL"], "esm3-large-2024-03")
+        # Only what was given is written: the fold model and the number of requests are read as defaults.
+        self.assertEqual(sorted(saved), ["ESM_API_TOKEN", "ESM_API_URL"])
         everything = "\n".join([
             output.getvalue(), str(succeeded.call_args), viewer.console_text.text, json.dumps(run.records),
             " ".join(run.command()), str(run.failures), str(run.log_path),
@@ -963,11 +968,11 @@ class ReportingTests(CommandCase):
         failed.assert_not_called()
         [(_, message)] = [call.args for call in succeeded.call_args_list]
         self.assertTrue(message.startswith(
-            "Queued Biohub ESM3 folding for 2 structure(s) as job #1. "
+            "Queued Biohub ESMFold 2 folding for 2 structure(s) as job #1. "
             f"Skipped 1 selected node without a sequence. (node_1) {NO_ALIGNMENT}"), message)
         self.assertEqual(
             viewer.console_text.text,
-            f"Queued 2 structures for folding with Biohub ESM3 as job #1. Skipped 1 selected node without a sequence. {NO_ALIGNMENT}",
+            f"Queued 2 structures for folding with Biohub ESMFold 2 as job #1. Skipped 1 selected node without a sequence. {NO_ALIGNMENT}",
         )
 
     def test_many_skipped_nodes_are_counted_without_listing_them(self):
@@ -1094,14 +1099,14 @@ class ReportingTests(CommandCase):
         self.assertEqual(records[1:], [["node_1", "ACDE"], ["node_2", "ACDE"]])
 
         self.assertTrue(outcome.startswith(
-            "Queued Biohub ESM3 folding for 3 structure(s) as job #1. "
+            "Queued Biohub ESMFold 2 folding for 3 structure(s) as job #1. "
             "Per-residue alignment data from family.fasta will be saved beside 1 structure: "
             "Information Content, Residue Agreement. "
             "No per-residue alignment data for 1 structure: the sequence differs from the alignment's. (node_1) "
             "No per-residue alignment data for 1 structure: not in the alignment. (node_2)"), outcome)
         self.assertEqual(
             viewer.console_text.text,
-            "Queued 3 structures for folding with Biohub ESM3 as job #1. "
+            "Queued 3 structures for folding with Biohub ESMFold 2 as job #1. "
             "Per-residue alignment data from family.fasta will be saved beside 1 structure: "
             "Information Content, Residue Agreement. "
             "No per-residue alignment data for 1 structure: the sequence differs from the alignment's. "
@@ -1124,7 +1129,7 @@ class ReportingTests(CommandCase):
 
     def test_a_note_for_a_node_saved_already_is_printed_once_too(self):
         folder = self.enterContext(tempfile.TemporaryDirectory())
-        fixtures.write_structure(folder, "node_2_esm3-large-2024-03.pdb", "ACDE", sidecar=False)
+        fixtures.write_structure(folder, "node_2_esmfold2-2026-05.pdb", "ACDE", sidecar=False)
         viewer = self.alignment_viewer()
         output = io.StringIO()
         self.run_reporting(viewer, ["multi", "large"], output=output, structures=folder)
@@ -1366,7 +1371,7 @@ class WindowStateTests(unittest.TestCase):
         del viewer.sequences_map["node_1 description"]
         run = self.run_esmfold(viewer, ["large", "multi"])
         self.assertTrue(self.outcome(run).startswith(
-            "Queued Biohub ESM3 folding for 1 structure(s) as job #1. "
+            "Queued Biohub ESMFold 2 folding for 1 structure(s) as job #1. "
             f"Skipped 1 selected node without a sequence. (node_1) {NO_ALIGNMENT} The worker runs without a window"))
 
     def test_no_page_opens_when_nothing_is_selected_either(self):
@@ -1547,6 +1552,30 @@ class FoldJobTests(unittest.TestCase):
         self.process = FakeProcess(code=9)
         self.assertEqual(self.attempt(self.handle()),
                          f"failed: The folding worker stopped (exit code 9); its output is in {self.run.log_path}.")
+
+    def test_a_reason_the_worker_gave_for_ending_the_whole_run_is_not_hidden_by_a_structure_that_failed(self):
+        # Biohub's credit limit ends the run: its words are what the user needs, whatever failed before it.
+        self.process = FakeProcess(code=1)
+        words = "Biohub stopped folding: You have exceeded your daily credit limit of 1000 credits."
+        self.run.note_event({"event": "structure_failed", "name": "node_0", "reason": "the sequence is too long"})
+        self.run.note_event({"event": "failed", "reason": words})
+        self.assertEqual(self.attempt(self.handle()),
+                         f"failed: The folding worker failed: {words} 1 structure failed before then.")
+
+    def test_a_large_run_tells_its_worker_the_model_and_a_local_run_does_not(self):
+        large = esmfold_command.FoldRun([], [], mode="large", device=None, structures_dir="x", action_url=URL,
+                                        portal=False, fold_model="esmfold2-fast-2026-05")
+        large.input_path = "input.json"
+        command = large.command()
+        self.assertEqual(command[command.index("--fold-model") + 1], "esmfold2-fast-2026-05")
+        unnamed = esmfold_command.FoldRun([], [], mode="large", device=None, structures_dir="x", action_url=URL,
+                                          portal=False)
+        unnamed.input_path = "input.json"
+        self.assertNotIn("--fold-model", unnamed.command())
+        local = esmfold_command.FoldRun([], [], mode="local", device="cpu", structures_dir="x", action_url=URL,
+                                        portal=False, fold_model="esmfold2-2026-05")
+        local.input_path = "input.json"
+        self.assertNotIn("--fold-model", local.command())
 
     def test_the_progress_the_worker_reports_reaches_the_jobs_handle(self):
         self.process = FakeProcess(ends=False)
@@ -2373,7 +2402,7 @@ class RejectedTokenProcessTests(ProcessCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         Biohub_API.write_api_settings(
-            {"ESM_API_TOKEN": OLD_TOKEN, "ESM_API_URL": "https://biohub.example", "ESM3_MODEL": "esm3-large-2024-03"},
+            {"ESM_API_TOKEN": OLD_TOKEN, "ESM_API_URL": "https://biohub.example", "FOLD_MODEL": "esmfold2-fast-2026-05"},
             self.settings_path)
         self.server = ActionServer(self.viewer)
         self.addCleanup(self.server.close)
@@ -2430,8 +2459,8 @@ class RejectedTokenProcessTests(ProcessCase):
         self.assertEqual(sorted(path.name for path in (self.root / "structures").glob("*.pdb")),
                          ["one.pdb", "three.pdb", "two.pdb"])
         saved = self.saved_settings()
-        self.assertEqual((saved["ESM_API_TOKEN"], saved["ESM_API_URL"], saved["ESM3_MODEL"]),
-                         (NEW_TOKEN, "https://biohub.example", "esm3-large-2024-03"), "the URL and model are kept")
+        self.assertEqual((saved["ESM_API_TOKEN"], saved["ESM_API_URL"], saved["FOLD_MODEL"]),
+                         (NEW_TOKEN, "https://biohub.example", "esmfold2-fast-2026-05"), "the URL and model are kept")
         # One job, one entry, from queued to succeeded: the second worker is the same job.
         [job] = result["commands"][0]["jobs"]
         self.assertEqual((job["job_id"], job["status"]), ("1", "succeeded"))

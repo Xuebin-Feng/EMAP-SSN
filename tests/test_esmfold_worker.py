@@ -1,12 +1,15 @@
 """Mocked tests for local/remote ESMFold worker behavior."""
 
+import contextvars
 import fnmatch
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -63,18 +66,37 @@ class FakeOutput:
         return self.pdb
 
 
-class FakeClient:
-    def __init__(self, results):
-        self.results = list(results)
+class FakeFoldClient:
+    """Stands in for the Biohub ESMFold 2 client: fold(sequence) answers as ``answer(sequence)`` says.
+
+    The answer is an output (FakeOutput) or a FakeProteinError. It records the calls, and whether the SDK's own
+    retry was switched off in the thread that made each one.
+    """
+
+    def __init__(self, answer=None):
+        self.answer = answer or (lambda sequence: FakeOutput(pdb=f"PDB {sequence}\n"))
+        self.calls = []
+        self.retries_skipped = []
         self.closed = False
         self.token = "old-token"
         self.headers = {"Authorization": "Bearer old-token"}
+        self._lock = threading.Lock()
 
-    def generate(self, protein, config):
-        return self.results.pop(0)
+    def fold(self, sequence):
+        with self._lock:
+            self.calls.append(sequence)
+            self.retries_skipped.append(sys.modules["esm.sdk.retry"].skip_retries_var.get())
+        return self.answer(sequence)
 
     def close(self):
         self.closed = True
+
+
+# The saved Biohub settings with their defaults filled in, as Biohub_API.load_api_settings returns them.
+REMOTE_SETTINGS = {
+    "ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai",
+    "FOLD_MODEL": "esmfold2-2026-05", "FOLD_PARALLEL_REQUESTS": 1,
+}
 
 
 def fake_esm_modules():
@@ -84,12 +106,20 @@ def fake_esm_modules():
     api_module.ESMProtein = FakeProtein
     api_module.ESMProteinError = FakeProteinError
     api_module.GenerationConfig = FakeGenerationConfig
+    retry_module = types.ModuleType("esm.sdk.retry")
+    retry_module.skip_retries_var = contextvars.ContextVar("skip_retries", default=False)
+    forge_module = types.ModuleType("esm.sdk.forge")
+    forge_module.SequenceStructureForgeInferenceClient = mock.Mock()
     esm_module.sdk = sdk_module
     sdk_module.api = api_module
+    sdk_module.retry = retry_module
+    sdk_module.forge = forge_module
     return {
         "esm": esm_module,
         "esm.sdk": sdk_module,
         "esm.sdk.api": api_module,
+        "esm.sdk.retry": retry_module,
+        "esm.sdk.forge": forge_module,
     }
 
 
@@ -196,22 +226,22 @@ class ESMFoldWorkerTests(unittest.TestCase):
             self.assertEqual(status["status"], "failed")
             self.assertIn("torch", status["message"])
 
-    def test_large_client_uses_hidden_worker_terminal_prompt(self):
-        settings = {
-            "ESM_API_TOKEN": "terminal-token",
-            "ESM_API_URL": "https://biohub.ai",
-            "ESM3_MODEL": "esm3-large-2024-03",
-        }
+    def test_large_client_uses_hidden_worker_terminal_prompt_and_is_an_esmfold2_client(self):
+        settings = dict(
+            REMOTE_SETTINGS, ESM_API_TOKEN="terminal-token", ESM_API_URL="https://biohub.example",
+            FOLD_PARALLEL_REQUESTS=4,
+        )
         remote_client = mock.Mock()
-        sdk_module = types.ModuleType("esm.sdk")
-        sdk_module.client = mock.Mock(return_value=remote_client)
+        modules = fake_esm_modules()
+        modules["esm.sdk.forge"].SequenceStructureForgeInferenceClient = mock.Mock(return_value=remote_client)
+        client_class = modules["esm.sdk.forge"].SequenceStructureForgeInferenceClient
 
         def load_from_terminal(*, prompt_callback):
             self.assertEqual(prompt_callback(), "terminal-token")
-            return settings
+            return dict(settings)
 
         with (
-            mock.patch.dict(sys.modules, {"esm.sdk": sdk_module}),
+            mock.patch.dict(sys.modules, modules),
             mock.patch.object(
                 esmfold_worker,
                 "_terminal_token_prompt",
@@ -222,26 +252,46 @@ class ESMFoldWorkerTests(unittest.TestCase):
                 "load_api_settings",
                 side_effect=load_from_terminal,
             ) as load_settings,
+            redirect_stdout(io.StringIO()) as output,
         ):
             client, loaded_settings = esmfold_worker._load_large_client()
 
         load_settings.assert_called_once()
         terminal_prompt.assert_called_once_with(False)
-        sdk_module.client.assert_called_once_with(
-            model=settings["ESM3_MODEL"],
-            url=settings["ESM_API_URL"],
-            token=settings["ESM_API_TOKEN"],
+        # The class itself, not esm.sdk.esmfold2_client (its default model is the fast one, and it never times out).
+        client_class.assert_called_once_with(
+            url="https://biohub.example",
+            model="esmfold2-2026-05",
+            token="terminal-token",
+            request_timeout=esmfold_worker.FOLD_REQUEST_TIMEOUT_SECONDS,
         )
         self.assertIs(client, remote_client)
         self.assertEqual(loaded_settings, settings)
+        self.assertIn("ESMFold 2 model esmfold2-2026-05", output.getvalue())
+        self.assertNotIn("terminal-token", output.getvalue())
+
+    def test_the_model_the_viewer_reserved_names_replaces_the_saved_one_and_must_be_an_esmfold2_model(self):
+        modules = fake_esm_modules()
+        client_class = modules["esm.sdk.forge"].SequenceStructureForgeInferenceClient
+        with (
+            mock.patch.dict(sys.modules, modules),
+            mock.patch.object(esmfold_worker.Biohub_API, "load_api_settings", side_effect=lambda **_: dict(REMOTE_SETTINGS)),
+            redirect_stdout(io.StringIO()),
+        ):
+            _, settings = esmfold_worker._load_large_client(model="esmfold2-fast-2026-05")
+            self.assertEqual(settings["FOLD_MODEL"], "esmfold2-fast-2026-05")
+            self.assertEqual(client_class.call_args.kwargs["model"], "esmfold2-fast-2026-05")
+            with self.assertRaises(esmfold_worker.Biohub_API.BiohubSettingsError):
+                esmfold_worker._load_large_client(model="esm3-large-2024-03")
+
+    def test_the_worker_takes_a_fold_model_argument(self):
+        self.assertIsNone(esmfold_worker.parse_arguments(["input.json", "--mode", "large"]).fold_model)
+        arguments = esmfold_worker.parse_arguments(
+            ["input.json", "--mode", "large", "--fold-model", "esmfold2-2026-05"])
+        self.assertEqual(arguments.fold_model, "esmfold2-2026-05")
 
     def test_large_prediction_writes_model_specific_pdb_and_closes_client(self):
-        client = FakeClient([FakeOutput()])
-        settings = {
-            "ESM_API_TOKEN": "hidden",
-            "ESM_API_URL": "https://biohub.ai",
-            "ESM3_MODEL": "esm3-large-2024-03",
-        }
+        client = FakeFoldClient(lambda sequence: FakeOutput(pdb="THE PDB\n"))
         notifier = mock.Mock()
 
         with tempfile.TemporaryDirectory() as structures_dir:
@@ -250,9 +300,10 @@ class ESMFoldWorkerTests(unittest.TestCase):
                 mock.patch.object(
                     esmfold_worker,
                     "_load_large_client",
-                    return_value=(client, settings),
+                    return_value=(client, dict(REMOTE_SETTINGS)),
                 ),
                 mock.patch.object(esmfold_worker, "_load_local_model") as local_loader,
+                redirect_stdout(io.StringIO()),
             ):
                 completed, failed = esmfold_worker.run_predictions(
                     [["node/name", "ACDE"]],
@@ -261,12 +312,14 @@ class ESMFoldWorkerTests(unittest.TestCase):
                     notifier=notifier,
                 )
 
-            expected_name = "node_name_esm3-large-2024-03.pdb"
+            expected_name = "node_name_esmfold2-2026-05.pdb"
             self.assertEqual((completed, failed), (1, False))
-            self.assertTrue(os.path.exists(os.path.join(structures_dir, expected_name)))
+            with open(os.path.join(structures_dir, expected_name), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "THE PDB\n")
             notifier.assert_called_once_with("node/name", expected_name)
             local_loader.assert_not_called()
             self.assertTrue(client.closed)
+            self.assertEqual(client.calls, ["ACDE"])
 
     def test_mps_fallback_is_set_before_the_first_import_that_can_load_torch(self):
         # esm.sdk.api imports torch, so the variable must exist before it.
@@ -316,64 +369,6 @@ class ESMFoldWorkerTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PYTORCH_ENABLE_MPS_FALLBACK": "0"}):
             esmfold_worker._allow_mps_fallback("darwin")
             self.assertEqual(os.environ["PYTORCH_ENABLE_MPS_FALLBACK"], "0")
-
-    def test_authentication_failure_refreshes_once_and_retries_current_request(self):
-        client = FakeClient([FakeProteinError(401), FakeOutput()])
-        settings = {
-            "ESM_API_TOKEN": "old-token",
-            "ESM_API_URL": "https://biohub.ai",
-            "ESM3_MODEL": "esm3-large-2024-03",
-        }
-        refreshed = dict(settings, ESM_API_TOKEN="new-token")
-        auth_state = {"settings": settings, "refresh_attempted": False}
-
-        with (
-            mock.patch.dict(sys.modules, fake_esm_modules()),
-            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
-            mock.patch.object(
-                esmfold_worker.Biohub_API,
-                "refresh_api_token",
-                return_value=refreshed,
-            ) as refresh,
-        ):
-            result = esmfold_worker._generate_remote_structure(
-                client,
-                FakeProtein("ACDE"),
-                FakeGenerationConfig("structure", 8),
-                auth_state,
-            )
-
-        self.assertIsInstance(result, FakeOutput)
-        refresh.assert_called_once()
-        self.assertTrue(auth_state["refresh_attempted"])
-        self.assertEqual(client.headers["Authorization"], "Bearer new-token")
-
-    def test_second_authentication_failure_stops_without_another_prompt(self):
-        client = FakeClient([FakeProteinError(401), FakeProteinError(403)])
-        settings = {
-            "ESM_API_TOKEN": "old-token",
-            "ESM_API_URL": "https://biohub.ai",
-            "ESM3_MODEL": "esm3-large-2024-03",
-        }
-        auth_state = {"settings": settings, "refresh_attempted": False}
-
-        with (
-            mock.patch.dict(sys.modules, fake_esm_modules()),
-            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
-            mock.patch.object(
-                esmfold_worker.Biohub_API,
-                "refresh_api_token",
-                return_value=dict(settings, ESM_API_TOKEN="new-token"),
-            ) as refresh,
-        ):
-            with self.assertRaises(esmfold_worker.Biohub_API.BiohubAuthenticationError):
-                esmfold_worker._generate_remote_structure(
-                    client,
-                    FakeProtein("ACDE"),
-                    FakeGenerationConfig("structure", 8),
-                    auth_state,
-                )
-        refresh.assert_called_once()
 
     def test_main_binds_the_action_url_without_changing_notifier_shape(self):
         action_url = "http://127.0.0.1:49123/api/action"
@@ -457,15 +452,16 @@ class ESMFoldWorkerTests(unittest.TestCase):
             ("progress", {"index": 3, "total": 3, "name": "node_c"}),
         ])
 
-    def _main_events(self, run_result=None, load_error=None):
-        """The events main() reports to the Viewer for a run whose predictions end as run_result says."""
+    def _main_events(self, run_result=None, load_error=None, run_error=None):
+        """The events main() reports to the Viewer for a run whose predictions end as run_result (or run_error) says."""
         action_url = "http://127.0.0.1:49123/api/action"
         events = []
         loaded = mock.patch.object(esmfold_worker, "_load_nodes", return_value=[["node_1", "ACDE"], ["node_2", "FG"]])
         if load_error:
             loaded = mock.patch.object(esmfold_worker, "_load_nodes", side_effect=load_error)
         with tempfile.TemporaryDirectory() as structures_dir, loaded, \
-                mock.patch.object(esmfold_worker, "run_predictions", return_value=run_result) as run_predictions, \
+                mock.patch.object(esmfold_worker, "run_predictions", return_value=run_result,
+                                  side_effect=run_error) as run_predictions, \
                 mock.patch.object(esmfold_worker, "notify_job", side_effect=lambda event, url, **fields: events.append((event, url, fields))), \
                 redirect_stdout(io.StringIO()):
             result = esmfold_worker.main(["input.json", structures_dir, "--action-url", action_url, "--noninteractive"])
@@ -484,6 +480,18 @@ class ESMFoldWorkerTests(unittest.TestCase):
         result, events, _ = self._main_events((1, True))
         self.assertEqual(result, 1)
         self.assertEqual(events[-1], ("finished", url, {"succeeded": 1, "total": 2, "failed": True, "log": None}))
+
+    def test_main_passes_the_fold_model_on_and_ends_a_credit_limit_with_biohubs_words(self):
+        url = "http://127.0.0.1:49123/api/action"
+        words = "You have exceeded your daily credit limit of 1000 credits."
+        result, events, run_predictions = self._main_events(run_error=esmfold_worker.CreditLimitError(words))
+        self.assertEqual(result, 1)
+        self.assertIsNone(run_predictions.call_args.kwargs["fold_model"])
+        self.assertEqual([event for event, _, _ in events], ["started", "failed"])
+        reason = events[-1][2]["reason"]
+        self.assertTrue(reason.startswith(f"Biohub stopped folding: {words}"), reason)
+        self.assertIn("0 of 2 structure(s) were folded in this run and are kept", reason)
+        self.assertIn("not folded again", reason)
 
     def test_main_reports_a_run_that_could_not_start(self):
         url = "http://127.0.0.1:49123/api/action"
@@ -1241,19 +1249,18 @@ class ResidueDataPredictionTests(unittest.TestCase):
         self.assertIn("Saved residue data to:", output)
 
     def test_the_file_of_a_large_run_carries_the_models_suffix_of_its_pdb(self):
-        client = FakeClient([FakeOutput(pdb=pdb_text("ACDE"))])
-        settings = {"ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"}
+        client = FakeFoldClient(lambda sequence: FakeOutput(pdb=pdb_text("ACDE")))
         extra = extra_for("node/name x", [1, 2, 3, 4])
         with (
             mock.patch.dict(sys.modules, fake_esm_modules()),
-            mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, settings)),
+            mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, dict(REMOTE_SETTINGS))),
             redirect_stdout(io.StringIO()),
         ):
             esmfold_worker.run_predictions(
                 [["node/name", "ACDE", extra]], self.structures, mode="large", notifier=mock.Mock()
             )
-        self.assertEqual(self.files(), ["node_name_esm3-large-2024-03.pdb", "node_name_esm3-large-2024-03.residues.json"])
-        self.assertEqual(self.read("node_name_esm3-large-2024-03.residues.json")["structure"], "node_name_esm3-large-2024-03.pdb")
+        self.assertEqual(self.files(), ["node_name_esmfold2-2026-05.pdb", "node_name_esmfold2-2026-05.residues.json"])
+        self.assertEqual(self.read("node_name_esmfold2-2026-05.residues.json")["structure"], "node_name_esmfold2-2026-05.pdb")
 
     def test_a_record_that_is_neither_a_pair_nor_a_triple_is_invalid(self):
         result, _, _, output = self.run_local([["node_a", "ACDE", {}, "extra"], ["node_b"], "node_c", ["node_d", "DEFG"]])
@@ -1399,10 +1406,324 @@ class ResidueDataMainTests(unittest.TestCase):
         self.assertIn("Refreshed the residue data of 1 of them.", output)
 
 
+class RemoteFoldTests(unittest.TestCase):
+    """A fold through Biohub (mode large): ESMFold 2, several requests at once, every kind of answer.
+
+    A stand-in client answers; no test can reach Biohub, because connecting a socket raises here.
+    """
+
+    CREDIT = "Failure in fold: You have exceeded your daily credit limit of 1000 credits."
+    MINUTE = ("Failure in fold: You have exceeded your usage cap of 500 requests during the last minute for "
+              "esmfold2-2026-05 and fold")
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.structures = directory.name
+        guard = mock.patch.object(socket.socket, "connect", side_effect=AssertionError("a test reached the network"))
+        guard.start()
+        self.addCleanup(guard.stop)
+        from tools.tool_helpers import Remote_Requests
+        wait = mock.patch.object(Remote_Requests, "RATE_LIMIT_WAIT_SECONDS", 0.001)
+        wait.start()
+        self.addCleanup(wait.stop)
+        self.events = []
+        self.notified = []
+
+    def run_fold(self, records, answer=None, parallel=1, **options):
+        """(the client, the result of run_predictions or the exception it raised)."""
+        client = FakeFoldClient(answer)
+        settings = dict(REMOTE_SETTINGS, FOLD_PARALLEL_REQUESTS=parallel)
+        try:
+            with (
+                mock.patch.dict(sys.modules, fake_esm_modules()),
+                mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, settings)),
+                redirect_stdout(io.StringIO()),
+            ):
+                outcome = esmfold_worker.run_predictions(
+                    records, self.structures, mode="large",
+                    notifier=lambda node, name: self.notified.append((node, name)),
+                    job_event=lambda event, **fields: self.events.append((event, fields)), **options)
+        except Exception as error:
+            outcome = error
+        return client, outcome
+
+    def files(self):
+        return sorted(os.listdir(self.structures))
+
+    def fold_remote(self, answers, sleeps=None):
+        """Call _fold_remote for one sequence; ``answers`` are what the client returns, one for each request."""
+        queue = iter(answers)
+        client = FakeFoldClient(lambda sequence: next(queue))
+        slept = [] if sleeps is None else sleeps
+        with mock.patch.dict(sys.modules, fake_esm_modules()), redirect_stdout(io.StringIO()):
+            try:
+                return client, esmfold_worker._fold_remote(client, "ACDE", sleep=slept.append)
+            except Exception as error:
+                return client, error
+
+    # --- one request ---
+
+    def test_the_sdks_own_retry_is_switched_off_inside_the_thread_that_sends(self):
+        client, outcome = self.run_fold([["a", "AC"], ["b", "DE"]], parallel=2)
+        self.assertEqual(outcome, (2, False))
+        self.assertEqual(client.retries_skipped, [True, True])
+
+    def test_each_answer_becomes_the_exception_the_run_needs(self):
+        auth = self.fold_remote([FakeProteinError(401, "Failure in fold: no")])[1]
+        self.assertIsInstance(auth, esmfold_worker.Biohub_API.BiohubAuthenticationError)
+        self.assertEqual(auth.error_code, 401)
+        self.assertEqual(self.fold_remote([FakeProteinError(403)])[1].error_code, 403)
+
+        from tools.tool_helpers.Remote_Requests import RateLimitedError
+        minute = self.fold_remote([FakeProteinError(429, self.MINUTE)])[1]
+        self.assertIsInstance(minute, RateLimitedError)
+        self.assertEqual(str(minute), self.MINUTE.replace("Failure in fold: ", ""))
+        self.assertFalse(hasattr(minute, "max_resends"))
+
+        credit = self.fold_remote([FakeProteinError(429, self.CREDIT)])[1]
+        self.assertIsInstance(credit, esmfold_worker.CreditLimitError)
+        self.assertEqual(str(credit), "You have exceeded your daily credit limit of 1000 credits.")
+        longer = self.fold_remote([FakeProteinError(429, "You have exceeded your usage cap of 9000 requests during the last day")])[1]
+        self.assertIsInstance(longer, esmfold_worker.CreditLimitError)
+
+        unknown = self.fold_remote([FakeProteinError(429, "Failure in fold: slow down please")])[1]
+        self.assertIsInstance(unknown, RateLimitedError)
+        self.assertEqual(unknown.max_resends, esmfold_worker.UNRECOGNISED_429_RESENDS)
+        self.assertEqual(str(unknown), "slow down please")
+
+    def test_the_words_of_a_429_decide_what_kind_of_limit_it_is(self):
+        classify = esmfold_worker.classify_rate_limit
+        self.assertEqual(classify(self.CREDIT), "quota")
+        self.assertEqual(classify("You have run out of credits"), "quota")
+        self.assertEqual(classify("usage cap of 5 requests during the last hour"), "quota")
+        self.assertEqual(classify(self.MINUTE), "minute")
+        self.assertEqual(classify("Too many requests"), "minute")
+        self.assertEqual(classify("try later"), "unknown")
+
+    def test_a_server_that_did_not_process_the_request_is_asked_again_twice_then_the_structure_fails(self):
+        sleeps = []
+        client, output = self.fold_remote([FakeProteinError(503, "Failure in fold: busy"), FakeOutput(pdb="OK\n")], sleeps)
+        self.assertEqual(output, "OK\n")
+        self.assertEqual((len(client.calls), sleeps), (2, [2.0]))
+
+        sleeps = []
+        client, error = self.fold_remote([FakeProteinError(502), FakeProteinError(504), FakeProteinError(503, "Failure in fold: down")], sleeps)
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual(sleeps, [2.0, 6.0])
+        self.assertIsInstance(error, RuntimeError)
+        self.assertEqual(str(error), "Biohub fold error (code 503): down")
+
+    def test_any_other_answer_fails_the_structure_with_the_servers_words_and_is_not_sent_again(self):
+        client, error = self.fold_remote([FakeProteinError(500, "Failure in fold: boom")])
+        self.assertEqual((len(client.calls), str(error)), (1, "Biohub fold error (code 500): boom"))
+        client, error = self.fold_remote([FakeProteinError(400, "Failure in fold: bad sequence")])
+        self.assertEqual((len(client.calls), str(error)), (1, "Biohub fold error (code 400): bad sequence"))
+        # The SDK's own words for a request that got no answer (an empty text, as a timeout often has).
+        client, error = self.fold_remote([FakeProteinError(500, "Failed to submit request to fold. Error: ")])
+        self.assertEqual(len(client.calls), 1)
+        self.assertIn("no answer within 300 s", str(error))
+
+    def test_a_sequence_over_the_documented_limit_is_not_sent_and_says_where_the_number_comes_from(self):
+        limit = esmfold_worker.FOLD_MAX_RESIDUES
+        self.assertEqual(limit, 768)
+        client, outcome = self.run_fold(
+            [["long", "A" * (limit + 1)], ["edge", "A" * limit], ["short", "ACDE"]])
+        self.assertEqual(outcome, (2, True))
+        self.assertEqual(client.calls, ["A" * limit, "ACDE"], "the long one is never sent")
+        failures = [fields for event, fields in self.events if event == "structure_failed"]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["name"], "long")
+        self.assertEqual(
+            failures[0]["reason"],
+            "The sequence has 769 residues, more than the 768 residues Biohub documents for one fold request; "
+            "nothing was sent.")
+        self.assertEqual(self.files(), ["edge_esmfold2-2026-05.pdb", "short_esmfold2-2026-05.pdb"])
+
+    def test_plddt_is_made_a_fraction_before_the_pdb_is_written(self):
+        import torch
+
+        def prepared(values):
+            output = FakeOutput(plddt=torch.tensor(values))
+            original = output.plddt
+            esmfold_worker._prepare_plddt(output)
+            return output, original
+
+        with redirect_stdout(io.StringIO()) as printed:
+            output, original = prepared([0.5, 0.9])
+            self.assertIs(output.plddt, original, "a 0 to 1 value is left as it is")
+
+            output, _ = prepared([50.0, 90.0])
+            for got, expected in zip(output.plddt.tolist(), [0.5, 0.9]):
+                self.assertAlmostEqual(got, expected, places=5)
+
+            output, _ = prepared([float("nan"), 0.5])
+            self.assertEqual(output.plddt.tolist(), [0.0, 0.5])
+        self.assertIn("scale of 0 to 100", printed.getvalue())
+        self.assertIn("no pLDDT", printed.getvalue())
+
+        output = FakeOutput(plddt=None)
+        esmfold_worker._prepare_plddt(output)
+        self.assertIsNone(output.plddt)
+
+    # --- the run ---
+
+    def test_several_requests_are_in_flight_at_once_and_every_structure_is_saved_as_it_arrives(self):
+        barrier = threading.Barrier(4, timeout=10)
+
+        def answer(sequence):
+            barrier.wait()  # all four are in flight together, or this raises BrokenBarrierError
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        records = [["a", "AC"], ["b", "DE"], ["c", "FG"], ["d", "HI"]]
+        client, outcome = self.run_fold(records, answer, parallel=4)
+
+        self.assertEqual(outcome, (4, False))
+        self.assertEqual(sorted(node for node, _ in self.notified), ["a", "b", "c", "d"])
+        self.assertEqual(self.files(), [f"{name}_esmfold2-2026-05.pdb" for name in "abcd"])
+        self.assertTrue(client.closed)
+
+    def test_one_request_at_a_time_runs_in_order_and_reports_the_first_unfinished_structure(self):
+        Path(self.structures, "a_esmfold2-2026-05.pdb").write_text("OLD\n", encoding="utf-8")
+        client, outcome = self.run_fold(
+            [["a", "AC"], ["b", "DE"], ["c", "FG"]], parallel=1, skip_existing=True)
+
+        self.assertEqual(outcome, (3, False))
+        self.assertEqual(client.calls, ["DE", "FG"])
+        self.assertEqual([node for node, _ in self.notified], ["b", "c"])
+        self.assertEqual(self.events, [
+            ("progress", {"index": 2, "total": 3, "name": "b"}),
+            ("progress", {"index": 3, "total": 3, "name": "c"}),
+        ])
+        self.assertEqual(Path(self.structures, "a_esmfold2-2026-05.pdb").read_text(encoding="utf-8"), "OLD\n")
+
+    def test_a_structure_that_fails_does_not_stop_the_others(self):
+        def answer(sequence):
+            if sequence == "DE":
+                raise RuntimeError("the server dropped it")
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        client, outcome = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"]], answer, parallel=2)
+
+        self.assertEqual(outcome, (2, True))
+        self.assertIn(("structure_failed", {"name": "b", "reason": "the server dropped it"}), self.events)
+        self.assertEqual(self.files(), ["a_esmfold2-2026-05.pdb", "c_esmfold2-2026-05.pdb"])
+
+    def test_a_per_minute_limit_sends_the_request_again_and_nothing_is_lost(self):
+        seen = []
+
+        def answer(sequence):
+            seen.append(sequence)
+            if sequence == "DE" and seen.count("DE") == 1:
+                return FakeProteinError(429, self.MINUTE)
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        client, outcome = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"], ["d", "HI"]], answer, parallel=4)
+
+        self.assertEqual(outcome, (4, False))
+        self.assertEqual(seen.count("DE"), 2)
+        self.assertEqual(len(self.files()), 4)
+        self.assertEqual([event for event, _ in self.events if event == "structure_failed"], [])
+
+    def test_a_credit_limit_stops_the_run_with_biohubs_words_and_keeps_what_was_folded(self):
+        def answer(sequence):
+            if sequence == "AC":
+                return FakeOutput(pdb="PDB AC\n")
+            return FakeProteinError(429, self.CREDIT)
+
+        client, error = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"], ["d", "HI"]], answer, parallel=1)
+
+        self.assertIsInstance(error, esmfold_worker.CreditLimitError)
+        self.assertEqual(str(error), "You have exceeded your daily credit limit of 1000 credits.")
+        self.assertEqual(client.calls, ["AC", "DE"], "nothing is sent after the limit answered")
+        self.assertEqual(self.files(), ["a_esmfold2-2026-05.pdb"])
+        self.assertEqual([node for node, _ in self.notified], ["a"])
+        self.assertTrue(client.closed)
+
+    def test_a_credit_limit_in_the_middle_of_several_requests_still_saves_those_in_flight(self):
+        b_started = threading.Event()
+
+        def answer(sequence):
+            if sequence == "AC":
+                b_started.wait(10)
+                return FakeProteinError(429, self.CREDIT)
+            b_started.set()
+            time.sleep(0.05)
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        client, error = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"]], answer, parallel=2)
+
+        self.assertIsInstance(error, esmfold_worker.CreditLimitError)
+        self.assertEqual(sorted(client.calls), ["AC", "DE"], "the third was never sent")
+        self.assertEqual(self.files(), ["b_esmfold2-2026-05.pdb"], "what was in flight is saved")
+
+    def test_a_rejected_token_with_no_one_to_ask_saves_what_was_in_flight_and_ends_the_run(self):
+        def answer(sequence):
+            if sequence == "DE":
+                return FakeProteinError(401)
+            time.sleep(0.05)
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        with mock.patch.object(esmfold_worker, "can_ask", return_value=False):
+            client, error = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"]], answer, parallel=2)
+
+        self.assertIsInstance(error, esmfold_worker.Biohub_API.BiohubAuthenticationError)
+        self.assertEqual(sorted(client.calls), ["AC", "DE"])
+        self.assertEqual(self.files(), ["a_esmfold2-2026-05.pdb"])
+        self.assertEqual(self.notified, [("a", "a_esmfold2-2026-05.pdb")], "the Viewer was told, so it folds only the rest")
+
+    def test_in_a_terminal_a_rejected_token_is_replaced_once_and_the_unfinished_are_sent_again(self):
+        state = {"rejected": False}
+
+        def answer(sequence):
+            if sequence == "DE" and not state["rejected"]:
+                state["rejected"] = True
+                return FakeProteinError(401)
+            return FakeOutput(pdb=f"PDB {sequence}\n")
+
+        refreshed = dict(REMOTE_SETTINGS, ESM_API_TOKEN="new-token")
+        with (
+            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
+            mock.patch.object(esmfold_worker.Biohub_API, "refresh_api_token", return_value=refreshed) as refresh,
+        ):
+            client, outcome = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"]], answer, parallel=1)
+
+        self.assertEqual(outcome, (3, False))
+        refresh.assert_called_once()
+        self.assertEqual(client.calls, ["AC", "DE", "DE", "FG"])
+        self.assertEqual(client.headers["Authorization"], "Bearer new-token")
+        # The replacement is given the token and URL and only the fold settings that are not defaults (here the
+        # run's 1 request at a time): a default is not written into the file.
+        self.assertEqual(refresh.call_args.args[0], {
+            "ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai", "FOLD_PARALLEL_REQUESTS": 1})
+
+    def test_in_a_terminal_a_second_rejection_ends_the_run(self):
+        refreshed = dict(REMOTE_SETTINGS, ESM_API_TOKEN="new-token")
+        with (
+            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
+            mock.patch.object(esmfold_worker.Biohub_API, "refresh_api_token", return_value=refreshed) as refresh,
+        ):
+            client, error = self.run_fold(
+                [["a", "AC"], ["b", "DE"]], lambda sequence: FakeProteinError(401) if sequence == "DE" else FakeOutput(),
+                parallel=1)
+
+        self.assertIsInstance(error, esmfold_worker.Biohub_API.BiohubAuthenticationError)
+        refresh.assert_called_once()
+
+    def test_a_limit_the_server_keeps_answering_ends_the_run_saying_what_it_said(self):
+        client, error = self.run_fold(
+            [["a", "AC"]], lambda sequence: FakeProteinError(429, "Failure in fold: slow down please"), parallel=1)
+
+        self.assertIsInstance(error, RuntimeError)
+        self.assertIn("slow down please", str(error))
+        self.assertEqual(len(client.calls), esmfold_worker.UNRECOGNISED_429_RESENDS + 1)
+        self.assertEqual(self.files(), [])
+
+
 class NeverAskTests(unittest.TestCase):
     """The worker has no window and no input: it never waits for someone to answer, and Biohub's rejection ends the run cleanly."""
 
-    SETTINGS = {"ESM_API_TOKEN": "saved-secret-token", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"}
+    SETTINGS = dict(REMOTE_SETTINGS, ESM_API_TOKEN="saved-secret-token")
 
     def setUp(self):
         portal = mock.patch.multiple(
@@ -1449,19 +1770,22 @@ class NeverAskTests(unittest.TestCase):
         prompt.assert_called_once()
 
     def test_a_rejected_token_ends_the_run_without_refreshing_when_no_one_can_be_asked(self):
-        client = FakeClient([FakeProteinError(401)])
-        auth_state = {"settings": dict(self.SETTINGS), "refresh_attempted": False}
+        client = FakeFoldClient(lambda sequence: FakeProteinError(401))
         with self.terminal(False), mock.patch.dict(sys.modules, fake_esm_modules()), \
-                mock.patch.object(esmfold_worker.Biohub_API, "refresh_api_token") as refresh:
-            with self.assertRaises(esmfold_worker.Biohub_API.BiohubAuthenticationError) as caught:
-                esmfold_worker._generate_remote_structure(
-                    client, FakeProtein("ACDE"), FakeGenerationConfig("structure", 8), auth_state)
+                mock.patch.object(esmfold_worker.Biohub_API, "refresh_api_token") as refresh, \
+                redirect_stdout(io.StringIO()), \
+                mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, dict(self.SETTINGS))):
+            with tempfile.TemporaryDirectory() as structures_dir:
+                with self.assertRaises(esmfold_worker.Biohub_API.BiohubAuthenticationError) as caught:
+                    esmfold_worker.run_predictions(
+                        [["node_a", "ACDE"]], structures_dir, mode="large", notifier=mock.Mock())
         refresh.assert_not_called()
         self.assertEqual(caught.exception.error_code, 401)
         self.assertNotIn("saved-secret-token", str(caught.exception))
 
     def test_a_rejection_in_the_middle_keeps_what_was_saved_and_is_not_counted_as_a_failed_structure(self):
-        client = FakeClient([FakeOutput(), FakeProteinError(403)])
+        answers = iter([FakeOutput(), FakeProteinError(403)])
+        client = FakeFoldClient(lambda sequence: next(answers))
         events = []
         with tempfile.TemporaryDirectory() as structures_dir, self.terminal(False), \
                 mock.patch.dict(sys.modules, fake_esm_modules()), \
@@ -1472,7 +1796,7 @@ class NeverAskTests(unittest.TestCase):
                     [["node_a", "ACDE"], ["node_b", "ACDF"], ["node_c", "ACDG"]], structures_dir, mode="large",
                     notifier=mock.Mock(), job_event=lambda event, **fields: events.append((event, fields)))
             saved = sorted(os.listdir(structures_dir))
-        self.assertEqual(saved, ["node_a_esm3-large-2024-03.pdb"])
+        self.assertEqual(saved, ["node_a_esmfold2-2026-05.pdb"])
         self.assertEqual([event for event, _ in events], ["progress", "progress"], "no structure_failed for the rejection")
         self.assertTrue(client.closed)
 

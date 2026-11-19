@@ -59,7 +59,9 @@ from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers, serve_fold_view
 from tests.sparse_alignment import load_manager, write_fasta
-from tests.test_esmfold_worker import FakeClient, FakeOutput, fake_esm_modules
+from tests.test_esmfold_worker import REMOTE_SETTINGS, FakeFoldClient, FakeOutput, fake_esm_modules
+# A remote fold imports this on first use; load it before a test puts a stand-in torch in sys.modules.
+from tools.tool_helpers import Remote_Requests  # noqa: F401
 from tests.translation_fixtures import pseudo_language
 from web_ui import residue_layers
 from web_ui.residue_layers import (
@@ -384,7 +386,7 @@ SEQUENCES = {
     "node_e": fixtures.SECOND_SEQUENCE[:5] + "L" + fixtures.SECOND_SEQUENCE[6:],
 }
 GAPS = {"node_a": {3, 10, 11}, "node_b": {0, 20, 21}, "node_c": {3, 10, 11}, "node_d": {3, 10, 11}, "node_e": {0, 20, 21}}
-LARGE_MODEL = "esm3-large-2024-03"
+LARGE_MODEL = "esmfold2-2026-05"
 
 
 def aligned(sequence, gaps, width=36):
@@ -447,8 +449,8 @@ class WriterPathMixin:
         with (mock.patch.dict(sys.modules, {**fake_esm_modules(), "torch": torch}),
               contextlib.redirect_stdout(io.StringIO())):
             if mode == "large":
-                client = FakeClient([structure_of(sequence) for _, sequence in nodes])
-                settings = {"ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": LARGE_MODEL}
+                client = FakeFoldClient(structure_of)
+                settings = dict(REMOTE_SETTINGS, FOLD_MODEL=LARGE_MODEL)
                 with mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, settings)):
                     result = esmfold_worker.run_predictions(records, self.directory, mode="large", notifier=mock.Mock())
             else:
