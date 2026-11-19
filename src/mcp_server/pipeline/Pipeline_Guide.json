@@ -124,7 +124,7 @@
       "inputs": {
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA whose sequences the embeddings belong to"},
         "SOURCE_PATH": {"directory": "FASTA_DIR", "content": "the embeddings: an HDF5 file with one top-level dataset per protein named by its ID (or holding it in an original_id attribute), a .npz file, or a folder of .npy files named by ID; an absolute path anywhere on the computer, or a name inside FASTA_DIR"},
-        "ID_MAP_TSV": {"directory": "FASTA_DIR", "content": "optional two-column file (.csv comma-separated, any other extension tab-separated): column 1 a FASTA header of the sequence set, column 2 its ID in the source; blank lines and # lines skipped, a column-name line is not (start it with #), fewer than two columns fails the job; sequences it does not list use the automatic rules"}
+        "ID_MAP_FILE": {"directory": "FASTA_DIR", "content": "optional two-column file (.csv comma-separated, any other extension tab-separated): column 1 a FASTA header of the sequence set, column 2 its ID in the source; blank lines and # lines skipped, a column-name line is not (start it with #), fewer than two columns fails the job; sequences it does not list use the automatic rules"}
       },
       "outputs": [
         {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<MODEL_LABEL>]_embeddings.h5", "existing": "a complete file with the same label, saving mode and sequences is kept; an incomplete one is resumed; one with another label, SAVING_MODE or changed sequences fails the job"},
@@ -133,7 +133,7 @@
       "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "CPU only; no model is run.",
       "notes": [
-        "IDs are matched per record, first hit wins: ID_MAP_TSV, the original header, its first word, the sanitized header, then a UniProt accession (sp|P12345|NAME gives P12345). An ID that more than one record could take is not used (status ambiguous).",
+        "IDs are matched per record, first hit wins: ID_MAP_FILE, the original header, its first word, the sanitized header, then a UniProt accession (sp|P12345|NAME gives P12345). An ID that more than one record could take is not used (status ambiguous).",
         "Every array must be two-dimensional with one row per residue of the sanitized sequence, one feature width per file, and finite values at SAVING_MODE. A per-protein vector is refused; rows = length + 2 means the model's start and end tokens were left in.",
         "MODEL_LABEL (lower-case letters, digits, _ and -) names the model in the file and in later output names. It may not be the identifier of a model EMAP-SSN computes (validation refuses it); embedding_injection cannot extend an imported file, since no plugin computes its model.",
         "The job fails, leaving the output incomplete (readers refuse it), when any record was not imported; the log gives matched, missing, ambiguous, refused and unused counts. Running it again resumes the file."

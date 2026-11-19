@@ -167,7 +167,7 @@ TOOL_TITLE_ICON_GAP = 6
 # window redrawn in another language carries them over, but tools_settings.json never does.
 UNSAVED_SETTINGS = {
     "Predict_Structures.py": ("INPUT_FASTA",),
-    "Embedding_Import.py": ("SOURCE_PATH", "ID_MAP_TSV"),
+    "Embedding_Import.py": ("SOURCE_PATH", "ID_MAP_FILE"),
 }
 # The filters of the dialog that picks a FASTA file anywhere on the computer.
 FASTA_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)")
@@ -256,7 +256,7 @@ INLINE_FIELD_GROUPS = {
     ],
     # Row 1: the sequence set and the mapping file. Row 2 is the source alone. Row 3: the label and the mode.
     "Embedding_Import.py": [
-        ("INPUT_FASTA", "ID_MAP_TSV"),
+        ("INPUT_FASTA", "ID_MAP_FILE"),
         ("MODEL_LABEL", "SAVING_MODE"),
     ],
 }
@@ -268,7 +268,7 @@ ALIGNED_COLUMN_GROUPS = {
         ("SEQUENCE_NAME", "INPUT_FASTA"),
     )],
     "Embedding_Import.py": [(
-        ("INPUT_FASTA", "ID_MAP_TSV"),
+        ("INPUT_FASTA", "ID_MAP_FILE"),
         ("MODEL_LABEL", "SAVING_MODE"),
     )],
 }
@@ -313,7 +313,7 @@ TAB_ORDERS = {
         "BITSCORE_COLUMN", "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN",
     ),
     "Embedding_Import.py": (
-        "INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE",
+        "INPUT_FASTA", "ID_MAP_FILE", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE",
     ),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
@@ -1812,7 +1812,7 @@ class ToolsGUI(QMainWindow):
                         translate("Tools", "It is not saved: the field is empty the next time the window opens, and a run gets it for that run only."),
                     ),
                 ),
-                "ID_MAP_TSV": Tip(
+                "ID_MAP_FILE": Tip(
                     translate("Tools", "Optional file that gives a FASTA header the ID its embedding has in the source."),
                     details=(
                         translate("Tools", "First column: a FASTA header of the sequence set (as written there, its first word, or the sanitized header). Second column: that protein's ID in the embedding source. Any further column is ignored."),
@@ -2501,7 +2501,7 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Embedding Source:")
                         },
                         {
-                            "var_name": "ID_MAP_TSV",
+                            "var_name": "ID_MAP_FILE",
                             "type": "file_browse",
                             "filter": ID_MAP_FILE_FILTER,
                             "dialog_title": QT_TRANSLATE_NOOP("Tools", "Select ID Mapping File"),

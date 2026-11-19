@@ -186,7 +186,7 @@ This tool converts per-residue embeddings computed outside EMAP-SSN, such as Uni
     - a folder of `.npy` files, one per protein, each named by its ID (`P12345.npy`).
 *   **Description**: Chosen with **File...** or **Folder...** from anywhere on this computer. It is not saved: the field is empty the next time the window opens. A relative path is read inside the FASTA directory.
 
-#### ID Mapping `ID_MAP_TSV` (optional)
+#### ID Mapping `ID_MAP_FILE` (optional)
 *   **Format**: A `.tsv`, `.csv` or `.txt` file of two columns. The first holds a FASTA header of the sequence set (as written there, its first word or the sanitized one); the second holds the ID that protein has in the source. A `.csv` file is comma-separated, with a value that contains a comma in double quotes; any other file is tab-separated. A column after the second is ignored.
 *   **Lines**: Blank lines and lines whose first column starts with `#` are skipped. A line of column names is not recognised and would be read as a pair, so start it with `#`. A line with fewer than two columns, or an empty second column, stops the run with an error naming the file and the line; so does a header given two different IDs. A byte-order mark at the start of the file (Excel adds one to CSV files) is ignored.
 *   **Description**: Tried before the automatic rules. A record the file does not list is matched by the automatic rules; a listed ID that the source lacks is reported as `unmapped` and not retried. Not saved, like the source.

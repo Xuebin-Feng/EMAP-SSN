@@ -135,7 +135,7 @@
         "default": null,
         "description": "Embedding Source: Per-residue embeddings computed elsewhere: an HDF5 file with one dataset per protein named by its ID (such as UniProt's per-residue files; a dataset's original_id attribute also counts), a .npz file, or a folder of .npy files named by ID.\nAn absolute path anywhere on the computer, or a name inside the FASTA directory. The Tools window picks it with File or Folder and does not save it; a settings file for the MCP server gives the path."
       },
-      "ID_MAP_TSV": {
+      "ID_MAP_FILE": {
         "type": [
           "string",
           "null"

@@ -27,11 +27,11 @@ every sanitized record must find one residues-by-features array in the source.
 
 Input:
 - INPUT_FASTA: the sequence set, in FASTA_DIR (or an absolute path). A relative
-  SOURCE_PATH or ID_MAP_TSV also resolves inside FASTA_DIR.
+  SOURCE_PATH or ID_MAP_FILE also resolves inside FASTA_DIR.
 - SOURCE_PATH: an HDF5 file with one dataset per protein at its top level, named
   by ID (a dataset's `original_id` attribute also counts as its ID), a `.npz`
   file, or a folder of `.npy` files named by ID.
-- ID_MAP_TSV (optional): a file of two columns, a FASTA header (as it stands in
+- ID_MAP_FILE (optional): a file of two columns, a FASTA header (as it stands in
   the FASTA, its first word, or the sanitized header) and the source ID it
   should take. A `.csv` file is comma-separated (a value with a comma goes in
   double quotes); any other file is tab-separated. Blank lines and lines whose
@@ -92,7 +92,7 @@ from tools.tool_helpers.Model_Plugins import discover_model_execution_modes
 # Script configuration
 INPUT_FASTA = None
 SOURCE_PATH = None
-ID_MAP_TSV = None
+ID_MAP_FILE = None
 MODEL_LABEL = None
 # Keep equal to Generate_Embeddings.SAVING_MODE (a test checks it): the Tools
 # window reads each tool's default from its own literal.
@@ -483,7 +483,7 @@ def main(argv=None):
             str(MODEL_LABEL).strip(),
             SAVING_MODE,
             EMBED_DIR,
-            id_map_path=_resolve(ID_MAP_TSV, FASTA_DIR) or None,
+            id_map_path=_resolve(ID_MAP_FILE, FASTA_DIR) or None,
         )
     except (ValueError, OSError) as error:
         print(f"❌ Error: {error}")

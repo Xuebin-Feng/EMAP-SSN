@@ -364,7 +364,7 @@ class OutputTests(ImportCase):
 
 class MainTests(ImportCase):
     def run_main(self, **settings):
-        values = {"INPUT_FASTA": None, "SOURCE_PATH": None, "ID_MAP_TSV": None,
+        values = {"INPUT_FASTA": None, "SOURCE_PATH": None, "ID_MAP_FILE": None,
                   "MODEL_LABEL": None, "SAVING_MODE": "float32",
                   "FASTA_DIR": str(self.root), "EMBED_DIR": str(self.embed_dir), **settings}
         with mock.patch.multiple(Embedding_Import, **values), \
@@ -469,7 +469,7 @@ class ToolsCardTests(unittest.TestCase):
     def test_the_source_row_picks_a_file_or_a_folder_and_the_mapping_row_a_file(self):
         window, path, _ = self.window()
         inputs = window.script_data[path]["inputs"]
-        source, id_map = inputs["SOURCE_PATH"]["widget"], inputs["ID_MAP_TSV"]["widget"]
+        source, id_map = inputs["SOURCE_PATH"]["widget"], inputs["ID_MAP_FILE"]["widget"]
         self.assertEqual((source.browse_button.text(), source.folder_button.text()), ("File...", "Folder..."))
         self.assertIsNone(id_map.folder_button)
         folder = tempfile.gettempdir()
@@ -493,7 +493,7 @@ class ToolsCardTests(unittest.TestCase):
         source = str(Path(tempfile.gettempdir()) / "per-residue.h5")
         id_map = str(Path(tempfile.gettempdir()) / "map.tsv")
         inputs["SOURCE_PATH"]["widget"].line_edit.setText(source)
-        inputs["ID_MAP_TSV"]["widget"].line_edit.setText(id_map)
+        inputs["ID_MAP_FILE"]["widget"].line_edit.setText(id_map)
         inputs["MODEL_LABEL"]["widget"].setText("uniprot_prot_t5")
         launched = []
         with mock.patch("EMAPSSN_Tools.launch_in_terminal", side_effect=lambda argv, **kw: launched.append(argv)):
@@ -501,7 +501,7 @@ class ToolsCardTests(unittest.TestCase):
         saved_text = (root / "tools_settings.json").read_text(encoding="utf-8")
         section = json.loads(saved_text)["Embedding_Import.py"]
         self.assertNotIn("SOURCE_PATH", section)
-        self.assertNotIn("ID_MAP_TSV", section)
+        self.assertNotIn("ID_MAP_FILE", section)
         self.assertEqual(section["MODEL_LABEL"], "uniprot_prot_t5")
         self.assertNotIn("per-residue.h5", saved_text)
         self.assertEqual(len(launched), 1)
@@ -509,7 +509,7 @@ class ToolsCardTests(unittest.TestCase):
         snapshot = Path(launched[0][-1])
         self.addCleanup(lambda: forget_one_run_snapshot(str(snapshot)))
         document = json.loads(snapshot.read_text(encoding="utf-8"))["Embedding_Import.py"]
-        self.assertEqual((document["SOURCE_PATH"], document["ID_MAP_TSV"]),
+        self.assertEqual((document["SOURCE_PATH"], document["ID_MAP_FILE"]),
                          (os.path.normpath(source), os.path.normpath(id_map)))
 
     def test_an_untouched_card_shows_an_empty_label_and_saves_no_text_none(self):
@@ -592,7 +592,7 @@ class ToolsCardTests(unittest.TestCase):
         self.resize_panel(window, 1400)
         inputs = window.script_data[path]["inputs"]
         fasta, id_map, source, label, mode = (box(inputs[name]["widget"]) for name in (
-            "INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE"))
+            "INPUT_FASTA", "ID_MAP_FILE", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE"))
         self.assertLessEqual(abs(fasta.center().y() - id_map.center().y()), 3)
         self.assertLess(fasta.right(), id_map.left())
         self.assertLess(fasta.bottom(), source.top())
@@ -622,7 +622,7 @@ class ToolsCardTests(unittest.TestCase):
         from PySide6.QtCore import Qt
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
         inputs = window.script_data[path]["inputs"]
-        order = ("INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE")
+        order = ("INPUT_FASTA", "ID_MAP_FILE", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE")
         owner = {}
         for name in order:
             widget = inputs[name]["widget"]
@@ -641,7 +641,7 @@ class ToolsCardTests(unittest.TestCase):
     def test_the_rows_stack_without_overlap_when_the_panel_is_narrow(self):
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
         self.resize_panel(window, 600)
-        for name in ("compactRow_INPUT_FASTA_ID_MAP_TSV", "compactRow_MODEL_LABEL_SAVING_MODE"):
+        for name in ("compactRow_INPUT_FASTA_ID_MAP_FILE", "compactRow_MODEL_LABEL_SAVING_MODE"):
             self.assertTrue(card.findChild(QWidget, name).property("stacked"), name)
         for widget in [card] + card.findChildren(QWidget):
             layout = widget.layout()
