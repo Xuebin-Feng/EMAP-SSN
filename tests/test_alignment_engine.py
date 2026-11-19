@@ -779,7 +779,7 @@ def cap_plan(**changes):
 class FakeCapBackend:
     """A backend stand-in whose torch module records set_per_process_memory_fraction calls."""
 
-    def __init__(self, device_type="cuda", with_function=True, fail_on=()):
+    def __init__(self, device_type="cuda", with_function=True, fail_on=(), held=None):
         self.device_type = device_type
         self.device = torch.device("cpu")  # only a token handed back to the function
         self.calls = []
@@ -791,6 +791,12 @@ class FakeCapBackend:
                 raise RuntimeError("the allocator refused")
 
         self.module = SimpleNamespace(set_per_process_memory_fraction=record) if with_function else SimpleNamespace()
+        if held == "unreadable":
+            def unreadable(device):
+                raise RuntimeError("no device")
+            self.module.memory_allocated = unreadable
+        elif held is not None:
+            self.module.memory_allocated = lambda device: held  # bytes the process already holds
 
 
 class AllocatorCapTests(unittest.TestCase):
@@ -811,6 +817,51 @@ class AllocatorCapTests(unittest.TestCase):
         self.assertEqual(alignment_engine.allocator_cap_bytes(cap_plan(allocator_cap_bytes=11 * GIB)), 10 * GIB)
         self.assertIsNone(alignment_engine.allocator_cap_bytes(cap_plan(reserve_bytes=12 * GIB)))
         self.assertIsNone(alignment_engine.allocator_cap_bytes(cap_plan(total_bytes=0, free_bytes=0, reserve_bytes=0)))
+
+    def test_the_cap_starts_from_what_the_process_already_holds(self):
+        plan = cap_plan(allocator_cap_bytes=3 * GIB)
+        backend = FakeCapBackend(held=2 * GIB)
+        with alignment_engine.allocator_cap(backend, plan) as cap:
+            self.assertEqual(cap, 5 * GIB)  # 2 GiB held + the 3 GiB the run needs
+        self.assertEqual(backend.calls[0], (5 / 12, backend.device))
+        self.assertEqual(alignment_engine.allocator_cap_bytes(plan, 2 * GIB), 5 * GIB)
+        # The same for a plan that carries no hint: held + budgets + slack.
+        slack = alignment_engine.ALLOCATOR_CAP_SLACK_BYTES
+        self.assertEqual(alignment_engine.allocator_cap_bytes(cap_plan(), GIB), GIB + 3 * GIB + 3 * GIB + slack)
+
+    def test_what_is_held_never_lifts_the_cap_above_the_card_minus_its_reserve(self):
+        plan = cap_plan(allocator_cap_bytes=3 * GIB)
+        with alignment_engine.allocator_cap(FakeCapBackend(held=9 * GIB), plan) as cap:
+            self.assertEqual(cap, 10 * GIB)  # 12 - 2 GiB reserve
+
+    def test_a_process_that_cannot_say_what_it_holds_gets_the_cap_without_it(self):
+        plan = cap_plan(allocator_cap_bytes=3 * GIB)
+        for held in ("unreadable", None, -5):
+            with self.subTest(held=held), alignment_engine.allocator_cap(FakeCapBackend(held=held), plan) as cap:
+                self.assertEqual(cap, 3 * GIB)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "requires a CUDA device")
+    def test_a_real_device_refuses_an_allocation_above_the_cap_and_takes_it_once_the_cap_is_lifted(self):
+        device = torch.device("cuda:0")
+        free, total = torch.cuda.mem_get_info(device)
+        if free < 2 * GIB:
+            self.skipTest("less than 2 GiB of the device is free")
+        backend = alignment_engine.get_accelerator_backend(device)
+        plan = cap_plan(
+            total_bytes=total, free_bytes=free, usable_bytes=free, reserve_bytes=0,
+            allocator_cap_bytes=256 * 1024 ** 2,
+        )
+        block = None
+        try:
+            with alignment_engine.allocator_cap(backend, plan) as cap:
+                self.assertIsNotNone(cap)
+                with self.assertRaises(torch.OutOfMemoryError):  # 512 MiB is above held + 256 MiB
+                    block = torch.empty(512 * 1024 ** 2, dtype=torch.uint8, device=device)
+            block = torch.empty(512 * 1024 ** 2, dtype=torch.uint8, device=device)  # the cap is lifted
+            torch.cuda.synchronize(device)
+        finally:
+            block = None
+            torch.cuda.empty_cache()
 
     def test_the_fraction_is_set_for_the_run_and_lifted_after_it(self):
         backend = FakeCapBackend()

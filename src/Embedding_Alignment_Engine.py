@@ -891,11 +891,13 @@ def allocator_cap_enabled():
     return _allocator_cap_enabled
 
 
-def allocator_cap_bytes(plan):
+def allocator_cap_bytes(plan, held=0):
     """The most device memory the caching allocator may reserve for one plan, or None.
 
-    The plan's own need (the dry run's tile + transient bytes, when the plan carries it) or else its budgets
-    (tile cache + matrix pool), plus slack for fragmentation, and never more than the card minus its reserve.
+    What the run needs, plus what this process already holds on the device (``held``): the plan's own need (the
+    dry run's tile + transient bytes, when the plan carries it) or else its budgets (tile cache + matrix pool),
+    plus slack for fragmentation. The fraction limits everything the process has on the device, while the plan
+    counts only what the run adds. Never more than the card minus its reserve.
     """
     wanted = int(getattr(plan, "allocator_cap_bytes", 0) or 0)
     if wanted <= 0:
@@ -903,7 +905,16 @@ def allocator_cap_bytes(plan):
     ceiling = int(plan.total_bytes) - int(plan.reserve_bytes)
     if ceiling <= 0 or int(plan.total_bytes) <= 0:
         return None
-    return max(1, min(ceiling, wanted))
+    return max(1, min(ceiling, max(0, int(held)) + wanted))
+
+
+def _held_device_bytes(backend):
+    """Bytes this process has allocated on the backend's device right now; 0 when that cannot be read."""
+    try:
+        function = getattr(getattr(backend, "module", None), "memory_allocated", None)
+        return max(0, int(function(backend.device))) if function is not None else 0
+    except Exception:
+        return 0
 
 
 @contextmanager
@@ -913,7 +924,9 @@ def allocator_cap(backend, plan):
     Reserved memory ran to 2.3 times the allocated peak (microbatches grow in size, the allocator keeps taking
     new blocks) and filled the card; under WDDM the excess spills into system memory and is charged to the
     system's commit. With a cap the allocator frees its cache and retries instead, and an exhausted cap is a
-    clean OutOfMemoryError that the callers already answer by halving the matrix budget. Only CUDA and ROCm
+    clean OutOfMemoryError that the callers already answer by halving the matrix budget. The cap starts from
+    what the process already holds on the device (a retry after an error can still hold tensors of the failed
+    run through its traceback). Only CUDA and ROCm
     (torch.cuda) are capped: MPS, XPU and any other backend run exactly as before. The cap is lifted again
     when the plan ends, also after an error, and nothing here can raise.
     """
@@ -924,7 +937,7 @@ def allocator_cap(backend, plan):
         if getattr(backend, "device_type", None) == "cuda" and allocator_cap_enabled():
             function = getattr(getattr(backend, "module", None), "set_per_process_memory_fraction", None)
             if function is not None:
-                cap = allocator_cap_bytes(plan)
+                cap = allocator_cap_bytes(plan, _held_device_bytes(backend))
                 if cap:
                     function(min(1.0, cap / float(plan.total_bytes)), backend.device)
                     applied = True

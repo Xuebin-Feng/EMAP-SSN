@@ -419,8 +419,9 @@ def _pass_on(code):
 def shortage_sentence(note):
     """What the note says about the computer's own memory, when it was short; else "".
 
-    Named only for under 1 GiB of commit headroom (Windows) or under 1 GiB of available RAM at the
-    failure, and then without more claim than the numbers carry. A note without numbers says nothing.
+    Named only for under 1 GiB of commit headroom (Windows) or else under 1 GiB of available RAM at the
+    failure, and then as the fact the numbers show and nothing more: they say the computer was short of
+    memory, not that the GPU was not. A note without numbers says nothing.
     """
     if not isinstance(note, dict):
         return ""
@@ -432,10 +433,10 @@ def shortage_sentence(note):
         headroom = limit - used
         if headroom < GIB:
             return (f"Windows had {max(0.0, headroom) / GIB:.1f} GB of virtual memory left: "
-                    "the computer, not the GPU, was short of memory.")
+                    "the computer itself was short of memory.")
     available = system.get("ram_available")
     if isinstance(available, (int, float)) and available < GIB:
-        return f"The computer had only {available / GIB:.1f} GB of RAM available: the computer, not the GPU, was short of memory."
+        return f"The computer had only {available / GIB:.1f} GB of RAM available."
     return ""
 
 

@@ -941,12 +941,18 @@ class RestartDecisionTests(unittest.TestCase):
     def test_the_restart_message_names_a_shortage_of_the_computers_memory_only_when_the_note_shows_one(self):
         tight = {"system": {"commit_used": int(111.2 * GIB), "commit_limit": int(111.8 * GIB), "ram_available": 6 * GIB}}
         text = self.restart_message(tight)
-        self.assertIn("Windows had 0.6 GB of virtual memory left: the computer, not the GPU, was short of memory.", text)
+        self.assertIn("Windows had 0.6 GB of virtual memory left: the computer itself was short of memory.", text)
+        self.assertNotIn("not the GPU", text)  # the numbers do not say the GPU was fine
         self.assertLess(text.index("Windows had"), text.index("Finished work is kept"))
         self.assertEqual(text.count("[Hardware] Warning:"), 1)
         low_ram = {"system": {"commit_used": 50 * GIB, "commit_limit": 100 * GIB, "ram_available": int(0.4 * GIB)}}
-        self.assertIn("only 0.4 GB of RAM available: the computer, not the GPU, was short of memory.",
-                      self.restart_message(low_ram))
+        ram_text = self.restart_message(low_ram)
+        self.assertIn("The computer had only 0.4 GB of RAM available.", ram_text)
+        self.assertNotIn("not the GPU", ram_text)
+        five_gb = {"system": {"commit_used": 95 * GIB, "commit_limit": 100 * GIB, "ram_available": 20 * GIB}}
+        self.assertNotIn("Windows had", self.restart_message(five_gb))  # 5 GB of headroom is not a shortage
+        under = {"system": {"commit_used": int(99.1 * GIB), "commit_limit": 100 * GIB, "ram_available": 20 * GIB}}
+        self.assertIn("Windows had 0.9 GB", self.restart_message(under))
         before_only = {"system_before": {"commit_used": 100 * GIB, "commit_limit": int(100.5 * GIB)}}
         self.assertIn("Windows had 0.5 GB", self.restart_message(before_only))
 
@@ -956,7 +962,8 @@ class RestartDecisionTests(unittest.TestCase):
                            ("empty", {"system": {}}), ("exactly 1 GiB", {"system": {"commit_used": 99 * GIB, "commit_limit": 100 * GIB, "ram_available": GIB}})):
             with self.subTest(note=name):
                 text = self.restart_message(note)
-                self.assertNotIn("the computer, not the GPU", text)
+                self.assertNotIn("short of memory", text)
+                self.assertNotIn("of RAM available", text)
                 self.assertNotIn("Windows had", text)
         self.assertEqual(Tool_Supervisor.shortage_sentence(None), "")
         self.assertEqual(Tool_Supervisor.shortage_sentence({"system": {"commit_used": 5, "commit_limit": 0}}), "")
