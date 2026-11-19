@@ -46,6 +46,8 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
+from utilities import Tool_Supervisor
+Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 
 import h5py
 import numpy as np
@@ -1242,12 +1244,16 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
     def trial(plan, required=False, guaranteed=False):
         if not required and not selector.allowed(plan, guaranteed):
             return False
+        free_memory = Hardware_Utils.begin_gpu_trial(plan.candidate)
         try:
             if not feasible(plan) or not validate_bf16(plan):
                 return False
             return selector.trial(plan, required=True)
         except Exception as error:
-            selector.skip(plan, f"failed: {type(error).__name__}: {error}")
+            memory_text = Hardware_Utils.note_gpu_failure(
+                plan.candidate, error, free_memory, where=f"plan test: {plan.label}"
+            )
+            selector.skip(plan, f"failed: {type(error).__name__}: {error}{memory_text}")
             return False
         finally:
             Hardware_Utils.release_device_cache(plan.candidate)

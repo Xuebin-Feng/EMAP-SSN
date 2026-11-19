@@ -29,6 +29,7 @@ import h5py
 import numpy as np
 import psutil
 import torch
+from utilities import Tool_Supervisor
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 
@@ -517,6 +518,24 @@ class AcceleratorBackend:
             )
         return event_type()
 
+    def _wait_for_recorded_memory(self, function):
+        """In a tool restarted after a GPU out-of-memory crash, wait once, bounded, for the memory the failed run had free.
+
+        Does nothing in any other process (utilities/Tool_Supervisor.py decides), and after the first call.
+        """
+        if self.device_type != "cuda":
+            return
+
+        def read():
+            with self.device_context():
+                try:
+                    free_bytes, total_bytes = function(self.device)
+                except TypeError:
+                    free_bytes, total_bytes = function()
+            return int(free_bytes), int(total_bytes)
+
+        Tool_Supervisor.wait_for_gpu_memory(self.device, read)
+
     def memory_info(self):
         if self.device_type == "mps":
             snapshot = self.memory_snapshot()
@@ -526,6 +545,7 @@ class AcceleratorBackend:
             raise RuntimeError(
                 f"torch.{self.device_type} does not expose allocator memory info."
             )
+        self._wait_for_recorded_memory(function)
         with self.device_context():
             try:
                 free_bytes, total_bytes = function(self.device)
@@ -559,6 +579,7 @@ class AcceleratorBackend:
                 raise RuntimeError(
                     f"torch.{self.device_type} does not expose allocator memory info."
                 )
+            self._wait_for_recorded_memory(function)
             with self.device_context():
                 try:
                     free_bytes, total_bytes = function(self.device)

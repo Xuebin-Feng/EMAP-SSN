@@ -56,6 +56,8 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
+from utilities import Tool_Supervisor
+Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -1021,6 +1023,9 @@ def process_accelerated_tasks(
                         f"  > {backend_label} memory pressure; retrying batch with "
                         f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
                     )
+            Hardware_Utils.note_gpu_failure(
+                device, last_oom, where="batch: tiled plan remained out of memory"
+            )
             if (
                 memory_plan_override is not None
                 or normalize_execution_mode(EXECUTION_MODE) == "tiled"
@@ -1465,6 +1470,9 @@ def _resolve_active_matmul_precision(
                     f"{rates[(variant, precision)]:>20.2f}"
                 )
     except Exception as error:
+        Hardware_Utils.note_gpu_failure(
+            cuda_candidate, error, where="precision validation"
+        )
         print(
             f"[Precision] TF32 validation unavailable "
             f"({type(error).__name__}: {error}); using IEEE FP32."
@@ -1740,6 +1748,7 @@ def _benchmark_processing_plans(
                         f"{memory_estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
                         f"{memory_estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
                     )
+                    free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                     trial = BenchmarkTrial()
                     try:
                         execute_plan(
@@ -1771,11 +1780,15 @@ def _benchmark_processing_plans(
                             f"est. batch reload={memory_estimate.embedding_reload_bytes / (1024 ** 2):.0f} MiB"
                         )
                     except Exception as error:
+                        memory_text = Hardware_Utils.note_gpu_failure(
+                            candidate, error, free_memory,
+                            where=f"plan test: tiled, {adaptive.lanes} lane(s)",
+                        )
                         result = Hardware_Utils.BenchmarkResult(
                             candidate,
                             None,
                             lanes=adaptive.lanes,
-                            error=f"{type(error).__name__}: {error}",
+                            error=f"{type(error).__name__}: {error}{memory_text}",
                             variant="tiled",
                             execution_plan=adaptive,
                             peak_memory_bytes=memory_estimate.projected_peak_bytes,
@@ -1813,6 +1826,7 @@ def _benchmark_processing_plans(
                         )
                         candidate_results.append(result)
                         continue
+                free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                 trial = BenchmarkTrial()
                 try:
                     execute_plan(
@@ -1835,11 +1849,15 @@ def _benchmark_processing_plans(
                         f"{rate:>20.2f}   ok ({trial.status()})"
                     )
                 except Exception as error:
+                    memory_text = Hardware_Utils.note_gpu_failure(
+                        candidate, error, free_memory,
+                        where=f"plan test: {variant}, {lanes} lane(s)",
+                    )
                     result = Hardware_Utils.BenchmarkResult(
                         candidate,
                         None,
                         lanes=lanes,
-                        error=f"{type(error).__name__}: {error}",
+                        error=f"{type(error).__name__}: {error}{memory_text}",
                         variant=variant,
                     )
                     print(

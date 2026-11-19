@@ -54,6 +54,8 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
+from utilities import Tool_Supervisor
+Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 
 from Cache_Manifest import validate_network_schema
 
@@ -831,6 +833,7 @@ def _benchmark_injection_plans(
                     matmul_precision="float32",
                 )
             except Exception as error:
+                Hardware_Utils.note_gpu_failure(candidate, error, where="precision validation")
                 failure = (
                     f"{candidate.display_name} FP32 baseline: "
                     f"{type(error).__name__}: {error}"
@@ -870,6 +873,7 @@ def _benchmark_injection_plans(
                         )
                     )
                 except Exception as error:
+                    Hardware_Utils.note_gpu_failure(candidate, error, where="precision validation")
                     failure = (
                         f"{candidate.display_name} {variant}: "
                         f"{type(error).__name__}: {error}"
@@ -955,6 +959,7 @@ def _benchmark_injection_plans(
                             f"skipped: {estimate.reason}"
                         )
                         continue
+                free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                 trial = BenchmarkTrial()
                 try:
                     _execute_injection_plan(
@@ -974,10 +979,14 @@ def _benchmark_injection_plans(
                         f"ok ({trial.status(tiled=variant == 'tiled')})"
                     )
                 except Exception as error:
+                    memory_text = Hardware_Utils.note_gpu_failure(
+                        candidate, error, free_memory,
+                        where=f"plan test: {variant}, {lanes} lane(s)",
+                    )
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
                         f"{lanes:>5}   {vram:>14}   {'--':>9}   "
-                        f"{type(error).__name__}: {error}"
+                        f"{type(error).__name__}: {error}{memory_text}"
                     )
         Hardware_Utils.release_device_cache(candidate)
 
@@ -1133,6 +1142,9 @@ def process_batch(
                     writer.rollback(0)
                     backend.empty_cache()
                     if budget <= 1024 ** 2:
+                        Hardware_Utils.note_gpu_failure(
+                            device, error, where="batch: injection tile out of memory"
+                        )
                         raise
                     next_budget = max(1024 ** 2, budget // 2)
                     print(

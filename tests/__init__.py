@@ -23,6 +23,9 @@ files and shell, whichever subset of modules runs:
 * SSN_BENCHMARK_WORK_DIR points the benchmark's temp/ folder and its reports
   (src/resources/benchmark/Run_Benchmark.py) into that folder too, so no test
   writes into the real benchmark folder.
+* SSN_TOOL_SUPERVISOR=0 keeps a tool script that a test runs in one process, as before the
+  supervisor (utilities/Tool_Supervisor.py) existed; tests/test_tool_supervisor.py unsets it for
+  the children it checks.
 * QT_QPA_PLATFORM defaults to offscreen, so no Qt window appears.
 * Every script in src/tools applies <project>/tools_settings.json to its module
   globals when it is imported. An import hook points each tool import at a
@@ -97,6 +100,7 @@ if not os.environ.get(_ROOT_PROCESS_MARKER):
     os.environ[_ROOT_PROCESS_MARKER] = str(os.getpid())
     for _name in [name for name in os.environ if name.startswith("SSN_")]:
         del os.environ[_name]
+    os.environ["SSN_TOOL_SUPERVISOR"] = "0"
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
     _SESSION_DIRECTORY, _RUNNER_OWNS_SESSION = _start_session()
     os.environ["SSN_VIEWER_SESSION_DIR"] = _SESSION_DIRECTORY

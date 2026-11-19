@@ -70,6 +70,8 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
+from utilities import Tool_Supervisor
+Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 import time
 from tqdm import tqdm
 import numpy as np
@@ -340,6 +342,7 @@ def _benchmark_embedding_devices(
                 f"{predicted:>17.3f}   ok"
             )
         except Exception as error:
+            Hardware_Utils.note_gpu_failure(candidate, error, where="embedding device test")
             result = Hardware_Utils.BenchmarkResult(
                 candidate,
                 None,

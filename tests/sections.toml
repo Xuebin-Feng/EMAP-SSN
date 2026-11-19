@@ -384,6 +384,7 @@ modules = [
     "test_tool_help_pages",
     "test_tool_pipeline",
     "test_tool_settings_cli",
+    "test_tool_supervisor",
 ]
 
 [sections.language]

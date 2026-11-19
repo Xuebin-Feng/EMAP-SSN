@@ -72,6 +72,8 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
+from utilities import Tool_Supervisor
+Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 
 import shutil  
 import gc      
@@ -678,6 +680,7 @@ def benchmark_msa_devices(
     for candidate in candidates:
         elapsed_runs = []
         error = None
+        free_memory = Hardware_Utils.begin_gpu_trial(candidate)
         try:
             first_left = samples[0][4]
             first_right = samples[0][5]
@@ -720,7 +723,9 @@ def benchmark_msa_devices(
             result = Hardware_Utils.BenchmarkResult(candidate, median_elapsed)
         except Exception as failure:
             median_elapsed = None
-            error = f"{type(failure).__name__}: {failure}"
+            error = f"{type(failure).__name__}: {failure}" + Hardware_Utils.note_gpu_failure(
+                candidate, failure, free_memory, where="MSA device test"
+            )
             result = Hardware_Utils.BenchmarkResult(
                 candidate,
                 None,

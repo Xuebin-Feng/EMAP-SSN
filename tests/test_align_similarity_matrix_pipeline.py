@@ -1279,6 +1279,44 @@ class AlignmentPipelineTests(unittest.TestCase):
             self.assertEqual(call.args[0], tasks)
             self.assertIn("benchmark_trial", call.kwargs)
 
+    def test_a_failed_gpu_trial_shows_the_free_memory_and_leaves_a_note_for_an_out_of_memory_error(self):
+        cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Test CUDA", torch.device("cuda:0"), "cuda", 0, True
+        )
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 7)]
+        memory_plan = mock.Mock(free_bytes=12 << 30, total_bytes=16 << 30)
+        estimate = mock.Mock(
+            feasible=True, projected_peak_bytes=7 << 30, safe_peak_bytes=10 << 30,
+            reason="within reserved-VRAM boundary",
+        )
+        output = io.StringIO()
+        hardware = similarity_matrix.Hardware_Utils
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("CUDA error: out of memory")
+
+        with mock.patch.object(similarity_matrix, "DEVICE_SELECTION", "cuda:0"), \
+                mock.patch.object(similarity_matrix, "EXECUTION_MODE", "scalar"), \
+                mock.patch.object(hardware, "get_available_devices", return_value=[cuda]), \
+                mock.patch.object(hardware, "release_device_cache"), \
+                mock.patch.object(hardware, "begin_gpu_trial", return_value=(int(11.2 * (1 << 30)), 12 << 30)), \
+                mock.patch.object(hardware.Tool_Supervisor, "record_note") as note, \
+                mock.patch.object(similarity_matrix, "tiled_accelerator_support", return_value=(True, "mock")), \
+                mock.patch.object(similarity_matrix, "cuda_memory_plan", return_value=memory_plan), \
+                mock.patch.object(similarity_matrix, "estimate_cuda_working_set", return_value=estimate), \
+                mock.patch.object(similarity_matrix, "_accelerator_lane_candidates", return_value=[1]), \
+                mock.patch.object(similarity_matrix, "_run_accelerated_pipeline", side_effect=fail), \
+                redirect_stdout(output):
+            with self.assertRaises(RuntimeError):
+                similarity_matrix._benchmark_processing_plans(
+                    tasks, workers=2, input_h5="unused.h5", batch_id=0,
+                    embedding_store=mock.Mock(), sequence_lengths=[2] * 7, matmul_precision="ieee_fp32",
+                )
+
+        self.assertIn("out of memory (free before the test: 11.2 of 12.0 GB)", output.getvalue())
+        note.assert_called_once()
+        self.assertEqual(note.call_args.kwargs["free_bytes"], int(11.2 * (1 << 30)))
+
     def test_legacy_precision_cache_resumes_as_fp32_and_tf32_mismatch_backs_up(self):
         def write_batch(folder):
             os.makedirs(folder, exist_ok=True)

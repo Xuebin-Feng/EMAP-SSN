@@ -20,8 +20,10 @@ import torch
 
 try:
     from utilities import Benchmark_Record
+    from utilities import Tool_Supervisor
 except ImportError:
     import Benchmark_Record
+    import Tool_Supervisor
 
 # =====================================================================
 # 1. Portable PyTorch Device Discovery & Device Benchmarks
@@ -268,6 +270,69 @@ def release_device_cache(device_or_candidate: Any) -> None:
             torch.mps.empty_cache()
     finally:
         gc.collect()
+
+
+def _cuda_device(device_or_candidate: Any) -> Any:
+    """The torch device of a CUDA/ROCm candidate or device, else None."""
+    device = getattr(device_or_candidate, "device", device_or_candidate)
+    kind = getattr(device, "type", str(device).split(":", 1)[0])
+    return device if kind == "cuda" else None
+
+
+def read_free_memory(device_or_candidate: Any) -> Optional[tuple[int, int]]:
+    """(free, total) bytes of a CUDA/ROCm device, or None for another backend or when it cannot be read."""
+    device = _cuda_device(device_or_candidate)
+    if device is None:
+        return None
+    try:
+        free, total = torch.cuda.mem_get_info(device)
+    except Exception:  # a context that already failed cannot answer
+        return None
+    Tool_Supervisor.observe_gpu_memory(device, free, total)
+    return int(free), int(total)
+
+
+def begin_gpu_trial(device_or_candidate: Any) -> Optional[tuple[int, int]]:
+    """Read the free memory right before one plan test on a CUDA/ROCm device.
+
+    In a tool restarted after a GPU out-of-memory crash, the first call waits (bounded)
+    for the memory the failed run had free to come back. Returns (free, total) or None.
+    """
+    if _cuda_device(device_or_candidate) is None:
+        return None
+    Tool_Supervisor.wait_for_gpu_memory(
+        _cuda_device(device_or_candidate), lambda: read_free_memory(device_or_candidate)
+    )
+    return read_free_memory(device_or_candidate)
+
+
+def is_gpu_out_of_memory(error: BaseException) -> bool:
+    """Whether an error is a GPU out-of-memory error, from the allocator or from the CUDA runtime."""
+    if isinstance(error, torch.OutOfMemoryError):
+        return True
+    return isinstance(error, RuntimeError) and "out of memory" in str(error).lower()
+
+
+def note_gpu_failure(
+    device_or_candidate: Any,
+    error: BaseException,
+    memory: Optional[tuple[int, int]] = None,
+    *,
+    where: str = "",
+) -> str:
+    """After a failed plan test: leave the supervising parent a note for an out-of-memory error.
+
+    Returns the text for the row's status, "(free before the test: 11.2 of 12.0 GB)",
+    or "" when the memory was not read.
+    """
+    device = _cuda_device(device_or_candidate)
+    if device is not None and is_gpu_out_of_memory(error):
+        free, total = memory if memory is not None else (None, None)
+        Tool_Supervisor.record_note(device, error, where=where, free_bytes=free, total_bytes=total)
+    if memory is None:
+        return ""
+    gib = 1024 ** 3
+    return f" (free before the test: {memory[0] / gib:.1f} of {memory[1] / gib:.1f} GB)"
 
 
 def rank_benchmark_results(
