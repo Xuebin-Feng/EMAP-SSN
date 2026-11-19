@@ -614,9 +614,11 @@ still change before version 1.0.0.
     Structures folded with ESM3 98B therefore stay on disk but are not reused.
   - **Unchanged:** local folding, and the rule that the Biohub API is used only when
     it is asked for by name.
-  - **Not yet tried against Biohub:** the tests use stand-in clients and send nothing.
-    The first real folds will show whether the reply reads as expected: the confidence
-    values, the residue numbers, and the wording of Biohub's limit messages.
+  - **First folds against Biohub (2026-11-19):** four short public sequences of 20 to
+    56 residues, one alone and then three at once. Each run took about 10 seconds. Every
+    structure has all residues of its sequence, numbered from 1, with side chains and
+    confidence values on the 0 to 100 scale. No limit was reached, so how Biohub words
+    its limit messages for folding is still known only from the embedding model.
 
 ### Fixed
 
