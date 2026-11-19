@@ -967,6 +967,34 @@ still change before version 1.0.0.
   skipped, because macOS files a crash report for each one, and the language test skips
   when the window does not get the keyboard back after its list closes. Not yet
   confirmed on a Mac.
+- **A tiled GPU alignment could fill the whole graphics card, and then crash.** PyTorch
+  keeps the GPU memory it has taken, to use it again. A tiled run's microbatches differ in
+  size, so it kept taking more: on one job (3,479 sequences, 2,560-wide embeddings, a
+  12 GB card) it held 10.5 to 12.9 GiB for 4.2 GiB in use, and none of the card was free.
+  While the tool then gave memory back, PyTorch needed a little GPU memory for that, got
+  none, and ended the program with no error to catch. This is the crash of the next entry.
+  Align Similarity Matrix and Network Injection now limit what PyTorch may hold during a
+  tiled run to what the plan needs plus 0.5 GiB, on NVIDIA and AMD ROCm devices.
+  - **Measured on that job with Align Similarity Matrix (RTX 4070, Windows):** without
+    the limit the plan test crashed in 10 of 11 runs, 3 of them on the code before this
+    change. With it, 8 of 8 runs passed all eight plans, PyTorch held 5.9 to 7.5 GiB, and
+    at least 1.4 GiB of the card stayed free. The chosen plan and the speed were the
+    same, and 100,000 alignment results were identical bit for bit. The tool itself then
+    ran its plan test and most of its first batch without a memory warning. Earlier the
+    same day, before the computer was restarted, the same test had passed without the
+    limit, so the crash depends on the state of the machine.
+  - **A failed run gives its memory back before the retry.** The error kept for the
+    retry also kept the failed run's GPU memory, so the retry with half the budget
+    started with less room than planned.
+  - **A failed plan test says more.** Its row shows the first line of the error, the free
+    GPU memory, and the computer's own memory: the available RAM and, on Windows, the
+    virtual memory in use. The rest of the error follows on the lines below. When a tool
+    is restarted after a crash and under 1 GB of either was left, the restart message
+    says so.
+  - **After a restart**, the half-memory rule of the next entry sizes the plan's budgets
+    only. "Est. VRAM peak" keeps showing the plan against the real free memory.
+  - `SSN_GPU_ALLOCATOR_CAP=0` in the environment turns the limit off. Embedding SSEARCH's
+    search is not limited. AMD devices were not run; they use the same PyTorch call.
 - **A GPU tool could end with a crash right after a GPU out-of-memory error.** On
   Windows, Align Similarity Matrix ended with code 0xC0000409 in its plan test three
   times. The error itself was caught, but PyTorch then ended the whole program while
