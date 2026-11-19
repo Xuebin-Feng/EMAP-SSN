@@ -17,8 +17,8 @@ the engine owns only embedding caching, accelerator batching, and overlap.
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict, deque
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager, nullcontext
+from dataclasses import dataclass, replace
 import os
 import queue
 import threading
@@ -38,6 +38,10 @@ DEFAULT_HOST_CACHE_CAP = 128 * GIB
 MIN_HOST_RESERVE = 8 * GIB
 MIN_CUDA_RESERVE = 2 * GIB
 MIN_MPS_RESERVE = 2 * GIB
+# The allocator cap: a tiled run may not reserve more device memory than its plan needs, plus this slack
+# for fragmentation. SSN_GPU_ALLOCATOR_CAP=0 turns the cap off (read once), for comparing runs.
+ALLOCATOR_CAP_SWITCH = "SSN_GPU_ALLOCATOR_CAP"
+ALLOCATOR_CAP_SLACK_BYTES = GIB // 2
 PADDING_OVERHEAD_LIMIT = 0.15
 MATRIX_WORKSPACE_MULTIPLIER = 8
 CUDA_TILE_FRACTION = 0.30
@@ -551,9 +555,7 @@ class AcceleratorBackend:
                 free_bytes, total_bytes = function(self.device)
             except TypeError:
                 free_bytes, total_bytes = function()
-        free_bytes, total_bytes = int(free_bytes), int(total_bytes)
-        # What plans are sized from; a tool restarted after a GPU out-of-memory crash sees a fraction.
-        return Tool_Supervisor.planning_free_bytes(self.device, free_bytes, total_bytes), total_bytes
+        return int(free_bytes), int(total_bytes)
 
     def empty_cache(self):
         function = self._runtime_function("empty_cache")
@@ -588,7 +590,7 @@ class AcceleratorBackend:
                 except TypeError:
                     free_bytes, total_bytes = function()
             total_bytes = int(total_bytes)
-            free_bytes = Tool_Supervisor.planning_free_bytes(self.device, int(free_bytes), total_bytes)
+            free_bytes = int(free_bytes)
             reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
             return AcceleratorMemorySnapshot(
                 backend=self.device_type,
@@ -822,6 +824,8 @@ class AcceleratorMemoryPlan:
     profile_name: str = "balanced"
     memory_source: str = "mem_get_info"
     compute_element_bytes: int = 4
+    # What the dry run says this plan needs, plus slack; 0 = derive it from the budgets (allocator_cap_bytes).
+    allocator_cap_bytes: int = 0
 
 
 # Compatibility for existing Network Injection, SSEARCH, and tests.
@@ -874,6 +878,66 @@ class AdaptiveTilePlan:
     def microbatch_workspace_bytes(self):
         """Expose tile memory as the final benchmark tie-break quantity."""
         return self.memory_plan.tile_cache_bytes
+
+
+_allocator_cap_enabled = None
+
+
+def allocator_cap_enabled():
+    """Whether the allocator cap is on: always, unless SSN_GPU_ALLOCATOR_CAP=0. Read once."""
+    global _allocator_cap_enabled
+    if _allocator_cap_enabled is None:
+        _allocator_cap_enabled = os.environ.get(ALLOCATOR_CAP_SWITCH, "").strip() != "0"
+    return _allocator_cap_enabled
+
+
+def allocator_cap_bytes(plan):
+    """The most device memory the caching allocator may reserve for one plan, or None.
+
+    The plan's own need (the dry run's tile + transient bytes, when the plan carries it) or else its budgets
+    (tile cache + matrix pool), plus slack for fragmentation, and never more than the card minus its reserve.
+    """
+    wanted = int(getattr(plan, "allocator_cap_bytes", 0) or 0)
+    if wanted <= 0:
+        wanted = int(plan.tile_cache_bytes) + int(plan.matrix_pool_bytes) + ALLOCATOR_CAP_SLACK_BYTES
+    ceiling = int(plan.total_bytes) - int(plan.reserve_bytes)
+    if ceiling <= 0 or int(plan.total_bytes) <= 0:
+        return None
+    return max(1, min(ceiling, wanted))
+
+
+@contextmanager
+def allocator_cap(backend, plan):
+    """Cap what the caching allocator may reserve while one tiled plan runs; yield the cap in bytes or None.
+
+    Reserved memory ran to 2.3 times the allocated peak (microbatches grow in size, the allocator keeps taking
+    new blocks) and filled the card; under WDDM the excess spills into system memory and is charged to the
+    system's commit. With a cap the allocator frees its cache and retries instead, and an exhausted cap is a
+    clean OutOfMemoryError that the callers already answer by halving the matrix budget. Only CUDA and ROCm
+    (torch.cuda) are capped: MPS, XPU and any other backend run exactly as before. The cap is lifted again
+    when the plan ends, also after an error, and nothing here can raise.
+    """
+    function = None
+    cap = None
+    applied = False
+    try:
+        if getattr(backend, "device_type", None) == "cuda" and allocator_cap_enabled():
+            function = getattr(getattr(backend, "module", None), "set_per_process_memory_fraction", None)
+            if function is not None:
+                cap = allocator_cap_bytes(plan)
+                if cap:
+                    function(min(1.0, cap / float(plan.total_bytes)), backend.device)
+                    applied = True
+    except Exception:
+        applied = False
+    try:
+        yield cap if applied else None
+    finally:
+        if applied:
+            try:
+                function(1.0, backend.device)
+            except Exception:
+                pass
 
 
 def accelerator_memory_plan(
@@ -939,6 +1003,12 @@ def accelerator_memory_plan(
     ):
         raise ValueError("Accelerator memory snapshot contains invalid values.")
     usable = snapshot.usable_bytes
+    # A tool restarted after a GPU out-of-memory crash plans from a fraction of the free memory. Only the
+    # budgets see it: free_bytes stays the real free memory, so the estimate's baseline and its
+    # "Est. VRAM peak" show the real size of the plan.
+    planning_free = Tool_Supervisor.planning_free_bytes(backend.device, free_bytes, total_bytes)
+    if planning_free != free_bytes:
+        usable = max(0, planning_free - reserve)
     inflight_slots = 1 if backend.device_type == "mps" else max(2, lanes * 2)
     matrix_pool = max(1, int(usable * matrix_fraction))
     return AcceleratorMemoryPlan(
@@ -1625,6 +1695,14 @@ def build_adaptive_tile_plans(
             )
             if not estimate.feasible:
                 continue
+            # What this plan was dry-run to need, for the allocator cap while it runs.
+            try:
+                plan = replace(
+                    plan,
+                    allocator_cap_bytes=int(estimate.additional_bytes) + ALLOCATOR_CAP_SLACK_BYTES,
+                )
+            except (TypeError, ValueError):
+                pass  # a plan that is not an AcceleratorMemoryPlan keeps the cap derived from its budgets
             signature = (lanes, estimate.schedule_signature)
             if signature in seen:
                 continue
@@ -1888,6 +1966,8 @@ def run_tiled_accelerator_pipeline(
     batch_pending_limit = max(1, int(workers)) + max(1, int(lanes))
     streams = [backend.create_stream() for _ in range(max(1, int(lanes)))]
     stream_cursor = 0
+    cap_stack = ExitStack()
+    cap_stack.enter_context(allocator_cap(backend, plan))
 
     def collect_cpu(block=False):
         if block and cpu_pending:
@@ -2098,9 +2178,12 @@ def run_tiled_accelerator_pipeline(
         # Hand the cached blocks back to the driver, also after a failure:
         # callers check mem_get_info before the next batch or plan, and the
         # caching allocator's reserve would otherwise read as used memory.
-        inflight.clear()
-        packed = None
-        backend.empty_cache()
+        try:
+            inflight.clear()
+            packed = None
+            backend.empty_cache()
+        finally:
+            cap_stack.close()  # the allocator cap is lifted whatever happened
 
     if result_callback is not None and results:
         result_callback(results)
