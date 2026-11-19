@@ -41,6 +41,11 @@ still change before version 1.0.0.
   estimates are unchecked. To rebuild a prefiltered network with its sample, move the
   network file aside and run Align Similarity Matrix again: while its `_network_temp` batch
   folder is still there, only the calibration pairs are aligned.
+- `esmfold large` now folds with ESMFold 2 through the Biohub API (see Changed).
+  Structures that were folded remotely with ESM3 98B stay on disk but are not reused:
+  such a node is folded again when it is next asked for. The `ESM3_MODEL` line of
+  `src/resources/Biohub_API.json` is ignored. In the remote mode, a sequence of more
+  than 768 residues is refused.
 
 ### Added
 
@@ -297,7 +302,7 @@ still change before version 1.0.0.
     token line, Tree View's search placeholder and Meta Data's found-row ring, and Fold
     View's dark error toast gets an opaque background.
 - **Predict Structures, a tool that folds sequences without a Viewer.** It predicts 3D
-  structures with ESM3 for one typed sequence or for the sequences of a FASTA file. It is
+  structures for one typed sequence or for the sequences of a FASTA file. It is
   a card in the Tools window's Manual Tools tab and the MCP pipeline tool
   `predict_structures`. Until now folding existed only as the Viewer's `esmfold` command.
   - **Input:** a Batch Input switch chooses between one sequence, with an optional name,
@@ -306,9 +311,9 @@ still change before version 1.0.0.
     A sequence given without a name is named from the sequence itself, so asking for it
     again finds its structure.
   - **Model:** the local ESM3 open model by default, on the first available GPU and on
-    the CPU only when there is none. The Biohub API is used only when Folding Model says
-    remote and a token is saved, and the run says that it is sending the sequences.
-    Neither model takes the other's place.
+    the CPU only when there is none. The Biohub API, which folds with ESMFold 2, is used
+    only when Folding Model says remote and a token is saved, and the run says that it
+    is sending the sequences. Neither model takes the other's place.
   - **Output:** one PDB file per sequence in the new Folded Structure Directory
     (`Analysis_Results/Folded_Structure`), with the per-residue pLDDT, 0 to 100, in the
     B-factor column. Nothing else is written. These files are separate from the
@@ -588,6 +593,30 @@ still change before version 1.0.0.
   the `opt_vr` submodule on Linux and macOS. The test runner skips the VR tests there
   even when the folder has files, and says why: a section lists the systems it runs on
   with `platforms` in `tests/sections.toml`.
+- **`esmfold large` folds with ESMFold 2, and `esmfold large multi` sends several
+  requests at once.** The remote mode used the ESM3 98B model through the Biohub API,
+  one structure after another. It now uses Biohub's ESMFold 2 (`esmfold2-2026-05`). The
+  remote model of the Predict Structures tool and of `predict_structure` is the same.
+  - **Several at once:** a remote batch keeps up to 4 requests in flight and saves each
+    structure as it arrives. When Biohub answers that its per-minute limit is reached,
+    the number in flight is halved and the request is sent again. After a run of
+    successes it rises again step by step.
+  - **A credit limit ends the run at once.** The message is Biohub's own. The structures
+    already folded stay saved, and running the command again later folds the rest.
+  - **Long sequences:** in the remote mode, a sequence of more than 768 residues is not
+    sent and fails with that reason. 768 is the length Biohub documents for one fold
+    request.
+  - **Settings:** `FOLD_MODEL` and `FOLD_PARALLEL_REQUESTS` (1 to 16; 1 folds one
+    structure at a time) in `src/resources/Biohub_API.json`. Both are optional. The
+    older `ESM3_MODEL` setting is ignored, and ESM3 98B can no longer be chosen for
+    folding.
+  - **File names:** the name of a remote structure's file ends with the model's name.
+    Structures folded with ESM3 98B therefore stay on disk but are not reused.
+  - **Unchanged:** local folding, and the rule that the Biohub API is used only when
+    it is asked for by name.
+  - **Not yet tried against Biohub:** the tests use stand-in clients and send nothing.
+    The first real folds will show whether the reply reads as expected: the confidence
+    values, the residue numbers, and the wording of Biohub's limit messages.
 
 ### Fixed
 
@@ -940,7 +969,9 @@ still change before version 1.0.0.
   Linux and macOS, a tool ended by a crash signal now reports exit code 128 plus the
   signal's number (134 for an abort). `SSN_TOOL_SUPERVISOR=0` in the environment runs
   a tool in one process, as before. Tested with stand-in programs on Windows and
-  Debian; not yet seen on a real GPU crash.
+  Debian. Seen once on a real GPU: the job that had crashed twice restarted, planned
+  with half of the free memory and finished (3,479 sequences, 2,560-wide embeddings,
+  12 GB of GPU memory).
 
 ## [0.5.0] - 2026-10-30
 
