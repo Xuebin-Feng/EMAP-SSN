@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Predict protein structures with ESM3 for sequences given directly or read from a FASTA.
+"""Predict protein structures for sequences given directly or read from a FASTA: with the local ESM3 open
+model, or through Biohub with ESMFold 2 (the model and the number of requests in flight come from the saved
+Biohub API settings, as for the Viewer's ``esmfold large multi``).
 
 This is the engine of the Predict Structures tool, with no window and no Viewer. The model
 runs in the Viewer's fold worker (``resources.esmfold.esmfold_worker.run_predictions``), so
@@ -352,7 +354,7 @@ def _fold(to_fold, structures_dir, mode, target_device, suffix, records, log):
             reasons[fields.get("name")] = fields.get("reason") or "the prediction failed"
 
     if mode == REMOTE:
-        log(f"Sending {len(to_fold)} sequence(s) to the Biohub API for prediction (model {suffix}).")
+        log(f"Sending {len(to_fold)} sequence(s) to the Biohub API for prediction (ESMFold 2 model {suffix}).")
     else:
         log(f"Predicting {len(to_fold)} sequence(s) with the local ESM3 open model on {target_device}.")
     try:
@@ -366,6 +368,7 @@ def _fold(to_fold, structures_dir, mode, target_device, suffix, records, log):
                 notifier=folded,
                 skip_existing=False,
                 job_event=event,
+                fold_model=suffix if mode == REMOTE else None,
             )
     except Biohub_API.BiohubAuthenticationError as error:
         reasons.setdefault(None, f"Biohub rejected the saved API token (HTTP {error.error_code})")

@@ -39,8 +39,8 @@ from desktop.Command_Metadata import argument, choice, entry
 # Starts a worker process, and `large` spends Biohub credit.
 AGENT_POLICY = 'approve'
 
-CATALOG_ENTRY = entry('Open the structure viewer or submit selected sequences for ESM3 folding. With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
-    argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi, large and refold fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. A selected node whose structure is saved already (the file this fold would write, not empty: a local and a large fold write different files) is not folded again: it is shown in the structure viewer from that file, no job is queued for it, and the outcome names it and says that refold folds it again. refold folds such nodes anyway and replaces the file. When every selected node is saved, no job is queued and the command succeeds with that note; with an alignment loaded, a shown structure also gets its per-residue data file written. large, multi and refold may be combined in any order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left and none was shown from a saved file the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
+CATALOG_ENTRY = entry('Open the structure viewer or submit selected sequences for folding (local ESM3, or ESMFold 2 through Biohub with large). With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
+    argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi, large and refold fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large folds with ESMFold 2 through Biohub (model FOLD_MODEL of the Biohub API settings, default esmfold2-2026-05). large with multi keeps up to FOLD_PARALLEL_REQUESTS requests in flight (default 4, 1 to 16; 1 folds one at a time): when Biohub answers that its per-minute limit is reached it lowers that number and sends the request again, and when it says a credit limit is reached the run stops at once with Biohub's own words and the structures already folded stay saved (run the command again after the limit is lifted: saved structures are not folded again). A sequence longer than the 768 residues Biohub documents for one fold request is not sent and fails with that reason. A structure folded earlier by ESM3 Large stays saved under its own file name and is not used by large. A selected node whose structure is saved already (the file this fold would write, not empty: a local and a large fold write different files) is not folded again: it is shown in the structure viewer from that file, no job is queued for it, and the outcome names it and says that refold folds it again. refold folds such nodes anyway and replaces the file. When every selected node is saved, no job is queued and the command succeeds with that note; with an alignment loaded, a shown structure also gets its per-residue data file written. large, multi and refold may be combined in any order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left and none was shown from a saved file the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
         choice('large'), choice('multi'), choice('refold'), choice('--register-only')),
     argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop')), writes_files=True, opens_interface=True)
 
@@ -49,7 +49,7 @@ AGENT_PROMPT_ORDER = 240
 AGENT_PROMPT = """
 `esmfold [large] [multi] [refold] | esmfold stop`
 - With no keyword and no selected node, adds the Fold View Console button and opens the browser Mol* structure viewer, and folds nothing, even if a node was clicked. With exactly one selected node, the default mode runs local ESM3 1.4B structure prediction; with several, the command fails unless `multi` is supplied.
-- `large` routes prediction through the Biohub API and needs a selected node (a clicked node does not count). `multi` processes all selected nodes sequentially. `large`, `multi` and `refold` combine in any order.
+- `large` folds with ESMFold 2 through the Biohub API and needs a selected node (a clicked node does not count). `multi` processes all selected nodes one after another, except `large multi`, which keeps up to 4 requests in flight by default (FOLD_PARALLEL_REQUESTS in the Biohub API settings), slows down when Biohub's per-minute limit answers, and stops with Biohub's own words when a credit limit is reached, keeping what was folded. A sequence over 768 residues is not sent and fails with that reason. `large`, `multi` and `refold` combine in any order.
 - A selected node whose structure file is saved already (local and `large` folds write different files) is shown in Fold View, not folded again: no job is queued for it, and the outcome names it and says `refold` folds it again.
 - Sequences come from the configured source FASTA; structures go to `Cache_Files/Predicted_Structures/` by default; `large` uses no local compute hardware.
 - Each fold is a job of the background scheduler's folding line, beside the line of `label`, `logo` and `print`: it waits behind queued folds instead of being refused, one worker runs at a time, without any window. A node another fold is to write or is writing is left out, and the outcome names that job. `large` needs the user's Biohub API token: with none saved the Viewer asks for it in a dialog, which the user must answer (never ask for the token or put it in a command), and a Viewer that shows no windows fails the command.
@@ -75,8 +75,8 @@ def acts_on_jobs(args):
 
 def print_help():
     print("""
-    ESM3 3D Structure Prediction
-    ============================
+    3D Structure Prediction (local ESM3, Biohub ESMFold 2)
+    ======================================================
     Usage:
       esmfold
           With exactly 1 node selected, folds it using ESM3 1.4B (biohub/esm3-sm-open-v1).
@@ -85,10 +85,18 @@ def print_help():
       esmfold multi
           Folds all currently selected nodes sequentially using ESM3 1.4B (biohub/esm3-sm-open-v1).
       esmfold large
-          Folds exactly 1 selected node through the Biohub API using the ESM3 model configured in Biohub_API.json.
+          Folds exactly 1 selected node through the Biohub API with ESMFold 2 (the model FOLD_MODEL of
+          Biohub_API.json, default esmfold2-2026-05).
       esmfold large multi
       esmfold multi large
-          Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
+          Folds all selected nodes through the Biohub API with ESMFold 2, keeping up to
+          FOLD_PARALLEL_REQUESTS requests in flight (Biohub_API.json; default 4, 1 to 16, 1 folds one at a
+          time). When Biohub answers that its per-minute limit is reached, the number is lowered and the
+          request is sent again. When it says a credit limit is reached, the run stops at once with
+          Biohub's own words and the structures already folded stay saved; run the command again after
+          the limit is lifted, and the saved structures are not folded again. A sequence longer than the
+          768 residues Biohub documents for one fold request is not sent and fails with that reason.
+          esmfold multi without large folds locally, one node after another.
       esmfold refold
           Folds the selected nodes even when their structures are saved already (see below).
           It may be combined with large and multi in any order, as in esmfold refold large multi.
@@ -105,6 +113,9 @@ def print_help():
     not folded again. It is shown in the Fold View page from that file, no job is queued for
     it, and the outcome names it and says that refold folds it again. When every selected
     node is saved, no job is queued, no model starts, and the command succeeds with that note.
+    A structure that an earlier version folded with ESM3 Large stays where it is, under its own
+    file name (<name>_esm3-large-2024-03.pdb); it is not used by esmfold large, which writes
+    <name>_esmfold2-2026-05.pdb.
 
     Each esmfold is a job of the background scheduler's folding lane: it never refuses, it
     waits its turn behind the folds already queued, and one worker runs at a time so that
@@ -299,8 +310,12 @@ class FoldRun:
     shows on the Session card.
     """
 
-    def __init__(self, records, nodes, *, mode, device, structures_dir, action_url, portal, viewer=None):
+    def __init__(self, records, nodes, *, mode, device, structures_dir, action_url, portal, viewer=None,
+                 fold_model=None):
         self.run_id = uuid.uuid4().hex[:12]
+        # The Biohub fold model the file names were reserved for: the worker is told it (--fold-model), so that a
+        # settings file edited while the fold waits in the line cannot make it write other names.
+        self.fold_model = fold_model
         try:
             self.viewer_ref = weakref.ref(viewer)
         except TypeError:  # A stand-in that cannot be weakly referenced.
@@ -352,6 +367,8 @@ class FoldRun:
         if self.mode == "large":
             command = [sys.executable, script, self.input_path, self.structures_dir, "--delete-input",
                        "--mode", "large", "--action-url", self.action_url]
+            if self.fold_model:
+                command += ["--fold-model", self.fold_model]
         else:
             command = [sys.executable, script, self.input_path, self.structures_dir, self.device,
                        "--delete-input", "--action-url", self.action_url]
@@ -411,7 +428,14 @@ class FoldRun:
             handle.progress(text)
 
     def failure(self, code):
-        """The error of a run whose worker ended with ``code``."""
+        """The error of a run whose worker ended with ``code``.
+
+        A reason the worker gave for ending the whole run (Biohub's credit limit, a limit it kept answering) comes
+        first, with how many structures failed besides; else the structures that failed; else the exit code.
+        """
+        if self.reason and self.failures:
+            return JoinedMessage([Message("The folding worker failed: {reason}", reason=self.reason),
+                                  Message("%n structure(s) failed before then.", n=len(self.failures))])
         if self.failures:
             name, reason = self.failures[0]
             others = len(self.failures) - 1
@@ -677,7 +701,7 @@ def _parse_options(viewer, args):
 
 
 def _model_suffix(is_large):
-    """The suffix a large run's PDB names carry: the ESM3 model the Biohub settings choose (None for a local run)."""
+    """The suffix a large run's PDB names carry: the ESMFold 2 model the Biohub settings choose (None for a local run)."""
     if not is_large:
         return None
     from resources import Biohub_API
@@ -1042,6 +1066,7 @@ def run(viewer, args):
     run = FoldRun(
         records, nodes_to_fold, mode="large" if is_large else "local", device=device_str,
         structures_dir=abs_structures_dir, action_url=action_url, portal=context is not None, viewer=viewer,
+        fold_model=suffix,
     )
     run.write_input()
     paths = []
@@ -1091,9 +1116,9 @@ def run(viewer, args):
     else:
         page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
     position = next((entry.position for entry in scheduler.snapshot() if entry.job.job_id == job_id), 1)
-    mode_label = "Biohub ESM3" if is_large else "local ESM3"
+    mode_label = "Biohub ESMFold 2" if is_large else "local ESM3"
     if is_large:
-        queued = Message("Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.", n=len(nodes_to_fold), job=job_id)
+        queued = Message("Queued %n structure(s) for folding with Biohub ESMFold 2 as job #{job}.", n=len(nodes_to_fold), job=job_id)
     else:
         queued = Message("Queued %n structure(s) for folding with local ESM3 as job #{job}.", n=len(nodes_to_fold), job=job_id)
     outcome = f"Queued {mode_label} folding for {len(nodes_to_fold)} structure(s) as job #{job_id}."

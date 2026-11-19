@@ -17,7 +17,8 @@
 File: Predict_Structures.py
 ===================================
 Description:
-Predicts the 3D structure of protein sequences with ESM3, with no Viewer and no similarity-network file.
+Predicts the 3D structure of protein sequences with the local ESM3 open model or, through Biohub, with ESMFold 2,
+with no Viewer and no similarity-network file.
 
 BATCH_INPUT chooses the input:
 - Off (the default): SEQUENCE, one amino acid sequence typed or pasted in, with an optional
@@ -31,9 +32,10 @@ The input that is not chosen is never read; the chosen one missing is refused be
 
 PREDICTION_MODEL chooses the model: "local" runs the ESM3 open model (biohub/esm3-sm-open-v1) on the
 first available accelerator, and on the CPU only when there is none (the run prints the device);
-"remote" sends the sequences to the Biohub API and needs the API token saved
-beforehand. The remote service is used only when the setting says remote, and the local model never
-takes its place.
+"remote" sends the sequences to the Biohub API (ESMFold 2: the model FOLD_MODEL of the saved API settings,
+default esmfold2-2026-05, with up to FOLD_PARALLEL_REQUESTS requests in flight, default 4) and needs the API
+token saved beforehand. The remote service is used only when the setting says remote, and the local model never
+takes its place. A sequence longer than the 768 residues Biohub documents for one fold request is not sent.
 
 Each structure is a PDB file in STRUCTURE_DIR, named like the Viewer's esmfold command names it. Its
 B-factor column holds the per-residue pLDDT on a scale of 0 to 100. A structure file that exists is kept,

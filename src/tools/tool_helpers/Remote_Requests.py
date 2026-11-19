@@ -209,3 +209,181 @@ def run_in_order(
         stop.set()
         for _ in range(min(max_in_flight, total)):
             tasks.put(None)
+
+
+def run_as_completed(
+    items,
+    work,
+    consume,
+    *,
+    max_in_flight,
+    fatal=(),
+    on_start=None,
+    successes_per_increase=None,
+    rate_limit_wait=None,
+    max_resends=None,
+    report=notify,
+):
+    """Run work(item) for every item, several at once; consume each result as it finishes.
+
+    For work whose results are independent of each other (one structure file
+    each), so that no finished result is held back for an earlier one.
+
+    work(item) runs in a worker thread and returns a result. consume(index,
+    item, result, error) runs in the calling thread, once per finished item, in
+    the order they finish: error is None for a result, else the exception work
+    raised (a failure of that item alone, which does not end the run).
+    on_start(index, item), if given, runs in the calling thread when an item is
+    first handed to a worker.
+
+    work raises RateLimitedError when the server answered "too many requests"
+    for a limit that clears with time: that halves the number in flight and
+    sends the same item again after a wait, without counting it as a failure.
+    An error may carry ``max_resends`` to be sent again fewer times than the
+    run's limit. A run of successes raises the number by one, never above
+    max_in_flight.
+
+    An exception that is an instance of ``fatal`` ends the run, and so does an
+    item turned away more often than allowed: nothing more is sent, the items
+    already in flight finish and are consumed (their cost is spent already, so
+    a result is kept), then the first such error is raised. A max_in_flight of 1
+    runs one item at a time, in input order.
+    """
+    if successes_per_increase is None:
+        successes_per_increase = SUCCESSES_PER_INCREASE
+    if rate_limit_wait is None:
+        rate_limit_wait = RATE_LIMIT_WAIT_SECONDS
+    if max_resends is None:
+        max_resends = MAX_RATE_LIMIT_RESENDS
+    fatal = tuple(fatal)
+    items = list(items)
+    total = len(items)
+    if total == 0:
+        return
+    if max_in_flight < 1:
+        raise ValueError("max_in_flight must be at least 1.")
+
+    tasks = queue.Queue()
+    done = queue.Queue()
+    stop = threading.Event()
+
+    def worker():
+        while True:
+            task = tasks.get()
+            if task is None or stop.is_set():
+                return
+            index, epoch = task
+            try:
+                result = work(items[index])
+            except Exception as error:
+                done.put((index, epoch, False, error))
+            else:
+                done.put((index, epoch, True, result))
+
+    for number in range(min(max_in_flight, total)):
+        threading.Thread(
+            target=worker, name=f"remote-request-{number}", daemon=True
+        ).start()
+
+    limit = max_in_flight
+    epoch = 0  # grows each time the limit is lowered
+    successes = 0
+    next_new = 0  # next never-sent index
+    finished = 0
+    running = 0
+    waiting = []  # (ready_time, index) of items to send again
+    resends = {}
+    stop_error = None
+
+    def send(index, first):
+        nonlocal running
+        if first and on_start is not None:
+            on_start(index, items[index])
+        tasks.put((index, epoch))
+        running += 1
+
+    def lower_limit():
+        nonlocal limit, epoch, successes
+        successes = 0
+        epoch += 1
+        lowered = max(1, limit // 2)
+        if lowered != limit:
+            limit = lowered
+            report(
+                "The server asked for fewer requests at once; "
+                f"sending {limit} at a time for now."
+            )
+
+    try:
+        while finished < total:
+            if stop_error is not None and running == 0:
+                break
+            now = time.monotonic()
+            if stop_error is None:
+                waiting.sort()
+                while waiting and waiting[0][0] <= now and running < limit:
+                    _, index = waiting.pop(0)
+                    send(index, False)
+                while next_new < total and running < limit:
+                    send(next_new, True)
+                    next_new += 1
+
+            timeout = _POLL_SECONDS
+            if waiting and stop_error is None:
+                timeout = min(timeout, max(0.0, waiting[0][0] - now))
+            try:
+                index, sent_epoch, succeeded, payload = done.get(timeout=timeout)
+            except queue.Empty:
+                continue
+            running -= 1
+
+            if succeeded:
+                successes += 1
+                if (
+                    stop_error is None
+                    and successes >= successes_per_increase
+                    and limit < max_in_flight
+                ):
+                    successes = 0
+                    limit += 1
+                    report(f"The server is keeping up; sending {limit} at a time.")
+                consume(index, items[index], payload, None)
+                finished += 1
+                continue
+
+            if fatal and isinstance(payload, fatal):
+                if stop_error is None:
+                    stop_error = payload
+                continue
+
+            if isinstance(payload, RateLimitedError):
+                if stop_error is not None:
+                    continue
+                # Several requests sent before one lowering get the same
+                # answer; they count as one.
+                if sent_epoch == epoch:
+                    lower_limit()
+                resends[index] = resends.get(index, 0) + 1
+                allowed = getattr(payload, "max_resends", max_resends)
+                if resends[index] > allowed:
+                    error = RuntimeError(
+                        "The server kept answering 'too many requests' "
+                        f"({allowed} times for the same sequence): {payload}"
+                    )
+                    error.__cause__ = payload
+                    stop_error = error
+                    continue
+                delay = min(
+                    RATE_LIMIT_MAX_WAIT_SECONDS, rate_limit_wait * resends[index]
+                )
+                waiting.append((time.monotonic() + delay, index))
+                continue
+
+            consume(index, items[index], None, payload)
+            finished += 1
+        if stop_error is not None:
+            raise stop_error
+    finally:
+        stop.set()
+        for _ in range(min(max_in_flight, total)):
+            tasks.put(None)

@@ -277,7 +277,7 @@ def list_pipeline_tools() -> PipelineCatalog:
         structure_prediction={
             "actions": ["predict_structure"],
             "job_tool_id": "predict_structures",
-            "purpose": "Predict 3D structures with ESM3 from one typed sequence (sequence, optional name) or a FASTA "
+            "purpose": "Predict 3D structures (local ESM3, or ESMFold 2 through Biohub) from one typed sequence (sequence, optional name) or a FASTA "
                        "(fasta_file) in one call: no Viewer and no settings document. It starts the pipeline tool "
                        "predict_structures as a job and waits like wait_job.",
             "inputs": "Exactly one of sequence and fasta_file; model local (default) or remote, which only an explicit "
@@ -624,7 +624,7 @@ async def predict_structure(
         "A protein FASTA whose sequences are all folded: an absolute path, or a name inside the FASTA directory. "
         "Give this or sequence, not both."))] = None,
     model: Annotated[Literal["local", "remote"], Field(description=(
-        "local runs the ESM3 open model on this computer, on the first available accelerator and on the CPU only when there is none. remote sends the sequences to the Biohub API and needs a token "
+        "local runs the ESM3 open model on this computer, on the first available accelerator and on the CPU only when there is none. remote sends the sequences to the Biohub API (ESMFold 2; a sequence over 768 residues is not sent) and needs a token "
         "saved beforehand by the user; choose it only when the user asks. Neither is a fallback for the other."))] = "local",
     max_sequences: Annotated[int, Field(ge=1, description=(
         "Most sequences one call folds; a larger request is refused before anything is folded. Structures that exist are not counted."))] = 20,
@@ -633,7 +633,7 @@ async def predict_structure(
     wait_seconds: Annotated[float, Field(ge=0, le=MAX_WAIT_SECONDS, description=(
         "Seconds to wait for the job after starting it, as wait_job does (at most 50)."))] = MAX_WAIT_SECONDS,
 ) -> StructurePredictionInfo:
-    """Predict 3D structures with ESM3 from one sequence or a FASTA, with no Viewer and no settings document.
+    """Predict 3D structures (local ESM3, or ESMFold 2 through Biohub) from one sequence or a FASTA, with no Viewer and no settings document.
     Starts the pipeline tool predict_structures as a job and waits up to wait_seconds like wait_job. A short
     fold returns finished with one record per sequence (name, path, length, status folded, existing or failed,
     mean_plddt, note); a longer one returns the running job: continue with wait_job, then read the records

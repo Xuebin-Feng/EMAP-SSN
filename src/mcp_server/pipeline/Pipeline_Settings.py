@@ -49,7 +49,7 @@ DESCRIPTIONS = {
     "network_extraction": "Extract a network for a FASTA subset.",
     "embedding_pwa": "Align two stored or manually supplied protein sequences.",
     "embedding_ssearch": "Search an embedding database with a stored or manual query.",
-    "predict_structures": "Predict 3D structures with ESM3 for one typed sequence or the sequences of a FASTA.",
+    "predict_structures": "Predict 3D structures (local ESM3, or ESMFold 2 through Biohub) for one typed sequence or the sequences of a FASTA.",
 }
 
 

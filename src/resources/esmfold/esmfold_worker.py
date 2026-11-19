@@ -45,6 +45,47 @@ NOTIFY_TIMEOUT_SECONDS = 5.0
 # window to ask in, asks for a replacement and runs the structures not yet folded again.
 EXIT_AUTHENTICATION = 3
 
+# The longest sequence one fold request may carry: the 768 tokens Biohub's README documents for its Sync API.
+# That is where the number comes from; it has not been confirmed by a call, and the SDK does not check it.
+FOLD_MAX_RESIDUES = 768
+# Seconds one fold request may take before it is given up (the SDK class's own default is 120).
+FOLD_REQUEST_TIMEOUT_SECONDS = 300
+# A server that answers one of these did not process the request: it is sent again, after these waits.
+TRANSIENT_STATUSES = frozenset({502, 503, 504})
+TRANSIENT_RETRY_WAITS = (2.0, 6.0)
+# Times a request is sent again when Biohub answers 429 with words that say neither a per-minute limit nor a
+# credit limit: not waited for as long as a per-minute one is.
+UNRECOGNISED_429_RESENDS = 3
+
+# Words of a 429 reply (lower case). A credit or a longer-than-a-minute limit does not clear in time to wait
+# for it; one per minute does.
+_QUOTA_WORDS = re.compile(r"credit|daily|monthly|hourly|weekly|last (?:hour|day|week|month)")
+_MINUTE_WORDS = re.compile(r"last minute|per minute|too many requests|rate limit")
+_ERROR_PREFIX = re.compile(r"^Failure in fold:\s*")
+
+
+class CreditLimitError(RuntimeError):
+    """Biohub refuses to fold more because a credit or other quota limit is reached; str() is its own text."""
+
+
+class StructureRefused(RuntimeError):
+    """One structure is not sent or cannot be folded; str() is the plain reason."""
+
+
+def server_text(error_message):
+    """What the server said in an ESMProteinError's message, without the SDK's own "Failure in fold:" prefix."""
+    return _ERROR_PREFIX.sub("", str(error_message)).strip()
+
+
+def classify_rate_limit(error_message):
+    """"quota", "minute" or "unknown": what a 429 reply's text says its limit is."""
+    text = str(error_message).lower()
+    if _QUOTA_WORDS.search(text):
+        return "quota"
+    if _MINUTE_WORDS.search(text):
+        return "minute"
+    return "unknown"
+
 
 def sanitize_filename(name):
     return re.sub(r"[^a-zA-Z0-9_\-\.]", "_", name)
@@ -276,7 +317,7 @@ def portal_pause(message):
 
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(
-        description="Run local or Biohub-backed ESM3 structure prediction."
+        description="Run local ESM3 structure prediction, or Biohub-backed ESMFold 2 structure prediction."
     )
     parser.add_argument("input_json_path")
     parser.add_argument(
@@ -289,7 +330,13 @@ def parse_arguments(argv=None):
         "--mode",
         choices=("local", "large"),
         default="local",
-        help="local ESM3 1.4B or remote Biohub ESM3",
+        help="local ESM3 1.4B, or remote Biohub ESMFold 2",
+    )
+    parser.add_argument(
+        "--fold-model",
+        default=None,
+        help="the Biohub fold model to use (large mode) instead of the saved settings' FOLD_MODEL; "
+        "the Viewer says which it reserved the structure files' names for",
     )
     parser.add_argument(
         "--action-url",
@@ -454,21 +501,34 @@ def _load_local_model(device, job_event=None):
     return _use_float32(model).to(device)
 
 
-def _load_large_client(prompt_callback=None):
-    from esm.sdk import client
+def _load_large_client(prompt_callback=None, model=None):
+    """(the Biohub ESMFold 2 client, the settings with their defaults filled in).
+
+    ``model`` names the fold model instead of the saved settings' FOLD_MODEL (the Viewer says which it
+    reserved file names for). The client is not created through esm.sdk.esmfold2_client, whose default model
+    is the fast one and whose request timeout is none.
+    """
+    from esm.sdk.forge import SequenceStructureForgeInferenceClient
 
     callback = prompt_callback or (lambda: _terminal_token_prompt(False))
     settings = Biohub_API.load_api_settings(prompt_callback=callback)
+    if model:
+        settings["FOLD_MODEL"] = Biohub_API.validate_api_settings(
+            {"ESM_API_TOKEN": settings["ESM_API_TOKEN"], "FOLD_MODEL": model}
+        )["FOLD_MODEL"]
     print(
-        f"Connecting to remote Biohub ESM3 model {settings['ESM3_MODEL']} at "
-        f"{settings['ESM_API_URL']}..."
+        f"Connecting to Biohub ESMFold 2 model {settings['FOLD_MODEL']} at "
+        f"{settings['ESM_API_URL']} ({settings['FOLD_PARALLEL_REQUESTS']} request(s) at a time)..."
     )
-    model = client(
-        model=settings["ESM3_MODEL"],
+    client = SequenceStructureForgeInferenceClient(
         url=settings["ESM_API_URL"],
+        model=settings["FOLD_MODEL"],
         token=settings["ESM_API_TOKEN"],
+        request_timeout=FOLD_REQUEST_TIMEOUT_SECONDS,
     )
-    return model, settings
+    # The SDK makes its HTTP client on first use; make it here, once, before several threads use it.
+    getattr(client, "client", None)
+    return client, settings
 
 
 def _api_error_message(result, operation):
@@ -477,34 +537,99 @@ def _api_error_message(result, operation):
     return f"Biohub {operation} error (code {code}): {detail}"
 
 
-def _generate_remote_structure(model, protein, generation_config, auth_state):
+def _rate_limit_error(message):
+    """The exception for a 429 reply whose text is ``message``.
+
+    A credit (or longer-than-a-minute) limit is a CreditLimitError, which ends the run with the server's own
+    text and is never sent again. A per-minute limit is a RateLimitedError: the request is sent again, and
+    fewer requests go at once. A text that says neither is sent again only UNRECOGNISED_429_RESENDS times.
+    """
+    from tools.tool_helpers.Remote_Requests import RateLimitedError
+
+    text = server_text(message)
+    kind = classify_rate_limit(message)
+    if kind == "quota":
+        return CreditLimitError(text)
+    error = RateLimitedError(text)
+    if kind == "unknown":
+        error.max_resends = UNRECOGNISED_429_RESENDS
+    return error
+
+
+def _prepare_plddt(protein):
+    """Make ``protein``'s pLDDT the 0 to 1 values ``to_pdb_string`` scales to a B-factor of 0 to 100.
+
+    A missing value (NaN) becomes 0. Values above 1.5 are taken as already 0 to 100 and divided by 100: a second
+    factor of 100 overflows the PDB's temperature-factor column. Whether Biohub's ESMFold 2 ever answers either is
+    not known without a call; each case is said in the log. Anything that cannot be read is left as it is.
+    """
+    plddt = getattr(protein, "plddt", None)
+    if plddt is None:
+        return
+    try:
+        import torch
+
+        values = torch.as_tensor(plddt, dtype=torch.float32)
+        missing = torch.isnan(values)
+        changed = False
+        if bool(missing.any()):
+            values = torch.where(missing, torch.zeros_like(values), values)
+            print(f"Warning: {int(missing.sum())} residue(s) have no pLDDT in Biohub's reply; they are saved as 0.")
+            changed = True
+        finite = values[torch.isfinite(values)]
+        if finite.numel() and float(finite.max()) > 1.5:
+            values = values / 100.0
+            print("Note: Biohub's pLDDT values are on a scale of 0 to 100; they are divided by 100 before the PDB is written.")
+            changed = True
+        if changed:
+            protein.plddt = values
+    except (ImportError, TypeError, ValueError, RuntimeError):
+        return
+
+
+def _fold_remote(client, sequence, sleep=time.sleep):
+    """Fold one sequence through Biohub; return the PDB text. Runs in a worker thread, and touches nothing shared.
+
+    The SDK's own retry is switched off (inside this thread: a ContextVar set elsewhere is not seen here) so that
+    the answer is classified here:
+    - a sequence longer than FOLD_MAX_RESIDUES is refused before anything is sent (StructureRefused);
+    - HTTP 401/403: Biohub_API.BiohubAuthenticationError (the run ends, see run_predictions);
+    - HTTP 429: _rate_limit_error (a CreditLimitError ends the run; a RateLimitedError is sent again);
+    - HTTP 502/503/504: the request was not processed; sent again after TRANSIENT_RETRY_WAITS, then a failure;
+    - anything else: a failure of this structure with the server's own text, not sent again.
+    """
     from esm.sdk.api import ESMProteinError
+    from esm.sdk.retry import skip_retries_var
 
-    result = model.generate(protein, generation_config)
-    status = Biohub_API.authentication_status(result)
-    if status is not None and not auth_state["refresh_attempted"] and not can_ask():
-        # No terminal to ask in: end the run, and the Viewer that started it asks in its own window.
-        raise Biohub_API.BiohubAuthenticationError(status, "Biohub rejected the saved API token.")
-    if status is not None and not auth_state["refresh_attempted"]:
-        auth_state["refresh_attempted"] = True
-        print("Biohub rejected the saved API token. Enter a replacement to retry once.")
-        refreshed = Biohub_API.refresh_api_token(
-            auth_state["settings"],
-            lambda: _terminal_token_prompt(True),
+    skip_retries_var.set(True)
+    if len(sequence) > FOLD_MAX_RESIDUES:
+        raise StructureRefused(
+            f"The sequence has {len(sequence)} residues, more than the {FOLD_MAX_RESIDUES} residues Biohub documents "
+            "for one fold request; nothing was sent."
         )
-        auth_state["settings"] = refreshed
-        Biohub_API.update_client_token(model, refreshed["ESM_API_TOKEN"])
-        result = model.generate(protein, generation_config)
-
-    if isinstance(result, ESMProteinError):
+    waits = iter(TRANSIENT_RETRY_WAITS)
+    while True:
+        result = client.fold(sequence)
+        if not isinstance(result, ESMProteinError):
+            break
+        code = getattr(result, "error_code", None)
+        message = getattr(result, "error_msg", str(result))
         status = Biohub_API.authentication_status(result)
         if status is not None:
-            raise Biohub_API.BiohubAuthenticationError(
-                status,
-                "Biohub rejected the API token after one replacement attempt.",
-            )
-        raise RuntimeError(_api_error_message(result, "generation"))
-    return result
+            raise Biohub_API.BiohubAuthenticationError(status, "Biohub rejected the API token.")
+        if code == 429:
+            raise _rate_limit_error(message)
+        if code in TRANSIENT_STATUSES:
+            wait = next(waits, None)
+            if wait is not None:
+                sleep(wait)
+                continue
+        text = server_text(message)
+        if code == 500 and text.startswith("Failed to submit request") and text.endswith(":"):
+            text += f" no answer within {FOLD_REQUEST_TIMEOUT_SECONDS} s, or the connection failed"
+        raise RuntimeError(f"Biohub fold error (code {code}): {text}")
+    _prepare_plddt(result)
+    return result.to_pdb_string()
 
 
 def _publish_text(path, text):
@@ -528,14 +653,17 @@ def _publish_text(path, text):
 
 
 def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None):
-    pdb_filename = prediction_filename(rec_id, model_suffix)
-    pdb_path = os.path.join(structures_dir, pdb_filename)
-
     # ESMProtein.plddt is on a 0-1 scale and to_pdb_string() already applies
     # esm's PLDDT_B_FACTOR_SCALE (100.0) when it builds the atom array. Do not
     # pre-scale here: a second factor of 100 overflows the 6-column PDB
     # temperature-factor field and biotite rejects the structure.
-    pdb_content = output_protein.to_pdb_string()
+    return _write_pdb_text(output_protein.to_pdb_string(), rec_id, structures_dir, model_suffix)
+
+
+def _write_pdb_text(pdb_content, rec_id, structures_dir, model_suffix=None):
+    """Write the PDB text of a structure to its file, whole or not at all; return (file name, path)."""
+    pdb_filename = prediction_filename(rec_id, model_suffix)
+    pdb_path = os.path.join(structures_dir, pdb_filename)
     _publish_text(pdb_path, pdb_content)
     return pdb_filename, pdb_path
 
@@ -597,11 +725,20 @@ def run_predictions(
     skip_existing=False,
     residue_data_saved=None,
     job_event=None,
+    fold_model=None,
 ):
     """Fold each [rec_id, sequence] or [rec_id, sequence, extra]; return (completed, errors_occurred).
 
+    ``mode`` "local" folds with the ESM3 open model on this computer, one structure at a time. Mode "large"
+    folds through Biohub with ESMFold 2 (the saved settings' FOLD_MODEL, or ``fold_model``), keeping up to
+    FOLD_PARALLEL_REQUESTS requests in flight. Only the calling thread writes files, tells ``notifier`` and
+    ``job_event``, and keeps the counts; the worker threads only send a request (_fold_remote). A rejected API
+    token ends the run with Biohub_API.BiohubAuthenticationError, after the requests in flight were saved, and a
+    credit limit with CreditLimitError, which holds Biohub's own words.
+
     ``job_event(event, **fields)``, if given, is told "progress" (index,
-    total, name) before each structure is folded and "structure_failed"
+    total, name) for the first structure not yet finished (before it is folded, and again when it is
+    finished and another is the first) and "structure_failed"
     (name, reason) for one that fails: what the Fold View page shows of a run.
 
     ``extra`` is what the Viewer computed for the node from its alignment,
@@ -621,17 +758,14 @@ def run_predictions(
     from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
 
     os.makedirs(structures_dir, exist_ok=True)
-    auth_state = None
     model = None
     close_model = False
+    settings = None
 
     if mode == "large":
         print("Using remote Biohub inference; local CPU/GPU selection is not applicable.")
-        model, remote_settings = _load_large_client(token_prompt)
-        auth_state = {
-            "settings": remote_settings,
-            "refresh_attempted": False,
-        }
+        model, settings = _load_large_client(token_prompt, fold_model)
+        model_suffix = settings["FOLD_MODEL"]
         close_model = True
     else:
         import torch
@@ -641,92 +775,100 @@ def run_predictions(
         )
         print(f"Using device: {device}")
         model = _load_local_model(device, job_event)
+        model_suffix = None
 
-    folded_count = 0
-    skipped_count = 0
-    refreshed_count = 0
-    errors_occurred = False
+    # What the run has done so far; only this thread changes it.
+    counts = {"folded": 0, "skipped": 0, "refreshed": 0, "errors": False}
     total = len(nodes_to_fold)
     claimed_names = {}
+
+    def plan(index, node_record):
+        """The record to fold as (rec_id, sequence, extra, pdb_filename, pdb_path), or None when it is not folded now.
+
+        A record that is invalid, or whose structure is kept (``skip_existing``), is dealt with here.
+        """
+        try:
+            if not isinstance(node_record, (list, tuple)) or len(node_record) not in (2, 3):
+                raise ValueError(node_record)
+            rec_id, sequence = node_record[:2]
+            extra = node_record[2] if len(node_record) == 3 else None
+        except (TypeError, ValueError):
+            print(f"Error: Invalid node record at position {index}: {node_record!r}")
+            counts["errors"] = True
+            return None
+        if extra is not None and not isinstance(extra, dict):
+            print(f"Warning: Ignoring the residue data of {rec_id}: it is not a JSON object.")
+            extra = None
+
+        pdb_filename = prediction_filename(rec_id, model_suffix)
+        pdb_path = os.path.join(structures_dir, pdb_filename)
+        first_claim = claimed_names.setdefault(pdb_filename, rec_id)
+        if first_claim != rec_id:
+            print(f"Warning: {rec_id!r} and {first_claim!r} both map to {pdb_filename}; "
+                  "only one structure can be kept under that name.")
+        if skip_existing and os.path.exists(pdb_path):
+            print(f"\n[{index}/{total}] Keeping existing structure for {rec_id}: {pdb_path}")
+            sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
+            if sidecar:
+                print(f"Refreshed the residue data of the kept structure from the alignment now loaded: {sidecar}")
+                counts["refreshed"] += 1
+                if residue_data_saved is not None:
+                    residue_data_saved(os.path.join(structures_dir, sidecar))
+            counts["skipped"] += 1
+            return None
+        return rec_id, sequence, extra, pdb_filename, pdb_path
+
+    def save(rec_id, sequence, extra, pdb_path, write):
+        """Write a folded structure (``write()`` returns its file name and path), its residue data, and tell the Viewer."""
+        if os.path.exists(pdb_path):
+            print(f"Warning: replacing existing structure {pdb_path}")
+        pdb_filename, pdb_path = write()
+        print(f"Saved predicted structure to: {pdb_path}")
+        # Before the Viewer is told, so the page finds the file when it loads the structure.
+        sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
+        if sidecar:
+            print(f"Saved residue data to: {os.path.join(structures_dir, sidecar)}")
+        notifier(rec_id, pdb_filename)
+        if sidecar and residue_data_saved is not None:
+            residue_data_saved(os.path.join(structures_dir, sidecar))
+        counts["folded"] += 1
+
+    def fail(rec_id, error):
+        print(f"Error folding sequence {rec_id}: {error}")
+        counts["errors"] = True
+        if job_event is not None:
+            job_event("structure_failed", name=str(rec_id), reason=str(error))
+
     try:
-        for index, node_record in enumerate(nodes_to_fold, 1):
-            try:
-                if not isinstance(node_record, (list, tuple)) or len(node_record) not in (2, 3):
-                    raise ValueError(node_record)
-                rec_id, sequence = node_record[:2]
-                extra = node_record[2] if len(node_record) == 3 else None
-            except (TypeError, ValueError):
-                print(f"Error: Invalid node record at position {index}: {node_record!r}")
-                errors_occurred = True
-                continue
-            if extra is not None and not isinstance(extra, dict):
-                print(f"Warning: Ignoring the residue data of {rec_id}: it is not a JSON object.")
-                extra = None
-
-            model_suffix = auth_state["settings"]["ESM3_MODEL"] if mode == "large" else None
-            pdb_filename = prediction_filename(rec_id, model_suffix)
-            pdb_path = os.path.join(structures_dir, pdb_filename)
-            first_claim = claimed_names.setdefault(pdb_filename, rec_id)
-            if first_claim != rec_id:
-                print(f"Warning: {rec_id!r} and {first_claim!r} both map to {pdb_filename}; "
-                      "only one structure can be kept under that name.")
-            if skip_existing and os.path.exists(pdb_path):
-                print(f"\n[{index}/{total}] Keeping existing structure for {rec_id}: {pdb_path}")
-                sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
-                if sidecar:
-                    print(f"Refreshed the residue data of the kept structure from the alignment now loaded: {sidecar}")
-                    refreshed_count += 1
-                    if residue_data_saved is not None:
-                        residue_data_saved(os.path.join(structures_dir, sidecar))
-                skipped_count += 1
-                continue
-
-            print(f"\n[{index}/{total}] Folding sequence: {rec_id} ({len(sequence)} aa)...")
-            if job_event is not None:
-                job_event("progress", index=index, total=total, name=str(rec_id))
-            try:
-                protein = ESMProtein(sequence=sequence)
-                generation_config = GenerationConfig(track="structure", num_steps=8)
-                if mode == "large":
-                    output_protein = _generate_remote_structure(
-                        model,
-                        protein,
-                        generation_config,
-                        auth_state,
-                    )
-                else:
+        if mode == "large":
+            _fold_through_biohub(
+                [(index, plan(index, record)) for index, record in enumerate(nodes_to_fold, 1)],
+                model, settings, model_suffix, structures_dir, total, save, fail, job_event,
+            )
+        else:
+            for index, node_record in enumerate(nodes_to_fold, 1):
+                item = plan(index, node_record)
+                if item is None:
+                    continue
+                rec_id, sequence, extra, _pdb_filename, pdb_path = item
+                print(f"\n[{index}/{total}] Folding sequence: {rec_id} ({len(sequence)} aa)...")
+                if job_event is not None:
+                    job_event("progress", index=index, total=total, name=str(rec_id))
+                try:
+                    protein = ESMProtein(sequence=sequence)
+                    generation_config = GenerationConfig(track="structure", num_steps=8)
                     output_protein = model.generate(protein, generation_config)
                     if isinstance(output_protein, ESMProteinError):
                         raise RuntimeError(_api_error_message(output_protein, "generation"))
-
-                if os.path.exists(pdb_path):
-                    print(f"Warning: replacing existing structure {pdb_path}")
-                pdb_filename, pdb_path = _write_prediction(
-                    output_protein,
-                    rec_id,
-                    structures_dir,
-                    model_suffix=model_suffix,
-                )
-                print(f"Saved predicted structure to: {pdb_path}")
-                # Before the Viewer is told, so the page finds the file when it loads the structure.
-                sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
-                if sidecar:
-                    print(f"Saved residue data to: {os.path.join(structures_dir, sidecar)}")
-                notifier(rec_id, pdb_filename)
-                if sidecar and residue_data_saved is not None:
-                    residue_data_saved(os.path.join(structures_dir, sidecar))
-                folded_count += 1
-            except Biohub_API.BiohubAuthenticationError:
-                raise  # Not this structure's failure: the run ends, and says why.
-            except Exception as error:
-                print(f"Error folding sequence {rec_id}: {error}")
-                errors_occurred = True
-                if job_event is not None:
-                    job_event("structure_failed", name=str(rec_id), reason=str(error))
-        if skipped_count:
-            print(f"\nKept {skipped_count} existing structure(s) without predicting them again.")
-            if refreshed_count:
-                print(f"Refreshed the residue data of {refreshed_count} of them.")
+                    save(rec_id, sequence, extra, pdb_path,
+                         lambda output=output_protein, name=rec_id: _write_prediction(
+                             output, name, structures_dir, model_suffix=model_suffix))
+                except Exception as error:
+                    fail(rec_id, error)
+        if counts["skipped"]:
+            print(f"\nKept {counts['skipped']} existing structure(s) without predicting them again.")
+            if counts["refreshed"]:
+                print(f"Refreshed the residue data of {counts['refreshed']} of them.")
     finally:
         if close_model and model is not None:
             try:
@@ -734,7 +876,93 @@ def run_predictions(
             except Exception as error:
                 print(f"Warning: Could not close the Biohub API client cleanly: {error}")
 
-    return folded_count + skipped_count, errors_occurred
+    return counts["folded"] + counts["skipped"], counts["errors"]
+
+
+def _explicit_settings(settings):
+    """``settings`` (defaults filled in) as the file holds it: only the FOLD_* settings that are not defaults."""
+    explicit = {"ESM_API_TOKEN": settings["ESM_API_TOKEN"], "ESM_API_URL": settings["ESM_API_URL"]}
+    if settings["FOLD_MODEL"] != Biohub_API.DEFAULT_FOLD_MODEL:
+        explicit["FOLD_MODEL"] = settings["FOLD_MODEL"]
+    if settings["FOLD_PARALLEL_REQUESTS"] != Biohub_API.DEFAULT_FOLD_PARALLEL_REQUESTS:
+        explicit["FOLD_PARALLEL_REQUESTS"] = settings["FOLD_PARALLEL_REQUESTS"]
+    return explicit
+
+
+def _fold_through_biohub(planned, client, settings, model_suffix, structures_dir, total, save, fail, job_event):
+    """Fold the planned records through Biohub, several requests at once; the calling thread does all the rest.
+
+    ``planned`` is [(position, plan or None)]: the plan is what ``plan`` of run_predictions returned. Each result
+    is written as it arrives (the structures are independent files). The structure the page names in its progress
+    event is the first one not finished, so with one request at a time it is the one being folded.
+
+    A rejected token or a credit limit ends the run once the requests in flight were saved. In a terminal a
+    rejected token is asked for once, and the structures not finished are sent again; where no one can be asked
+    (the Viewer's worker, a tool) the error goes on.
+    """
+    from tools.tool_helpers.Remote_Requests import notify, run_as_completed
+
+    items = [(position,) + plan for position, plan in planned if plan is not None]
+    if not items:
+        return
+    unfinished = {item[0] for item in items}
+    by_position = {item[0]: item for item in items}
+    shown = {"position": None}
+
+    def show_progress():
+        if job_event is None or not unfinished:
+            return
+        position = min(unfinished)
+        if position != shown["position"]:
+            shown["position"] = position
+            job_event("progress", index=position, total=total, name=str(by_position[position][1]))
+
+    def on_start(_index, item):
+        position, rec_id, sequence = item[0], item[1], item[2]
+        print(f"\n[{position}/{total}] Folding sequence: {rec_id} ({len(sequence)} aa)...")
+        show_progress()
+
+    def consume(_index, item, pdb_text, error):
+        position, rec_id, sequence, extra, _pdb_filename, pdb_path = item
+        unfinished.discard(position)
+        if error is None:
+            try:
+                save(rec_id, sequence, extra, pdb_path,
+                     lambda: _write_pdb_text(pdb_text, rec_id, structures_dir, model_suffix))
+            except Exception as write_error:
+                fail(rec_id, write_error)
+        else:
+            fail(rec_id, error)
+        show_progress()
+
+    def work(item):
+        return _fold_remote(client, item[2])
+
+    pending = items
+    replaced = False
+    while True:
+        try:
+            run_as_completed(
+                pending, work, consume,
+                max_in_flight=settings["FOLD_PARALLEL_REQUESTS"],
+                fatal=(Biohub_API.BiohubAuthenticationError, CreditLimitError),
+                on_start=on_start,
+                report=lambda text: notify(f"Note: {text}"),
+            )
+            return
+        except Biohub_API.BiohubAuthenticationError:
+            if replaced or not can_ask():
+                raise
+            replaced = True
+            print("Biohub rejected the saved API token. Enter a replacement to retry once.")
+            refreshed = Biohub_API.refresh_api_token(
+                _explicit_settings(settings), lambda: _terminal_token_prompt(True)
+            )
+            settings = {**settings, "ESM_API_TOKEN": refreshed["ESM_API_TOKEN"]}
+            Biohub_API.update_client_token(client, refreshed["ESM_API_TOKEN"])
+            pending = [item for item in items if item[0] in unfinished]
+            if not pending:
+                return
 
 
 def main(argv=None):
@@ -819,7 +1047,20 @@ def main(argv=None):
             skip_existing=arguments.skip_existing,
             residue_data_saved=residue_data_saved,
             job_event=job_event,
+            fold_model=arguments.fold_model,
         )
+    except CreditLimitError as error:
+        # Biohub's own words, and what is kept: the structures folded so far were saved and reported already.
+        reason = (
+            f"Biohub stopped folding: {error} {len(folded)} of {len(nodes_to_fold)} structure(s) were folded in this "
+            "run and are kept. Run the command again after the limit is lifted: structures already saved are not "
+            "folded again."
+        )
+        print(f"Error: {reason}")
+        job_event("failed", reason=reason, log=log_path)
+        portal_event("failed", reason)
+        portal_pause("\nError occurred. Press Enter to close this window...")
+        return 1
     except Biohub_API.BiohubAuthenticationError as error:
         # Not a failure: the structures folded so far are kept, and the Viewer may ask for a replacement token
         # and fold the rest. The status is one that waits for the user, so that it is not read as an end.
@@ -829,7 +1070,7 @@ def main(argv=None):
                      succeeded=len(folded), total=len(nodes_to_fold))
         return EXIT_AUTHENTICATION
     except Exception as error:
-        print(f"Error initializing ESM3 prediction: {error}")
+        print(f"Error: {error}")
         job_event("failed", reason=str(error), log=log_path)
         portal_event("failed", str(error))
         portal_pause("\nError occurred. Press Enter to close this window...")
