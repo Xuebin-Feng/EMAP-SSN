@@ -1070,7 +1070,8 @@ def main(argv=None):
                      succeeded=len(folded), total=len(nodes_to_fold))
         return EXIT_AUTHENTICATION
     except Exception as error:
-        print(f"Error: {error}")
+        label = "Error initializing ESM3 prediction" if arguments.mode == "local" else "Error"
+        print(f"{label}: {error}")
         job_event("failed", reason=str(error), log=log_path)
         portal_event("failed", str(error))
         portal_pause("\nError occurred. Press Enter to close this window...")
