@@ -1648,7 +1648,7 @@ class RemoteFoldTests(unittest.TestCase):
                 b_started.wait(10)
                 return FakeProteinError(429, self.CREDIT)
             b_started.set()
-            time.sleep(0.05)
+            time.sleep(0.3)  # long enough that the limit answer is always seen first, even on a loaded machine
             return FakeOutput(pdb=f"PDB {sequence}\n")
 
         client, error = self.run_fold([["a", "AC"], ["b", "DE"], ["c", "FG"]], answer, parallel=2)
@@ -1661,7 +1661,7 @@ class RemoteFoldTests(unittest.TestCase):
         def answer(sequence):
             if sequence == "DE":
                 return FakeProteinError(401)
-            time.sleep(0.05)
+            time.sleep(0.3)  # long enough that the rejection is always seen first, even on a loaded machine
             return FakeOutput(pdb=f"PDB {sequence}\n")
 
         with mock.patch.object(esmfold_worker, "can_ask", return_value=False):

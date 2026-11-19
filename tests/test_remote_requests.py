@@ -152,7 +152,7 @@ class RunAsCompletedTests(unittest.TestCase):
                 raise Stop("limit reached")
             if item == "b":
                 b_started.set()
-                time.sleep(0.05)
+                time.sleep(0.3)  # long enough that a's failure is always seen first, even on a loaded machine
             return item
 
         collector = Collector()

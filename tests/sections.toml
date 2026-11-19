@@ -328,6 +328,7 @@ description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
 seconds = 25
 modules = [
     "test_embedding_hdf5_metadata",
+    "test_remote_requests",
     "test_embedding_import",
     "test_embedding_injection",
     "test_embedding_msa_configuration",
