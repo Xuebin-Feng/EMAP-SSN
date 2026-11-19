@@ -680,6 +680,7 @@ def benchmark_msa_devices(
     for candidate in candidates:
         elapsed_runs = []
         error = None
+        failure_status, failure_details = None, []
         free_memory = Hardware_Utils.begin_gpu_trial(candidate)
         try:
             first_left = samples[0][4]
@@ -723,9 +724,11 @@ def benchmark_msa_devices(
             result = Hardware_Utils.BenchmarkResult(candidate, median_elapsed)
         except Exception as failure:
             median_elapsed = None
-            error = f"{type(failure).__name__}: {failure}" + Hardware_Utils.note_gpu_failure(
+            memory_text = Hardware_Utils.note_gpu_failure(
                 candidate, failure, free_memory, where="MSA device test"
             )
+            error = f"{type(failure).__name__}: {failure}" + memory_text
+            failure_status, *failure_details = Hardware_Utils.failure_lines(failure, memory_text)
             result = Hardware_Utils.BenchmarkResult(
                 candidate,
                 None,
@@ -739,8 +742,10 @@ def benchmark_msa_devices(
         )
         print(
             f"{candidate.display_name[:30]:30}  {len(samples):>7}   "
-            f"{elapsed_text:>15}   {error or 'ok'}"
+            f"{elapsed_text:>15}   {failure_status or error or 'ok'}"
         )
+        for line in failure_details:
+            print(line)
         results.append(result)
 
     ranked = Hardware_Utils.rank_benchmark_results(

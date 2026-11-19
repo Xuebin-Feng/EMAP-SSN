@@ -983,11 +983,13 @@ def _benchmark_injection_plans(
                         candidate, error, free_memory,
                         where=f"plan test: {variant}, {lanes} lane(s)",
                     )
+                    status, *detail_lines = Hardware_Utils.failure_lines(error, memory_text)
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
-                        f"{lanes:>5}   {vram:>14}   {'--':>9}   "
-                        f"{type(error).__name__}: {error}{memory_text}"
+                        f"{lanes:>5}   {vram:>14}   {'--':>9}   {status}"
                     )
+                    for line in detail_lines:
+                        print(line)
         Hardware_Utils.release_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(

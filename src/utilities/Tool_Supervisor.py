@@ -118,11 +118,13 @@ def observe_gpu_memory(device, free_bytes, total_bytes):
         _observed[key] = (int(free_bytes), int(total_bytes))
 
 
-def record_note(device, error, *, where="", free_bytes=None, total_bytes=None):
+def record_note(device, error, *, where="", free_bytes=None, total_bytes=None, system=None, system_before=None):
     """Tell the supervising parent that a GPU out-of-memory error was caught.
 
     Returns True when a note was written, and never raises. The first note of a run
     stays: the memory read before the first failing test is the one worth keeping.
+    ``system`` and ``system_before`` are the computer's memory (commit and available
+    RAM, Hardware_Acceleration.read_system_memory) at the failure and before the test.
     """
     path = _note_path
     if not path:
@@ -139,6 +141,9 @@ def record_note(device, error, *, where="", free_bytes=None, total_bytes=None):
         "free_bytes": None if free_bytes is None else int(free_bytes),
         "total_bytes": None if total_bytes is None else int(total_bytes),
     }
+    for name, value in (("system", system), ("system_before", system_before)):
+        if isinstance(value, dict):
+            note[name] = {key: int(item) for key, item in value.items() if isinstance(item, (int, float))}
     try:
         if os.path.exists(path):
             return True
@@ -411,6 +416,29 @@ def _pass_on(code):
     sys.exit(code)
 
 
+def shortage_sentence(note):
+    """What the note says about the computer's own memory, when it was short; else "".
+
+    Named only for under 1 GiB of commit headroom (Windows) or under 1 GiB of available RAM at the
+    failure, and then without more claim than the numbers carry. A note without numbers says nothing.
+    """
+    if not isinstance(note, dict):
+        return ""
+    system = note.get("system") or note.get("system_before")
+    if not isinstance(system, dict):
+        return ""
+    used, limit = system.get("commit_used"), system.get("commit_limit")
+    if isinstance(used, (int, float)) and isinstance(limit, (int, float)) and limit > 0:
+        headroom = limit - used
+        if headroom < GIB:
+            return (f"Windows had {max(0.0, headroom) / GIB:.1f} GB of virtual memory left: "
+                    "the computer, not the GPU, was short of memory.")
+    available = system.get("ram_available")
+    if isinstance(available, (int, float)) and available < GIB:
+        return f"The computer had only {available / GIB:.1f} GB of RAM available: the computer, not the GPU, was short of memory."
+    return ""
+
+
 def _say(text):
     """Print one line; a console that cannot show a character gets a replacement, never a crash."""
     try:
@@ -460,9 +488,11 @@ def _run_parent():
             return code
         restarted = True
         wait_info = {key: note.get(key) for key in ("device", "free_bytes", "total_bytes")}
+        shortage = shortage_sentence(note)
         _say(
             f"[Hardware] Warning: the tool ended abnormally ({_describe_exit(code)}) after a GPU "
-            "out-of-memory error. Finished work is kept. Starting it once more."
+            "out-of-memory error. " + (shortage + " " if shortage else "")
+            + "Finished work is kept. Starting it once more."
         )
 
 

@@ -351,10 +351,13 @@ def _benchmark_embedding_devices(
                 None,
                 error=f"{type(error).__name__}: {error}{memory_text}",
             )
+            status, *detail_lines = Hardware_Utils.failure_lines(error, memory_text)
             print(
                 f"{candidate.display_name[:30]:30}  {move_seconds:>8.3f}   "
-                f"{'--':>17}   {result.error}"
+                f"{'--':>17}   {status}"
             )
+            for line in detail_lines:
+                print(line)
             model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
         results.append(result)
 

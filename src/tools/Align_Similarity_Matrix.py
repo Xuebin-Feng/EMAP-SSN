@@ -1793,11 +1793,14 @@ def _benchmark_processing_plans(
                             execution_plan=adaptive,
                             peak_memory_bytes=memory_estimate.projected_peak_bytes,
                         )
+                        status, *detail_lines = Hardware_Utils.failure_lines(error, memory_text)
                         print(
                             f"{candidate.display_name[:30]:30}  "
                             f"{'tiled':8}  {adaptive.lanes:>5}   "
-                            f"{vram_label:>14}   {'--':>20}   {result.error}"
+                            f"{vram_label:>14}   {'--':>20}   {status}"
                         )
+                        for line in detail_lines:
+                            print(line)
                     candidate_results.append(result)
                     _release_alignment_device_cache(candidate)
                 continue
@@ -1860,11 +1863,14 @@ def _benchmark_processing_plans(
                         error=f"{type(error).__name__}: {error}{memory_text}",
                         variant=variant,
                     )
+                    status, *detail_lines = Hardware_Utils.failure_lines(error, memory_text)
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
                         f"{lanes:>5}   {vram_label:>14}   "
-                        f"{'--':>20}   {result.error}"
+                        f"{'--':>20}   {status}"
                     )
+                    for line in detail_lines:
+                        print(line)
                 candidate_results.append(result)
         results.extend(candidate_results)
         _release_alignment_device_cache(candidate)

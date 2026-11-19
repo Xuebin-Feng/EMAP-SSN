@@ -292,18 +292,97 @@ def read_free_memory(device_or_candidate: Any) -> Optional[tuple[int, int]]:
     return int(free), int(total)
 
 
+_GIB = 1024 ** 3
+
+
+def read_system_memory() -> Optional[dict]:
+    """The computer's own memory: {"commit_used", "commit_limit", "ram_available"} bytes on Windows,
+    {"ram_available"} elsewhere; None when it cannot be read. Never raises.
+
+    Under WDDM the GPU memory a process holds is charged to the system's commit, so a failed GPU
+    test needs this beside the free GPU memory: "Windows ran out of virtual memory" and "the GPU ran
+    out of memory" look alike from CUDA.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class PerformanceInformation(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong), ("CommitTotal", ctypes.c_size_t), ("CommitLimit", ctypes.c_size_t),
+                    ("CommitPeak", ctypes.c_size_t), ("PhysicalTotal", ctypes.c_size_t),
+                    ("PhysicalAvailable", ctypes.c_size_t), ("SystemCache", ctypes.c_size_t),
+                    ("KernelTotal", ctypes.c_size_t), ("KernelPaged", ctypes.c_size_t),
+                    ("KernelNonpaged", ctypes.c_size_t), ("PageSize", ctypes.c_size_t),
+                    ("HandleCount", ctypes.c_ulong), ("ProcessCount", ctypes.c_ulong),
+                    ("ThreadCount", ctypes.c_ulong),
+                ]
+
+            info = PerformanceInformation()
+            info.cb = ctypes.sizeof(info)
+            if not ctypes.windll.psapi.GetPerformanceInfo(ctypes.byref(info), info.cb):
+                return None
+            page = int(info.PageSize)
+            return {
+                "commit_used": int(info.CommitTotal) * page,
+                "commit_limit": int(info.CommitLimit) * page,
+                "ram_available": int(info.PhysicalAvailable) * page,
+            }
+        import psutil
+
+        return {"ram_available": int(psutil.virtual_memory().available)}
+    except Exception:
+        return None
+
+
+def system_memory_text(system: Optional[dict]) -> str:
+    """"Windows virtual memory: 111.2 of 111.8 GB in use; RAM available: 6.2 GB", or "" for nothing known."""
+    if not isinstance(system, dict):
+        return ""
+    parts = []
+    used, limit = system.get("commit_used"), system.get("commit_limit")
+    if used is not None and limit:
+        parts.append(f"Windows virtual memory: {used / _GIB:.1f} of {limit / _GIB:.1f} GB in use")
+    if system.get("ram_available") is not None:
+        parts.append(f"RAM available: {system['ram_available'] / _GIB:.1f} GB")
+    return "; ".join(parts)
+
+
+class TrialMemory(tuple):
+    """(free, total) GPU bytes read before a plan test, with the computer's memory at that moment in ``system``."""
+
+    def __new__(cls, free: int, total: int, system: Optional[dict] = None):
+        instance = super().__new__(cls, (int(free), int(total)))
+        instance.system = system
+        return instance
+
+
 def begin_gpu_trial(device_or_candidate: Any) -> Optional[tuple[int, int]]:
     """Read the free memory right before one plan test on a CUDA/ROCm device.
 
     In a tool restarted after a GPU out-of-memory crash, the first call waits (bounded)
-    for the memory the failed run had free to come back. Returns (free, total) or None.
+    for the memory the failed run had free to come back. Returns (free, total) or None;
+    the result also carries ``system``, the computer's memory (read_system_memory).
     """
     if _cuda_device(device_or_candidate) is None:
         return None
     Tool_Supervisor.wait_for_gpu_memory(
         _cuda_device(device_or_candidate), lambda: read_free_memory(device_or_candidate)
     )
-    return read_free_memory(device_or_candidate)
+    reading = read_free_memory(device_or_candidate)
+    if reading is None:
+        return None
+    return TrialMemory(reading[0], reading[1], read_system_memory())
+
+
+def failure_lines(error: BaseException, memory_text: str = "") -> list[str]:
+    """A failed plan test as lines: the row's status (the error's first line plus the memory text), then the
+    rest of the error's lines indented. CUDA errors have several lines, and the memory text belongs on the row."""
+    text = f"{type(error).__name__}: {error}"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        lines = [text.strip()]
+    return [lines[0] + memory_text] + ["    " + line for line in lines[1:]]
 
 
 def is_gpu_out_of_memory(error: BaseException) -> bool:
@@ -322,17 +401,25 @@ def note_gpu_failure(
 ) -> str:
     """After a failed plan test: leave the supervising parent a note for an out-of-memory error.
 
-    Returns the text for the row's status, "(free before the test: 11.2 of 12.0 GB)",
-    or "" when the memory was not read.
+    Returns the text for the row's status, " (free before the test: 10.8 of 12.0 GB; Windows virtual
+    memory: 111.2 of 111.8 GB in use; RAM available: 6.2 GB)", or "" when nothing was read. The
+    computer's memory is read now, at the failure, and also kept as it was before the test.
     """
     device = _cuda_device(device_or_candidate)
+    system = read_system_memory() if device is not None else None
+    before = getattr(memory, "system", None)
     if device is not None and is_gpu_out_of_memory(error):
         free, total = memory if memory is not None else (None, None)
-        Tool_Supervisor.record_note(device, error, where=where, free_bytes=free, total_bytes=total)
-    if memory is None:
-        return ""
-    gib = 1024 ** 3
-    return f" (free before the test: {memory[0] / gib:.1f} of {memory[1] / gib:.1f} GB)"
+        Tool_Supervisor.record_note(
+            device, error, where=where, free_bytes=free, total_bytes=total, system=system, system_before=before,
+        )
+    parts = []
+    if memory is not None:
+        parts.append(f"free before the test: {memory[0] / _GIB:.1f} of {memory[1] / _GIB:.1f} GB")
+    shown = system_memory_text(system or before)
+    if shown:
+        parts.append(shown)
+    return f" ({'; '.join(parts)})" if parts else ""
 
 
 def rank_benchmark_results(
