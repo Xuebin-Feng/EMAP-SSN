@@ -835,6 +835,10 @@ class ResponsiveFieldLayout(QLayout):
         # Rows that are wide or stacked together: each takes the widest width
         # any of them needs. The row itself is among them.
         self.stack_peers = None
+        # Another row of two columns, whose second column this row's second column starts
+        # with, so the two second labels start at one x. Only while that row is side by side
+        # and both columns still fit; the fields' own widths follow from it.
+        self.align_to = None
         self.stacked_label_width = stacked_label_width
         self.wrap_labels = wrap_labels
         self.pairs = pairs
@@ -1008,7 +1012,19 @@ class ResponsiveFieldLayout(QLayout):
                     remaining -= column
                     ratio_sum -= ratio
             widths[0] += prefix
-        return widths
+        return self._aligned_widths(width, widths)
+
+    def _aligned_widths(self, width, widths):
+        """widths, or the first two columns' split that starts the second where align_to's does."""
+        reference = self.align_to
+        if reference is None or len(widths) != 2 or width < reference._wide_width():
+            return widths
+        first = reference.column_widths(width)[0] + reference.column_spacing - self.column_spacing
+        minima = self._column_minima()
+        second = width - self.column_spacing - first
+        if first < minima[0] or second < minima[1]:
+            return widths
+        return [first, second]
 
     def _arrange(self, rect, *, apply):
         gap = self.spacing()

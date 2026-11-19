@@ -12713,8 +12713,8 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <source>Hits scoring below this cutoff are excluded from results. Set to `None` to disable.</source>
-        <translation type="unfinished">低于此值的命中不会列入结果。设为 `None` 则不启用。</translation>
+        <source>Hits scoring below this cutoff are excluded from results. Leave empty to disable.</source>
+        <translation type="unfinished">低于此值的命中不会列入结果。留空则不启用。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -13048,8 +13048,8 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+1"/>
-        <source>Tab-separated files (*.tsv *.txt);;All files (*)</source>
-        <translation type="unfinished">制表符分隔文件 (*.tsv *.txt);;所有文件 (*)</translation>
+        <source>ID mapping files (*.tsv *.csv *.txt);;All files (*)</source>
+        <translation type="unfinished">ID 映射文件 (*.tsv *.csv *.txt);;所有文件 (*)</translation>
     </message>
     <message>
         <location line="+163"/>
@@ -13101,13 +13101,28 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
     </message>
     <message>
         <location line="-3"/>
-        <source>Optional file of two tab-separated columns: a FASTA header and the source ID it takes.</source>
-        <translation type="unfinished">可选的文件，含以制表符分隔的两列：一个 FASTA 序列标题及其对应的源 ID。</translation>
+        <source>Optional file that gives a FASTA header the ID its embedding has in the source.</source>
+        <translation type="unfinished">可选的文件，为 FASTA 序列标题指定其 embedding 在源中的 ID。</translation>
     </message>
     <message>
         <location line="+2"/>
-        <source>Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME.</source>
-        <translation type="unfinished">先于自动规则尝试。自动规则依次为：原始序列标题、其第一个词、已清理的序列标题，以及 UniProt accession（例如从 sp|P12345|NAME 得到 P12345）。</translation>
+        <source>First column: a FASTA header of the sequence set (as written there, its first word, or the sanitized header). Second column: that protein's ID in the embedding source. Any further column is ignored.</source>
+        <translation type="unfinished">第一列：序列集中的一个 FASTA 序列标题（原样写法、其第一个词或已清理的标题）。第二列：该蛋白质在 embedding 源中的 ID。多出的列会被忽略。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A .csv file is comma-separated (a value with a comma goes in double quotes); a .tsv or .txt file is tab-separated. A line with fewer than two columns stops the run.</source>
+        <translation type="unfinished">.csv 文件以逗号分隔（含逗号的值要放在双引号中）；.tsv 或 .txt 文件以制表符分隔。少于两列的行会使运行停止。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A line of column names is not recognised and would be read as a pair: start it with # to skip it, as with any comment line. Blank lines are skipped too.</source>
+        <translation type="unfinished">列名行不会被识别，会被当作一对映射读取：请以 # 开头来跳过它，与其他注释行相同。空行同样会被跳过。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Tried before the automatic rules (the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME), which handle every sequence the file does not list. A listed ID the source lacks is reported, not retried.</source>
+        <translation type="unfinished">先于自动规则尝试（自动规则依次为：原始序列标题、其第一个词、已清理的序列标题，以及 UniProt accession，例如从 sp|P12345|NAME 得到 P12345），文件未列出的序列都由自动规则处理。所列的 ID 若不在源中，会被报告，不会再尝试其他规则。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13232,8 +13247,8 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
     </message>
     <message>
         <location line="+1"/>
-        <source>ID Mapping (.tsv):</source>
-        <translation type="unfinished">ID 映射（.tsv）：</translation>
+        <source>ID Mapping (.tsv/.csv):</source>
+        <translation type="unfinished">ID 映射（.tsv/.csv）：</translation>
     </message>
     <message>
         <location line="+5"/>

@@ -172,6 +172,55 @@ class MatchingTests(ImportCase):
                 self.assertFalse(self.embed_dir.exists())
 
 
+class IdMapFileTests(ImportCase):
+    """The mapping file: tab-separated, or comma-separated when it is a .csv file."""
+
+    def read_map(self, name, text, encoding="utf-8"):
+        path = self.root / name
+        path.write_bytes(text.encode(encoding))
+        return Embedding_Import.read_id_map(str(path))
+
+    def test_a_csv_file_is_comma_separated_with_the_csv_quoting(self):
+        mapping = self.read_map(
+            "map.csv",
+            '# FASTA header,source ID\r\nprotein one,k1\r\n"protein, two",k2\r\n"say ""hi""",k3,ignored\r\n\r\n',
+        )
+        self.assertEqual(mapping, {"protein one": "k1", "protein, two": "k2", 'say "hi"': "k3"})
+        self.assertEqual(self.read_map("UPPER.CSV", "a,k1\n"), {"a": "k1"})
+
+    def test_a_csv_file_maps_records_whose_headers_hold_a_comma(self):
+        fasta = self.fasta(">protein one\nAAAA\n>protein, two\nCCCC\n")
+        source = self.h5_source({"k1": rows(4, seed=1), "k2": rows(4, seed=2)})
+        id_map = self.root / "map.csv"
+        id_map.write_text('protein one,k1\n"protein, two",k2\n', encoding="utf-8")
+        result = self.run_import(fasta, source, id_map=id_map)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["matched_by"], {"id_map": 2})
+
+    def test_tsv_txt_and_other_files_stay_tab_separated(self):
+        for name in ("map.tsv", "map.txt", "map"):
+            with self.subTest(name=name):
+                self.assertEqual(self.read_map(name, "a,b\tk1\nc\tk2\n"), {"a,b": "k1", "c": "k2"})
+
+    def test_a_byte_order_mark_is_not_part_of_the_first_id(self):
+        for name, separator in (("map.csv", ","), ("map.tsv", "\t")):
+            with self.subTest(name=name):
+                self.assertEqual(self.read_map(name, f"﻿a{separator}k1\n"), {"a": "k1"})
+
+    def test_a_line_without_two_columns_names_the_file_the_line_and_what_was_expected(self):
+        for name, text, line, kind in (
+            ("bad.csv", "a,k1\nb\n", 2, "comma-separated"),
+            ("bad.csv", "a,k1\n\nb,\n", 3, "comma-separated"),
+            ("bad.tsv", "a\tk1\nb,k2\n", 2, "tab-separated"),
+        ):
+            with self.subTest(name=name, text=text):
+                with self.assertRaises(Embedding_Import.EmbeddingImportError) as caught:
+                    self.read_map(name, text)
+                message = str(caught.exception)
+                for part in (name, f"Line {line} ", f"two {kind} columns", "a FASTA header and a source ID"):
+                    self.assertIn(part, message)
+
+
 class ArrayCheckTests(ImportCase):
     def refused(self, array, mode="float32", length=6):
         fasta = self.fasta(f">P1\n{'ACDEFGHIKL'[:length]}\n")
@@ -348,6 +397,19 @@ class MainTests(ImportCase):
         self.assertEqual(code, 1)
         self.assertIn("names a model EMAP-SSN computes itself", out)
 
+    def test_a_missing_label_is_answered_as_before_and_an_empty_one_in_a_settings_document_is_missing_too(self):
+        self.fasta(UNIPROT_FASTA)
+        self.h5_source({"P00001": rows(5), "P00002": rows(6)})
+        code, out = self.run_main(INPUT_FASTA="set.fasta", SOURCE_PATH="source.h5")
+        self.assertEqual(code, 1)
+        self.assertIn("MODEL_LABEL is not set.", out)
+        self.assertFalse(self.embed_dir.exists())
+        from tools.tool_helpers.Tool_Pipeline import apply_settings_document
+        namespace = {"MODEL_LABEL": None, "SAVING_MODE": "float16"}
+        apply_settings_document(namespace, {"Embedding_Import.py": {"MODEL_LABEL": "", "SAVING_MODE": "float32"}},
+                                "Embedding_Import.py", str(self.root))
+        self.assertEqual(namespace, {"MODEL_LABEL": None, "SAVING_MODE": "float32"})
+
 
 def literal(script, name):
     """The literal a tool script assigns to name, as the Tools window reads its defaults."""
@@ -423,7 +485,7 @@ class ToolsCardTests(unittest.TestCase):
         with mock.patch("EMAPSSN_Tools.QFileDialog.getOpenFileName", return_value=("", "")) as dialog:
             id_map.browse_button.click()
         self.assertEqual(dialog.call_args.args[1], "Select ID Mapping File")
-        self.assertIn("*.tsv", dialog.call_args.args[3])
+        self.assertIn("*.tsv *.csv *.txt", dialog.call_args.args[3])
 
     def test_save_and_run_hands_both_paths_to_the_run_but_never_saves_them(self):
         window, path, root = self.window()
@@ -449,6 +511,148 @@ class ToolsCardTests(unittest.TestCase):
         document = json.loads(snapshot.read_text(encoding="utf-8"))["Embedding_Import.py"]
         self.assertEqual((document["SOURCE_PATH"], document["ID_MAP_TSV"]),
                          (os.path.normpath(source), os.path.normpath(id_map)))
+
+    def test_an_untouched_card_shows_an_empty_label_and_saves_no_text_none(self):
+        window, path, root = self.window()
+        label = window.script_data[path]["inputs"]["MODEL_LABEL"]["widget"]
+        self.assertEqual(label.text(), "")
+        self.assertEqual(window._collect_tool_settings(path)["MODEL_LABEL"], "")
+        launched = []
+        with mock.patch("EMAPSSN_Tools.launch_in_terminal", side_effect=lambda argv, **kw: launched.append(argv)):
+            window.save_and_run(path)
+        saved = json.loads((root / "tools_settings.json").read_text(encoding="utf-8"))["Embedding_Import.py"]
+        self.assertEqual(saved.get("MODEL_LABEL", ""), "")
+        self.assertNotIn("None", saved.values())
+        self.assertEqual(len(launched), 1)
+        from tools.tool_helpers.Tool_Pipeline import forget_one_run_snapshot
+        snapshot = Path(launched[0][-1])
+        self.addCleanup(lambda: forget_one_run_snapshot(str(snapshot)))
+        document = json.loads(snapshot.read_text(encoding="utf-8"))["Embedding_Import.py"]
+        self.assertNotIn("None", document.values())
+
+    def test_every_text_field_whose_default_is_none_shows_empty_even_after_an_older_save(self):
+        from PySide6.QtWidgets import QLineEdit
+        saved = {"Embedding_Import.py": {"MODEL_LABEL": "None"},
+                 "Embedding_PWA.py": {"REF_HEADER": "None", "TAR_HEADER": "None"},
+                 "Embedding_SSEARCH.py": {"NORM_THRESHOLD": "None"}}
+        for sections in ({}, saved):
+            window, _, _ = self.window(sections=sections)
+            for script, names in (("Embedding_Import.py", ("MODEL_LABEL",)),
+                                  ("Embedding_PWA.py", ("REF_HEADER", "TAR_HEADER")),
+                                  ("Embedding_SSEARCH.py", ("NORM_THRESHOLD",))):
+                path = next(p for p in window.script_data if Path(p).name == script)
+                for name in names:
+                    with self.subTest(script=script, name=name, saved=bool(sections)):
+                        field = window.script_data[path]["inputs"][name]["widget"]
+                        self.assertIsInstance(field, QLineEdit)
+                        self.assertEqual(field.text(), "")
+                        self.assertEqual(window._collect_tool_settings(path)[name], "")
+
+    # --- the card's rows ---
+
+    def shown_card(self):
+        from PySide6.QtWidgets import QLabel, QWidget
+        window, path, _ = self.window()
+        window.show()
+        self.flush()
+        inputs = window.script_data[path]["inputs"]
+        field = inputs["MODEL_LABEL"]["widget"]
+        tab = next(index for index in range(window.tabs.count()) if window.tabs.widget(index).isAncestorOf(field))
+        window.tabs.setCurrentIndex(tab)
+        self.flush()
+        scroll = window.tabs.widget(tab)
+        card = field.parentWidget()
+
+        def label_x(text):
+            labels = [label for label in card.findChildren(QLabel) if label.text() == text]
+            self.assertEqual(len(labels), 1, text)
+            return labels[0].mapTo(scroll.widget(), labels[0].rect().topLeft()).x()
+
+        def box(widget):
+            return widget.rect().translated(widget.mapTo(scroll.widget(), widget.rect().topLeft()))
+
+        return window, path, scroll, card, label_x, box, QWidget
+
+    def flush(self):
+        for _ in range(4):
+            self.app.processEvents()
+
+    def resize_panel(self, window, width):
+        right = window.splitter.widget(1).minimumSizeHint().width() + 4
+        window.resize(width + right + 34, 850)
+        window.splitter.setSizes([width + 4, right])
+        self.flush()
+        delta = width - window.tabs.currentWidget().width()
+        left, right = window.splitter.sizes()
+        window.splitter.setSizes([left + delta, right - delta])
+        self.flush()
+
+    def test_the_rows_hold_the_set_and_the_mapping_then_the_source_then_the_label_and_the_mode(self):
+        window, path, scroll, card, label_x, box, _ = self.shown_card()
+        self.resize_panel(window, 1400)
+        inputs = window.script_data[path]["inputs"]
+        fasta, id_map, source, label, mode = (box(inputs[name]["widget"]) for name in (
+            "INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE"))
+        self.assertLessEqual(abs(fasta.center().y() - id_map.center().y()), 3)
+        self.assertLess(fasta.right(), id_map.left())
+        self.assertLess(fasta.bottom(), source.top())
+        self.assertLess(source.bottom(), label.top())
+        self.assertLessEqual(abs(label.center().y() - mode.center().y()), 3)
+        self.assertLess(label.right(), mode.left())
+        self.assertEqual({fasta.left(), source.left(), label.left()}, {fasta.left()})
+        self.assertGreater(source.width(), fasta.width())
+        self.assertGreater(label_x("ID Mapping (.tsv/.csv):"), label_x("Sequence Set (.fasta):"))
+
+    def test_the_saving_mode_label_starts_where_the_id_mapping_label_does_at_every_width(self):
+        window, path, scroll, card, label_x, box, QWidget = self.shown_card()
+        group = card.findChild(QWidget, "compactRow_MODEL_LABEL_SAVING_MODE")
+        self.assertIsNotNone(group)
+        for width in (None, 1400, 1900):
+            if width:
+                self.resize_panel(window, width)
+            with self.subTest(width=width):
+                if group.property("stacked"):
+                    self.assertIsNone(width)
+                    continue
+                self.assertEqual(label_x("Saving Mode:"), label_x("ID Mapping (.tsv/.csv):"))
+        self.resize_panel(window, 1400)
+        self.assertFalse(group.property("stacked"))
+
+    def test_the_tab_key_follows_the_new_rows(self):
+        from PySide6.QtCore import Qt
+        window, path, scroll, card, label_x, box, QWidget = self.shown_card()
+        inputs = window.script_data[path]["inputs"]
+        order = ("INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE")
+        owner = {}
+        for name in order:
+            widget = inputs[name]["widget"]
+            for member in [widget] + widget.findChildren(QWidget):
+                owner[member] = name
+        seen, current = [], inputs[order[0]]["widget"]
+        for _ in range(800):
+            name = owner.get(current)
+            if name and current.focusPolicy() != Qt.FocusPolicy.NoFocus and name not in seen[-1:]:
+                seen.append(name)
+            current = current.nextInFocusChain()
+            if len(seen) >= len(order):
+                break
+        self.assertEqual(seen, list(order))
+
+    def test_the_rows_stack_without_overlap_when_the_panel_is_narrow(self):
+        window, path, scroll, card, label_x, box, QWidget = self.shown_card()
+        self.resize_panel(window, 600)
+        for name in ("compactRow_INPUT_FASTA_ID_MAP_TSV", "compactRow_MODEL_LABEL_SAVING_MODE"):
+            self.assertTrue(card.findChild(QWidget, name).property("stacked"), name)
+        for widget in [card] + card.findChildren(QWidget):
+            layout = widget.layout()
+            if layout is None:
+                continue
+            children = [layout.itemAt(index).widget() for index in range(layout.count())]
+            children = [child for child in children if child is not None and child.isVisibleTo(card)]
+            for index, child in enumerate(children):
+                self.assertTrue(widget.rect().contains(child.geometry()), child.objectName())
+                for other in children[index + 1:]:
+                    self.assertFalse(child.geometry().intersects(other.geometry()), type(child).__name__)
 
 
 class McpValidationTests(unittest.TestCase):

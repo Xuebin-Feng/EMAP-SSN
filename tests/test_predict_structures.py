@@ -925,6 +925,46 @@ class ToolsWindowTests(unittest.TestCase):
         for gone in ("Model:", "Maximum Sequences:", "Sequence Name (Optional):", "Sequences to Fold:", "Prediction Settings:"):
             self.assertNotIn(gone, texts)
 
+    def test_the_fasta_file_label_starts_where_the_max_seq_label_does_at_every_width(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QLabel, QWidget
+        window, path = self.shown_window()
+        scroll = self.show_card(window, path)
+        card = window.script_data[path]["inputs"]["SEQUENCE"]["widget"].parentWidget()
+
+        def label_x(text):
+            labels = [label for label in card.findChildren(QLabel) if label.text() == text]
+            self.assertEqual(len(labels), 1, text)
+            return labels[0].mapTo(scroll.widget(), QPoint(0, 0)).x()
+
+        group = card.findChild(QWidget, "compactRow_SEQUENCE_NAME_INPUT_FASTA")
+        self.assertIsNotNone(group)
+        for width in (None, 1400, 1900):
+            if width:
+                self.resize_panel(window, width)
+            with self.subTest(width=width):
+                if group.property("stacked"):
+                    self.assertIsNone(width)  # only the default window may be narrow enough to stack
+                    continue
+                self.assertEqual(label_x("FASTA File:"), label_x("Max Seq:"))
+        # Only the labels line up: the name field still ends before the FASTA field, Browse is kept,
+        # and the switch still ends the first row.
+        self.resize_panel(window, 1400)
+        self.assertFalse(group.property("stacked"))
+        boxes, _ = self.row_boxes(window, path, scroll.widget())
+        fasta = window.script_data[path]["inputs"]["INPUT_FASTA"]["widget"]
+        self.assertLess(boxes["SEQUENCE_NAME"].right(), boxes["INPUT_FASTA"].left())
+        self.assertTrue(fasta.browse_button.isVisibleTo(fasta))
+        self.assertGreaterEqual(boxes["BATCH_INPUT"].right(), boxes["INPUT_FASTA"].right() - 2)
+
+    def test_the_rows_still_stack_without_overlap_at_the_narrowest_panel(self):
+        from PySide6.QtWidgets import QWidget
+        window, path = self.shown_window()
+        scroll = self.show_card(window, path)
+        self.check_fits(window, path, scroll, 600)
+        card = window.script_data[path]["inputs"]["SEQUENCE"]["widget"].parentWidget()
+        self.assertTrue(card.findChild(QWidget, "compactRow_SEQUENCE_NAME_INPUT_FASTA").property("stacked"))
+
     def test_the_tab_key_goes_through_the_fields_in_reading_order(self):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QWidget
@@ -1004,7 +1044,8 @@ class ToolsWindowTests(unittest.TestCase):
 
     def test_the_other_cards_rows_are_laid_out_as_before(self):
         import EMAPSSN_Tools as tools
-        self.assertEqual({key: value for key, value in tools.INLINE_FIELD_GROUPS.items() if key != "Predict_Structures.py"}, {
+        own_rows = ("Predict_Structures.py", "Embedding_Import.py")
+        self.assertEqual({key: value for key, value in tools.INLINE_FIELD_GROUPS.items() if key not in own_rows}, {
             "Align_Similarity_Matrix.py": [("INPUT_HDF5", "DEVICE_SELECTION")],
             "Align_Substitution_Matrix.py": [("INPUT_FASTA", "MATRIX"), ("BLASTP_DIR", "SCORE_METRIC")],
             "Parse_BLAST_Output.py": [("INPUT_FASTA", "SCORE_METRIC"), ("BLAST_LAYOUT", "BITSCORE_COLUMN"),

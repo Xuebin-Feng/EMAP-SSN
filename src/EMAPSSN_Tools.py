@@ -173,7 +173,7 @@ UNSAVED_SETTINGS = {
 FASTA_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)")
 # The filters of the dialogs that pick Embedding Import's source file and ID mapping file.
 EMBEDDING_SOURCE_FILTER = QT_TRANSLATE_NOOP("Tools", "Embedding files (*.h5 *.hdf5 *.hdf *.he5 *.npz);;All files (*)")
-ID_MAP_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "Tab-separated files (*.tsv *.txt);;All files (*)")
+ID_MAP_FILE_FILTER = QT_TRANSLATE_NOOP("Tools", "ID mapping files (*.tsv *.csv *.txt);;All files (*)")
 # How long a tool's Save & Run stays greyed out once clicked, in ms, so a
 # double click starts the tool once. The console the tool opens in shows it
 # started; no message box says so.
@@ -254,6 +254,23 @@ INLINE_FIELD_GROUPS = {
         ("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT"),
         ("SEQUENCE_NAME", "INPUT_FASTA"),
     ],
+    # Row 1: the sequence set and the mapping file. Row 2 is the source alone. Row 3: the label and the mode.
+    "Embedding_Import.py": [
+        ("INPUT_FASTA", "ID_MAP_TSV"),
+        ("MODEL_LABEL", "SAVING_MODE"),
+    ],
+}
+# Rows whose second column starts where another row's does, so their second labels start at one x
+# (the fields need not): (the row that decides, the row that follows it).
+ALIGNED_COLUMN_GROUPS = {
+    "Predict_Structures.py": [(
+        ("PREDICTION_MODEL", "MAX_SEQUENCES", "BATCH_INPUT"),
+        ("SEQUENCE_NAME", "INPUT_FASTA"),
+    )],
+    "Embedding_Import.py": [(
+        ("INPUT_FASTA", "ID_MAP_TSV"),
+        ("MODEL_LABEL", "SAVING_MODE"),
+    )],
 }
 INLINE_FIELD_RATIOS = {
     ("SEQUENCE_NAME", "INPUT_FASTA"): (1, 2),
@@ -294,6 +311,9 @@ TAB_ORDERS = {
     "Parse_BLAST_Output.py": (
         "INPUT_BLAST_TABULAR", "INPUT_FASTA", "SCORE_METRIC", "BLAST_LAYOUT",
         "BITSCORE_COLUMN", "QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN",
+    ),
+    "Embedding_Import.py": (
+        "INPUT_FASTA", "ID_MAP_TSV", "SOURCE_PATH", "MODEL_LABEL", "SAVING_MODE",
     ),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
@@ -1793,9 +1813,12 @@ class ToolsGUI(QMainWindow):
                     ),
                 ),
                 "ID_MAP_TSV": Tip(
-                    translate("Tools", "Optional file of two tab-separated columns: a FASTA header and the source ID it takes."),
+                    translate("Tools", "Optional file that gives a FASTA header the ID its embedding has in the source."),
                     details=(
-                        translate("Tools", "Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME."),
+                        translate("Tools", "First column: a FASTA header of the sequence set (as written there, its first word, or the sanitized header). Second column: that protein's ID in the embedding source. Any further column is ignored."),
+                        translate("Tools", "A .csv file is comma-separated (a value with a comma goes in double quotes); a .tsv or .txt file is tab-separated. A line with fewer than two columns stops the run."),
+                        translate("Tools", "A line of column names is not recognised and would be read as a pair: start it with # to skip it, as with any comment line. Blank lines are skipped too."),
+                        translate("Tools", "Tried before the automatic rules (the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME), which handle every sequence the file does not list. A listed ID the source lacks is reported, not retried."),
                         translate("Tools", "It is not saved: the field is empty the next time the window opens, and a run gets it for that run only."),
                     ),
                 ),
@@ -2272,7 +2295,7 @@ class ToolsGUI(QMainWindow):
                 ),
                 "NORM_THRESHOLD": Tip(
                     translate("Tools", "Minimum normalized similarity score threshold for database hits."),
-                    details=(translate("Tools", "Hits scoring below this cutoff are excluded from results. Set to `None` to disable."),),
+                    details=(translate("Tools", "Hits scoring below this cutoff are excluded from results. Leave empty to disable."),),
                 ),
                 "ALIGNMENT_MODE": Tip(
                     translate("Tools", "Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment."),
@@ -2482,7 +2505,7 @@ class ToolsGUI(QMainWindow):
                             "type": "file_browse",
                             "filter": ID_MAP_FILE_FILTER,
                             "dialog_title": QT_TRANSLATE_NOOP("Tools", "Select ID Mapping File"),
-                            "display": translate("Tools", "ID Mapping (.tsv):")
+                            "display": translate("Tools", "ID Mapping (.tsv/.csv):")
                         },
                         {
                             "var_name": "MODEL_LABEL",
@@ -3703,6 +3726,9 @@ class ToolsGUI(QMainWindow):
                         # Then overwrite it with the saved value, if there is one
                         if target.id in saved_values:
                             actual_val = saved_values[target.id]
+                            if default_val is None and actual_val == "None":
+                                # What an earlier version saved for a field it showed as "None".
+                                actual_val = None
 
                         # Dynamic default fallbacks for GUI fields if empty or containing expressions
                         if target.id == "SAFE_TEMP_DIR" and (actual_val is None or str(actual_val).strip() == "" or "os.path" in str(actual_val)):
@@ -4157,8 +4183,10 @@ class ToolsGUI(QMainWindow):
                 ui_element = BlastDirectoryControl(clean_val_str, _PROJECT_ROOT)
 
             else:
-                ui_element = QLineEdit(str(actual_val))
-            
+                # A default of None shows as an empty field, as the Browse and BLASTP Directory fields do:
+                # the run treats an empty value as not given, and the text "None" would be a value.
+                ui_element = QLineEdit("" if actual_val is None else str(actual_val))
+
             label = QLabel(s_def['display'])
             if s_def.get("accessible_name"):
                 # A field whose label is an abbreviation is read out in full.
@@ -4795,6 +4823,10 @@ class ToolsGUI(QMainWindow):
             )
             layout.insertRow(min(positions), group)
             merged_layouts[variable_group] = group.layout()
+        if inline:
+            for reference, following in ALIGNED_COLUMN_GROUPS.get(script_name, []):
+                if reference in merged_layouts and following in merged_layouts:
+                    merged_layouts[following].align_to = merged_layouts[reference]
         for peer_groups in STACK_TOGETHER_GROUPS.get(script_name, []):
             peers = [merged_layouts[g] for g in peer_groups if g in merged_layouts]
             for row_layout in peers:
