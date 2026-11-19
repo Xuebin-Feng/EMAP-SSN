@@ -400,9 +400,13 @@ still change before version 1.0.0.
     folder of `.npy` files. File and Folder buttons pick it. Like Predict Structures' FASTA,
     the path is not saved, and neither is the optional ID mapping file.
   - **The FASTA decides:** it is sanitized as Sanitize Sequences does, and each record takes
-    the first ID the source has among: the mapping file's (two columns, header and ID), the
-    original header, its first word, the sanitized header, and a UniProt accession
-    (`sp|P12345|NAME` gives `P12345`). An ID that more than one record could take is not used.
+    the first ID the source has among: the mapping file's, the original header, its first
+    word, the sanitized header, and a UniProt accession (`sp|P12345|NAME` gives `P12345`).
+    An ID that more than one record could take is not used.
+  - **The mapping file** (`ID_MAP_FILE`) has two columns: a FASTA header, then the ID the
+    source uses for that record. It is comma-separated when its name ends in `.csv`, with
+    quoted fields as spreadsheets write them, and tab-separated otherwise. Blank lines and
+    lines that start with `#` are skipped, so a line of column names must start with `#`.
   - **Checks:** a per-protein vector is refused, since alignment needs one vector per residue.
     Rows must equal the sanitized sequence's length; length + 2 is named as start and end
     tokens left in. One feature width per file, and finite values at the Saving Mode, whose
@@ -622,6 +626,13 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Empty text fields in the Tools window showed the word None.** Reference Header and
+  Target Header of Pairwise Embedding Alignment and Norm Score Cutoff of Embedding
+  Database Search showed None while nothing was set, and Save wrote that word into
+  `tools_settings.json` and into exported settings. Runs were not affected: the tools
+  read the word as "not set". The fields are now empty, also where an earlier Save left
+  the word. Norm Score Cutoff's tip says to leave the field empty, where it said to
+  type None.
 - **ProstT5 and ProtBERT no longer download a second copy of their weights.** Their
   Hugging Face repositories hold only `pytorch_model.bin`, so on a first load Transformers
   also downloaded a converter bot's `model.safetensors` in the background (11.3 GB for
