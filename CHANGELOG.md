@@ -925,6 +925,21 @@ still change before version 1.0.0.
   skipped, because macOS files a crash report for each one, and the language test skips
   when the window does not get the keyboard back after its list closes. Not yet
   confirmed on a Mac.
+- **A GPU tool could end with a crash right after a GPU out-of-memory error.** On
+  Windows, Align Similarity Matrix twice ended with code 0xC0000409 in its plan test.
+  The error itself was caught, but PyTorch then ended the whole program while giving
+  the memory back, so no smaller plan was tried. Generate Embeddings, Align Similarity
+  Matrix, Network Injection, Embedding MSA and Embedding SSEARCH now start under a
+  light watching process. When a tool dies this way, the watcher starts it once more.
+  The restarted tool first waits up to a minute for the GPU memory to come back, and
+  finished work is kept. No other end leads to a restart: a normal failure, Ctrl+C, a
+  stop, or a crash with no out-of-memory error before it. A second crash is reported
+  with what to do next. A failed plan test also shows the free GPU memory read just
+  before it. On Linux and macOS, a tool ended by a crash signal now reports exit code
+  128 plus the signal's number (134 for an abort). `SSN_TOOL_SUPERVISOR=0` in the
+  environment runs a tool in one process, as before. Tested with stand-in programs on
+  Windows and Debian; the real crash has not come back since, so the restart is not
+  yet seen on a real GPU.
 
 ## [0.5.0] - 2026-10-30
 
