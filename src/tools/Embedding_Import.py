@@ -31,8 +31,16 @@ Input:
 - SOURCE_PATH: an HDF5 file with one dataset per protein at its top level, named
   by ID (a dataset's `original_id` attribute also counts as its ID), a `.npz`
   file, or a folder of `.npy` files named by ID.
-- ID_MAP_TSV (optional): two tab-separated columns, a FASTA header and the
-  source ID it should take. It is tried before the automatic rules.
+- ID_MAP_TSV (optional): a file of two columns, a FASTA header (as it stands in
+  the FASTA, its first word, or the sanitized header) and the source ID it
+  should take. A `.csv` file is comma-separated (a value with a comma goes in
+  double quotes); any other file is tab-separated. Blank lines and lines whose
+  first column starts with `#` are skipped; a column heading line is not
+  recognised, so put `#` before it. A column after the second is ignored, and
+  a line with fewer than two columns stops the run with an error naming the
+  file and line. A header given twice with different IDs is an error too. A
+  byte-order mark at the start is dropped. The mapping is tried before the
+  automatic rules; a record it does not list goes through them.
 
 Matching, per record, the first rule that finds an ID in the source: the mapping
 file; the original header; its first word; the sanitized header; a UniProt
@@ -232,15 +240,23 @@ class EmbeddingSource:
 
 # ---------------------------------------------------------------- matching
 def read_id_map(path):
-    """Read a two-column TSV (FASTA header, source ID); '#' starts a comment line."""
+    """Read a two-column ID mapping (FASTA header, source ID).
+
+    A .csv file is comma-separated, any other file tab-separated; both follow the csv
+    module's quoting. A leading byte-order mark (Excel writes one) is dropped. A line whose
+    first column is empty or starts with '#' is skipped; a column after the second is ignored.
+    """
+    delimiter, separator = (",", "comma") if str(path).lower().endswith(".csv") else ("\t", "tab")
     mapping = {}
     with open(path, "r", encoding="utf-8-sig", newline="") as handle:
-        for number, row in enumerate(csv.reader(handle, delimiter="\t"), start=1):
+        reader = csv.reader(handle, delimiter=delimiter)
+        for row in reader:
+            number = reader.line_num
             if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
                 continue
             if len(row) < 2 or not row[1].strip():
                 raise EmbeddingImportError(
-                    f"Line {number} of {os.path.basename(path)} needs two tab-separated "
+                    f"Line {number} of {os.path.basename(path)} needs two {separator}-separated "
                     "columns: a FASTA header and a source ID."
                 )
             key, source_id = row[0].strip(), row[1].strip()

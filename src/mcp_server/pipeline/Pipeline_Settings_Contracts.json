@@ -141,7 +141,7 @@
           "null"
         ],
         "default": null,
-        "description": "ID Mapping (.tsv): Optional file of two tab-separated columns: a FASTA header and the source ID it takes; lines starting with # are skipped.\nTried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME. An absolute path, or a name inside the FASTA directory; not saved by the Tools window."
+        "description": "ID Mapping (.tsv/.csv): Optional file that gives a FASTA header the ID its embedding has in the source. First column: a FASTA header of the sequence set (as written there, its first word, or the sanitized header). Second column: that protein's ID in the embedding source. Any further column is ignored.\nA .csv file is comma-separated (a value with a comma goes in double quotes); any other file, such as .tsv or .txt, is tab-separated. Blank lines and lines starting with # are skipped; a line of column names is not recognised, so start it with #. A line with fewer than two columns stops the run. Tried before the automatic rules (the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME), which handle every sequence the file does not list. An absolute path, or a name inside the FASTA directory; not saved by the Tools window."
       },
       "MODEL_LABEL": {
         "type": [
