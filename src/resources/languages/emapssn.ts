@@ -7656,7 +7656,7 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Tab-separated files (*.tsv *.txt);;All files (*)</source>
+        <source>ID mapping files (*.tsv *.csv *.txt);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8068,11 +8068,23 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Optional file of two tab-separated columns: a FASTA header and the source ID it takes.</source>
+        <source>Optional file that gives a FASTA header the ID its embedding has in the source.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Tried before the automatic rules: the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME.</source>
+        <source>First column: a FASTA header of the sequence set (as written there, its first word, or the sanitized header). Second column: that protein&apos;s ID in the embedding source. Any further column is ignored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A .csv file is comma-separated (a value with a comma goes in double quotes); a .tsv or .txt file is tab-separated. A line with fewer than two columns stops the run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A line of column names is not recognised and would be read as a pair: start it with # to skip it, as with any comment line. Blank lines are skipped too.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tried before the automatic rules (the original header, its first word, the sanitized header, and a UniProt accession such as P12345 from sp|P12345|NAME), which handle every sequence the file does not list. A listed ID the source lacks is reported, not retried.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8872,7 +8884,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Hits scoring below this cutoff are excluded from results. Set to `None` to disable.</source>
+        <source>Hits scoring below this cutoff are excluded from results. Leave empty to disable.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9030,7 +9042,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>ID Mapping (.tsv):</source>
+        <source>ID Mapping (.tsv/.csv):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -552,6 +552,8 @@ class ToolsCardTests(unittest.TestCase):
 
     def shown_card(self):
         from PySide6.QtWidgets import QLabel, QWidget
+        from EMAPSSN_Tools import configure_qt_application_fonts
+        configure_qt_application_fonts(self.app)
         window, path, _ = self.window()
         window.show()
         self.flush()
@@ -561,7 +563,9 @@ class ToolsCardTests(unittest.TestCase):
         window.tabs.setCurrentIndex(tab)
         self.flush()
         scroll = window.tabs.widget(tab)
-        card = field.parentWidget()
+        self.assertTrue(scroll.isAncestorOf(inputs["SOURCE_PATH"]["widget"]))
+        # The source row is on its own, so its parent is the card's form.
+        card = inputs["SOURCE_PATH"]["widget"].parentWidget()
 
         def label_x(text):
             labels = [label for label in card.findChildren(QLabel) if label.text() == text]

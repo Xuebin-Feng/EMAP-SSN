@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 bfeeafb2d75f03cd4677c1a57bcc05285e984161e7be83621dcaa314712d8e71 -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 fe7d45faf058917e48897d059521007babdde4a3aa233617dafd243d60e7e1ca -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
