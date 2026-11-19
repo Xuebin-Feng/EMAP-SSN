@@ -612,6 +612,105 @@ class HardwareHelperTests(unittest.TestCase):
         self.assertEqual(output.getvalue().count("[Hardware] GPU memory is back"), 1)
 
 
+class RestartedPlanningTests(unittest.TestCase):
+    """A tool restarted after a GPU out-of-memory crash plans with a fraction of the free memory."""
+
+    INFO = {"device": "cuda:0", "free_bytes": 11 * GIB, "total_bytes": 12 * GIB}
+
+    def restarted(self, info="default"):
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(Tool_Supervisor, "_restart_info", self.INFO if info == "default" else info))
+        stack.enter_context(mock.patch.object(Tool_Supervisor, "_wait_done", False))
+        stack.enter_context(mock.patch.object(Tool_Supervisor, "_reduction_announced", False))
+        stack.enter_context(mock.patch.object(Tool_Supervisor.time, "sleep"))
+        self.output = io.StringIO()
+        stack.enter_context(redirect_stdout(self.output))
+
+    def backend(self, readings):
+        import torch
+        from Embedding_Alignment_Engine import get_accelerator_backend
+
+        backend = get_accelerator_backend(torch.device("cuda:0"))
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(type(backend), "device_context", lambda _self: contextlib.nullcontext()))
+        stack.enter_context(mock.patch("torch.cuda.mem_get_info", side_effect=readings))
+        return backend
+
+    def test_the_plan_sees_the_fraction_and_the_line_is_printed_once_for_the_whole_run(self):
+        self.assertEqual(Tool_Supervisor.RESTART_MEMORY_FRACTION, 0.5)
+        self.restarted()
+        backend = self.backend(lambda *_a: (10 * GIB, 12 * GIB))
+        self.assertEqual(backend.memory_snapshot().free_bytes, 5 * GIB)
+        self.assertEqual(backend.memory_info(), (5 * GIB, 12 * GIB))
+        self.assertEqual(backend.memory_snapshot().free_bytes, 5 * GIB)  # a later batch plans from it too
+        text = self.output.getvalue()
+        self.assertEqual(text.count("After the restart"), 1)
+        self.assertIn("use half of the free memory (5.0 of 10.0 GB)", text)
+
+    def test_the_wait_uses_the_real_figure_and_comes_first(self):
+        self.restarted()
+        readings = iter([(2 * GIB, 12 * GIB), (11 * GIB, 12 * GIB)] + [(11 * GIB, 12 * GIB)] * 4)
+        backend = self.backend(lambda *_a: next(readings))
+        self.assertEqual(backend.memory_snapshot().free_bytes, 11 * GIB // 2)
+        text = self.output.getvalue()
+        self.assertLess(text.index("GPU memory is back"), text.index("After the restart"))
+
+    def test_the_diagnostic_and_the_note_keep_the_real_free_memory(self):
+        from utilities import Hardware_Acceleration as Hardware
+
+        self.restarted()
+        self.backend(lambda *_a: (10 * GIB, 12 * GIB))
+        candidate = Hardware.DeviceCandidate("cuda:0", "GPU", __import__("torch").device("cuda:0"), "cuda")
+        memory = Hardware.read_free_memory(candidate)
+        self.assertEqual(memory, (10 * GIB, 12 * GIB))
+        with mock.patch.object(Hardware.Tool_Supervisor, "record_note") as note:
+            text = Hardware.note_gpu_failure(candidate, RuntimeError("out of memory"), memory)
+        self.assertIn("10.0 of 12.0 GB", text)
+        self.assertEqual(note.call_args.kwargs["free_bytes"], 10 * GIB)
+
+    def test_a_plan_made_from_the_reduced_figure_is_smaller(self):
+        from Embedding_Alignment_Engine import cuda_memory_plan
+        import torch
+
+        ordinary = None
+        for restarted in (False, True):
+            stack = contextlib.ExitStack()
+            with stack:
+                if restarted:
+                    self.restarted()
+                backend = self.backend(lambda *_a: (10 * GIB, 12 * GIB))
+                plan = cuda_memory_plan(torch.device("cuda:0"), lanes=1)
+            if not restarted:
+                ordinary = plan
+            else:
+                self.assertEqual(plan.free_bytes, 5 * GIB)
+                self.assertLess(plan.usable_bytes, ordinary.usable_bytes)
+                self.assertLess(plan.tile_cache_bytes, ordinary.tile_cache_bytes)
+                self.assertLess(plan.matrix_bytes, ordinary.matrix_bytes)
+        self.assertEqual(ordinary.free_bytes, 10 * GIB)
+
+    def test_an_ordinary_run_another_device_or_no_restart_info_change_nothing(self):
+        self.restarted(None)
+        backend = self.backend(lambda *_a: (10 * GIB, 12 * GIB))
+        self.assertEqual(backend.memory_snapshot().free_bytes, 10 * GIB)
+        self.assertEqual(self.output.getvalue(), "")
+        self.assertEqual(Tool_Supervisor.planning_free_bytes("cuda:0", 7, 9), 7)
+        self.restarted({"device": "cuda:1", "free_bytes": 1, "total_bytes": 2})
+        self.assertEqual(Tool_Supervisor.planning_free_bytes("cuda:0", 7, 9), 7)
+        self.assertEqual(Tool_Supervisor.planning_free_bytes("cuda:1", 8, 9), 4)
+
+    def test_a_tool_run_with_the_switch_off_is_not_a_restarted_child(self):
+        # With the switch off nobody sets the restart variable, so the child state stays empty.
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); from utilities import Tool_Supervisor as T; "
+             "T.supervise('__main__', ''); print(T.planning_free_bytes('cuda:0', 10, 12))" % str(SRC_DIR)],
+            capture_output=True, text=True, env=dict(os.environ, **{OFF: "0"}), timeout=60)
+        self.assertEqual(result.stdout.strip(), "10")
+
+
 class EngineWaitTests(unittest.TestCase):
     def test_the_engines_first_memory_read_waits_in_a_restarted_tool_and_only_once(self):
         import torch
@@ -628,8 +727,9 @@ class EngineWaitTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as output:
             first = backend.memory_snapshot()
             second = backend.memory_info()
-        self.assertEqual(first.free_bytes, 11 * GIB)
-        self.assertEqual(second, (11 * GIB, 12 * GIB))
+        # The wait used the real figures; planning then sees the reduced one.
+        self.assertEqual(first.free_bytes, 11 * GIB // 2)
+        self.assertEqual(second, (11 * GIB // 2, 12 * GIB))
         self.assertEqual(sleeper.call_count, 1)
         self.assertEqual(output.getvalue().count("[Hardware] GPU memory is back"), 1)
 

@@ -551,7 +551,9 @@ class AcceleratorBackend:
                 free_bytes, total_bytes = function(self.device)
             except TypeError:
                 free_bytes, total_bytes = function()
-        return int(free_bytes), int(total_bytes)
+        free_bytes, total_bytes = int(free_bytes), int(total_bytes)
+        # What plans are sized from; a tool restarted after a GPU out-of-memory crash sees a fraction.
+        return Tool_Supervisor.planning_free_bytes(self.device, free_bytes, total_bytes), total_bytes
 
     def empty_cache(self):
         function = self._runtime_function("empty_cache")
@@ -586,7 +588,7 @@ class AcceleratorBackend:
                 except TypeError:
                     free_bytes, total_bytes = function()
             total_bytes = int(total_bytes)
-            free_bytes = int(free_bytes)
+            free_bytes = Tool_Supervisor.planning_free_bytes(self.device, int(free_bytes), total_bytes)
             reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
             return AcceleratorMemorySnapshot(
                 backend=self.device_type,

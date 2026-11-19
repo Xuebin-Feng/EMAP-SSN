@@ -44,6 +44,7 @@ NOTE_PREFIX = "ssn_tool_oom_"
 STALE_NOTE_SECONDS = 7 * 24 * 3600  # longer than any run: a live tool's note is never taken for a stale one
 WATCH_INTERVAL_SECONDS = 1.0
 GPU_WAIT_SECONDS = 60.0
+RESTART_MEMORY_FRACTION = 0.5  # the share of the free memory a restarted tool plans with
 GPU_WAIT_INTERVAL_SECONDS = 1.0
 GIB = 1024 ** 3
 
@@ -63,6 +64,7 @@ _restart_info = None
 _parent_pid = None
 _observed = {}  # device key -> (free_bytes, total_bytes) of the largest free memory this process saw
 _wait_done = False
+_reduction_announced = False
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +218,29 @@ def restart_info():
 
 def _gib(value):
     return f"{value / GIB:.1f} GB"
+
+
+def planning_free_bytes(device, free_bytes, total_bytes, out=print):
+    """The free memory a plan is sized from: all of it, or in a tool restarted after a GPU crash a fraction.
+
+    Only the device the failed run's note names, and for the whole restarted run (the wait for the
+    memory to come back uses the real figure and comes first). Whatever shows or records the real free
+    memory (the diagnostic, the note) does not call this. The reduction is announced once.
+    """
+    global _reduction_announced
+    info = _restart_info
+    free_bytes = int(free_bytes)
+    if not info or _device_key(device) != _device_key(info.get("device") or ""):
+        return free_bytes
+    reduced = int(free_bytes * RESTART_MEMORY_FRACTION)
+    if not _reduction_announced:
+        _reduction_announced = True
+        share = "half" if RESTART_MEMORY_FRACTION == 0.5 else f"{RESTART_MEMORY_FRACTION:.0%}"
+        out(
+            f"[Hardware] After the restart, GPU plans use {share} of the free memory "
+            f"({reduced / GIB:.1f} of {free_bytes / GIB:.1f} GB)."
+        )
+    return reduced
 
 
 def wait_for_gpu_memory(device, read_memory, *, timeout=GPU_WAIT_SECONDS, interval=GPU_WAIT_INTERVAL_SECONDS,
