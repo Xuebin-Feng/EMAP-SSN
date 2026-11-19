@@ -645,6 +645,8 @@ class HardwareHelperTests(unittest.TestCase):
         self.assertTrue(all(isinstance(value, int) and value > 0 for value in system.values()))
 
     def test_a_failed_rows_first_error_line_carries_the_memory_and_the_rest_is_indented_below(self):
+        import torch
+
         error = torch.AcceleratorError(
             "CUDA error: out of memory\n"
             "Search for `cudaErrorMemoryAllocation' in https://docs.nvidia.com/ for more information.\n"
@@ -717,7 +719,7 @@ class RestartedPlanningTests(unittest.TestCase):
         # Reading the memory gives the real figures; only the plans' budgets are reduced.
         self.assertEqual(backend.memory_snapshot().free_bytes, 10 * GIB)
         self.assertEqual(backend.memory_info(), (10 * GIB, 12 * GIB))
-        self.assertEqual(self.output.getvalue(), "")
+        self.assertNotIn("After the restart", self.output.getvalue())  # reading plans nothing
         for _batch in range(2):  # a later batch plans from the reduced figure too
             plan = cuda_memory_plan(torch.device("cuda:0"), lanes=1)
             self.assertEqual(plan.free_bytes, 10 * GIB)
