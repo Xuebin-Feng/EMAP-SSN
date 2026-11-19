@@ -23,6 +23,7 @@ import os
 import queue
 import threading
 import time
+import traceback
 from typing import Callable
 
 import h5py
@@ -889,6 +890,20 @@ def allocator_cap_enabled():
     if _allocator_cap_enabled is None:
         _allocator_cap_enabled = os.environ.get(ALLOCATOR_CAP_SWITCH, "").strip() != "0"
     return _allocator_cap_enabled
+
+
+def _clear_failed_frames(error):
+    """Let go of the local variables of the frames a failed run's error carries in its traceback.
+
+    The traceback keeps those frames, and their locals (padded targets, score matrices, row tensors) are
+    device memory, for as long as anyone holds the error: a caller that stores it for a retry or reports it
+    from inside its except block. Clearing them lets the cache be emptied and the retry start clean. The
+    error itself, its type, message and traceback lines, is untouched; nothing here can raise.
+    """
+    try:
+        traceback.clear_frames(error.__traceback__)
+    except Exception:
+        pass
 
 
 def allocator_cap_bytes(plan, held=0):
@@ -2189,6 +2204,9 @@ def run_tiled_accelerator_pipeline(
                 benchmark_trial.stop(len(tasks))
             else:
                 run_phase(tasks)
+    except BaseException as error:
+        _clear_failed_frames(error)  # before the cache is emptied below; the error goes on unchanged
+        raise
     finally:
         # Hand the cached blocks back to the driver, also after a failure:
         # callers check mem_get_info before the next batch or plan, and the
@@ -2717,6 +2735,9 @@ def run_fixed_query_cuda_pipeline(
                 collect_cpu(block=True)
             if timing is not None:
                 timing.stop()
+    except BaseException as error:
+        _clear_failed_frames(error)  # before the cache is emptied below; the error goes on unchanged
+        raise
     finally:
         reader.close()
         inflight.clear()

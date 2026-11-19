@@ -2371,6 +2371,91 @@ class TiledProducerTests(unittest.TestCase):
                 self.assertEqual(fractions[0][2], [])  # set before the run touched the device
                 self.assertEqual(fractions[1][2], ["empty-cache"])  # lifted after the cache was handed back
 
+    def test_a_failed_run_lets_go_of_what_its_frames_held_while_the_caller_keeps_the_error(self):
+        import traceback
+        import weakref
+
+        class Sentinel:
+            pass
+
+        references = []
+
+        def failing_alignment(args):
+            held = Sentinel()  # stands in for a device tensor in a frame of the failed run
+            references.append(weakref.ref(held))
+            raise RuntimeError("alignment failed")
+
+        log = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(path, self.LENGTHS, self.FEATURES, seed=23)
+            store = alignment_engine.EmbeddingTileStore(path, headers, 0)
+            tasks = [(0, column, headers[0], headers[column]) for column in (1, 2)]
+            caught = None
+            with mock.patch.object(
+                alignment_engine, "get_accelerator_backend", return_value=FakeStreamBackend(log)
+            ):
+                try:
+                    alignment_engine.run_tiled_accelerator_pipeline(
+                        tasks, store=store, lengths=self.LENGTHS, device=torch.device("cpu"), workers=1,
+                        lanes=1, alignment_callback=failing_alignment,
+                        memory_plan_override=small_tile_plan(self.FEATURES, 1),
+                    )
+                except RuntimeError as error:
+                    caught = error  # kept, as process_batch keeps its last out-of-memory error
+        self.assertIsNotNone(caught)
+        self.assertTrue(references)
+        self.assertTrue(all(reference() is None for reference in references))  # gone while the error is held
+        self.assertIs(type(caught), RuntimeError)
+        self.assertEqual(str(caught), "alignment failed")
+        lines = "".join(traceback.format_exception(caught))
+        for name in ("failing_alignment", "collect_cpu", "run_tiled_accelerator_pipeline"):
+            self.assertIn(name, lines)
+        self.assertEqual(log, ["empty-cache"])
+
+    @unittest.skipUnless(torch.cuda.is_available(), "requires a CUDA device")
+    def test_a_failed_cuda_run_leaves_the_devices_allocated_bytes_where_they_were_with_the_error_held(self):
+        device = torch.device("cuda:0")
+        if torch.cuda.mem_get_info(device)[0] < 2 * (1 << 30):
+            self.skipTest("less than 2 GiB of the device is free")
+        calls = []
+
+        def alignment(args):
+            if calls and calls[0] == "fail":
+                raise RuntimeError("alignment failed")
+            return (args[0], args[1], 1.0, 1, 1.0, 1)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(path, self.LENGTHS, self.FEATURES, seed=31)
+            store = alignment_engine.EmbeddingTileStore(path, headers, 0)
+            tasks = [(0, column, headers[0], headers[column]) for column in range(1, 6)]
+
+            def run():
+                return alignment_engine.run_tiled_accelerator_pipeline(
+                    tasks, store=store, lengths=self.LENGTHS, device=device, workers=1, lanes=1,
+                    alignment_callback=alignment, memory_plan_override=small_tile_plan(self.FEATURES, 1),
+                )
+
+            def allocated():
+                torch.cuda.synchronize(device)
+                return torch.cuda.memory_allocated(device)
+
+            run()  # a first run, so what the device library keeps for good is already allocated
+            before_success = allocated()
+            run()  # a successful run: whatever it leaves is what a run leaves anyway (cuBLAS keeps a workspace per stream)
+            kept_by_a_success = allocated() - before_success
+            before = allocated()
+            calls.append("fail")
+            caught = None
+            try:
+                run()
+            except RuntimeError as error:
+                caught = error  # held while the bytes are counted
+            kept_by_a_failure = allocated() - before
+        self.assertIsNotNone(caught)
+        self.assertLessEqual(kept_by_a_failure, kept_by_a_success)  # the failed run's tensors are not among it
+
     @unittest.skipUnless(
         torch.cuda.is_available() and alignment_engine.is_nvidia_cuda(),
         "requires an NVIDIA CUDA device",
