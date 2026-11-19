@@ -608,8 +608,8 @@ class ToolsCardTests(unittest.TestCase):
         self.assertGreater(label_x("ID Mapping (.tsv/.csv):"), label_x("Sequence Set (.fasta):"))
 
     def test_the_saving_mode_label_starts_where_the_id_mapping_label_does_at_every_width(self):
-        # Measured (offscreen, the window's fonts): the first row is stacked at the default window (a 600 px
-        # panel) and up to 1000 px, and side by side from 1100 px; the third row stacks below about 700 px.
+        # Measured (offscreen, the window's fonts): the two rows switch together, stacked at the default
+        # window (a 600 px panel) up to 1060 px, and side by side from 1080 px.
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
         # The equal columns line the labels up by themselves while both rows are side by side; the
         # declaration keeps them lined up if a row's columns ever differ, so it is tested as declared.
@@ -622,18 +622,29 @@ class ToolsCardTests(unittest.TestCase):
             with self.subTest(width=width):
                 positions = found()
                 (id_x, id_left, id_stacked), (mode_x, mode_left, mode_stacked) = positions["ID Mapping (.tsv/.csv):"], positions["Saving Mode:"]
-                if width is None:
+                if width in (None, 1000):
+                    # Stacked together: each label is at its row's left edge.
                     self.assertTrue(id_stacked and mode_stacked, positions)
                     self.assertEqual((id_x, mode_x), (id_left, mode_left), positions)
-                elif width == 1000:
-                    # Each row is laid out on its own: the first is stacked, the third side by side.
-                    self.assertTrue(id_stacked and not mode_stacked, positions)
-                    self.assertEqual(id_x, id_left, positions)
-                    self.assertGreater(mode_x, mode_left + 100, positions)
                 else:
                     self.assertFalse(id_stacked or mode_stacked, positions)
                     self.assertGreater(id_x, id_left + 100, positions)
                     self.assertEqual(mode_x, id_x, positions)
+
+    def test_the_two_rows_are_never_in_different_states_at_any_width(self):
+        window, path, scroll, card, label_x, box, QWidget = self.shown_card()
+        seen = set()
+        for width in range(600, 1301, 50):
+            self.resize_panel(window, width)
+            positions = self.label_positions(card, scroll)
+            (id_x, _, id_stacked), (mode_x, _, mode_stacked) = (positions["ID Mapping (.tsv/.csv):"],
+                                                                 positions["Saving Mode:"])
+            with self.subTest(width=width):
+                self.assertEqual(id_stacked, mode_stacked, positions)
+                if not id_stacked:
+                    self.assertEqual(id_x, mode_x, positions)
+            seen.add(id_stacked)
+        self.assertEqual(seen, {True, False})  # the scan covers both states
 
     def label_positions(self, card, scroll):
         """For each second label: (its x, the x of its row's left edge, whether its row is stacked)."""
@@ -672,9 +683,9 @@ class ToolsCardTests(unittest.TestCase):
 
     def test_the_rows_stack_without_overlap_below_the_width_they_need(self):
         window, path, scroll, card, label_x, box, QWidget = self.shown_card()
-        # Measured: both rows stack at 600 and 700 px, the first still at 1000 px.
-        for width, stacked_rows in ((600, ("compactRow_INPUT_FASTA_ID_MAP_FILE", "compactRow_MODEL_LABEL_SAVING_MODE")),
-                                    (1000, ("compactRow_INPUT_FASTA_ID_MAP_FILE",))):
+        # Measured: both rows stack, together, at 600 and at 1000 px.
+        both = ("compactRow_INPUT_FASTA_ID_MAP_FILE", "compactRow_MODEL_LABEL_SAVING_MODE")
+        for width, stacked_rows in ((600, both), (1000, both)):
             self.resize_panel(window, width)
             for name in stacked_rows:
                 self.assertTrue(card.findChild(QWidget, name).property("stacked"), (width, name))

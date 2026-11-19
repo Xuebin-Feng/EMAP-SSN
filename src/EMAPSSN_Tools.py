@@ -295,6 +295,11 @@ STACK_TOGETHER_GROUPS = {
         ("BLAST_LAYOUT", "BITSCORE_COLUMN"),
         ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"),
     )],
+    # The two rows whose second labels line up: never one side by side and the other stacked.
+    "Embedding_Import.py": [(
+        ("INPUT_FASTA", "ID_MAP_FILE"),
+        ("MODEL_LABEL", "SAVING_MODE"),
+    )],
 }
 # Labels that take one width, so their fields start at one x as well as the
 # labels: the second column of one row over the last column of another.

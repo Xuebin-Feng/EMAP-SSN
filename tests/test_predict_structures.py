@@ -969,6 +969,23 @@ class ToolsWindowTests(unittest.TestCase):
         self.assertTrue(fasta.browse_button.isVisibleTo(fasta))
         self.assertGreaterEqual(boxes["BATCH_INPUT"].right(), boxes["INPUT_FASTA"].right() - 2)
 
+    def test_the_two_aligned_rows_are_never_in_different_states_at_any_width(self):
+        # Measured in steps of 20 px from 600 to 1200: both rows are side by side from 800 px, so no
+        # STACK_TOGETHER_GROUPS entry is needed for this card.
+        window, path = self.shown_window()
+        scroll = self.show_card(window, path)
+        seen = set()
+        for width in range(600, 1301, 50):
+            self.resize_panel(window, width)
+            found = self.label_positions(window, path, scroll)
+            (seq_x, _, seq_stacked), (fasta_x, _, fasta_stacked) = found["Max Seq:"], found["FASTA File:"]
+            with self.subTest(width=width):
+                self.assertEqual(seq_stacked, fasta_stacked, found)
+                if not seq_stacked:
+                    self.assertEqual(seq_x, fasta_x, found)
+            seen.add(seq_stacked)
+        self.assertEqual(seen, {True, False})
+
     def test_the_rows_still_stack_without_overlap_below_the_width_they_need(self):
         window, path = self.shown_window()
         scroll = self.show_card(window, path)
