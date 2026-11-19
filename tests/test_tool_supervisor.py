@@ -576,21 +576,89 @@ class HardwareHelperTests(unittest.TestCase):
         self.assertFalse(self.hardware.is_gpu_out_of_memory(ValueError("out of memory")))
 
     def test_the_free_memory_before_a_test_is_read_and_shown_for_a_failure(self):
-        with mock.patch("torch.cuda.mem_get_info", return_value=(int(11.2 * GIB), 12 * GIB)):
+        with mock.patch.object(self.hardware, "read_system_memory", return_value=None), \
+                mock.patch("torch.cuda.mem_get_info", return_value=(int(11.2 * GIB), 12 * GIB)):
             memory = self.hardware.begin_gpu_trial(self.cuda)
-        self.assertEqual(memory, (int(11.2 * GIB), 12 * GIB))
-        with mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
-            text = self.hardware.note_gpu_failure(
-                self.cuda, RuntimeError("CUDA error: out of memory"), memory, where="here")
+            self.assertEqual(memory, (int(11.2 * GIB), 12 * GIB))
+            with mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
+                text = self.hardware.note_gpu_failure(
+                    self.cuda, RuntimeError("CUDA error: out of memory"), memory, where="here")
         self.assertEqual(text, " (free before the test: 11.2 of 12.0 GB)")
         note.assert_called_once()
         self.assertEqual(note.call_args.kwargs["free_bytes"], int(11.2 * GIB))
 
     def test_a_failure_that_is_not_out_of_memory_leaves_no_note_but_still_shows_the_memory(self):
-        with mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
+        with mock.patch.object(self.hardware, "read_system_memory", return_value=None), \
+                mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
             text = self.hardware.note_gpu_failure(self.cuda, ValueError("bad"), (GIB, 12 * GIB))
         self.assertIn("free before the test: 1.0 of 12.0 GB", text)
         note.assert_not_called()
+
+    WINDOWS_SYSTEM = {"commit_used": int(111.2 * GIB), "commit_limit": int(111.8 * GIB), "ram_available": int(6.2 * GIB)}
+
+    def test_the_computers_memory_is_read_with_the_trial_and_shown_and_noted_at_the_failure(self):
+        before = {"commit_used": 90 * GIB, "commit_limit": 109 * GIB, "ram_available": 10 * GIB}
+        readings = iter([before, self.WINDOWS_SYSTEM])
+        with mock.patch.object(self.hardware, "read_system_memory", side_effect=lambda: next(readings)), \
+                mock.patch("torch.cuda.mem_get_info", return_value=(int(10.8 * GIB), 12 * GIB)):
+            memory = self.hardware.begin_gpu_trial(self.cuda)
+            self.assertEqual(memory.system, before)  # recorded before the test
+            with mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
+                text = self.hardware.note_gpu_failure(
+                    self.cuda, RuntimeError("CUDA error: out of memory"), memory, where="here")
+        self.assertEqual(
+            text,
+            " (free before the test: 10.8 of 12.0 GB; Windows virtual memory: 111.2 of 111.8 GB in use; "
+            "RAM available: 6.2 GB)",
+        )
+        self.assertEqual(note.call_args.kwargs["system"], self.WINDOWS_SYSTEM)  # at the failure
+        self.assertEqual(note.call_args.kwargs["system_before"], before)
+
+    def test_a_computer_whose_memory_cannot_be_read_leaves_the_text_out(self):
+        with mock.patch.object(self.hardware, "read_system_memory", return_value=None), \
+                mock.patch.object(self.hardware.Tool_Supervisor, "record_note") as note:
+            text = self.hardware.note_gpu_failure(self.cuda, RuntimeError("out of memory"), (GIB, 12 * GIB))
+        self.assertEqual(text, " (free before the test: 1.0 of 12.0 GB)")
+        self.assertIsNone(note.call_args.kwargs["system"])
+        self.assertEqual(self.hardware.system_memory_text(None), "")
+        self.assertEqual(self.hardware.system_memory_text({"ram_available": 3 * GIB}), "RAM available: 3.0 GB")
+
+    def test_reading_the_computers_memory_never_raises(self):
+        with mock.patch.object(sys, "platform", "linux"), mock.patch("psutil.virtual_memory", side_effect=OSError("no")):
+            self.assertIsNone(self.hardware.read_system_memory())
+        with mock.patch.object(sys, "platform", "win32"), mock.patch("ctypes.windll", create=True) as windll:
+            windll.psapi.GetPerformanceInfo.return_value = 0  # the call fails
+            self.assertIsNone(self.hardware.read_system_memory())
+        with mock.patch.object(sys, "platform", "win32"), mock.patch("ctypes.windll", create=True) as windll:
+            windll.psapi.GetPerformanceInfo.side_effect = OSError("no psapi")
+            self.assertIsNone(self.hardware.read_system_memory())
+
+    def test_other_systems_give_the_available_ram_only(self):
+        with mock.patch.object(sys, "platform", "linux"), \
+                mock.patch("psutil.virtual_memory", return_value=mock.Mock(available=7 * GIB)):
+            self.assertEqual(self.hardware.read_system_memory(), {"ram_available": 7 * GIB})
+
+    @unittest.skipUnless(sys.platform == "win32", "commit charge is read on Windows only")
+    def test_windows_gives_commit_charge_commit_limit_and_available_ram(self):
+        system = self.hardware.read_system_memory()  # real values: only their shape is checked
+        self.assertEqual(set(system), {"commit_used", "commit_limit", "ram_available"})
+        self.assertTrue(all(isinstance(value, int) and value > 0 for value in system.values()))
+
+    def test_a_failed_rows_first_error_line_carries_the_memory_and_the_rest_is_indented_below(self):
+        error = torch.AcceleratorError(
+            "CUDA error: out of memory\n"
+            "Search for `cudaErrorMemoryAllocation' in https://docs.nvidia.com/ for more information.\n"
+            "The CUDA driver logged these messages, which may provide useful details:\n"
+            "Sticky error detected\nReturning 2 (CUDA_ERROR_OUT_OF_MEMORY) from cuMemFree_v2\n\n"
+        )
+        memory_text = " (free before the test: 10.8 of 12.0 GB)"
+        row, *rest = self.hardware.failure_lines(error, memory_text)
+        self.assertEqual(row, "AcceleratorError: CUDA error: out of memory (free before the test: 10.8 of 12.0 GB)")
+        self.assertEqual(len(rest), 4)
+        self.assertTrue(all(line.startswith("    ") for line in rest))
+        self.assertIn("Sticky error detected", rest[2])
+        self.assertEqual(self.hardware.failure_lines(RuntimeError(""), " (x)"), ["RuntimeError: (x)"])
+        self.assertEqual(self.hardware.failure_lines(ValueError("one line")), ["ValueError: one line"])
 
     def test_a_cpu_candidate_and_an_unreadable_device_cost_nothing_and_say_nothing(self):
         self.assertIsNone(self.hardware.begin_gpu_trial(self.cpu))
@@ -603,6 +671,7 @@ class HardwareHelperTests(unittest.TestCase):
         readings = iter([(2 * GIB, 12 * GIB), (2 * GIB, 12 * GIB), (11 * GIB, 12 * GIB), (11 * GIB, 12 * GIB)])
         with mock.patch.object(Tool_Supervisor, "_restart_info", info), \
                 mock.patch.object(Tool_Supervisor, "_wait_done", False), \
+                mock.patch.object(self.hardware, "read_system_memory", return_value=None), \
                 mock.patch("torch.cuda.mem_get_info", side_effect=lambda *_a: next(readings)), \
                 mock.patch.object(Tool_Supervisor.time, "sleep") as sleeper, \
                 redirect_stdout(io.StringIO()) as output:
@@ -638,24 +707,54 @@ class RestartedPlanningTests(unittest.TestCase):
         stack.enter_context(mock.patch("torch.cuda.mem_get_info", side_effect=readings))
         return backend
 
-    def test_the_plan_sees_the_fraction_and_the_line_is_printed_once_for_the_whole_run(self):
+    def test_the_budgets_see_the_fraction_and_the_line_is_printed_once_for_the_whole_run(self):
+        from Embedding_Alignment_Engine import cuda_memory_plan
+        import torch
+
         self.assertEqual(Tool_Supervisor.RESTART_MEMORY_FRACTION, 0.5)
         self.restarted()
         backend = self.backend(lambda *_a: (10 * GIB, 12 * GIB))
-        self.assertEqual(backend.memory_snapshot().free_bytes, 5 * GIB)
-        self.assertEqual(backend.memory_info(), (5 * GIB, 12 * GIB))
-        self.assertEqual(backend.memory_snapshot().free_bytes, 5 * GIB)  # a later batch plans from it too
+        # Reading the memory gives the real figures; only the plans' budgets are reduced.
+        self.assertEqual(backend.memory_snapshot().free_bytes, 10 * GIB)
+        self.assertEqual(backend.memory_info(), (10 * GIB, 12 * GIB))
+        self.assertEqual(self.output.getvalue(), "")
+        for _batch in range(2):  # a later batch plans from the reduced figure too
+            plan = cuda_memory_plan(torch.device("cuda:0"), lanes=1)
+            self.assertEqual(plan.free_bytes, 10 * GIB)
+            self.assertEqual(plan.usable_bytes, 5 * GIB - plan.reserve_bytes)
         text = self.output.getvalue()
         self.assertEqual(text.count("After the restart"), 1)
         self.assertIn("use half of the free memory (5.0 of 10.0 GB)", text)
 
     def test_the_wait_uses_the_real_figure_and_comes_first(self):
+        from Embedding_Alignment_Engine import cuda_memory_plan
+        import torch
+
         self.restarted()
         readings = iter([(2 * GIB, 12 * GIB), (11 * GIB, 12 * GIB)] + [(11 * GIB, 12 * GIB)] * 4)
         backend = self.backend(lambda *_a: next(readings))
-        self.assertEqual(backend.memory_snapshot().free_bytes, 11 * GIB // 2)
+        plan = cuda_memory_plan(torch.device("cuda:0"), lanes=1)
+        self.assertEqual(plan.free_bytes, 11 * GIB)
+        self.assertEqual(plan.usable_bytes, 11 * GIB // 2 - plan.reserve_bytes)
         text = self.output.getvalue()
         self.assertLess(text.index("GPU memory is back"), text.index("After the restart"))
+
+    def test_the_estimates_baseline_and_peak_show_the_real_size_of_a_restarted_plan(self):
+        from Embedding_Alignment_Engine import cuda_memory_plan, estimate_cuda_working_set
+        import torch
+
+        estimates = {}
+        for restarted in (False, True):
+            with contextlib.ExitStack():
+                if restarted:
+                    self.restarted()
+                self.backend(lambda *_a: (10 * GIB, 12 * GIB))
+                plan = cuda_memory_plan(torch.device("cuda:0"), lanes=1)
+                estimates[restarted] = estimate_cuda_working_set(
+                    [], store=None, lengths=[], device=torch.device("cuda:0"), lanes=1, memory_plan_override=plan)
+        # The empty workload's peak is the baseline: the card's real use (12 - 10 GB), not 12 - 5 GB.
+        self.assertEqual(estimates[True].projected_peak_bytes, 2 * GIB)
+        self.assertEqual(estimates[True].projected_peak_bytes, estimates[False].projected_peak_bytes)
 
     def test_the_diagnostic_and_the_note_keep_the_real_free_memory(self):
         from utilities import Hardware_Acceleration as Hardware
@@ -665,7 +764,8 @@ class RestartedPlanningTests(unittest.TestCase):
         candidate = Hardware.DeviceCandidate("cuda:0", "GPU", __import__("torch").device("cuda:0"), "cuda")
         memory = Hardware.read_free_memory(candidate)
         self.assertEqual(memory, (10 * GIB, 12 * GIB))
-        with mock.patch.object(Hardware.Tool_Supervisor, "record_note") as note:
+        with mock.patch.object(Hardware, "read_system_memory", return_value=None), \
+                mock.patch.object(Hardware.Tool_Supervisor, "record_note") as note:
             text = Hardware.note_gpu_failure(candidate, RuntimeError("out of memory"), memory)
         self.assertIn("10.0 of 12.0 GB", text)
         self.assertEqual(note.call_args.kwargs["free_bytes"], 10 * GIB)
@@ -685,7 +785,7 @@ class RestartedPlanningTests(unittest.TestCase):
             if not restarted:
                 ordinary = plan
             else:
-                self.assertEqual(plan.free_bytes, 5 * GIB)
+                self.assertEqual(plan.free_bytes, 10 * GIB)  # the real free memory
                 self.assertLess(plan.usable_bytes, ordinary.usable_bytes)
                 self.assertLess(plan.tile_cache_bytes, ordinary.tile_cache_bytes)
                 self.assertLess(plan.matrix_bytes, ordinary.matrix_bytes)
@@ -727,9 +827,9 @@ class EngineWaitTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as output:
             first = backend.memory_snapshot()
             second = backend.memory_info()
-        # The wait used the real figures; planning then sees the reduced one.
-        self.assertEqual(first.free_bytes, 11 * GIB // 2)
-        self.assertEqual(second, (11 * GIB // 2, 12 * GIB))
+        # The wait used the real figures, and so do the readings; only the plans' budgets are reduced.
+        self.assertEqual(first.free_bytes, 11 * GIB)
+        self.assertEqual(second, (11 * GIB, 12 * GIB))
         self.assertEqual(sleeper.call_count, 1)
         self.assertEqual(output.getvalue().count("[Hardware] GPU memory is back"), 1)
 
@@ -753,8 +853,11 @@ class FakeChild:
         self.env = env
         self.code, note = script.pop(0)
         if note:
+            content = {"device": "cuda:0", "free_bytes": 11 * GIB, "total_bytes": 12 * GIB}
+            if isinstance(note, dict):
+                content.update(note)  # a note that also carries the computer's memory
             with open(env[Tool_Supervisor.NOTE_VARIABLE], "w", encoding="utf-8") as handle:
-                json.dump({"device": "cuda:0", "free_bytes": 11 * GIB, "total_bytes": 12 * GIB}, handle)
+                json.dump(content, handle)
 
     def wait(self, timeout=None):
         return self.code
@@ -827,6 +930,46 @@ class RestartDecisionTests(unittest.TestCase):
                 with self.subTest(platform=platform, case=name):
                     code, starts, text = self.run_parent(platform, list(script))
                     self.assertEqual((code, len(starts), text), (script[0][0], 1, ""))
+
+    def restart_message(self, note):
+        code, starts, text = self.run_parent("win32", [(0xC0000409, note), (0, False)])
+        self.assertEqual((code, len(starts)), (0, 2))
+        return text
+
+    def test_the_restart_message_names_a_shortage_of_the_computers_memory_only_when_the_note_shows_one(self):
+        tight = {"system": {"commit_used": int(111.2 * GIB), "commit_limit": int(111.8 * GIB), "ram_available": 6 * GIB}}
+        text = self.restart_message(tight)
+        self.assertIn("Windows had 0.6 GB of virtual memory left: the computer, not the GPU, was short of memory.", text)
+        self.assertLess(text.index("Windows had"), text.index("Finished work is kept"))
+        self.assertEqual(text.count("[Hardware] Warning:"), 1)
+        low_ram = {"system": {"commit_used": 50 * GIB, "commit_limit": 100 * GIB, "ram_available": int(0.4 * GIB)}}
+        self.assertIn("only 0.4 GB of RAM available: the computer, not the GPU, was short of memory.",
+                      self.restart_message(low_ram))
+        before_only = {"system_before": {"commit_used": 100 * GIB, "commit_limit": int(100.5 * GIB)}}
+        self.assertIn("Windows had 0.5 GB", self.restart_message(before_only))
+
+    def test_the_restart_message_claims_no_cause_without_numbers_or_with_ample_memory(self):
+        ample = {"system": {"commit_used": 50 * GIB, "commit_limit": 100 * GIB, "ram_available": 20 * GIB}}
+        for name, note in (("no numbers", True), ("ample", ample), ("not a dict", {"system": "x"}),
+                           ("empty", {"system": {}}), ("exactly 1 GiB", {"system": {"commit_used": 99 * GIB, "commit_limit": 100 * GIB, "ram_available": GIB}})):
+            with self.subTest(note=name):
+                text = self.restart_message(note)
+                self.assertNotIn("the computer, not the GPU", text)
+                self.assertNotIn("Windows had", text)
+        self.assertEqual(Tool_Supervisor.shortage_sentence(None), "")
+        self.assertEqual(Tool_Supervisor.shortage_sentence({"system": {"commit_used": 5, "commit_limit": 0}}), "")
+
+    def test_a_note_written_by_the_child_carries_the_computers_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "note.json")
+            system = {"commit_used": 5 * GIB, "commit_limit": 6 * GIB, "ram_available": GIB, "ignored": "text"}
+            with mock.patch.object(Tool_Supervisor, "_note_path", path), mock.patch.object(Tool_Supervisor, "_observed", {}):
+                self.assertTrue(Tool_Supervisor.record_note(
+                    "cuda:0", RuntimeError("out of memory"), free_bytes=1, total_bytes=2, system=system, system_before=None))
+            with open(path, encoding="utf-8") as handle:
+                note = json.load(handle)
+        self.assertEqual(note["system"], {"commit_used": 5 * GIB, "commit_limit": 6 * GIB, "ram_available": GIB})
+        self.assertNotIn("system_before", note)
 
     def test_a_child_that_cannot_be_started_leaves_the_tool_to_run_in_this_process(self):
         with mock.patch.object(Tool_Supervisor.subprocess, "Popen", side_effect=OSError("no process")), \

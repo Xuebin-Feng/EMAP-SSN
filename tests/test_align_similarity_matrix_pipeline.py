@@ -1293,9 +1293,15 @@ class AlignmentPipelineTests(unittest.TestCase):
         hardware = similarity_matrix.Hardware_Utils
 
         def fail(*_args, **_kwargs):
-            raise RuntimeError("CUDA error: out of memory")
+            raise RuntimeError(
+                "CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation' for more information.\n"
+                "Sticky error detected\n"
+            )
 
-        with mock.patch.object(similarity_matrix, "DEVICE_SELECTION", "cuda:0"), \
+        system = {"commit_used": int(111.2 * (1 << 30)), "commit_limit": int(111.8 * (1 << 30)),
+                  "ram_available": int(6.2 * (1 << 30))}
+        with mock.patch.object(hardware, "read_system_memory", return_value=system), \
+                mock.patch.object(similarity_matrix, "DEVICE_SELECTION", "cuda:0"), \
                 mock.patch.object(similarity_matrix, "EXECUTION_MODE", "scalar"), \
                 mock.patch.object(hardware, "get_available_devices", return_value=[cuda]), \
                 mock.patch.object(hardware, "release_device_cache"), \
@@ -1313,7 +1319,15 @@ class AlignmentPipelineTests(unittest.TestCase):
                     embedding_store=mock.Mock(), sequence_lengths=[2] * 7, matmul_precision="ieee_fp32",
                 )
 
-        self.assertIn("out of memory (free before the test: 11.2 of 12.0 GB)", output.getvalue())
+        lines = output.getvalue().splitlines()
+        row = next(line for line in lines if "CUDA error: out of memory" in line)
+        # The memory text sits on the row; the error's other lines follow, indented.
+        self.assertTrue(row.endswith(
+            "RuntimeError: CUDA error: out of memory (free before the test: 11.2 of 12.0 GB; "
+            "Windows virtual memory: 111.2 of 111.8 GB in use; RAM available: 6.2 GB)"), row)
+        after = lines[lines.index(row) + 1:]
+        self.assertEqual(after[:2], ["    Search for `cudaErrorMemoryAllocation' for more information.",
+                                     "    Sticky error detected"])
         note.assert_called_once()
         self.assertEqual(note.call_args.kwargs["free_bytes"], int(11.2 * (1 << 30)))
 
@@ -2315,6 +2329,47 @@ class TiledProducerTests(unittest.TestCase):
                 )
 
         self.assertEqual(log, ["empty-cache"])
+
+    def test_the_allocator_cap_covers_the_run_and_is_lifted_after_a_failure_and_after_success(self):
+        for fail in (True, False):
+            with self.subTest(fail=fail):
+                log = []
+                fractions = []
+                backend = FakeStreamBackend(log)
+                backend.device = torch.device("cpu")  # only a token handed back to the function
+                backend.module = SimpleNamespace(
+                    set_per_process_memory_fraction=lambda fraction, device: fractions.append(
+                        (fraction, device, list(log))
+                    )
+                )
+
+                def alignment(args):
+                    if fail:
+                        raise RuntimeError("alignment failed")
+                    return (args[0], args[1], 1.0, 1, 1.0, 1)
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    path = os.path.join(temp_dir, "embeddings.h5")
+                    headers = write_random_embeddings(path, self.LENGTHS, self.FEATURES, seed=23)
+                    store = alignment_engine.EmbeddingTileStore(path, headers, 0)
+                    tasks = [(0, column, headers[0], headers[column]) for column in (1, 2)]
+                    plan = small_tile_plan(self.FEATURES, 1)
+                    with mock.patch.object(alignment_engine, "_allocator_cap_enabled", True), \
+                            mock.patch.object(alignment_engine, "get_accelerator_backend", return_value=backend):
+                        run = lambda: alignment_engine.run_tiled_accelerator_pipeline(  # noqa: E731
+                            tasks, store=store, lengths=self.LENGTHS, device=torch.device("cpu"), workers=1,
+                            lanes=1, alignment_callback=alignment, memory_plan_override=plan,
+                        )
+                        if fail:
+                            with self.assertRaisesRegex(RuntimeError, "alignment failed"):
+                                run()
+                        else:
+                            run()
+
+                cap = alignment_engine.allocator_cap_bytes(plan)
+                self.assertEqual([call[0] for call in fractions], [cap / plan.total_bytes, 1.0])
+                self.assertEqual(fractions[0][2], [])  # set before the run touched the device
+                self.assertEqual(fractions[1][2], ["empty-cache"])  # lifted after the cache was handed back
 
     @unittest.skipUnless(
         torch.cuda.is_available() and alignment_engine.is_nvidia_cuda(),

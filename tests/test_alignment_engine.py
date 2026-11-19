@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from collections import Counter
 from concurrent.futures import Future
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -761,6 +762,127 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
         self.assertTrue(alignment_engine._pins_host_memory(torch.device("cuda")))
         matrices = mock.Mock(shape=(4,), device=torch.device("cuda"))
         self.assertTrue(alignment_engine._host_output_buffer(matrices).is_pinned())
+
+
+GIB = 1024 ** 3
+
+
+def cap_plan(**changes):
+    values = dict(
+        free_bytes=10 * GIB, total_bytes=12 * GIB, usable_bytes=8 * GIB, tile_cache_bytes=3 * GIB,
+        matrix_pool_bytes=3 * GIB, matrix_bytes=GIB, reserve_bytes=2 * GIB, lanes=1, inflight_slots=2,
+    )
+    values.update(changes)
+    return alignment_engine.AcceleratorMemoryPlan(**values)
+
+
+class FakeCapBackend:
+    """A backend stand-in whose torch module records set_per_process_memory_fraction calls."""
+
+    def __init__(self, device_type="cuda", with_function=True, fail_on=()):
+        self.device_type = device_type
+        self.device = torch.device("cpu")  # only a token handed back to the function
+        self.calls = []
+        self.fail_on = set(fail_on)
+
+        def record(fraction, device):
+            self.calls.append((fraction, device))
+            if len(self.calls) in self.fail_on:
+                raise RuntimeError("the allocator refused")
+
+        self.module = SimpleNamespace(set_per_process_memory_fraction=record) if with_function else SimpleNamespace()
+
+
+class AllocatorCapTests(unittest.TestCase):
+    """The cap on what the caching allocator may reserve while a tiled plan runs (no GPU, no CUDA build)."""
+
+    def setUp(self):
+        patcher = mock.patch.object(alignment_engine, "_allocator_cap_enabled", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_cap_is_the_plans_own_need_plus_slack_else_its_budgets_plus_slack(self):
+        slack = alignment_engine.ALLOCATOR_CAP_SLACK_BYTES
+        self.assertEqual(slack, GIB // 2)
+        self.assertEqual(alignment_engine.allocator_cap_bytes(cap_plan(allocator_cap_bytes=5 * GIB)), 5 * GIB)
+        self.assertEqual(alignment_engine.allocator_cap_bytes(cap_plan()), 3 * GIB + 3 * GIB + slack)
+
+    def test_the_cap_never_passes_the_card_minus_its_reserve_and_a_card_without_room_gets_none(self):
+        self.assertEqual(alignment_engine.allocator_cap_bytes(cap_plan(allocator_cap_bytes=11 * GIB)), 10 * GIB)
+        self.assertIsNone(alignment_engine.allocator_cap_bytes(cap_plan(reserve_bytes=12 * GIB)))
+        self.assertIsNone(alignment_engine.allocator_cap_bytes(cap_plan(total_bytes=0, free_bytes=0, reserve_bytes=0)))
+
+    def test_the_fraction_is_set_for_the_run_and_lifted_after_it(self):
+        backend = FakeCapBackend()
+        plan = cap_plan(allocator_cap_bytes=5 * GIB)
+        with alignment_engine.allocator_cap(backend, plan) as cap:
+            self.assertEqual(cap, 5 * GIB)
+            self.assertEqual(backend.calls, [(5 / 12, backend.device)])
+        self.assertEqual(backend.calls[1], (1.0, backend.device))
+        self.assertEqual(len(backend.calls), 2)
+
+    def test_the_cap_is_lifted_also_when_the_run_raises(self):
+        backend = FakeCapBackend()
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            with alignment_engine.allocator_cap(backend, cap_plan()):
+                raise RuntimeError("boom")
+        self.assertEqual(backend.calls[-1], (1.0, backend.device))
+
+    def test_only_cuda_and_rocm_are_capped(self):
+        for device_type in ("mps", "xpu", "cpu", "privateuseone"):
+            with self.subTest(backend=device_type):
+                backend = FakeCapBackend(device_type=device_type)
+                with alignment_engine.allocator_cap(backend, cap_plan()) as cap:
+                    self.assertIsNone(cap)
+                self.assertEqual(backend.calls, [])
+        backend = FakeCapBackend(with_function=False)  # a cuda module without the function
+        with alignment_engine.allocator_cap(backend, cap_plan()) as cap:
+            self.assertIsNone(cap)
+
+    def test_the_switch_turns_the_cap_off_and_is_read_once(self):
+        with mock.patch.object(alignment_engine, "_allocator_cap_enabled", None), \
+                mock.patch.dict(os.environ, {alignment_engine.ALLOCATOR_CAP_SWITCH: "0"}):
+            self.assertFalse(alignment_engine.allocator_cap_enabled())
+            os.environ[alignment_engine.ALLOCATOR_CAP_SWITCH] = "1"
+            self.assertFalse(alignment_engine.allocator_cap_enabled())  # read once
+        with mock.patch.object(alignment_engine, "_allocator_cap_enabled", None), \
+                mock.patch.dict(os.environ):
+            os.environ.pop(alignment_engine.ALLOCATOR_CAP_SWITCH, None)
+            self.assertTrue(alignment_engine.allocator_cap_enabled())
+        backend = FakeCapBackend()
+        with mock.patch.object(alignment_engine, "_allocator_cap_enabled", False), \
+                alignment_engine.allocator_cap(backend, cap_plan()) as cap:
+            self.assertIsNone(cap)
+        self.assertEqual(backend.calls, [])
+
+    def test_a_cap_that_cannot_be_set_or_lifted_never_raises(self):
+        backend = FakeCapBackend(fail_on={1})
+        with alignment_engine.allocator_cap(backend, cap_plan()) as cap:
+            self.assertIsNone(cap)
+        self.assertEqual(len(backend.calls), 1)  # nothing was applied, so nothing is lifted
+        backend = FakeCapBackend(fail_on={2})
+        with alignment_engine.allocator_cap(backend, cap_plan()) as cap:
+            self.assertIsNotNone(cap)
+        self.assertEqual(len(backend.calls), 2)
+        with alignment_engine.allocator_cap(FakeCapBackend(), mock.Mock()) as cap:  # a plan it cannot read
+            self.assertIsNone(cap)
+
+    def test_adaptive_plans_carry_the_dry_runs_need_for_the_cap(self):
+        store = mock.Mock(feature_dimension=8, float32_bytes=[64, 64])
+        store.block_ids.return_value = np.zeros(2, dtype=np.int32)
+        snapshot = alignment_engine.AcceleratorMemorySnapshot(
+            backend="cuda", free_bytes=16 * GIB, total_bytes=16 * GIB, reserve_bytes=0, source="test",
+        )
+        plans = alignment_engine.build_adaptive_tile_plans(
+            [(0, 1, "a", "b")], store=store, lengths=[2, 2], device=torch.device("cuda:0"),
+            lane_candidates=[1, 2], memory_snapshot=snapshot,
+        )
+        self.assertTrue(plans)
+        for plan in plans:
+            self.assertEqual(
+                plan.memory_plan.allocator_cap_bytes,
+                plan.estimate.additional_bytes + alignment_engine.ALLOCATOR_CAP_SLACK_BYTES,
+            )
 
 
 if __name__ == "__main__":
