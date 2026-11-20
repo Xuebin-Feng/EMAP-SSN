@@ -42,8 +42,9 @@ Show details) and keep it in temp/logs.
   gives the same. The clipboard holds the plain text and a second form of it
   in one HTML block that names a monospace font installed on the system, so
   Word and other programs paste it as code, with the colours that differ from
-  a plain line. Save writes it to a file, Clear view empties the window (the log file keeps everything),
-  and the last two buttons open the log file and show its folder.
+  a plain line. Save writes it to a file, Clear view empties the window (the
+  log file keeps everything), and the last two buttons open the log file and
+  show its folder.
 * The header is one row that never wraps: the window cannot be made narrower
   than that row needs, in the language and font it is in, and the search field
   is the one control that gives way (down to SEARCH_MINIMUM_WIDTH). The Show Times
@@ -322,7 +323,7 @@ def clipboard_mime_data(document, start, end, plain_color=None, family=None):
             low, high = max(first, start), min(first + fragment.length(), end)
             if low >= high:
                 continue
-            text = fragment.text()[low - first:high - first].replace(" ", " ")
+            text = fragment.text()[low - first:high - first].replace("\u00a0", " ")
             plain.append(text)
             css = _run_css(fragment.charFormat(), plain_color)
             escaped = _html.escape(text, quote=False)
@@ -383,10 +384,7 @@ class ConsoleText(QPlainTextEdit):
         self._plain_color = QColor(color)
 
     def clipboard_data(self, everything=False):
-        """The clipboard data (plain text and HTML) of the selection, or of every line when ``everything`` and none is selected.
-
-        The data belongs to this widget, so it outlives its Python wrapper until the clipboard or a drag is done with it.
-        """
+        """The clipboard data (plain text and HTML) of the selection, or of every line when ``everything`` and none is selected."""
         cursor = self.textCursor()
         if cursor.hasSelection():
             start, end = cursor.selectionStart(), cursor.selectionEnd()
@@ -395,7 +393,6 @@ class ConsoleText(QPlainTextEdit):
         else:
             start = end = 0
         mime = clipboard_mime_data(self.document(), start, end, self._plain_color, system_monospace_family())
-        mime.setParent(self)
         return mime
 
     def createMimeDataFromSelection(self):

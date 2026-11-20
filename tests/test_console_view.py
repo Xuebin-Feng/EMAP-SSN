@@ -10,6 +10,7 @@ import contextlib
 import gc
 import inspect
 import json
+import shiboken6
 import os
 from pathlib import Path
 import re
@@ -187,6 +188,9 @@ class WindowCase(unittest.TestCase):
 
     def setUp(self):
         self.recorder = Recorder("viewer", None)
+        # A QMimeData that Copy left on the clipboard is freed when the application is, after PySide6 has gone: the
+        # offscreen platform then crashes the process on exit. Empty the clipboard when the test is done.
+        self.addCleanup(QGuiApplication.clipboard().clear)
         # The window keeps its choice of showing the times in app_settings.json: not the user's own.
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -1401,7 +1405,7 @@ class CopyFormatTests(WindowCase):
         text, html = self.clipboard()
         self.assertEqual(text, "one\ntwo\nthree")
         self.assertEqual(self.pre(html)[1], "one\ntwo\nthree")
-        self.assertNotIn(" ", text + html)
+        self.assertNotIn("\u2029", text + html)
 
     def test_a_selection_gives_exactly_the_selected_characters_in_both_forms(self):
         self.recorder.add("stdout", f"ab {ESC}[38;2;200;30;30mCOLOUR{ESC}[0m cd")
@@ -1434,6 +1438,56 @@ class CopyFormatTests(WindowCase):
         gc.collect()
         self.assertEqual(self.clipboard(), by_button)  # the data is owned by Qt, not freed with a wrapper
         self.assertEqual(self.clipboard(), by_button)
+
+    def mortal(self, capture=RECORDER):
+        """A window this test destroys itself, so no cleanup touches it afterwards."""
+        window = ConsoleWindow(self.recorder if capture is RECORDER else capture)
+        window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        window.show()
+        flush(self.app, 2)
+        return window
+
+    def destroy(self, window):
+        window.close()
+        shiboken6.delete(window)
+        gc.collect()
+        self.app.processEvents()
+
+    def test_the_clipboard_outlives_the_window_after_the_button(self):
+        self.recorder.add("stdout", f"a <b> {ESC}[38;2;200;30;30mred{ESC}[0m")
+        window = self.mortal()
+        window.copy_text()
+        before = self.clipboard()
+        self.destroy(window)
+        self.assertEqual(self.clipboard(), before)
+        self.assertEqual(self.clipboard(), before)
+
+    def test_the_clipboard_outlives_the_window_after_ctrl_c(self):
+        self.recorder.add("stdout", f"a <b> {ESC}[38;2;200;30;30mred{ESC}[0m")
+        window = self.mortal()
+        window.text.selectAll()
+        window.text.copy()
+        before = self.clipboard()
+        self.assertEqual(before[0], "a <b> red")
+        self.destroy(window)
+        self.assertEqual(self.clipboard(), before)
+        self.assertEqual(self.clipboard(), before)
+
+    def test_a_second_window_copies_after_the_first_is_gone(self):
+        self.recorder.add("stdout", "first text")
+        window = self.mortal()
+        window.text.selectAll()
+        window.text.copy()
+        self.destroy(window)
+        other = Recorder("viewer", None)
+        other.add("stdout", "second <text>")
+        window = self.window(capture=other)
+        window.text.selectAll()
+        window.text.copy()
+        gc.collect()
+        text, html = self.clipboard()
+        self.assertEqual(text, "second <text>")
+        self.assertEqual(self.pre(html)[1], "second &lt;text&gt;")
 
     def test_a_console_text_alone_copies_a_selection(self):
         text = Console_View.ConsoleText()
