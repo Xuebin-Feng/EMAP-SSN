@@ -623,6 +623,21 @@ still change before version 1.0.0.
     structure has all residues of its sequence, numbered from 1, with side chains and
     confidence values on the 0 to 100 scale. No limit was reached, so how Biohub words
     its limit messages for folding is still known only from the embedding model.
+- **Text copied from the Console pastes in a monospace font and keeps its columns.** The
+  Copy button and Ctrl+C now put the same two forms on the clipboard: the plain text, as
+  before, and a formatted form that names a monospace font installed on the computer
+  (Consolas on Windows) at 10 pt.
+  - **Before:** the Copy button gave plain text only. Ctrl+C gave a formatted form with no
+    font, which Word showed as Times New Roman. Word also dropped its runs of spaces, so
+    a pasted table such as `cluster`'s could not be lined up again by choosing a font.
+  - **Colours:** coloured parts keep their colour, such as the cluster dots, errors and
+    warnings. Plain lines take the colour of the document they are pasted into. A Ctrl+C
+    copy used to give them the Console page's own text colour, a light one in the dark
+    theme.
+  - **Checked in Word 16 on Windows (2026-11-20):** pages holding each form were opened
+    in Word and the positions of a table's column bars were measured. The new form is
+    shown as Consolas 10 pt with every bar at the same position on every line. A paste
+    from the clipboard itself, Word on macOS and other programs were not checked.
 
 ### Fixed
 
