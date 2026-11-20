@@ -58,9 +58,9 @@ still change before version 1.0.0.
     cap at 300 (BLAST prints an E-value of 0 for the strongest hits). Weak hits between long
     sequences can score 0 or below.
   - **Kept apart from E-value networks:** such a network is saved as
-    `<set>_[BLAST]_EFIScore.h5` (`[DIAMOND]` for DIAMOND imports) and records `score_kind`
-    and `score_transform`. Its layout caches are labelled `[BLAST-EFI]` or `[DIAMOND-EFI]`,
-    and its extracts and exports have names of their own.
+    `<set>_[BLAST-EFI]_EValue.h5` (`[DIAMOND-EFI]` for DIAMOND imports) and records
+    `score_kind` and `score_transform`. Its layout caches and its extracts carry the same
+    label, and its exports go to folders of their own.
   - **The importer** reads the bit score from column 12 of `outfmt 6`, from the `bit score`
     field of `outfmt 7`, or from a new Bit Score Column for custom layouts.
   - **Shown everywhere a score is named:** Config's statistics, the Viewer, MCP's network
