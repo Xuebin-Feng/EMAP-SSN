@@ -1489,6 +1489,17 @@ class CopyFormatTests(WindowCase):
         self.assertEqual(text, "second <text>")
         self.assertEqual(self.pre(html)[1], "second &lt;text&gt;")
 
+    def test_an_empty_first_line_keeps_its_line_break_after_the_pre_tag(self):
+        # An HTML reader drops one line break right after <pre>, so the HTML holds one more than the plain text.
+        self.recorder.add("stdout", "")
+        self.recorder.add("stdout", "second")
+        window = self.window()
+        self.assertEqual(self.lines(window), ["", "second"])
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "\nsecond")
+        self.assertEqual(self.pre(html)[1], "\n\nsecond")
+
     def test_a_console_text_alone_copies_a_selection(self):
         text = Console_View.ConsoleText()
         self.addCleanup(text.deleteLater)
