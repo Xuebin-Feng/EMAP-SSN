@@ -682,6 +682,22 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Embedding MSA no longer keeps a sparse network's imputation arrays in memory for the
+  rest of the run.** For a sparse network the tool builds an all-pairs similarity matrix
+  and two dense matrices of filled-in scores and distances, and holds one similarity and
+  one score per edge for the fit. Nothing reads them once the distances for the guide
+  tree are built, but they stayed in memory through the replicate trees, the final tree
+  and the whole progressive merge: 20 bytes per sequence pair plus 12 bytes per edge.
+  Each is now released right after its last use.
+  - **Measured** on the 12,927-sequence aminotransferase set (E1, 62,710,401 edges, 75%
+    of pairs kept, on the CPU): the main process's private memory at the start of the
+    merge fell from 6.64 GB to 2.54 GB, and at the start of the replicate trees from
+    6.95 GB to 2.85 GB. The difference, 4.10 GB, matches the size of these arrays
+    (4.09 GB).
+  - **Unchanged:** the results, and the run's highest memory use (11.2 GB on that set),
+    which is reached earlier, while the fit is checked. The guide tree of that set is
+    byte-identical, and so are the alignments and guide trees of the HomFam kringle
+    family (829 sequences) for four settings, each run with one worker.
 - **Empty text fields in the Tools window showed the word None.** Reference Header and
   Target Header of Pairwise Embedding Alignment and Norm Score Cutoff of Embedding
   Database Search showed None while nothing was set, and Save wrote that word into
