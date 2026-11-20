@@ -164,7 +164,10 @@ def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **se
         seen["populate"].append(
             (np.array(edge_i), np.array(edge_j), np.array(edge_dists))
         )
-        return real_populate(D_condensed, num_seqs, edge_i, edge_j, edge_dists)
+        result = real_populate(D_condensed, num_seqs, edge_i, edge_j, edge_dists)
+        # The complete baseline the replicates start from, before the builder clips it.
+        seen["baseline"] = np.array(D_condensed)
+        return result
 
     def record_linkage(y, *args, **kwargs):
         seen["linkage_dtypes"].append(np.asarray(y).dtype)
@@ -232,64 +235,27 @@ class CopheneticAccumulationTests(ArrayAssertions, unittest.TestCase):
         self.assertEqual(accumulator.size, 0)
 
 
-class SparseCopheneticTests(ArrayAssertions, unittest.TestCase):
-    """Sparse networks average cophenetic distances over their own edges only."""
+class ConsensusFinalizeTests(ArrayAssertions, unittest.TestCase):
+    """Every network, sparse or complete, averages the replicate distances of all its pairs."""
 
-    def test_listed_pairs_match_scipy_cophenetic_distances(self):
-        rng = np.random.default_rng(5)
-        num_seqs = 40
-        tree = sch.linkage(rng.random(num_seqs * (num_seqs - 1) // 2), method="average")
-        # Every ordered pair, so half of them list the larger index first.
-        edge_i, edge_j = np.nonzero(~np.eye(num_seqs, dtype=bool))
-        edge_i = edge_i.astype(np.int32)
-        edge_j = edge_j.astype(np.int32)
-        expected = squareform(sch.cophenet(tree))[edge_i, edge_j].astype(np.float32)
-
-        actual = Embedding_MSA.compute_sparse_cophenetic(tree, num_seqs, edge_i, edge_j)
-
-        self.assertSameArray(actual, expected)
-        self.assertTrue(np.any(edge_i > edge_j))
-
-    def test_partial_consensus_replaces_only_the_listed_pairs(self):
-        baseline = np.arange(1, 11, dtype=np.float32)  # 5 sequences, 10 pairs
-        # Pairs (0, 1), (4, 3) and (1, 3) are condensed entries 0, 9 and 5.
-        edge_i = np.asarray([0, 4, 1], dtype=np.int32)
-        edge_j = np.asarray([1, 3, 3], dtype=np.int32)
-        accumulated = np.asarray([8.0, 12.0, 2.0], dtype=np.float32)
-        expected = baseline.copy()
-        expected[[0, 9, 5]] = [2.0, 3.0, 0.5]
-
-        result = Embedding_MSA.finalize_cophenetic_consensus(
-            baseline, 5, edge_i, edge_j, accumulated, 4, False
-        )
-
-        self.assertIs(result, baseline)
-        self.assertSameArray(result, expected)
-
-    def test_full_consensus_divides_every_pair(self):
+    def test_the_consensus_divides_every_pair(self):
         accumulated = np.arange(1, 11, dtype=np.float32)
         expected = accumulated / np.float32(4)
 
-        result = Embedding_MSA.finalize_cophenetic_consensus(
-            accumulated, 5, None, None, None, 4, True
-        )
+        result = Embedding_MSA.finalize_cophenetic_consensus(accumulated, 4)
 
         self.assertIs(result, accumulated)
         self.assertSameArray(result, expected)
 
     def test_zero_trees_are_rejected(self):
-        for full_consensus in (False, True):
-            with self.subTest(full_consensus=full_consensus):
-                with self.assertRaisesRegex(ValueError, "NUM_TREES must be greater than zero"):
-                    Embedding_MSA.finalize_cophenetic_consensus(
-                        np.ones(3, dtype=np.float32),
-                        3,
-                        np.asarray([0], dtype=np.int32),
-                        np.asarray([1], dtype=np.int32),
-                        np.ones(1, dtype=np.float32),
-                        0,
-                        full_consensus,
-                    )
+        with self.assertRaisesRegex(ValueError, "NUM_TREES must be greater than zero"):
+            Embedding_MSA.finalize_cophenetic_consensus(np.ones(3, dtype=np.float32), 0)
+
+    def test_no_partial_consensus_code_is_left(self):
+        for name in ("compute_sparse_cophenetic", "accumulate_sparse_path_lengths",
+                     "use_full_cophenetic_consensus", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(Embedding_MSA, name))
 
 
 class NormalizedScoreKernelTests(unittest.TestCase):
@@ -439,18 +405,33 @@ class GuideTreeEquivalenceTests(ArrayAssertions, unittest.TestCase):
     def test_sparse_network_edges_match_reference(self):
         fixture = NetworkFixture(self.directory, complete=False, seed=2)
         expected_edges = reference_edges(fixture, "average_sequence")
-        for include_imputed in (False, True):
-            with self.subTest(include_imputed=include_imputed):
+        for calibrated in (False, True):
+            with self.subTest(calibrated=calibrated):
                 seen = run_until_guide_tree(
                     fixture,
                     NORMALIZATION_MODE="average_sequence",
                     BOOTSTRAP_TREE=True,
                     NUM_TREES=2,
-                    INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS=include_imputed,
+                    CALIBRATED_IMPUTATION=calibrated,
                 )
                 self.assert_reference_edges(seen, expected_edges)
                 self.assertEqual(seen["guide_tree"].shape, (expected_edges[4] - 1, 4))
                 self.assertEqual(seen["linkage_dtypes"], [np.dtype(np.float64)] * 3)
+
+    def test_sparse_network_consensus_averages_every_pair(self):
+        # A sparse network gets the all-pairs consensus a complete one does, so the
+        # imputed pairs end up as replicate-averaged tree distances too.
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        expected_edges = reference_edges(fixture, "average_sequence")
+        seen = run_until_guide_tree(
+            fixture, NORMALIZATION_MODE="average_sequence", BOOTSTRAP_TREE=True, NUM_TREES=3
+        )
+        max_distance = expected_edges[3]
+        baseline = np.clip(seen["baseline"], 0.0, max_distance).astype(np.float32)
+        expected_tree = reference_consensus_tree(
+            baseline, max_distance, 0.02, num_trees=3, random_seed=42
+        )
+        self.assertSameArray(seen["guide_tree"], expected_tree)
 
     def test_blast_network_matches_reference(self):
         fixture = NetworkFixture(self.directory, blast=True, seed=3)

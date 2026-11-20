@@ -374,6 +374,17 @@ class ParserTests(unittest.TestCase):
         tree = parse_guide_tree(nexus_text(notes=notes))
         self.assertEqual(tree.notes, {"ALIGNMENT": "it's.fasta", "SEQUENCES": "2", "BARE": "word"})
 
+    def test_a_tree_saved_with_the_retired_consensus_note_reads_as_before(self):
+        # Versions before the calibration switch wrote this note; nothing reads it, so it is just a note.
+        notes = ("BEGIN EMAPSSN;\n  MISSING_PAIRS = 'Regression-imputed from embedding distances';\n"
+                 "  BOOTSTRAP_TREE = 'true';\n  NUM_TREES = '100';\n"
+                 "  INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = 'false';\nEND;\n")
+        tree = parse_guide_tree(nexus_text(tree="(a:1,b:2);", notes=notes))
+        self.assertEqual(tree.notes["INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"], "false")
+        self.assertEqual(tree.notes["NUM_TREES"], "100")
+        self.assertEqual(tree.rooted, True)
+        self.assertEqual(sorted(tree.labels), ["a", "b"])
+
     def test_only_the_first_tree_is_taken(self):
         text = "#NEXUS\nBEGIN TREES;\n  TREE one = (a,b);\n  TREE two = (c,d,e);\nEND;\n"
         tree = parse_guide_tree(text)

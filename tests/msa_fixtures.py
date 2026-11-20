@@ -212,7 +212,7 @@ def builder_settings(fixture, **settings):
         "NUM_TREES": 3,
         "NOISE_SCALE": 0.02,
         "RANDOM_SEED": 42,
-        "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": False,
+        "CALIBRATED_IMPUTATION": True,
         "WORKERS": 1,
         "DEVICE_SELECTION": "cpu",
         "SHOW_REGRESSION_PLOT": False,

@@ -29,6 +29,7 @@ import Embedding_MSA  # noqa: E402  msa_fixtures puts src/tools on the path
 OPENING = "Displaying Isotonic Regression plot."
 FAILED = "Could not open plot window: "
 UNCHECKED = "⚠️ This network stores no calibration sample of its missing pairs"
+UNIFORM = "Uniform fill: every missing pair below the fit's range gets the fit's lowest value, {value:.4f}."
 
 
 class ImputationFitTests(unittest.TestCase):
@@ -101,6 +102,65 @@ class ImputationFitTests(unittest.TestCase):
         self.assertTrue(np.all(fit.fit_x >= 0.5))
         self.assertEqual(fit.calibration_x.size, 40)
 
+    def test_without_the_sample_the_fit_takes_only_the_pairs_above_the_cut(self):
+        for fit_pairs in (1_000, 100):
+            with self.subTest(fit_pairs=fit_pairs):
+                fit = Embedding_MSA.fit_imputation(
+                    self.x, self.y, self.positions, self.weights, fit_pairs=fit_pairs, use_sample=False
+                )
+                # The pick is the one a network without a sample would have given (9016db6's).
+                above = np.arange(600)
+                if fit_pairs < 600:
+                    np.random.seed(42)
+                    above = above[np.random.choice(600, size=fit_pairs, replace=False)]
+                expected = IsotonicRegression(out_of_bounds="clip").fit(self.x[above], self.y[above])
+                np.testing.assert_array_equal(fit.fit_x, self.x[above])
+                np.testing.assert_array_equal(fit.iso.X_thresholds_, expected.X_thresholds_)
+                np.testing.assert_array_equal(fit.iso.y_thresholds_, expected.y_thresholds_)
+                self.assertTrue(fit.uniform)
+                # Every pair below the cut gets the fit's lowest value.
+                self.assertEqual(np.ptp(fit.iso.predict(self.below_x)), 0.0)
+                self.assertEqual(Embedding_MSA.uniform_fill_value(fit.iso), float(expected.y_thresholds_[0]))
+        self.assertGreaterEqual(fit.iso.X_min_, 0.5)
+
+    def test_without_the_sample_the_calibrated_check_is_still_made_and_the_uniform_value_scored(self):
+        calibrated = Embedding_MSA.fit_imputation(self.x, self.y, self.positions, self.weights)
+        off = Embedding_MSA.fit_imputation(self.x, self.y, self.positions, self.weights, use_sample=False)
+        self.assertFalse(calibrated.uniform)
+        self.assertIsNone(calibrated.uniform_check)
+        self.assertEqual(off.check, calibrated.check)
+        expected = Embedding_MSA.held_out_check(off.iso.predict(self.x[self.positions]), self.y[self.positions])
+        self.assertEqual(off.uniform_check.pairs, 40)
+        self.assertEqual(off.uniform_check.mae, expected.mae)
+        self.assertEqual(off.uniform_check.r2, expected.r2)
+        self.assertTrue(np.isnan(off.uniform_check.spearman))
+        # The calibrated fit does far better on those pairs.
+        self.assertLess(calibrated.check.mae, off.uniform_check.mae)
+        np.testing.assert_array_equal(off.calibration_x, self.x[self.positions])
+
+    def test_without_the_sample_too_few_pairs_found_are_still_left_out(self):
+        few = self.positions[:Embedding_MSA.MIN_CALIBRATION_PAIRS - 1]
+        off = Embedding_MSA.fit_imputation(self.x, self.y, few, self.weights[:len(few)], use_sample=False)
+        self.assertIsNone(off.check)
+        self.assertEqual(off.uniform_check.pairs, len(few))
+        self.assertEqual(off.fit_x.size, self.x.size - len(few))
+        np.testing.assert_array_equal(off.fit_x, self.x[:self.x.size - len(few)])
+        # With the sample ON the same few pairs stay among the observed pairs, as before.
+        on = Embedding_MSA.fit_imputation(self.x, self.y, few, self.weights[:len(few)])
+        self.assertEqual(on.fit_x.size, self.x.size)
+        self.assertIsNone(on.calibration_x)
+
+    def test_without_a_sample_on_and_off_are_the_same_fit(self):
+        on = Embedding_MSA.fit_imputation(self.x, self.y, None, None, fit_pairs=100)
+        for positions in (None, np.array([], dtype=np.int64)):
+            with self.subTest(positions=positions):
+                off = Embedding_MSA.fit_imputation(
+                    self.x, self.y, positions, None, fit_pairs=100, use_sample=False
+                )
+                np.testing.assert_array_equal(off.fit_x, on.fit_x)
+                np.testing.assert_array_equal(off.iso.y_thresholds_, on.iso.y_thresholds_)
+                self.assertIsNone(off.uniform_check)
+
     def test_held_out_check_numbers(self):
         check = Embedding_MSA.held_out_check([1.0, 2.0, 4.0], [1.0, 3.0, 3.0])
         self.assertEqual(check.pairs, 3)
@@ -143,6 +203,23 @@ class ImputationFitTests(unittest.TestCase):
              "Regression-imputed from embedding distances; the network has no calibration "
              "pairs, so the estimates are unchecked; 100.0% of missing pairs outside the "
              "fit's range"),
+            (True, Embedding_MSA.ImputationSummary(
+                9_000, 0.5, check, 2_468,
+                uniform_check=Embedding_MSA.CalibrationCheck(2_468, float("nan"), 0.51234, -0.3),
+                uniform_value=1.23456,
+            ),
+             "Regression-imputed from embedding distances; uniform fill, calibration sample not "
+             "used (every missing pair below the fit's range gets 1.2346); on 2,468 calibration "
+             "pairs: MAE 0.5123, R^2 -0.3000; the calibrated fit's held-out check on 1,234 pairs: "
+             "Spearman 0.8123, MAE 0.4123, R^2 0.6346; 50.0% of missing pairs outside the fit's range"),
+            (True, Embedding_MSA.ImputationSummary(
+                9_000, 0.5, None, 5,
+                uniform_check=Embedding_MSA.CalibrationCheck(5, float("nan"), 0.5, 0.0),
+                uniform_value=2.0,
+            ),
+             "Regression-imputed from embedding distances; uniform fill, calibration sample not "
+             "used (every missing pair below the fit's range gets 2.0000); on 5 calibration "
+             "pairs: MAE 0.5000, R^2 0.0000; 50.0% of missing pairs outside the fit's range"),
         )
         for imputed, summary, note in cases:
             with self.subTest(note=note):
@@ -161,6 +238,8 @@ class ImputationFitTests(unittest.TestCase):
         self.assertIn("A fit without every second one predicts those 10: Spearman rho", text)
         self.assertIn("Missing pairs outside the fit's range: 0.2% of 5,000", text)
         self.assertNotIn(UNCHECKED, text)
+        # With the sample used there is no uniform value to report.
+        self.assertNotIn("Uniform fill:", text)
 
         plain = Embedding_MSA.fit_imputation(x, y)
         with contextlib.redirect_stdout(io.StringIO()) as printed:
@@ -169,6 +248,28 @@ class ImputationFitTests(unittest.TestCase):
         self.assertIn("Missing pairs outside the fit's range: 97.0% of 5,000", text)
         self.assertIn(UNCHECKED, text)
         self.assertNotIn("Calibration check", text)
+        # The uniform value is printed, as one line, for a fit without the sample.
+        value = Embedding_MSA.uniform_fill_value(plain.iso)
+        self.assertIn(UNIFORM.format(value=value), text)
+        self.assertEqual(text.count("Uniform fill:"), 1)
+
+        # The switch OFF: the calibrated fit's check, the uniform fill's own scores, the value.
+        off = Embedding_MSA.fit_imputation(x, y, np.arange(20), np.ones(20), use_sample=False)
+        summary = Embedding_MSA.ImputationSummary(5_000, 0.9, off.check, 20, off.uniform_check)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            Embedding_MSA.report_imputation(off, summary)
+        text = printed.getvalue()
+        self.assertIn("Calibration check (20 directly computed pairs from below the prefilter cut):", text)
+        self.assertIn("The calibrated fit (switch ON) without every second one predicts those 10: Spearman rho", text)
+        self.assertIn("The uniform fill predicts all 20: Spearman rho n/a, MAE ", text)
+        self.assertIn(UNIFORM.format(value=Embedding_MSA.uniform_fill_value(off.iso)), text)
+        self.assertNotIn(UNCHECKED, text)
+        # Too few pairs for the calibrated check.
+        few = Embedding_MSA.fit_imputation(x, y, np.arange(4), np.ones(4), use_sample=False)
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            Embedding_MSA.report_imputation(few, Embedding_MSA.ImputationSummary(5_000, 0.9, None, 4, few.uniform_check))
+        self.assertIn("Only 4 calibration pair(s) found in this run: too few for a check", printed.getvalue())
+        self.assertIn("Uniform fill:", printed.getvalue())
 
 
 class RegressionPlotRunTests(unittest.TestCase):
@@ -267,6 +368,61 @@ class RegressionPlotRunTests(unittest.TestCase):
         self.assertEqual(len(x) + 12, pairs)
         self.assertEqual(float(iso_reg.X_min_), float(min(x.min(), fit.calibration_x.min())))
         self.assertEqual(len(record.sample), 12)
+
+    def run_for_baseline(self, fixture, **settings):
+        """Run to the guide tree with perturbed trees off; return the output and the matrix SciPy got."""
+        seen = {}
+        real_linkage = Embedding_MSA.sch.linkage
+
+        def record(matrix, *args, **kwargs):
+            seen["matrix"] = np.array(matrix)
+            return real_linkage(matrix, *args, **kwargs)
+
+        plot = mock.Mock()
+        with mock.patch.object(Embedding_MSA.sch, "linkage", record):
+            output = self.run_builder(fixture, plot, SHOW_REGRESSION_PLOT=True, **settings)
+        return output, seen["matrix"], plot
+
+    def test_a_network_without_a_sample_is_filled_the_same_with_the_switch_on_or_off(self):
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        results = {
+            switch: self.run_for_baseline(fixture, CALIBRATED_IMPUTATION=switch) for switch in (True, False)
+        }
+        self.assertEqual(results[True][1].tobytes(), results[False][1].tobytes())
+        for switch, (output, _, plot) in results.items():
+            with self.subTest(switch=switch):
+                self.assertEqual(output.count("Uniform fill: every missing pair below the fit's range"), 1)
+                self.assertIn(UNCHECKED, output)
+                self.assertNotIn("Measured over", output)
+        uniform = [line for line in results[True][0].splitlines() if line.startswith("Uniform fill:")]
+        self.assertEqual(uniform, [line for line in results[False][0].splitlines() if line.startswith("Uniform fill:")])
+        self.assertEqual(len(uniform), 1)
+
+    def test_with_the_switch_off_the_fit_leaves_the_calibration_pairs_out_and_reports_both_checks(self):
+        fixture = NetworkFixture(self.directory, complete=False, seed=2)
+        fixture.add_calibration_sample(count=12)
+        on_output, on_matrix, on_plot = self.run_for_baseline(fixture, CALIBRATED_IMPUTATION=True)
+        output, matrix, plot = self.run_for_baseline(fixture, CALIBRATED_IMPUTATION=False)
+
+        iso_reg, x, y, rho, r2, pairs = plot.call_args.args
+        fit = plot.call_args.kwargs["calibration"]
+        self.assertIs(fit.iso, iso_reg)
+        self.assertTrue(fit.uniform)
+        self.assertEqual(fit.calibration_x.size, 12)
+        # The fit and the statistics are over the pairs above the cut alone.
+        self.assertEqual(len(x), pairs)
+        on_pairs = on_plot.call_args.args[5]
+        self.assertEqual(pairs, on_pairs - 12)
+        self.assertEqual(float(iso_reg.X_min_), float(x.min()))
+        self.assertIn(f"Measured over the {pairs:,} observed pairs above the prefilter cut that the fit used", output)
+        self.assertIn(f"Spearman Rank Correlation (rho): {rho:.4f}", output)
+        # What ON would give, then the uniform fill's own scores, then its value.
+        self.assertIn("The calibrated fit (switch ON) without every second one predicts those 6: ", output)
+        self.assertIn("The uniform fill predicts all 12: Spearman rho n/a, MAE ", output)
+        self.assertIn(UNIFORM.format(value=Embedding_MSA.uniform_fill_value(iso_reg)), output)
+        self.assertEqual(fit.check, on_plot.call_args.kwargs["calibration"].check)
+        self.assertNotIn("Uniform fill:", on_output)
+        self.assertNotEqual(matrix.tobytes(), on_matrix.tobytes())
 
     def test_the_imputation_uses_the_prefilters_pooling_and_power(self):
         fixture = NetworkFixture(self.directory, complete=False, seed=2)
@@ -519,6 +675,30 @@ class RegressionChartTests(unittest.TestCase):
         # 400 hexagon pairs stand for all 2,000 besides the sample: a random sample.
         axes = self.draw(pairs=460, calibration=fit).axes[0]
         self.assertEqual(axes.get_legend().get_texts()[0].get_text(), "Observed pairs")
+
+    def test_a_fit_made_without_the_sample_gives_three_statistics_lines(self):
+        from matplotlib.text import Text
+
+        rng = np.random.default_rng(8)
+        below = rng.uniform(0.1, 0.6, 60).astype(np.float32)
+        x = np.concatenate([self.x, below])
+        y = np.concatenate([self.y, (1 + 2 * below + rng.normal(0, 0.3, 60)).astype(np.float32)])
+        fit = Embedding_MSA.fit_imputation(x, y, np.arange(400, 460), np.full(60, 50.0), use_sample=False)
+        # The statistics are over the 400 pairs above the cut, and so are the hexagons.
+        figure = self.draw(pairs=400, calibration=fit)
+        shown = {text.get_text() for text in figure.findobj(Text) if text.get_text()}
+        value = Embedding_MSA.uniform_fill_value(fit.iso)
+        self.assertIn("Spearman ρ 0.5000 · R² 0.2500 · 400 observed pairs above the prefilter cut", shown)
+        self.assertIn(str(Embedding_MSA.calibration_statistics(fit.check, calibrated_fit=True)), shown)
+        self.assertIn(str(Embedding_MSA.uniform_fill_statistics(fit.uniform_check, value)), shown)
+        self.assertTrue(any(text.startswith("Uniform fill ") and " on 60 calibration pairs · MAE " in text
+                            for text in shown))
+        self.assertTrue(any(text.startswith("Calibrated fit, held-out check on 30 calibration pairs")
+                            for text in shown))
+        # The hexagons hold the 400 pairs, the sample none of them: all are drawn, none is a sample.
+        axes = figure.axes[0]
+        self.assertEqual(axes.get_legend().get_texts()[0].get_text(), "Observed pairs")
+        self.assertEqual(int(np.asarray(self.hexagons(figure).get_array()).sum()), 400)
 
     def test_a_fit_without_a_sample_draws_as_before(self):
         from matplotlib.collections import PathCollection

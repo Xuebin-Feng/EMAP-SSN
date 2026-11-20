@@ -46,7 +46,9 @@ Settings:
 - NUM_WORKERS: CPU threads for parallel bootstrap generation of the consensus tree.
 - NUM_TREES: How many bootstrap replicate iterations to average for the consensus guide tree (higher = more stable topology).
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
-- INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged tree distances (cophenetic for UPGMA, path lengths for neighbor-joining) in the final matrix. Imputed pairs always participate in replicate trees.
+- CALIBRATED_IMPUTATION: For a sparse network, whether the imputation is fitted with the network's Edge Pre-filtering calibration
+  sample (ON) or on the pairs above the prefilter cut only, giving every skipped pair the fit's lowest value (OFF). A network
+  without a sample is always filled the OFF way. Every sparse network averages replicate tree distances over all pairs.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 - DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
 - SHOW_REGRESSION_PLOT: For a sparse network, shows the isotonic regression fit over the observed pairs as a pop-up
@@ -124,7 +126,7 @@ BOOTSTRAP_TREE = True
 NUM_TREES = 100             
 NOISE_SCALE = 0.02          
 RANDOM_SEED = 42
-INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = False
+CALIBRATED_IMPUTATION = True  # fit a sparse network's imputation with its calibration sample (see fit_imputation)
 
 # --- DIRECTORY DEFAULTS ---
 from tools.tool_helpers.Tool_Pipeline import (
@@ -844,48 +846,6 @@ def populate_condensed_matrix(D_condensed, num_seqs, edge_i, edge_j, edge_dists)
         D_condensed[idx] = edge_dists[k]
 
 @jit(nopython=True, fastmath=True)
-def compute_sparse_cophenetic(Z, num_seqs, edge_i, edge_j):
-    """Traces the linkage tree to find cophenetic distances ONLY for specific edges."""
-    num_edges = len(edge_i)
-    coph_dists = np.zeros(num_edges, dtype=np.float32)
-    
-    total_nodes = 2 * num_seqs - 1
-    parent = np.arange(total_nodes, dtype=np.int32)
-    height = np.zeros(total_nodes, dtype=np.float32)
-    
-    # Build tree hierarchy from Z matrix
-    for i in range(num_seqs - 1):
-        idx = num_seqs + i
-        child1 = int(Z[i, 0])
-        child2 = int(Z[i, 1])
-        parent[child1] = idx
-        parent[child2] = idx
-        height[idx] = Z[i, 2]
-        
-    visited_marker = np.zeros(total_nodes, dtype=np.int32)
-    
-    # Trace Lowest Common Ancestor (LCA) for each edge
-    for k in range(num_edges):
-        u = edge_i[k]
-        v = edge_j[k]
-        marker = k + 1
-        
-        curr = u
-        visited_marker[curr] = marker
-        while parent[curr] != curr:
-            curr = parent[curr]
-            visited_marker[curr] = marker
-            
-        curr = v
-        while visited_marker[curr] != marker:
-            curr = parent[curr]
-            
-        coph_dists[k] = height[curr]
-        
-    return coph_dists
-
-
-@jit(nopython=True, fastmath=True)
 def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator):
     """Add float32 cophenetic distances for every condensed pair in place.
 
@@ -996,61 +956,8 @@ def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator):
         next_leaf[tail[child_a]] = head[child_b]
 
 
-@jit(nopython=True, fastmath=True)
-def accumulate_sparse_path_lengths(
-    Z, num_seqs, node_length, edge_i, edge_j, path_accumulator
-):
-    """Add float32 path lengths for the listed pairs only, in place.
-
-    A pair's path is depth(i) + depth(j) - 2 * depth(LCA), with float64
-    depths from the root; the LCA walk is compute_sparse_cophenetic's.
-    """
-    if num_seqs <= 1:
-        return
-
-    total_nodes = 2 * num_seqs - 1
-    parent = np.arange(total_nodes, dtype=np.int32)
-    for step in range(num_seqs - 1):
-        node = num_seqs + step
-        parent[int(Z[step, 0])] = node
-        parent[int(Z[step, 1])] = node
-
-    # Linkage numbers every parent above its children, so one sweep down
-    # from the root sets each depth after its parent's.
-    depth = np.zeros(total_nodes, dtype=np.float64)
-    for node in range(total_nodes - 2, -1, -1):
-        depth[node] = depth[parent[node]] + node_length[node]
-
-    visited_marker = np.zeros(total_nodes, dtype=np.int64)
-    for k in range(len(edge_i)):
-        u = edge_i[k]
-        v = edge_j[k]
-        marker = k + 1
-
-        curr = u
-        visited_marker[curr] = marker
-        while parent[curr] != curr:
-            curr = parent[curr]
-            visited_marker[curr] = marker
-
-        curr = v
-        while visited_marker[curr] != marker:
-            curr = parent[curr]
-
-        path_accumulator[k] += np.float32(depth[u] + depth[v] - 2.0 * depth[curr])
-
-
-def add_replicate_to_consensus(
-    Z,
-    nj_branch_lengths,
-    num_seqs,
-    full_consensus,
-    full_accumulator,
-    edge_i,
-    edge_j,
-    sparse_accumulator,
-):
-    """Add one replicate tree's leaf distances to the consensus in place.
+def add_replicate_to_consensus(Z, nj_branch_lengths, num_seqs, accumulator):
+    """Add one replicate tree's distance for every pair to the consensus, in place.
 
     UPGMA replicates add their cophenetic merge heights. A neighbor-joining
     height only keeps the linkage format monotone, so those replicates add
@@ -1058,49 +965,18 @@ def add_replicate_to_consensus(
     clamps them.
     """
     if nj_branch_lengths is None:
-        if full_consensus:
-            accumulate_full_cophenetic(Z, num_seqs, full_accumulator)
-        else:
-            sparse_accumulator += compute_sparse_cophenetic(Z, num_seqs, edge_i, edge_j)
+        accumulate_full_cophenetic(Z, num_seqs, accumulator)
         return
 
     _, node_length = guide_tree_branches(Z, num_seqs, nj_branch_lengths)
-    if full_consensus:
-        accumulate_full_path_lengths(Z, num_seqs, node_length, full_accumulator)
-    else:
-        accumulate_sparse_path_lengths(
-            Z, num_seqs, node_length, edge_i, edge_j, sparse_accumulator
-        )
+    accumulate_full_path_lengths(Z, num_seqs, node_length, accumulator)
 
 
-def use_full_cophenetic_consensus(is_sparse, include_imputed_pairs):
-    """Complete networks are always full; sparse networks follow the setting."""
-    return (not bool(is_sparse)) or bool(include_imputed_pairs)
-
-
-def finalize_cophenetic_consensus(
-    distance_matrix,
-    num_seqs,
-    edge_i,
-    edge_j,
-    cophenetic_accumulator,
-    num_trees,
-    full_consensus,
-):
-    """Finalize full or observed-edge-only cophenetic accumulation in place."""
+def finalize_cophenetic_consensus(distance_matrix, num_trees):
+    """Average the accumulated replicate distances over every pair, in place."""
     if num_trees <= 0:
         raise ValueError("NUM_TREES must be greater than zero.")
-    if full_consensus:
-        distance_matrix /= num_trees
-    else:
-        average_sparse = cophenetic_accumulator / num_trees
-        populate_condensed_matrix(
-            distance_matrix,
-            num_seqs,
-            edge_i,
-            edge_j,
-            average_sparse,
-        )
+    distance_matrix /= num_trees
     return distance_matrix
 
 @jit(nopython=True, fastmath=True, parallel=True)
@@ -1595,8 +1471,10 @@ def guide_tree_notes(network_type, imputed, imputation=None):
         notes.append(("NETWORK_SCORES", "BLAST E-values"))
     else:
         notes += [("ALIGNMENT_SCORE", ALIGNMENT_SCORE), ("NORMALIZATION_MODE", NORMALIZATION_MODE)]
+    notes.append(("MISSING_PAIRS", missing_pairs_note(imputed, imputation)))
+    if imputed:
+        notes.append(("CALIBRATED_IMPUTATION", "true" if CALIBRATED_IMPUTATION else "false"))
     notes += [
-        ("MISSING_PAIRS", missing_pairs_note(imputed, imputation)),
         ("TREE_METHOD", TREE_METHOD),
         ("BOOTSTRAP_TREE", "true" if BOOTSTRAP_TREE else "false"),
     ]
@@ -1605,8 +1483,6 @@ def guide_tree_notes(network_type, imputed, imputation=None):
             ("NUM_TREES", NUM_TREES),
             ("NOISE_SCALE", NOISE_SCALE),
             ("RANDOM_SEED", RANDOM_SEED),
-            ("INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
-             "true" if INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS else "false"),
         ]
     return notes
 
@@ -1836,6 +1712,9 @@ class ImputationFit:
     calibration sample (all of them, or a random sample); calibration_x and
     calibration_y are the calibration pairs found in the run, None without a
     sample, and check tells how well a fit without half of them predicts that half.
+    uniform is True when every missing pair below the fit's range gets the
+    fit's lowest value (a fit made without the sample); then uniform_check
+    scores that value on the calibration pairs found, which the fit left out.
     """
 
     iso: IsotonicRegression
@@ -1844,6 +1723,8 @@ class ImputationFit:
     calibration_x: np.ndarray = None
     calibration_y: np.ndarray = None
     check: CalibrationCheck = None
+    uniform: bool = True
+    uniform_check: CalibrationCheck = None
 
 
 @dataclass
@@ -1854,6 +1735,8 @@ class ImputationSummary:
     outside: float
     check: CalibrationCheck = None
     calibration_pairs: int = 0
+    uniform_check: CalibrationCheck = None
+    uniform_value: float = None
 
 
 def held_out_check(predicted, actual):
@@ -1874,7 +1757,7 @@ def held_out_check(predicted, actual):
 
 
 def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
-                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42):
+                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42, use_sample=True):
     """Fit normalized scores y on similarity x over a sparse network's observed pairs.
 
     Without a calibration sample, or with fewer than MIN_CALIBRATION_PAIRS of
@@ -1887,12 +1770,21 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
     weighted, so it spans the skipped pairs' range as a fit over all pairs
     would. A first fit without every second calibration pair is scored on
     those pairs (the check); the fit returned uses them all.
+
+    With use_sample False the fit takes only the other observed pairs, the
+    same random pick of them, unweighted, whatever the sample's size: the
+    calibration pairs found are left out, as a network made before the
+    sample existed lacked them, and every missing pair below the fit's range
+    gets its lowest value. The check of the fit with the sample is still
+    made (from MIN_CALIBRATION_PAIRS pairs on), and uniform_check scores the
+    uniform value on every calibration pair found.
     """
     x = np.asarray(x)
     y = np.asarray(y)
     if calibration_positions is not None:
         calibration_positions = np.asarray(calibration_positions, dtype=np.int64)
-    if calibration_positions is None or calibration_positions.size < MIN_CALIBRATION_PAIRS:
+    sampled = calibration_positions is not None and calibration_positions.size >= MIN_CALIBRATION_PAIRS
+    if calibration_positions is None or calibration_positions.size == 0 or not (sampled or not use_sample):
         if len(x) > fit_pairs:
             np.random.seed(seed)
             pick = np.random.choice(len(x), size=fit_pairs, replace=False)
@@ -1902,7 +1794,6 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
         iso = IsotonicRegression(out_of_bounds="clip").fit(fit_x, fit_y)
         return ImputationFit(iso, fit_x, fit_y)
 
-    weights = np.asarray(calibration_weights, dtype=np.float64)
     is_calibration = np.zeros(len(x), dtype=bool)
     is_calibration[calibration_positions] = True
     others = np.flatnonzero(~is_calibration)
@@ -1910,29 +1801,45 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
     if others.size > fit_pairs:
         np.random.seed(seed)
         others = others[np.random.choice(others.size, size=fit_pairs, replace=False)]
-    other_weight = other_count / max(others.size, 1)
     fit_x, fit_y = x[others], y[others]
     calibration_x = x[calibration_positions]
     calibration_y = y[calibration_positions]
 
-    def fit(chosen):
-        # The chosen calibration pairs stand in for the whole sample's skipped pairs.
-        scale = len(weights) / len(chosen)
-        return IsotonicRegression(out_of_bounds="clip").fit(
-            np.concatenate([fit_x, calibration_x[chosen]]),
-            np.concatenate([fit_y, calibration_y[chosen]]),
-            sample_weight=np.concatenate(
-                [np.full(fit_x.size, other_weight), weights[chosen] * scale]
-            ),
-        )
+    check = fit_with_sample = None
+    if sampled:
+        weights = np.asarray(calibration_weights, dtype=np.float64)
+        other_weight = other_count / max(others.size, 1)
 
-    held = np.arange(1, calibration_x.size, 2)
-    check = held_out_check(
-        fit(np.arange(0, calibration_x.size, 2)).predict(calibration_x[held]),
-        calibration_y[held],
+        def fit_with_sample(chosen):
+            # The chosen calibration pairs stand in for the whole sample's skipped pairs.
+            scale = len(weights) / len(chosen)
+            return IsotonicRegression(out_of_bounds="clip").fit(
+                np.concatenate([fit_x, calibration_x[chosen]]),
+                np.concatenate([fit_y, calibration_y[chosen]]),
+                sample_weight=np.concatenate(
+                    [np.full(fit_x.size, other_weight), weights[chosen] * scale]
+                ),
+            )
+
+        held = np.arange(1, calibration_x.size, 2)
+        check = held_out_check(
+            fit_with_sample(np.arange(0, calibration_x.size, 2)).predict(calibration_x[held]),
+            calibration_y[held],
+        )
+        if use_sample:
+            iso = fit_with_sample(np.arange(calibration_x.size))
+            return ImputationFit(iso, fit_x, fit_y, calibration_x, calibration_y, check, uniform=False)
+
+    iso = IsotonicRegression(out_of_bounds="clip").fit(fit_x, fit_y)
+    return ImputationFit(
+        iso, fit_x, fit_y, calibration_x, calibration_y, check,
+        uniform_check=held_out_check(iso.predict(calibration_x), calibration_y),
     )
-    iso = fit(np.arange(calibration_x.size))
-    return ImputationFit(iso, fit_x, fit_y, calibration_x, calibration_y, check)
+
+
+def uniform_fill_value(iso):
+    """The value every missing pair below the fit's range gets: the fit's lowest."""
+    return float(iso.predict([iso.X_min_])[0])
 
 
 def outside_fit_fraction(similarity, iso, observed_x, missing):
@@ -1962,7 +1869,20 @@ def missing_pairs_note(imputed, summary=None):
     text = "Regression-imputed from embedding distances"
     if summary is None:
         return text
-    if summary.check is not None:
+    if summary.uniform_check is not None:
+        uniform = summary.uniform_check
+        text += (
+            f"; uniform fill, calibration sample not used (every missing pair below the fit's range "
+            f"gets {summary.uniform_value:.4f}); on {uniform.pairs:,} calibration pairs: "
+            f"MAE {uniform.mae:.4f}, R^2 {uniform.r2:.4f}"
+        )
+        if summary.check is not None:
+            check = summary.check
+            text += (
+                f"; the calibrated fit's held-out check on {check.pairs:,} pairs: Spearman "
+                f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}"
+            )
+    elif summary.check is not None:
         check = summary.check
         text += (
             f"; checked on {check.pairs:,} held-out calibration pairs: Spearman "
@@ -1974,11 +1894,41 @@ def missing_pairs_note(imputed, summary=None):
 
 
 def report_imputation(fit, summary):
-    """Print the calibration check, or the warning a network without a sample gets."""
+    """Print the calibration check, or the warning a network without a sample gets.
+
+    Whenever the fit's lowest value fills the missing pairs below its range
+    (fit.uniform), the value is printed as well.
+    """
     outside = (
         f"  > Missing pairs outside the fit's range: {100.0 * summary.outside:.1f}% of "
         f"{summary.missing:,} (they get the fit's value at the nearer end)"
     )
+    uniform = (
+        "Uniform fill: every missing pair below the fit's range gets the fit's lowest value, "
+        f"{uniform_fill_value(fit.iso):.4f}."
+    )
+    if fit.uniform and fit.uniform_check is not None:
+        # The switch is OFF: the sample was found but the fit did not use it.
+        calibrated, scored = fit.check, fit.uniform_check
+        print(f"Calibration check ({scored.pairs:,} directly computed pairs from below the prefilter cut):")
+        if calibrated is not None:
+            print(
+                f"  > The calibrated fit (switch ON) without every second one predicts those "
+                f"{calibrated.pairs:,}: Spearman rho {calibrated.spearman:.4f}, "
+                f"MAE {calibrated.mae:.4f}, R^2 {calibrated.r2:.4f}"
+            )
+        else:
+            print(
+                f"  > Only {scored.pairs:,} calibration pair(s) found in this run: too few "
+                f"for a check of the calibrated fit (it needs {MIN_CALIBRATION_PAIRS})."
+            )
+        print(
+            f"  > The uniform fill predicts all {scored.pairs:,}: Spearman rho n/a, "
+            f"MAE {scored.mae:.4f}, R^2 {scored.r2:.4f}"
+        )
+        print(outside)
+        print(uniform)
+        return
     if fit.check is not None:
         check = fit.check
         print(
@@ -1992,6 +1942,7 @@ def report_imputation(fit, summary):
         print(outside)
         return
     print(outside)
+    print(uniform)
     print(
         "⚠️ This network stores no calibration sample of its missing pairs, so their "
         "imputed scores are unchecked. For a checked imputation, use a complete network, "
@@ -2018,25 +1969,51 @@ _FIT_WIDTH = 2.25
 _FIT_RING = 2.0
 
 
-def regression_statistics(rho, r2, pairs):
+def regression_statistics(rho, r2, pairs, above_cut=False):
     """One line on the fit: Spearman's rho, R² and how many observed pairs they were measured on.
 
     A Message: str() is the English line, and display() the chart's, in the
     Tools window's language. The numbers come formatted as the terminal's
     fit diagnostics print them, the count with thousands separators.
+    above_cut says the pairs are those above the prefilter cut, the ones a
+    fit made without the calibration sample took.
     """
     numbers = {"rho": f"{rho:.4f}", "r2": f"{r2:.4f}", "count": f"{pairs:,}"}
+    if above_cut:
+        if pairs == 1:
+            return Message("Spearman ρ {rho} · R² {r2} · {count} observed pair above the prefilter cut", **numbers)
+        return Message("Spearman ρ {rho} · R² {r2} · {count} observed pairs above the prefilter cut", **numbers)
     if pairs == 1:
         return Message("Spearman ρ {rho} · R² {r2} · {count} observed pair", **numbers)
     return Message("Spearman ρ {rho} · R² {r2} · {count} observed pairs", **numbers)
 
 
-def calibration_statistics(check):
-    """The chart's line on the held-out check: Spearman's rho, MAE and R² on the calibration pairs left out."""
+def calibration_statistics(check, calibrated_fit=False):
+    """The chart's line on the held-out check: Spearman's rho, MAE and R² on the calibration pairs left out.
+
+    calibrated_fit says the line is of the fit with the calibration sample,
+    which the chart's own fit (the uniform one) did not use.
+    """
+    numbers = {
+        "count": f"{check.pairs:,}", "rho": f"{check.spearman:.4f}", "mae": f"{check.mae:.4f}",
+        "r2": f"{check.r2:.4f}",
+    }
+    if calibrated_fit:
+        return Message(
+            "Calibrated fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
+            **numbers,
+        )
     return Message(
         "Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
-        count=f"{check.pairs:,}", rho=f"{check.spearman:.4f}", mae=f"{check.mae:.4f}",
-        r2=f"{check.r2:.4f}",
+        **numbers,
+    )
+
+
+def uniform_fill_statistics(check, value):
+    """The chart's line on the uniform fill: its value, and its MAE and R² on the calibration pairs."""
+    return Message(
+        "Uniform fill {value} on {count} calibration pairs · MAE {mae} · R² {r2}",
+        value=f"{value:.4f}", count=f"{check.pairs:,}", mae=f"{check.mae:.4f}", r2=f"{check.r2:.4f}",
     )
 
 
@@ -2141,7 +2118,8 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
 
         # Above the plot, bottom up: the legend, the statistics lines, the title.
         # The hexagons hold the observed pairs besides the calibration sample.
-        others = pairs - (calibration.calibration_x.size if sampled else 0)
+        # A fit that used the sample counts it among the pairs; a uniform one counts only the others.
+        others = pairs - (calibration.calibration_x.size if sampled and not calibration.uniform else 0)
         if len(x) < others:
             observed = Message("Observed pairs (random sample of {count})", count=f"{len(x):,}")
         else:
@@ -2163,9 +2141,12 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
             borderaxespad=0.6, borderpad=0, handlelength=1.6, columnspacing=1.8,
             labelcolor=tokens["text_soft"],
         )
-        lines = [regression_statistics(rho, r2, pairs)]
+        uniform_sampled = sampled and calibration.uniform
+        lines = [regression_statistics(rho, r2, pairs, above_cut=uniform_sampled)]
         if sampled and calibration.check is not None:
-            lines.append(calibration_statistics(calibration.check))
+            lines.append(calibration_statistics(calibration.check, calibrated_fit=calibration.uniform))
+        if uniform_sampled and calibration.uniform_check is not None:
+            lines.append(uniform_fill_statistics(calibration.uniform_check, uniform_fill_value(iso_reg)))
         for row, line in enumerate(reversed(lines)):
             axes.annotate(
                 line.display(), (0, 1), xycoords="axes fraction",
@@ -2496,15 +2477,28 @@ def run_msa_builder():
             )
 
         print("Fitting Isotonic Regression (Adjusted Similarity -> Alignment Score)...")
-        imputation = fit_imputation(X_cos, Y_align, calibration_positions, calibration_weights)
+        imputation = fit_imputation(
+            X_cos, Y_align, calibration_positions, calibration_weights,
+            use_sample=bool(CALIBRATED_IMPUTATION),
+        )
         iso_reg = imputation.iso
 
-        # Evaluate fitness on all edges
-        Y_pred = iso_reg.predict(X_cos)
-        rho, _ = spearmanr(X_cos, Y_align)
-        r2 = r2_score(Y_align, Y_pred)
+        # Evaluate fitness on the observed pairs the fit was made on: all of them, or
+        # without the calibration pairs when the fit left them out.
+        fitted_x, fitted_y = X_cos, Y_align
+        left_out = imputation.uniform and imputation.calibration_x is not None
+        if left_out:
+            in_fit = np.ones(len(X_cos), dtype=bool)
+            in_fit[calibration_positions] = False
+            fitted_x, fitted_y = X_cos[in_fit], Y_align[in_fit]
+            del in_fit
+        Y_pred = iso_reg.predict(fitted_x)
+        rho, _ = spearmanr(fitted_x, fitted_y)
+        r2 = r2_score(fitted_y, Y_pred)
 
         print(f"Isotonic Regression Fit Diagnostics:")
+        if left_out:
+            print(f"  > Measured over the {len(fitted_x):,} observed pairs above the prefilter cut that the fit used")
         print(f"  > Spearman Rank Correlation (rho): {rho:.4f}")
         print(f"  > Coefficient of Determination (R^2): {r2:.4f}")
         missing_pairs = int(num_seqs * (num_seqs - 1) // 2) - num_edges
@@ -2513,6 +2507,8 @@ def run_msa_builder():
             outside=outside_fit_fraction(cos_sim_mat, iso_reg, X_cos, missing_pairs),
             check=imputation.check,
             calibration_pairs=0 if imputation.calibration_x is None else imputation.calibration_x.size,
+            uniform_check=imputation.uniform_check,
+            uniform_value=uniform_fill_value(iso_reg),
         )
         report_imputation(imputation, imputation_summary)
 
@@ -2520,11 +2516,12 @@ def run_msa_builder():
             try:
                 print("Displaying Isotonic Regression plot. Close the plot window to continue...")
                 plot_regression_fit(
-                    iso_reg, imputation.fit_x, imputation.fit_y, rho, r2, len(X_cos),
+                    iso_reg, imputation.fit_x, imputation.fit_y, rho, r2, len(fitted_x),
                     calibration=imputation,
                 )
             except Exception as plot_err:
                 print(f"Could not open plot window: {plot_err}")
+        del fitted_x, fitted_y, Y_pred
 
     # 8. BUILD CONSENSUS TREE
     tree_building_started = time.perf_counter()
@@ -2551,13 +2548,8 @@ def run_msa_builder():
     replicate_keys = None
 
     if BOOTSTRAP_TREE:
-        full_consensus = use_full_cophenetic_consensus(
-            is_sparse,
-            INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS,
-        )
-        consensus_label = "full all-pairs" if full_consensus else "observed-edge partial"
         print(f"\nBuilding Consensus Tree from {NUM_TREES} bootstrap replicates using {WORKERS} cores...")
-        print(f"Final tree-distance consensus mode: {consensus_label}.")
+        print("Final tree-distance consensus mode: full all-pairs.")
         
         # --- MEMORY MAPPING FIX FOR WINDOWS IPC LIMITS ---
         print("Writing the complete distance baseline to a temporary Memory-Mapped file for workers...")
@@ -2587,37 +2579,12 @@ def run_msa_builder():
         mm_baseline[:] = D_final_cond[:]
         mm_baseline.flush()
 
-        if full_consensus:
-            # Workers now own the immutable baseline through the memory map.
-            # Reuse the main condensed array as the all-pairs accumulator.
-            del edge_i
-            del edge_j
-            del edge_dists
-            D_final_cond.fill(0.0)
-            mm_i_main = None
-            mm_j_main = None
-            C_accum_sparse = None
-        else:
-            # Partial consensus updates only observed pairs. Keep their indices
-            # memory-mapped so large sparse networks do not remain in RAM.
-            edge_i_path = os.path.join(temp_dir, "edge_i.dat")
-            edge_j_path = os.path.join(temp_dir, "edge_j.dat")
-            mm_i = np.memmap(edge_i_path, dtype=np.int32, mode="w+", shape=edge_i.shape)
-            mm_i[:] = edge_i[:]
-            mm_i.flush()
-            del mm_i
-
-            mm_j = np.memmap(edge_j_path, dtype=np.int32, mode="w+", shape=edge_j.shape)
-            mm_j[:] = edge_j[:]
-            mm_j.flush()
-            del mm_j
-
-            del edge_i
-            del edge_j
-            del edge_dists
-            mm_i_main = np.memmap(edge_i_path, dtype=np.int32, mode="r", shape=(num_edges,))
-            mm_j_main = np.memmap(edge_j_path, dtype=np.int32, mode="r", shape=(num_edges,))
-            C_accum_sparse = np.zeros(num_edges, dtype=np.float32)
+        # Workers now own the immutable baseline through the memory map.
+        # Reuse the main condensed array as the all-pairs accumulator.
+        del edge_i
+        del edge_j
+        del edge_dists
+        D_final_cond.fill(0.0)
 
         seeds = generate_bootstrap_seeds(NUM_TREES)
         # Neighbor-joining workers share the CPU budget; UPGMA ignores it.
@@ -2642,35 +2609,14 @@ def run_msa_builder():
                 iterator, total=NUM_TREES, desc="Bootstrapping Trees"
             ):
                 split_keys.append(replicate_split_keys(Z, num_seqs, leaf_keys))
-                add_replicate_to_consensus(
-                    Z,
-                    replicate_lengths,
-                    num_seqs,
-                    full_consensus,
-                    D_final_cond,
-                    mm_i_main,
-                    mm_j_main,
-                    C_accum_sparse,
-                )
+                add_replicate_to_consensus(Z, replicate_lengths, num_seqs, D_final_cond)
         replicate_keys = np.sort(np.concatenate(split_keys))
         del split_keys
 
         print("Building final master tree...")
-        finalize_cophenetic_consensus(
-            D_final_cond,
-            num_seqs,
-            mm_i_main,
-            mm_j_main,
-            C_accum_sparse,
-            NUM_TREES,
-            full_consensus,
-        )
-        
+        finalize_cophenetic_consensus(D_final_cond, NUM_TREES)
+
         # --- CLEANUP ---
-        if mm_i_main is not None:
-            del mm_i_main
-        if mm_j_main is not None:
-            del mm_j_main
         del mm_baseline
         
         gc.collect() # Force Windows to release file handles
