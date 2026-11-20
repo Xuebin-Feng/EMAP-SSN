@@ -595,7 +595,9 @@ class ParameterTableTests(unittest.TestCase):
                 lines = parameter_lines(fonts, name, key, width)
                 worst = max(worst, lines)
                 self.assertLessEqual(lines, 3, f"{label}: {name} {key}")
-        self.assertEqual(worst, 3)  # "Include Imputed Pairs in Final Consensus" and its key
+        # Two lines is the most any shipped name and key needs now; the three-line cell was
+        # the retired switch's ("Include Imputed Pairs in Final Consensus").
+        self.assertEqual(worst, 2)
 
     def test_in_the_narrowest_pane_rows_stack_and_every_name_fits_three_lines(self):
         # Too narrow for both columns, so each row stacks.
@@ -613,12 +615,9 @@ class ParameterTableTests(unittest.TestCase):
 
     def test_the_measure_wraps_as_the_pane_does(self):
         fonts = page_fonts()
-        key = "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"
-        name = "Include Imputed Pairs in Final Consensus"
-        # The lines Chromium drew for these cells at these widths.
+        # The lines Chromium drew for these cells at these widths. (Two more cells, the retired
+        # switch's name and key in English and Chinese, were measured too; no page has them now.)
         for cell, counted in (
-            ((name, key), {150: 4, 240: 4, 250: 3}),
-            (("在最终一致树中纳入插补的序列对", key), {200: 4, 240: 3, 250: 2}),
             (("Noise-Perturbed Consensus Guide Tree", "BOOTSTRAP_TREE"), {170: 3, 200: 2}),
             (("Pre-filtering Strength", "PREFILTER_STRENGTH"), {150: 2}),
             (("启用长度过滤", "ENABLE_LENGTH_FILTER"), {200: 2, 240: 1}),
