@@ -41,10 +41,10 @@ Show details) and keep it in temp/logs.
 * Copy puts the selection (or everything shown) on the clipboard, and Ctrl+C
   gives the same. The clipboard holds the plain text and a second form of it
   in one HTML block that names a monospace font installed on the system, so
-  Word and other programs paste it as code, with the colours that differ from
-  a plain line. Save writes it to a file, Clear view empties the window (the
-  log file keeps everything), and the last two buttons open the log file and
-  show its folder.
+  Word and other programs paste it as code, with its spaces and with the
+  colours that differ from a plain line. Save writes it to a file, Clear view
+  empties the window (the log file keeps everything), and the last two
+  buttons open the log file and show its folder.
 * The header is one row that never wraps: the window cannot be made narrower
   than that row needs, in the language and font it is in, and the search field
   is the one control that gives way (down to SEARCH_MINIMUM_WIDTH). The Show Times
@@ -278,12 +278,10 @@ def clipboard_pre_style(family):
     """The ``style`` of the ``<pre>`` that Copy puts on the clipboard: the one place to adjust how pasted text looks.
 
     ``family`` is a monospace family installed on the system (None when none is). The bundled font is never
-    named: another program cannot see it. Word has a font slot for each kind of character and draws a symbol
-    such as the dot of the cluster table from another one than the letters, so each slot names the family too.
+    named: another program cannot see it. Word takes the first family of the list that it has.
     """
     names = f"'{family}',monospace" if family else "monospace"
-    slots = [f"mso-{slot}-font-family:'{family}'" for slot in ("ascii", "hansi", "fareast", "bidi")] if family else []
-    return ";".join([f"font-family:{names}", *slots, "font-size:10pt", "margin:0", "text-autospace:none"])
+    return ";".join([f"font-family:{names}", "font-size:10pt", "margin:0"])
 
 
 def _run_css(fmt, plain_color):
@@ -310,6 +308,9 @@ def clipboard_mime_data(document, start, end, plain_color=None, family=None):
     text/plain holds the lines joined by "\\n"; text/html holds the same lines in one ``<pre>``, with a span
     only around the runs that differ from a plain line (colour other than ``plain_color``, a background, bold,
     italic, underline). The times in the gutter are no part of the document, so they are in neither.
+
+    The HTML is one ``<pre>`` because Word drops runs of spaces from Qt's own HTML of a selection (a paragraph
+    per line) and keeps them in a ``<pre>``, which is what keeps the columns of a pasted table.
     """
     plain_lines, html_lines = [], []
     block = document.findBlock(start)

@@ -10,7 +10,6 @@ import contextlib
 import gc
 import inspect
 import json
-import shiboken6
 import os
 from pathlib import Path
 import re
@@ -27,6 +26,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import shiboken6  # noqa: E402
 from PySide6.QtCore import QEvent, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QHideEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
@@ -188,8 +188,8 @@ class WindowCase(unittest.TestCase):
 
     def setUp(self):
         self.recorder = Recorder("viewer", None)
-        # A QMimeData that Copy left on the clipboard is freed when the application is, after PySide6 has gone: the
-        # offscreen platform then crashes the process on exit. Empty the clipboard when the test is done.
+        # The offscreen platform keeps the clipboard's data in a store of the process, freed after Python has gone:
+        # data made in Python (Copy's) that is still there ends the process with exit code 139. Empty it after each test.
         self.addCleanup(QGuiApplication.clipboard().clear)
         # The window keeps its choice of showing the times in app_settings.json: not the user's own.
         directory = tempfile.TemporaryDirectory()
@@ -1327,7 +1327,7 @@ class CopyFormatTests(WindowCase):
         cursor.setPosition(document.findBlockByNumber(end[0]).position() + end[1], cursor.MoveMode.KeepAnchor)
         window.text.setTextCursor(cursor)
 
-    def test_the_html_is_one_pre_naming_the_system_family_first_and_in_word_slots(self):
+    def test_the_html_is_one_pre_naming_the_system_family_first_then_monospace(self):
         self.recorder.add("stdout", "one")
         window = self.window()
         window.copy_text()
@@ -1335,11 +1335,9 @@ class CopyFormatTests(WindowCase):
         self.assertEqual(text, "one")
         style, body = self.pre(html)
         self.assertEqual(body, "one")
-        self.assertTrue(style.startswith(f"font-family:'{self.FAMILY}',monospace"), style)
-        for slot in ("ascii", "hansi", "fareast", "bidi"):
-            self.assertIn(f"mso-{slot}-font-family:'{self.FAMILY}'", style)
-        for part in ("font-size:10pt", "margin:0", "text-autospace:none"):
-            self.assertIn(part, style)
+        self.assertEqual(style, f"font-family:'{self.FAMILY}',monospace;font-size:10pt;margin:0")
+        self.assertNotIn("mso-", html)
+        self.assertNotIn("text-autospace", html)
         self.assertNotIn("Noto Sans Mono", html)
 
     def test_with_no_installed_family_only_monospace_is_named(self):
@@ -1347,10 +1345,11 @@ class CopyFormatTests(WindowCase):
         window = self.window()
         with mock.patch.object(Console_View, "system_monospace_family", return_value=None):
             window.copy_text()
-        style, _ = self.pre(self.clipboard()[1])
-        self.assertTrue(style.startswith("font-family:monospace;"), style)
-        self.assertNotIn("mso-", style)
-        self.assertNotIn("Noto Sans Mono", style)
+        html = self.clipboard()[1]
+        self.assertEqual(self.pre(html)[0], "font-family:monospace;font-size:10pt;margin:0")
+        self.assertNotIn("mso-", html)
+        self.assertNotIn("text-autospace", html)
+        self.assertNotIn("Noto Sans Mono", html)
 
     def test_the_real_chooser_never_names_the_bundled_family(self):
         self.recorder.add("stdout", "one")
