@@ -538,7 +538,7 @@ class SparseImputationReleaseTests(unittest.TestCase):
 
     RELEASED = ("cos_sim_mat", "dense_scores", "dense_dists", "X_cos", "Y_align", "norm_scores")
     # Held when the replicates start, in bytes per n x n pair: the float32 accumulator
-    # (2) and a few small arrays. Before the arrays were freed it was about 24.
+    # (2) and a few small arrays: 3.3 on this network. Before the arrays were freed it was 26.9.
     HELD_BUDGET = 6.0
 
     @classmethod
