@@ -2521,7 +2521,10 @@ def run_msa_builder():
                 )
             except Exception as plot_err:
                 print(f"Could not open plot window: {plot_err}")
-        del fitted_x, fitted_y, Y_pred
+        # The fit and its report are done. Release what only they read, the per-edge
+        # arrays, here and the n x n arrays below after their last use, or all of them
+        # would stay alive through the replicate trees and the whole merge.
+        del fitted_x, fitted_y, Y_pred, X_cos, Y_align, norm_scores
 
     # 8. BUILD CONSENSUS TREE
     tree_building_started = time.perf_counter()
@@ -2530,10 +2533,13 @@ def run_msa_builder():
     if is_sparse and iso_reg is not None and cos_sim_mat is not None:
         print("Applying hybrid adjusted similarity-alignment imputation for final master tree...")
         dense_scores = iso_reg.predict(cos_sim_mat.ravel()).reshape(num_seqs, num_seqs)
+        del cos_sim_mat
         dense_dists = np.maximum(0.0, max_norm_score - dense_scores).astype(np.float32)
+        del dense_scores
         np.fill_diagonal(dense_dists, 0.0)
         dense_dists = 0.5 * (dense_dists + dense_dists.T)
         D_final_cond = squareform(dense_dists)
+        del dense_dists
     else:
         D_final_cond = np.full(condensed_size, MAX_DISTANCE, dtype=np.float32)
 

@@ -140,13 +140,22 @@ def reference_consensus_tree(baseline, max_dist, noise_scale, num_trees, random_
     return sch.linkage(consensus, method="average")
 
 
+def array_locals(frame):
+    """{name: shape} of the NumPy arrays that a frame's local variables name."""
+    return {
+        name: value.shape for name, value in frame.f_locals.items() if isinstance(value, np.ndarray)
+    }
+
+
 class HeldMemoryPool(InProcessPool):
-    """Records the traced memory still held when bootstrapping starts."""
+    """Records the traced memory still held, and the arrays run_msa_builder still names, when bootstrapping starts."""
 
     held_bytes = None
+    arrays = None
 
     def imap_unordered(self, func, iterable):
         HeldMemoryPool.held_bytes = tracemalloc.get_traced_memory()[0]
+        HeldMemoryPool.arrays = array_locals(sys._getframe(1))
         raise GuideTreeBuilt
 
 
@@ -171,6 +180,8 @@ def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **se
 
     def record_linkage(y, *args, **kwargs):
         seen["linkage_dtypes"].append(np.asarray(y).dtype)
+        # The single tree of a run without perturbed trees is built here, from run_msa_builder.
+        seen.setdefault("linkage_arrays", array_locals(sys._getframe(1)))
         return real_linkage(y, *args, **kwargs)
 
     def stop_at_guide_tree(linkage_matrix, *args, **kwargs):
@@ -512,6 +523,95 @@ class MemoryBudgetTests(unittest.TestCase):
             tracemalloc.stop()
         self.assertIsNotNone(HeldMemoryPool.held_bytes)
         self.assertLess(HeldMemoryPool.held_bytes / self.edge_count, self.HELD_BUDGET)
+
+
+class SparseImputationReleaseTests(unittest.TestCase):
+    """A sparse run frees its imputation arrays before the guide tree is built.
+
+    The n x n similarity and dense matrices and the per-edge similarity and score
+    arrays are read only by the imputation, so none may be alive, or named by
+    run_msa_builder, when the replicate trees start (or, without perturbed trees,
+    when the one tree is built). The network has far more than the 100,000 pairs
+    a fit takes: below that, a fit without the calibration sample keeps the
+    similarity and score arrays themselves as its own, and they would stay.
+    """
+
+    RELEASED = ("cos_sim_mat", "dense_scores", "dense_dists", "X_cos", "Y_align", "norm_scores")
+    # Held when the replicates start, in bytes per n x n pair: the float32 accumulator
+    # (2) and a few small arrays. Before the arrays were freed it was about 24.
+    HELD_BUDGET = 6.0
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixtures = {}
+        for name, sample in (("no sample", False), ("sample", True), ("complete", None)):
+            temporary = tempfile.TemporaryDirectory()
+            cls.addClassCleanup(temporary.cleanup)
+            fixture = NetworkFixture(
+                temporary.name, sequences=1415 if sample is not None else 120, missing=(), ghosts=0,
+                duplicates=0, out_of_range=False, complete=sample is None, seed=4,
+            )
+            if sample:
+                fixture.add_calibration_sample(count=12)
+            cls.fixtures[name] = fixture
+        # The first run compiles the numba kernels, which tracemalloc would otherwise count.
+        for fixture in cls.fixtures.values():
+            run_until_guide_tree(fixture, record_edges=False)
+
+    def assert_released(self, arrays, fixture):
+        count, edges = len(fixture.net_headers), fixture.arr_i.size
+        self.assertEqual(sorted(set(arrays) & set(self.RELEASED)), [])
+        for name, shape in arrays.items():
+            # (A complete network has as many edges as the condensed matrix and its memory map have pairs.)
+            if name not in ("D_final_cond", "mm_baseline"):
+                self.assertNotIn(shape, ((count, count), (edges,)), name)
+
+    def cases(self):
+        for name in ("no sample", "sample"):
+            for switch in (True, False):
+                if name == "no sample" and not switch:
+                    continue
+                yield name, switch
+        yield "complete", True
+
+    def test_the_arrays_are_gone_when_the_replicate_trees_start(self):
+        for name, switch in self.cases():
+            with self.subTest(network=name, calibrated=switch):
+                fixture = self.fixtures[name]
+                self.assertGreater(fixture.arr_i.size, 100_000 if name != "complete" else 1_000)
+                HeldMemoryPool.arrays = None
+                run_until_guide_tree(
+                    fixture, record_edges=False, pool=HeldMemoryPool, BOOTSTRAP_TREE=True,
+                    CALIBRATED_IMPUTATION=switch,
+                )
+                self.assertIn("D_final_cond", HeldMemoryPool.arrays)
+                self.assert_released(HeldMemoryPool.arrays, fixture)
+
+    def test_the_arrays_are_gone_when_the_one_tree_is_built(self):
+        for name, switch in self.cases():
+            with self.subTest(network=name, calibrated=switch):
+                fixture = self.fixtures[name]
+                seen = run_until_guide_tree(
+                    fixture, record_edges=False, BOOTSTRAP_TREE=False, CALIBRATED_IMPUTATION=switch
+                )
+                self.assertIn("D_final_cond", seen["linkage_arrays"])
+                self.assert_released(seen["linkage_arrays"], fixture)
+
+    def test_a_sparse_run_starts_its_replicates_holding_little(self):
+        for name in ("no sample", "sample"):
+            with self.subTest(network=name):
+                fixture = self.fixtures[name]
+                count = len(fixture.net_headers)
+                HeldMemoryPool.held_bytes = None
+                tracemalloc.start()
+                try:
+                    run_until_guide_tree(
+                        fixture, record_edges=False, pool=HeldMemoryPool, BOOTSTRAP_TREE=True
+                    )
+                finally:
+                    tracemalloc.stop()
+                self.assertIsNotNone(HeldMemoryPool.held_bytes)
+                self.assertLess(HeldMemoryPool.held_bytes / (count * count), self.HELD_BUDGET)
 
 
 if __name__ == "__main__":
