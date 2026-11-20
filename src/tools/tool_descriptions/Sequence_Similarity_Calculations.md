@@ -15,7 +15,7 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 
 | Parameter | Description |
 | :--- | :--- |
-| Enable Edge Pre-filtering **`EDGE_PREFILTERING`** | Toggle to enable pre-filtering sequence pairs using global cosine similarity. If enabled, full residue-level alignments are skipped for pairs below the similarity cutoff, except for a calibration sample of them that Embedding MSA uses to fit and check its estimates of the rest (see Algorithm Details). |
+| Enable Edge Pre-filtering **`EDGE_PREFILTERING`** | Toggle to enable pre-filtering sequence pairs using global cosine similarity. If enabled, full residue-level alignments are skipped for pairs below the similarity cutoff, except for a calibration sample of them that Embedding MSA uses to fit its estimates of the rest unless its Calibrated Imputation setting is off, and to check them (see Algorithm Details). |
 | Pre-filtering Strength **`PREFILTER_STRENGTH`** | The percentage of sequence pairs with the lowest global cosine similarity scores to exclude from alignment calculations. Higher values increase speed but risk missing alignments between distantly related proteins. |
 | CPU Worker Threads **`WORKERS`** | The number of CPU processes/threads allocated for parallel alignment calculations. |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score applied for local alignments. More negative values penalize gaps more heavily, resulting in fewer gaps. |
@@ -60,7 +60,7 @@ The alignment pipeline is executed in the following steps:
      
      Pairs scoring in the bottom percentile corresponding to `PREFILTER_STRENGTH` are skipped.
 
-     A calibration sample of the skipped pairs is aligned all the same: 1% of them, at least 2,000 and at most 50,000 (all of them when fewer are skipped), the same number from each of 20 equal-count similarity bands of the skipped pairs, the lowest band included, drawn with seed 42. Their scores are stored with the other edges. Embedding MSA fits its imputation of the skipped pairs on them too, and reports how well that imputation predicts their computed scores.
+     A calibration sample of the skipped pairs is aligned all the same: 1% of them, at least 2,000 and at most 50,000 (all of them when fewer are skipped), the same number from each of 20 equal-count similarity bands of the skipped pairs, the lowest band included, drawn with seed 42. Their scores are stored with the other edges. Embedding MSA fits its imputation of the skipped pairs on them too, unless its Calibrated Imputation setting is off, and reports how well that imputation predicts their computed scores.
 
 3. **Residue-Level Similarity Matrix Computation**:
      For each sequence pair $(i, j)$ passing the pre-filter, a pairwise Cosine distance matrix is computed. First, the residue embeddings are L2-normalized along the hidden dimension:
