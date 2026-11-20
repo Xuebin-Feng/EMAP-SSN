@@ -449,13 +449,12 @@ class ToolsRunTimeTextTests(WindowTestCase):
             NetworkCompletenessInfo("unknown"),
             NetworkCompletenessInfo("complete", 4, 6, 6),
             NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000),
+            NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000, "", 2000),
         ]
         for info in states:
-            for noise, checked in ((True, True), (True, False), (False, False)):
-                with self.subTest(info=info, noise=noise, checked=checked):
-                    self.assert_translated(self.tools.imputed_consensus_switch_state(info, noise, checked)[1])
             for blast in (True, False):
                 with self.subTest(info=info, blast=blast):
+                    self.assert_translated(self.tools.calibrated_imputation_switch_state(info, blast)[1])
                     self.assert_translated(self.tools.isotonic_regression_switch_state(info, blast)[1])
 
     def test_export_name_errors(self):

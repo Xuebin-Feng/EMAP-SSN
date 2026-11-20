@@ -1085,7 +1085,7 @@ class ToolsWindowTests(unittest.TestCase):
             "Sparse_MSA_Converter.py": [("CONVERT_ALL", "INPUT_FASTA")],
             "Embedding_MSA.py": [("USE_SEQUENCE_FILTER", "INPUT_FASTA"), ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
                                  ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
-                                 ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS")],
+                                 ("NORMALIZATION_MODE", "CALIBRATED_IMPUTATION")],
             "Embedding_PWA.py": [("REF_HEADER", "MANUAL_REF_SEQ"), ("TAR_HEADER", "MANUAL_TAR_SEQ"),
                                  ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT")],
             "Embedding_SSEARCH.py": [("QUERY_HEADER", "MANUAL_QUERY_SEQ"), ("GENERATE_FASTA", "SIMILARITY_MATRIX", "WORKERS")],

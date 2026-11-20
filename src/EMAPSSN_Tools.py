@@ -237,7 +237,7 @@ INLINE_FIELD_GROUPS = {
         ("USE_SEQUENCE_FILTER", "INPUT_FASTA"),
         ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
         ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
-        ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
+        ("NORMALIZATION_MODE", "CALIBRATED_IMPUTATION"),
     ],
     "Embedding_PWA.py": [
         ("REF_HEADER", "MANUAL_REF_SEQ"),
@@ -325,7 +325,7 @@ INLINE_TRAILING_CONTROL_GROUPS = {
     ("INPUT_FASTA", "OVER_WRITE"),
     ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
     ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
-    ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
+    ("NORMALIZATION_MODE", "CALIBRATED_IMPUTATION"),
     ("REF_HEADER", "MANUAL_REF_SEQ"),
     ("TAR_HEADER", "MANUAL_TAR_SEQ"),
     ("ALIGNMENT_MODE", "SIMILARITY_MATRIX", "GENERATE_REPORT"),
@@ -334,7 +334,7 @@ INLINE_TRAILING_CONTROL_GROUPS = {
 }
 MATCHED_TRAILING_LABEL_VARS = {
     "SHOW_REGRESSION_PLOT",
-    "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
+    "CALIBRATED_IMPUTATION",
 }
 TAB_DISPLAY_NAMES = {
     "Sequence_and_Embedding_Preparation": QT_TRANSLATE_NOOP("Tools", "Sequence && Embedding Preparation"),
@@ -465,13 +465,22 @@ def _incomplete_network_summary(network_info):
     )
 
 
-def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
-    """Return the enabled state and explanatory tooltip for the MSA switch."""
+def calibrated_imputation_switch_state(network_info, is_blast):
+    """Return the enabled state and explanatory tooltip for the Calibrated Imputation switch.
+
+    It matters only for an incomplete network that is not a BLAST network and
+    stores a calibration sample; for any other, it is off the table.
+    """
+    if is_blast:
+        return False, translate(
+            "Tools", "BLAST networks store no calibration sample, so their missing pairs get the uniform fill."
+        )
+
     if network_info is None:
         return False, translate(
             "Tools",
             "No network is selected. Select a valid network to determine whether "
-            "imputed pairs can be included in the final consensus.",
+            "it stores a calibration sample.",
         )
 
     if network_info.status == "unknown":
@@ -481,30 +490,24 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
         return False, translate(
             "Tools",
             "Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
-            "observed pairs. Not applicable: all pairs are observed, so the full "
-            "tree-distance consensus is automatic.",
+            "observed pairs. Not applicable: no pair is missing, so nothing is imputed.",
         ).format(
             sequences=network_info.sequence_count, observed=network_info.edge_count,
             expected=network_info.expected_edge_count,
         )
 
-    if checked:
-        behavior = translate(
-            "Tools",
-            "Imputed pairs participate in every replicate tree and are also replaced "
-            "by replicate-averaged tree distances in the final matrix.",
-        )
-    else:
-        behavior = translate(
-            "Tools",
-            "Imputed pairs participate in every replicate tree but retain their "
-            "baseline imputed distances in the final matrix.",
-        )
-    sentences = [_incomplete_network_summary(network_info), behavior]
-    if noise_trees_active:
-        return True, " ".join(sentences)
-    sentences.append(translate("Tools", "Enable Noise-Perturbed Trees with UPGMA to change this setting."))
-    return False, " ".join(sentences)
+    if network_info.calibration_pairs <= 0:
+        return False, " ".join([
+            _incomplete_network_summary(network_info),
+            translate("Tools", "This network stores no calibration sample, so its missing pairs get the uniform fill."),
+        ])
+
+    return True, " ".join([
+        _incomplete_network_summary(network_info),
+        translate("Tools", "It stores a calibration sample of {pairs:,} pairs.").format(
+            pairs=network_info.calibration_pairs
+        ),
+    ])
 
 
 def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
@@ -2002,12 +2005,15 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Number of noise-perturbed replicate trees used to build consensus."),
                     details=(translate("Tools", "Higher values yield a more stable consensus guide tree but increase computation time."),),
                 ),
-                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": Tip(
-                    translate("Tools", "For incomplete networks, chooses the distances the final consensus uses."),
-                    details=(translate("Tools", "Imputed pairs participate in all replicate trees."),),
+                "CALIBRATED_IMPUTATION": Tip(
+                    translate("Tools", "Fills a sparse network's missing pairs with a fit that uses the network's calibration sample."),
+                    details=(translate("Tools", "ON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit's lowest value."),),
                     options=(
-                        TipOption(True, translate("Tools", "Replaces all pairs with replicate-averaged tree distances.")),
-                        TipOption(False, translate("Tools", "Retains baseline imputed distances.")),
+                        TipOption(True, translate("Tools", "Uses the calibration sample.")),
+                        TipOption(False, translate("Tools", "Uses only the pairs above the cut.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Tools", "The calibration check is reported either way. A network without a calibration sample is always filled the OFF way.")),
                     ),
                 ),
                 "NOISE_SCALE": Tip(
@@ -2838,9 +2844,9 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Normalization Mode:")
                         },
                         {
-                            "var_name": "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
+                            "var_name": "CALIBRATED_IMPUTATION",
                             "type": "switch",
-                            "display": translate("Tools", "Include Imputed Pairs in Final Consensus:")
+                            "display": translate("Tools", "Calibrated Imputation:")
                         },
                         {
                             "var_name": "title_align",
@@ -4376,9 +4382,7 @@ class ToolsGUI(QMainWindow):
             norm_input = inputs.get("NORMALIZATION_MODE")
             bootstrap_input = inputs.get("BOOTSTRAP_TREE")
             num_trees_input = inputs.get("NUM_TREES")
-            imputed_consensus_input = inputs.get(
-                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"
-            )
+            calibrated_input = inputs.get("CALIBRATED_IMPUTATION")
             noise_scale_input = inputs.get("NOISE_SCALE")
             tree_method_input = inputs.get("TREE_METHOD")
             show_plot_input = inputs.get("SHOW_REGRESSION_PLOT")
@@ -4540,73 +4544,31 @@ class ToolsGUI(QMainWindow):
                 tree_method_combo.currentIndexChanged.connect(update_tree_method_toggles)
                 update_tree_method_toggles() # Trigger once on load
 
-            if net_input and bootstrap_input and imputed_consensus_input:
-                bootstrap_switch = bootstrap_input['widget']
-                imputed_consensus_switch = imputed_consensus_input['widget']
-                imputed_consensus_label = row_widgets.get(
-                    "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS", (None, None)
-                )[0]
-                tree_method_combo = (
-                    tree_method_input['widget'] if tree_method_input else None
-                )
-                imputed_consensus_base_tip = self.tip_db[imputed_consensus_switch]
-                imputed_consensus_switch.setProperty(
-                    "incomplete_network_preference", imputed_consensus_switch.isChecked()
-                )
-                updating_imputed_display = False
+            if net_input and calibrated_input:
+                calibrated_switch = calibrated_input['widget']
+                calibrated_label = row_widgets.get("CALIBRATED_IMPUTATION", (None, None))[0]
+                calibrated_base_tip = self.tip_db[calibrated_switch]
 
-                def update_imputed_consensus_toggle(*_):
-                    nonlocal updating_imputed_display
-                    if updating_imputed_display:
-                        return
-                    network_info = cached_network_completeness()
-                    preference = imputed_consensus_switch.property(
-                        "incomplete_network_preference"
-                    )
-                    not_applicable = network_info is None or network_info.status == "complete"
-                    updating_imputed_display = True
-                    try:
-                        # Keep signals active so the button text and color also update.
-                        imputed_consensus_switch.setChecked(False if not_applicable else preference)
-                    finally:
-                        updating_imputed_display = False
-                    noise_trees_active = (
-                        bootstrap_switch.isChecked()
-                        and bootstrap_switch.isEnabled()
-                        and (
-                            tree_method_combo is None
-                            or combo_value(tree_method_combo)
-                            != NEIGHBOR_JOINING_TREE_METHOD
-                        )
-                    )
-                    enabled, tip = imputed_consensus_switch_state(
-                        network_info,
-                        noise_trees_active,
-                        imputed_consensus_switch.isChecked(),
-                    )
-                    imputed_consensus_switch.setEnabled(enabled)
-                    self._set_state_tip([imputed_consensus_switch], imputed_consensus_base_tip, tip, "info")
-                    if imputed_consensus_label is not None:
-                        imputed_consensus_label.setEnabled(enabled)
-                        self._set_state_tip([imputed_consensus_label], imputed_consensus_base_tip, tip, "info")
+                def update_calibrated_toggle(*_):
+                    # The switch keeps its state when it is greyed out; the tip says why.
+                    network_path = selected_network_path()
+                    network_info, is_blast = None, False
+                    if network_path is not None:
+                        network_info = cached_network_completeness()
+                        try:
+                            is_blast = validate_network_schema(network_path).network_type == "blast"
+                        except (OSError, ValueError):
+                            pass
+                    enabled, tip = calibrated_imputation_switch_state(network_info, is_blast)
+                    calibrated_switch.setEnabled(enabled)
+                    self._set_state_tip([calibrated_switch], calibrated_base_tip, tip, "info" if enabled else "warning")
+                    if calibrated_label is not None:
+                        calibrated_label.setEnabled(enabled)
+                        self._set_state_tip([calibrated_label], calibrated_base_tip, tip, "info" if enabled else "warning")
 
-                net_combo.currentTextChanged.connect(update_imputed_consensus_toggle)
-                bootstrap_switch.toggled.connect(update_imputed_consensus_toggle)
-                def remember_imputed_consensus_preference(checked):
-                    if updating_imputed_display:
-                        return
-                    imputed_consensus_switch.setProperty(
-                        "incomplete_network_preference", checked
-                    )
-                    update_imputed_consensus_toggle()
+                net_combo.currentTextChanged.connect(update_calibrated_toggle)
+                update_calibrated_toggle()
 
-                imputed_consensus_switch.toggled.connect(remember_imputed_consensus_preference)
-                if tree_method_combo is not None:
-                    tree_method_combo.currentTextChanged.connect(
-                        update_imputed_consensus_toggle
-                    )
-                update_imputed_consensus_toggle()
-        
         if script_name == "Sparse_MSA_Converter.py":
             conv_all_input = inputs.get("CONVERT_ALL")
             fasta_input = inputs.get("INPUT_FASTA")
@@ -5367,10 +5329,7 @@ class ToolsGUI(QMainWindow):
                         val += extensions[0] if isinstance(extensions, tuple) else extensions
                 new_settings[var_name] = val
             elif w_type == "switch":
-                preference = widget.property("incomplete_network_preference")
-                new_settings[var_name] = (
-                    widget.isChecked() if preference is None else bool(preference)
-                )
+                new_settings[var_name] = widget.isChecked()
             elif w_type == "slider":
                 new_settings[var_name] = int(widget.slider.value())
             elif w_type == "slider_float":

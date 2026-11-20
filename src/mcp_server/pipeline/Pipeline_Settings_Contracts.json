@@ -461,10 +461,10 @@
           "average_sequence"
         ]
       },
-      "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": {
+      "CALIBRATED_IMPUTATION": {
         "type": "boolean",
-        "default": false,
-        "description": "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged tree distances (cophenetic for UPGMA, path lengths for Neighbor-joining). Imputed pairs participate in all replicate trees."
+        "default": true,
+        "description": "Calibrated Imputation: Fills a sparse network's missing pairs with a fit that uses the network's calibration sample.\nON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit's lowest value. The calibration check is reported either way. A network without a calibration sample is always filled the OFF way."
       },
       "GAP_OPEN": {
         "type": "number",

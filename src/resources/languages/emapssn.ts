@@ -6427,6 +6427,14 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pair above the prefilter cut</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pairs above the prefilter cut</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Spearman ρ {rho} · R² {r2} · {count} observed pair</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6435,7 +6443,15 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Calibrated fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uniform fill {value} on {count} calibration pairs · MAE {mae} · R² {r2}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7811,23 +7827,23 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>No network is selected. Select a valid network to determine whether imputed pairs can be included in the final consensus.</source>
+        <source>BLAST networks store no calibration sample, so their missing pairs get the uniform fill.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: all pairs are observed, so the full tree-distance consensus is automatic.</source>
+        <source>No network is selected. Select a valid network to determine whether it stores a calibration sample.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Imputed pairs participate in every replicate tree and are also replaced by replicate-averaged tree distances in the final matrix.</source>
+        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: no pair is missing, so nothing is imputed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Imputed pairs participate in every replicate tree but retain their baseline imputed distances in the final matrix.</source>
+        <source>This network stores no calibration sample, so its missing pairs get the uniform fill.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Enable Noise-Perturbed Trees with UPGMA to change this setting.</source>
+        <source>It stores a calibration sample of {pairs:,} pairs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8388,19 +8404,23 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>For incomplete networks, chooses the distances the final consensus uses.</source>
+        <source>Fills a sparse network&apos;s missing pairs with a fit that uses the network&apos;s calibration sample.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Imputed pairs participate in all replicate trees.</source>
+        <source>ON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit&apos;s lowest value.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Replaces all pairs with replicate-averaged tree distances.</source>
+        <source>Uses the calibration sample.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Retains baseline imputed distances.</source>
+        <source>Uses only the pairs above the cut.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The calibration check is reported either way. A network without a calibration sample is always filled the OFF way.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9216,7 +9236,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Include Imputed Pairs in Final Consensus:</source>
+        <source>Calibrated Imputation:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

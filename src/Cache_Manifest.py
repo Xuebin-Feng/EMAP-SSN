@@ -79,10 +79,24 @@ class NetworkCompletenessInfo:
     edge_count: int = 0
     expected_edge_count: int = 0
     reason: str = ""
+    # How many pairs the network's Edge Pre-filtering stored as its calibration sample (0: none).
+    calibration_pairs: int = 0
+
+
+def _stored_calibration_pairs(network):
+    """The length of an open network file's calibration sample, 0 without one; shapes only."""
+    names = ("calibration_i", "calibration_j", "calibration_weight")
+    if any(name not in network for name in names):
+        return 0
+    lengths = {int(network[name].shape[0]) for name in names if network[name].ndim == 1}
+    return lengths.pop() if len(lengths) == 1 else 0
 
 
 def inspect_network_completeness(network_path):
-    """Classify a network using HDF5 dataset shapes without reading edge data."""
+    """Classify a network using HDF5 dataset shapes without reading edge data.
+
+    The result also counts the pairs of the calibration sample the network stores, if any.
+    """
     import h5py
 
     resolved = os.path.abspath(os.path.normpath(network_path))
@@ -139,6 +153,7 @@ def inspect_network_completeness(network_path):
                 sequence_count=sequence_count,
                 edge_count=edge_count_i,
                 expected_edge_count=expected_edge_count,
+                calibration_pairs=_stored_calibration_pairs(network),
             )
     except (OSError, ValueError, KeyError) as error:
         return NetworkCompletenessInfo(

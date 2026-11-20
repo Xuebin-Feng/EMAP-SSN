@@ -13,30 +13,36 @@ if str(SRC_DIR) not in sys.path:
 
 from Cache_Manifest import NetworkCompletenessInfo
 from EMAPSSN_Tools import (
-    imputed_consensus_switch_state,
+    calibrated_imputation_switch_state,
     isotonic_regression_switch_state,
 )
 from tests.tools_gui_fixtures import isolated_tools_project
 
 
 class TestEmbeddingMsaGuiLogic(unittest.TestCase):
-    def test_complete_network_display_preserves_incomplete_preference(self):
+    def test_the_calibration_switch_follows_the_network_and_keeps_its_state(self):
         from PySide6.QtWidgets import QApplication, QTextBrowser
         from EMAPSSN_Tools import ToolsGUI
 
         app = QApplication.instance() or QApplication([])
         # No saved network or directories from the developer's tools_settings.json.
         isolated_tools_project(self)
-        incomplete = NetworkCompletenessInfo(
-            status="incomplete", sequence_count=10, edge_count=20,
-            expected_edge_count=45,
-        )
-        complete = NetworkCompletenessInfo(
-            status="complete", sequence_count=10, edge_count=45,
-            expected_edge_count=45,
-        )
+        states = {
+            "sampled": NetworkCompletenessInfo(
+                status="incomplete", sequence_count=10, edge_count=20,
+                expected_edge_count=45, calibration_pairs=7,
+            ),
+            "unsampled": NetworkCompletenessInfo(
+                status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
+            ),
+            "complete": NetworkCompletenessInfo(
+                status="complete", sequence_count=10, edge_count=45, expected_edge_count=45,
+                calibration_pairs=7,
+            ),
+            "unknown": NetworkCompletenessInfo(status="unknown", reason="Missing required dataset(s): i."),
+        }
         with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser), patch(
-            "EMAPSSN_Tools.inspect_network_completeness", return_value=incomplete
+            "EMAPSSN_Tools.inspect_network_completeness", return_value=states["sampled"]
         ) as inspect:
             window = ToolsGUI()
             try:
@@ -44,41 +50,104 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
                             if pathlib.Path(key).name == "Embedding_MSA.py")
                 inputs = data["inputs"]
                 network = inputs["INPUT_NETWORK"]["widget"].combo
-                switch = inputs["INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"]["widget"]
-                inputs["TREE_METHOD"]["widget"].setCurrentIndex(0)
-                inputs["BOOTSTRAP_TREE"]["widget"].setChecked(True)
-                network.addItem("test-missing-incomplete.h5")
-                network.setCurrentText("test-missing-incomplete.h5")
-                for preference in (True, False):
-                    switch.setChecked(preference)
-                    inspect.return_value = complete
-                    network.addItem(f"test-missing-complete-{preference}.h5")
-                    network.setCurrentText(f"test-missing-complete-{preference}.h5")
-                    self.assertFalse(switch.isEnabled())
-                    self.assertFalse(switch.isChecked())
-                    self.assertEqual(switch.text(), "OFF")
-                    self.assertEqual(switch.property("incomplete_network_preference"), preference)
-                    self.assertIn("Not applicable", switch.toolTip())
-                    inspect.return_value = incomplete
-                    network.setCurrentText("test-missing-incomplete.h5")
+                switch = inputs["CALIBRATED_IMPUTATION"]["widget"]
+                path = next(key for key in window.script_data if pathlib.Path(key).name == "Embedding_MSA.py")
+                # The switch is ON by default and has no say in the perturbed trees or the tree method.
+                self.assertTrue(switch.isChecked())
+                for method in (0, 1):
+                    inputs["TREE_METHOD"]["widget"].setCurrentIndex(method)
+                    for perturbed in (True, False):
+                        inputs["BOOTSTRAP_TREE"]["widget"].setChecked(perturbed)
+                        network.addItem("sampled.h5")
+                        network.setCurrentText("sampled.h5")
+                        self.assertTrue(switch.isEnabled(), (method, perturbed))
+                for checked in (True, False):
+                    for name, info in states.items():
+                        with self.subTest(checked=checked, network=name):
+                            inspect.return_value = states["sampled"]
+                            network.addItem("sampled.h5")
+                            network.setCurrentText("sampled.h5")
+                            switch.setChecked(checked)
+                            inspect.return_value = info
+                            network.addItem(f"{name}.h5")
+                            network.setCurrentText(f"{name}.h5")
+                            self.assertEqual(switch.isEnabled(), name == "sampled")
+                            # Greyed out or not, the state stays and is what a run collects.
+                            self.assertEqual(switch.isChecked(), checked)
+                            self.assertEqual(window._collect_tool_settings(path)["CALIBRATED_IMPUTATION"], checked)
+                            if name == "unsampled":
+                                self.assertIn("stores no calibration sample, so its missing pairs get the uniform fill",
+                                              switch.toolTip())
+                            if name == "complete":
+                                self.assertIn("Not applicable", switch.toolTip())
+                    inspect.return_value = states["sampled"]
+                    network.setCurrentText("sampled.h5")
                     self.assertTrue(switch.isEnabled())
-                    self.assertEqual(switch.isChecked(), preference)
-                    self.assertEqual(switch.text(), "ON" if preference else "OFF")
-                    plot = inputs["SHOW_REGRESSION_PLOT"]["widget"]
-                    plot.setChecked(True)
                     network.setCurrentIndex(-1)
-                    for control in (switch, plot):
-                        self.assertFalse(control.isEnabled())
-                        self.assertFalse(control.isChecked())
-                        self.assertEqual(control.text(), "OFF")
-                    self.assertEqual(switch.property("incomplete_network_preference"), preference)
-                    network.setCurrentText("test-missing-incomplete.h5")
-                    self.assertTrue(switch.isEnabled())
-                    self.assertEqual(switch.isChecked(), preference)
+                    self.assertFalse(switch.isEnabled())
+                    self.assertEqual(switch.isChecked(), checked)
+                    self.assertIn("No network is selected", switch.toolTip())
+                    plot = inputs["SHOW_REGRESSION_PLOT"]["widget"]
+                    self.assertFalse(plot.isEnabled())
             finally:
                 window.close()
                 window.deleteLater()
                 app.processEvents()
+
+    def test_a_blast_network_greys_the_calibration_switch(self):
+        from PySide6.QtWidgets import QApplication, QTextBrowser
+        from EMAPSSN_Tools import ToolsGUI
+        from Cache_Manifest import NetworkMetadata
+
+        app = QApplication.instance() or QApplication([])
+        isolated_tools_project(self)
+        sampled = NetworkCompletenessInfo(
+            status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
+            calibration_pairs=7,
+        )
+        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser), patch(
+            "EMAPSSN_Tools.inspect_network_completeness", return_value=sampled
+        ), patch("EMAPSSN_Tools.validate_network_schema") as validate:
+            window = ToolsGUI()
+            try:
+                data = next(value for key, value in window.script_data.items()
+                            if pathlib.Path(key).name == "Embedding_MSA.py")
+                network = data["inputs"]["INPUT_NETWORK"]["widget"].combo
+                switch = data["inputs"]["CALIBRATED_IMPUTATION"]["widget"]
+                for kind, enabled in (("alignment", True), ("blast", False), ("alignment", True)):
+                    validate.return_value = NetworkMetadata("model", kind)
+                    network.addItem(f"{kind}-{enabled}.h5")
+                    network.setCurrentText(f"{kind}-{enabled}.h5")
+                    self.assertEqual(switch.isEnabled(), enabled, kind)
+                    self.assertTrue(switch.isChecked())
+                    if not enabled:
+                        self.assertIn("BLAST networks store no calibration sample", switch.toolTip())
+            finally:
+                window.close()
+                window.deleteLater()
+                app.processEvents()
+
+    def test_the_completeness_check_counts_the_stored_calibration_sample(self):
+        import tempfile
+        import h5py
+        import numpy as np
+        from Cache_Manifest import inspect_network_completeness
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "network.h5"
+            with h5py.File(path, "w") as network:
+                network.create_dataset("headers", data=np.array([b"a", b"b", b"c", b"d"]))
+                network.create_dataset("i", data=np.array([0, 1], dtype=np.uint16))
+                network.create_dataset("j", data=np.array([1, 2], dtype=np.uint16))
+            self.assertEqual(inspect_network_completeness(path).calibration_pairs, 0)
+            with h5py.File(path, "a") as network:
+                network.create_dataset("calibration_i", data=np.array([0, 0, 2], dtype=np.uint16))
+                network.create_dataset("calibration_j", data=np.array([2, 3, 3], dtype=np.uint16))
+                # A sample missing its weights is no sample.
+                self.assertEqual(inspect_network_completeness(path).calibration_pairs, 0)
+                network.create_dataset("calibration_weight", data=np.ones(3))
+            info = inspect_network_completeness(path)
+            self.assertEqual((info.status, info.calibration_pairs), ("incomplete", 3))
 
     def test_isotonic_regression_disabled_for_blast(self):
         sparse_info = NetworkCompletenessInfo(
@@ -134,46 +203,45 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
         self.assertIn("20/45 observed pairs", tip)
         self.assertIn(default_tip, tip)
 
-    def test_imputed_consensus_disabled_for_complete_network(self):
+    def test_calibrated_imputation_disabled_for_complete_network(self):
         complete_info = NetworkCompletenessInfo(
-            status="complete",
-            sequence_count=10,
-            edge_count=45,
-            expected_edge_count=45,
+            status="complete", sequence_count=10, edge_count=45, expected_edge_count=45,
+            calibration_pairs=5,
         )
-        enabled, tip = imputed_consensus_switch_state(
-            complete_info, noise_trees_active=True, checked=False
-        )
+        enabled, tip = calibrated_imputation_switch_state(complete_info, is_blast=False)
         self.assertFalse(enabled)
         self.assertIn("Complete network", tip)
-        self.assertIn("full tree-distance consensus is automatic", tip)
+        self.assertIn("no pair is missing, so nothing is imputed", tip)
 
-    def test_imputed_consensus_enabled_for_sparse_network_with_noise_trees(self):
+    def test_calibrated_imputation_enabled_for_a_sparse_network_with_a_sample(self):
         sparse_info = NetworkCompletenessInfo(
-            status="incomplete",
-            sequence_count=10,
-            edge_count=20,
-            expected_edge_count=45,
+            status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
+            calibration_pairs=2_000,
         )
-        enabled, tip = imputed_consensus_switch_state(
-            sparse_info, noise_trees_active=True, checked=True
-        )
+        enabled, tip = calibrated_imputation_switch_state(sparse_info, is_blast=False)
         self.assertTrue(enabled)
         self.assertIn("Incomplete network", tip)
-        self.assertIn("replicate-averaged tree distances", tip)
+        self.assertIn("20/45 observed pairs", tip)
+        self.assertIn("It stores a calibration sample of 2,000 pairs.", tip)
 
-    def test_imputed_consensus_disabled_when_noise_trees_inactive(self):
+    def test_calibrated_imputation_disabled_without_a_sample_for_blast_no_network_and_unknown(self):
         sparse_info = NetworkCompletenessInfo(
-            status="incomplete",
-            sequence_count=10,
-            edge_count=20,
-            expected_edge_count=45,
+            status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
         )
-        enabled, tip = imputed_consensus_switch_state(
-            sparse_info, noise_trees_active=False, checked=False
+        enabled, tip = calibrated_imputation_switch_state(sparse_info, is_blast=False)
+        self.assertFalse(enabled)
+        self.assertIn("This network stores no calibration sample, so its missing pairs get the uniform fill.", tip)
+        enabled, tip = calibrated_imputation_switch_state(sparse_info, is_blast=True)
+        self.assertFalse(enabled)
+        self.assertIn("BLAST networks store no calibration sample", tip)
+        enabled, tip = calibrated_imputation_switch_state(None, is_blast=False)
+        self.assertFalse(enabled)
+        self.assertIn("No network is selected", tip)
+        enabled, tip = calibrated_imputation_switch_state(
+            NetworkCompletenessInfo(status="unknown", reason="Missing required dataset(s): i, j."), is_blast=False
         )
         self.assertFalse(enabled)
-        self.assertIn("Enable Noise-Perturbed Trees with UPGMA", tip)
+        self.assertIn("Missing required dataset(s): i, j", tip)
 
 
 class PerturbedTreeSwitchTests(unittest.TestCase):
@@ -259,22 +327,23 @@ class PerturbedTreeSwitchTests(unittest.TestCase):
         self.select(inputs, self.UPGMA)
         self.assert_perturbed(window, path, inputs, True, True)
 
-    def test_imputed_pairs_follow_the_restored_perturbed_trees(self):
-        incomplete = NetworkCompletenessInfo(
-            status="incomplete", sequence_count=10, edge_count=20,
-            expected_edge_count=45,
+    def test_the_calibration_switch_ignores_the_tree_method_and_perturbed_trees(self):
+        sampled = NetworkCompletenessInfo(
+            status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
+            calibration_pairs=9,
         )
-        with patch("EMAPSSN_Tools.inspect_network_completeness", return_value=incomplete):
+        with patch("EMAPSSN_Tools.inspect_network_completeness", return_value=sampled):
             window, path, inputs = self.open_tools(self.UPGMA, True)
             network = inputs["INPUT_NETWORK"]["widget"].combo
-            network.addItem("incomplete.h5")
-            network.setCurrentText("incomplete.h5")
-            imputed = inputs["INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"]["widget"]
-            self.assertTrue(imputed.isEnabled())
+            network.addItem("sampled.h5")
+            network.setCurrentText("sampled.h5")
+            calibrated = inputs["CALIBRATED_IMPUTATION"]["widget"]
+            self.assertTrue(calibrated.isEnabled())
             self.select(inputs, self.NEIGHBOR_JOINING)
-            self.assertFalse(imputed.isEnabled())
+            self.assertTrue(calibrated.isEnabled())
+            inputs["BOOTSTRAP_TREE"]["widget"].setChecked(False)
             self.select(inputs, self.UPGMA)
-            self.assertTrue(imputed.isEnabled())
+            self.assertTrue(calibrated.isEnabled())
 
     def test_a_redraw_keeps_the_choice_neighbor_joining_turned_off(self):
         window, path, inputs = self.open_tools(self.UPGMA, True)
