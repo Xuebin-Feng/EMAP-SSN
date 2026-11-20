@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import gc
 import inspect
 import json
 import os
@@ -1292,6 +1293,161 @@ class ButtonTests(WindowCase):
                        window.clear_button, window.log_button, window.folder_button):
             self.assertTrue(button.toolTip())
             self.assertEqual(button.accessibleName(), button.toolTip())
+
+
+class CopyFormatTests(WindowCase):
+    """Copy and Ctrl+C put the same plain text and the same HTML (one monospace <pre>) on the clipboard."""
+
+    FAMILY = "Test Mono"
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.object(Console_View, "system_monospace_family", return_value=self.FAMILY)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def clipboard(self):
+        data = QGuiApplication.clipboard().mimeData()
+        return data.text(), data.html()
+
+    def pre(self, html):
+        found = re.fullmatch(r'<pre style="([^"]*)">(.*)</pre>', html, re.S)
+        self.assertIsNotNone(found, html)
+        return found.group(1), found.group(2)
+
+    def select(self, window, start, end):
+        """Select from (block, offset) to (block, offset)."""
+        document = window.text.document()
+        cursor = window.text.textCursor()
+        cursor.setPosition(document.findBlockByNumber(start[0]).position() + start[1])
+        cursor.setPosition(document.findBlockByNumber(end[0]).position() + end[1], cursor.MoveMode.KeepAnchor)
+        window.text.setTextCursor(cursor)
+
+    def test_the_html_is_one_pre_naming_the_system_family_first_and_in_word_slots(self):
+        self.recorder.add("stdout", "one")
+        window = self.window()
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "one")
+        style, body = self.pre(html)
+        self.assertEqual(body, "one")
+        self.assertTrue(style.startswith(f"font-family:'{self.FAMILY}',monospace"), style)
+        for slot in ("ascii", "hansi", "fareast", "bidi"):
+            self.assertIn(f"mso-{slot}-font-family:'{self.FAMILY}'", style)
+        for part in ("font-size:10pt", "margin:0", "text-autospace:none"):
+            self.assertIn(part, style)
+        self.assertNotIn("Noto Sans Mono", html)
+
+    def test_with_no_installed_family_only_monospace_is_named(self):
+        self.recorder.add("stdout", "one")
+        window = self.window()
+        with mock.patch.object(Console_View, "system_monospace_family", return_value=None):
+            window.copy_text()
+        style, _ = self.pre(self.clipboard()[1])
+        self.assertTrue(style.startswith("font-family:monospace;"), style)
+        self.assertNotIn("mso-", style)
+        self.assertNotIn("Noto Sans Mono", style)
+
+    def test_the_real_chooser_never_names_the_bundled_family(self):
+        self.recorder.add("stdout", "one")
+        window = self.window()
+        with mock.patch.object(Console_View, "system_monospace_family", Desktop_App.system_monospace_family):
+            window.copy_text()
+        self.assertNotIn("Noto Sans Mono", self.clipboard()[1])
+
+    def test_angle_brackets_and_ampersands_are_escaped_in_the_html_only(self):
+        self.recorder.add("stdout", "a <b> & c")
+        window = self.window()
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "a <b> & c")
+        self.assertEqual(self.pre(html)[1], "a &lt;b&gt; &amp; c")
+
+    def test_a_plain_line_has_no_span_and_problem_lines_carry_their_colours(self):
+        for line in ("plain", "Error: boom", "Warning: odd"):
+            self.recorder.add("stdout", line)
+        window = self.window()
+        window.copy_text()
+        lines = self.pre(self.clipboard()[1])[1].split("\n")
+        self.assertEqual(lines[0], "plain")
+        self.assertNotIn("<span", lines[0])
+        for number, line in ((1, "Error: boom"), (2, "Warning: odd")):
+            colour = fragments(window, number)[0][1]
+            self.assertEqual(lines[number], f'<span style="color:{colour}">{line}</span>')
+        self.assertNotEqual(fragments(window, 1)[0][1], fragments(window, 2)[0][1])
+
+    def test_a_coloured_dot_is_alone_in_its_span(self):
+        self.recorder.add("stdout", f"| {ESC}[38;2;200;30;30m●{ESC}[0m Cluster 1")
+        window = self.window()
+        window.copy_text()
+        colour = fragments(window, 0)[1][1]
+        self.assertEqual(self.pre(self.clipboard()[1])[1], f'| <span style="color:{colour}">●</span> Cluster 1')
+
+    def test_bold_italic_underline_and_a_background_each_appear_when_set(self):
+        self.recorder.add("stdout", f"{ESC}[1mb{ESC}[0m {ESC}[3mi{ESC}[0m {ESC}[4mu{ESC}[0m {ESC}[48;5;196;97mg{ESC}[0m")
+        window = self.window()
+        window.copy_text()
+        body = self.pre(self.clipboard()[1])[1]
+        self.assertRegex(body, r'<span style="[^"]*font-weight:bold[^"]*">b</span>')
+        self.assertRegex(body, r'<span style="[^"]*font-style:italic[^"]*">i</span>')
+        self.assertRegex(body, r'<span style="[^"]*text-decoration:underline[^"]*">u</span>')
+        self.assertRegex(body, r'<span style="[^"]*background-color:#ff0000[^"]*">g</span>')
+
+    def test_several_lines_are_joined_by_a_line_feed_in_both_forms(self):
+        for line in ("one", "two", "three"):
+            self.recorder.add("stdout", line)
+        window = self.window()
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "one\ntwo\nthree")
+        self.assertEqual(self.pre(html)[1], "one\ntwo\nthree")
+        self.assertNotIn(" ", text + html)
+
+    def test_a_selection_gives_exactly_the_selected_characters_in_both_forms(self):
+        self.recorder.add("stdout", f"ab {ESC}[38;2;200;30;30mCOLOUR{ESC}[0m cd")
+        self.recorder.add("stdout", "second line")
+        window = self.window()
+        colour = fragments(window, 0)[1][1]
+        self.select(window, (0, 5), (1, 3))  # "LOUR cd" and "sec"
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "LOUR cd\nsec")
+        self.assertEqual(self.pre(html)[1], f'<span style="color:{colour}">LOUR</span> cd\nsec')
+        self.select(window, (0, 4), (0, 7))  # inside the coloured run
+        window.copy_text()
+        text, html = self.clipboard()
+        self.assertEqual(text, "OLO")
+        self.assertEqual(self.pre(html)[1], f'<span style="color:{colour}">OLO</span>')
+
+    def test_ctrl_c_gives_what_the_button_gives(self):
+        self.recorder.add("stdout", f"ab {ESC}[38;2;200;30;30mCOLOUR{ESC}[0m <cd>")
+        self.recorder.add("stdout", "Error: second")
+        window = self.window()
+        self.select(window, (0, 1), (1, 4))
+        window.copy_text()
+        by_button = self.clipboard()
+        QGuiApplication.clipboard().clear()
+        window.text.copy()
+        self.assertEqual(self.clipboard(), by_button)
+        direct = window.text.createMimeDataFromSelection()
+        self.assertEqual((direct.text(), direct.html()), by_button)
+        gc.collect()
+        self.assertEqual(self.clipboard(), by_button)  # the data is owned by Qt, not freed with a wrapper
+        self.assertEqual(self.clipboard(), by_button)
+
+    def test_a_console_text_alone_copies_a_selection(self):
+        text = Console_View.ConsoleText()
+        self.addCleanup(text.deleteLater)
+        text.setPlainText("alpha\nbeta")
+        cursor = text.textCursor()
+        cursor.setPosition(2)
+        cursor.setPosition(8, cursor.MoveMode.KeepAnchor)
+        text.setTextCursor(cursor)
+        data = text.createMimeDataFromSelection()
+        self.assertEqual(data.text(), "pha\nbe")
+        self.assertEqual(self.pre(data.html())[1], "pha\nbe")
+        text.copy()
+        self.assertEqual(QGuiApplication.clipboard().text(), "pha\nbe")
 
 
 class ThemeTests(WindowCase):

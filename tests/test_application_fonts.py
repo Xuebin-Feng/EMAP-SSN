@@ -281,6 +281,26 @@ class ApplicationFontTests(unittest.TestCase):
         self.assertTrue(status.ui_family_available)
         self.assertEqual([str(warning.message) for warning in caught], [])
 
+    def test_the_system_monospace_chooser_returns_the_first_installed_family_of_the_list(self):
+        chooser = Desktop_App.system_monospace_family
+        order = [name for name in Desktop_App._SYSTEM_MONOSPACE_FAMILIES if name != "monospace"]
+        self.assertEqual(chooser(lambda name: name in order), order[0])
+        self.assertEqual(chooser(lambda name: name in order[2:]), order[2])
+        self.assertEqual(chooser(lambda name: name == order[-1]), order[-1])
+        self.assertIsNone(chooser(lambda name: False))
+        # The generic entry is no family, and the bundled one is not a system family, even when "installed".
+        self.assertIsNone(chooser(lambda name: name == "monospace"))
+        self.assertIsNone(chooser(lambda name: name == QT_MONOSPACE_FAMILY))
+        asked = []
+        chooser(lambda name: asked.append(name) or False)
+        self.assertNotIn("monospace", asked)
+        self.assertNotIn(QT_MONOSPACE_FAMILY, asked)
+
+    def test_the_system_monospace_chooser_asks_the_font_database_by_default(self):
+        found = Desktop_App.system_monospace_family()  # whichever fonts this computer has
+        self.assertTrue(found is None or QFontDatabase.hasFamily(found))
+        self.assertNotIn(found, ("monospace", QT_MONOSPACE_FAMILY))
+
     def test_native_widgets_inherit_noto_and_monospace_helper_prefers_noto_mono(self):
         configure_qt_application_fonts(self.app)
         widgets = (

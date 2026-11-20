@@ -654,6 +654,23 @@ def qt_monospace_font(base_font: "QFont | None" = None) -> "QFont":
     return font
 
 
+def system_monospace_family(is_installed=None) -> "str | None":
+    """The first monospace family of the system list that is installed, or None when none is.
+
+    The bundled Noto Sans Mono is known to this process alone, so text that is meant for another program
+    (the Console's clipboard data) names a family that program can find. ``is_installed`` decides which
+    families count as installed (default: QFontDatabase.hasFamily); the generic "monospace" entry is no family.
+    """
+    if is_installed is None:
+        from PySide6.QtGui import QFontDatabase
+
+        is_installed = QFontDatabase.hasFamily
+    for family in _SYSTEM_MONOSPACE_FAMILIES:
+        if family != "monospace" and is_installed(family):
+            return family
+    return None
+
+
 def register_vispy_application_fonts(
     qt_status: QtFontLoadStatus,
     font_dir: str | Path = DESKTOP_FONT_DIR,
@@ -3082,6 +3099,7 @@ __all__ = [
     "configure_qt_application_fonts",
     "apply_studio_theme",
     "qt_monospace_font",
+    "system_monospace_family",
     "register_vispy_application_fonts",
     "vispy_language_face",
     "language_web_font_css",

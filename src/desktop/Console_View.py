@@ -38,8 +38,11 @@ Show details) and keep it in temp/logs.
   there, Home and Ctrl+Home to the top), or shown because the window
   was made taller, Clear view emptied it or the filter left few lines. A window starts at
   the bottom.
-* Copy puts the selection (or everything shown) on the clipboard, Save writes
-  it to a file, Clear view empties the window (the log file keeps everything),
+* Copy puts the selection (or everything shown) on the clipboard, and Ctrl+C
+  gives the same. The clipboard holds the plain text and a second form of it
+  in one HTML block that names a monospace font installed on the system, so
+  Word and other programs paste it as code, with the colours that differ from
+  a plain line. Save writes it to a file, Clear view empties the window (the log file keeps everything),
   and the last two buttons open the log file and show its folder.
 * The header is one row that never wraps: the window cannot be made narrower
   than that row needs, in the language and font it is in, and the search field
@@ -69,6 +72,7 @@ left open never keeps the program running), and closing the Console leaves the V
 from __future__ import annotations
 
 import atexit
+import html as _html
 import shutil
 import tempfile
 import time
@@ -76,7 +80,7 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -111,6 +115,7 @@ from desktop.Desktop_App import (
     fit_buttons_to_text,
     open_in_file_manager,
     qt_monospace_font,
+    system_monospace_family,
 )
 from desktop.Studio_Theme import (
     QSS_ICON_VARIANTS,
@@ -268,6 +273,72 @@ class _TimeGutter(QWidget):
         QApplication.sendEvent(self._editor.viewport(), event)  # the strip scrolls the text it sits beside
 
 
+def clipboard_pre_style(family):
+    """The ``style`` of the ``<pre>`` that Copy puts on the clipboard: the one place to adjust how pasted text looks.
+
+    ``family`` is a monospace family installed on the system (None when none is). The bundled font is never
+    named: another program cannot see it. Word has a font slot for each kind of character and draws a symbol
+    such as the dot of the cluster table from another one than the letters, so each slot names the family too.
+    """
+    names = f"'{family}',monospace" if family else "monospace"
+    slots = [f"mso-{slot}-font-family:'{family}'" for slot in ("ascii", "hansi", "fareast", "bidi")] if family else []
+    return ";".join([f"font-family:{names}", *slots, "font-size:10pt", "margin:0", "text-autospace:none"])
+
+
+def _run_css(fmt, plain_color):
+    """The CSS of a run that differs from a plain line ("" for a plain run)."""
+    css = []
+    if fmt.foreground().style() != Qt.BrushStyle.NoBrush:
+        color = fmt.foreground().color().name()
+        if plain_color is None or color != plain_color.name():
+            css.append(f"color:{color}")
+    if fmt.background().style() != Qt.BrushStyle.NoBrush:
+        css.append(f"background-color:{fmt.background().color().name()}")
+    if fmt.fontWeight() >= QFont.Weight.Bold.value:
+        css.append("font-weight:bold")
+    if fmt.fontItalic():
+        css.append("font-style:italic")
+    if fmt.fontUnderline():
+        css.append("text-decoration:underline")
+    return ";".join(css)
+
+
+def clipboard_mime_data(document, start, end, plain_color=None, family=None):
+    """What Copy puts on the clipboard for the characters ``start`` to ``end`` of the document.
+
+    text/plain holds the lines joined by "\\n"; text/html holds the same lines in one ``<pre>``, with a span
+    only around the runs that differ from a plain line (colour other than ``plain_color``, a background, bold,
+    italic, underline). The times in the gutter are no part of the document, so they are in neither.
+    """
+    plain_lines, html_lines = [], []
+    block = document.findBlock(start)
+    while block.isValid() and block.position() <= end:
+        plain, html = [], []
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            iterator += 1
+            first = fragment.position()
+            low, high = max(first, start), min(first + fragment.length(), end)
+            if low >= high:
+                continue
+            text = fragment.text()[low - first:high - first].replace(" ", " ")
+            plain.append(text)
+            css = _run_css(fragment.charFormat(), plain_color)
+            escaped = _html.escape(text, quote=False)
+            html.append(f'<span style="{css}">{escaped}</span>' if css else escaped)
+        plain_lines.append("".join(plain))
+        html_lines.append("".join(html))
+        block = block.next()
+    body = "\n".join(html_lines)
+    if html_lines and not html_lines[0]:
+        body = "\n" + body  # an HTML reader drops the first line break after <pre>
+    mime = QMimeData()
+    mime.setText("\n".join(plain_lines))
+    mime.setHtml(f'<pre style="{clipboard_pre_style(family)}">{body}</pre>')
+    return mime
+
+
 class ConsoleText(QPlainTextEdit):
     """The text area, with a gutter on its left that draws the time of each line.
 
@@ -283,6 +354,7 @@ class ConsoleText(QPlainTextEdit):
         self._gutter = _TimeGutter(self)
         self._times = True
         self._time_color = QColor("#71717a")
+        self._plain_color = None
         self.updateRequest.connect(self._scroll_gutter)
         self._fit_gutter()
 
@@ -305,6 +377,30 @@ class ConsoleText(QPlainTextEdit):
     def set_time_color(self, color):
         self._time_color = QColor(color)
         self._gutter.update()
+
+    def set_plain_color(self, color):
+        """The colour of a plain line: a run in it is copied without a colour of its own."""
+        self._plain_color = QColor(color)
+
+    def clipboard_data(self, everything=False):
+        """The clipboard data (plain text and HTML) of the selection, or of every line when ``everything`` and none is selected.
+
+        The data belongs to this widget, so it outlives its Python wrapper until the clipboard or a drag is done with it.
+        """
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+        elif everything:
+            start, end = 0, self.document().characterCount() - 1
+        else:
+            start = end = 0
+        mime = clipboard_mime_data(self.document(), start, end, self._plain_color, system_monospace_family())
+        mime.setParent(self)
+        return mime
+
+    def createMimeDataFromSelection(self):
+        """Ctrl+C, the context menu's Copy and a drag give what the Copy button gives."""
+        return self.clipboard_data()
 
     # --- the gutter's place and size
     def _fit_gutter(self):
@@ -650,6 +746,7 @@ class ConsoleWindow(QWidget):
         self._base_colors = {INFO: tokens["text_soft"], WARNING: tokens["warning"], ERROR: tokens["danger"]}
         self.formats = {kind: self._format(color) for kind, color in self._base_colors.items()}
         self.text.set_time_color(tokens["text_subtle"])
+        self.text.set_plain_color(tokens["text_soft"])
         self._run_formats = {}
         self._highlight_color = QColor(MATCH_DARK if self.dark else MATCH_LIGHT)
 
@@ -970,13 +1067,9 @@ class ConsoleWindow(QWidget):
         return self.text.toPlainText()
 
     def copy_text(self):
-        cursor = self.text.textCursor()
-        # A selection spans blocks, which Qt joins with U+2029 (and a non-breaking space for a tab).
-        text = (
-            cursor.selectedText().replace("\u2029", "\n").replace("\u00a0", " ")
-            if cursor.hasSelection() else self.shown_text()
-        )
-        QGuiApplication.clipboard().setText(text)
+        mime = self.text.clipboard_data(everything=True)  # the same data Ctrl+C gives
+        text = mime.text()
+        QGuiApplication.clipboard().setMimeData(mime)
         return text
 
     def save_text(self):
