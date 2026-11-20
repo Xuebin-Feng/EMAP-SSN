@@ -91,8 +91,8 @@ class PipelineGuideTests(unittest.TestCase):
                                  ["evalue", "efi_alignment_score"])
                 self.assertIn("SCORE_METRIC", text(tool_id, "purpose"))
                 names = {output["name"]: output.get("when") for output in Pipeline_Guide.tool_guide(tool_id)["outputs"]}
-                self.assertEqual(sum("_EValue.h5" in name for name in names), 1)
-                efi = [name for name in names if "_EFIScore.h5" in name]
+                self.assertEqual(sum("]_EValue.h5" in name and "-EFI]" not in name for name in names), 1)
+                efi = [name for name in names if "-EFI]_EValue.h5" in name]
                 self.assertEqual(len(efi), 1)
                 self.assertIn("efi_alignment_score", names[efi[0]])
                 notes = " ".join(Pipeline_Guide.tool_guide(tool_id)["notes"])
@@ -113,7 +113,7 @@ class PipelineGuideTests(unittest.TestCase):
         # An extract keeps its network's score and says so in its name.
         extraction = Pipeline_Guide.tool_guide("network_extraction")
         self.assertIn("EFI alignment score", extraction["inputs"]["INPUT_NET"]["content"])
-        self.assertIn("_EFIScore.h5", extraction["outputs"][0]["name"])
+        self.assertIn("-EFI]_EValue.h5", extraction["outputs"][0]["name"])
         # Neither BLAST workflow claims an E-value network.
         steps = " ".join(step for workflow in Pipeline_Guide.workflows() for step in workflow["steps"])
         self.assertIn("SCORE_METRIC picks -log10(E-value) or the EFI alignment score", steps)

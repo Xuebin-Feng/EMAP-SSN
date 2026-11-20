@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 117972b3dbc8026880f32d36a95e4cb346a6108ba0242512af4a443581022509 -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 15d672866f4f0fa460dce6d41b4ee1a083c7b43a9e0585f6e11f60158c112f41 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -143,7 +143,7 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
 ### 输出
 
 #### HDF5 比对网络
-*   **格式**：HDF5（`.h5`），命名为 `<set>_[BLAST]_EValue.h5`；使用 EFI 比对得分时为 `<set>_[BLAST]_EFIScore.h5`。
+*   **格式**：HDF5（`.h5`），命名为 `<set>_[BLAST]_EValue.h5`；使用 EFI 比对得分时为 `<set>_[BLAST-EFI]_EValue.h5`。
 *   **结构**：
     - `/i`：源序列节点索引。
     - `/j`：目标序列节点索引。
@@ -227,7 +227,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 使用 `standard_outfmt6` 和同一个 `sequences.fasta` 导入 `sequences_diamond.tsv`。DIAMOND 默认的 `--outfmt 6` 已在第 12 列包含 EFI 比对得分所需的比特得分。
 
 *   **必须使用 `-k 0`。** DIAMOND 默认每个查询最多报告 25 条目标序列（`--max-target-seqs 25`），因此不加 `-k 0` 导入的全对全网络会悄悄丢失每个查询前 25 个命中之外的所有边。`--top` 也会以同样的方式截断命中列表，不应使用。
-*   **`--header verbose`** 会写入 `# DIAMOND v…` 和 `# Invocation: …` 注释行。导入程序会把它们记录为网络的搜索程序、版本和命令，将输出命名为 `<name>_[DIAMOND]_EValue.h5`（EFI 比对得分则为 `_EFIScore.h5`），并检查记录的 `--max-target-seqs`。没有这一头部时，DIAMOND 输出仍可导入，但来源未知，并使用 `[BLAST]` 名称。`--header simple` 会写入一行列名，这会被拒绝。
+*   **`--header verbose`** 会写入 `# DIAMOND v…` 和 `# Invocation: …` 注释行。导入程序会把它们记录为网络的搜索程序、版本和命令，将输出命名为 `<name>_[DIAMOND]_EValue.h5`（EFI 比对得分则为 `_[DIAMOND-EFI]_EValue.h5`），并检查记录的 `--max-target-seqs`。没有这一头部时，DIAMOND 输出仍可导入，但来源未知，并使用 `[BLAST]` 名称。`--header simple` 会写入一行列名，这会被拒绝。
 *   **序列标题**：请选择序列标题中不含空格的 FASTA 进行搜索（例如由 `Sanitize_Sequences.py` 写出的文件），使 `qseqid`/`sseqid` 包含完整的序列标题；或者使用上面的标题列。
 *   **灵敏度与阈值**：`--very-sensitive` 或 `--ultra-sensitive` 能找到 SSN 所依赖的远缘同源序列；更快的模式会漏掉更多远缘序列对。`--max-hsps 1`（DIAMOND 的默认值）对每个序列对只保留一个比对。期望值阈值决定了之后的得分阈值所能用到的最弱的边。
 
@@ -236,7 +236,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 ### 输出
 
 #### HDF5 比对网络
-*   **格式**：HDF5（`.h5`），命名为 `<blast file name>_[BLAST]_EValue.h5`；若文件的注释头部声明了 DIAMOND，则为 `_[DIAMOND]_EValue.h5`。使用 EFI 比对得分时，名称改以 `_EFIScore.h5` 结尾。
+*   **格式**：HDF5（`.h5`），命名为 `<blast file name>_[BLAST]_EValue.h5`；若文件的注释头部声明了 DIAMOND，则为 `_[DIAMOND]_EValue.h5`。使用 EFI 比对得分时，标签改为 `[BLAST-EFI]` 或 `[DIAMOND-EFI]`。
 *   **结构**：
     - `/i`：源序列节点索引。
     - `/j`：目标序列节点索引。

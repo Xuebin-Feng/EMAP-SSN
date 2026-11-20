@@ -9407,7 +9407,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2002"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2007"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -10693,7 +10693,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+194"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
@@ -11945,12 +11945,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">BLAST 期望值（E-value）的负对数（log10）；保存为 `&lt;set&gt;_[BLAST]_EValue.h5`。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST]_EFIScore.h5`.</source>
-        <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST]_EFIScore.h5`。</translation>
+        <translation type="obsolete">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST]_EFIScore.h5`。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>Number of parallel CPU threads allocated for BLASTP execution and parsing.</source>
         <translation type="unfinished">分配给 BLASTP 运行和解析的并行 CPU 线程数。</translation>
     </message>
@@ -12245,12 +12244,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">期望值（E-value）的负对数（log10）；保存为 `&lt;name&gt;_[BLAST]_EValue.h5`。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST]_EFIScore.h5`.</source>
-        <translation type="unfinished">EFI-EST 比对得分，由每个比对的比特得分和 FASTA 中两条序列的长度计算；保存为 `&lt;name&gt;_[BLAST]_EFIScore.h5`。</translation>
+        <translation type="obsolete">EFI-EST 比对得分，由每个比对的比特得分和 FASTA 中两条序列的长度计算；保存为 `&lt;name&gt;_[BLAST]_EFIScore.h5`。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.</source>
         <translation type="unfinished">比特得分位于 `outfmt 6` 的第 12 列、名为 `bit score` 的字段（`outfmt 7`），或自定义布局的“比特得分列”。</translation>
     </message>
@@ -13037,7 +13035,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">比特得分列：</translation>
     </message>
     <message>
-        <location line="-2550"/>
+        <location line="-2555"/>
         <source>FASTA files (*.fasta *.fa *.faa *.fna *.fas *.fsa);;All files (*)</source>
         <translation type="unfinished">FASTA 文件 (*.fasta *.fa *.faa *.fna *.fas *.fsa);;所有文件 (*)</translation>
     </message>
@@ -13052,7 +13050,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">ID 映射文件 (*.tsv *.csv *.txt);;所有文件 (*)</translation>
     </message>
     <message>
-        <location line="+183"/>
+        <location line="+188"/>
         <source>Embedding Import</source>
         <translation type="unfinished">Embedding 导入</translation>
     </message>
@@ -13140,7 +13138,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">被跳过的序列对中仍有一个校准样本（1%，2,000 至 50,000 个序列对）会照常比对，使 Embedding 多序列比对能够拟合并检验对被跳过序列对的估计。</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+81"/>
+        <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST-EFI]_EValue.h5`.</source>
+        <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST-EFI]_EValue.h5`。</translation>
+    </message>
+    <message>
+        <location line="+37"/>
         <source>When the network&apos;s Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores.</source>
         <translation type="unfinished">若网络的边预过滤存有校准样本，拟合会覆盖缺失的序列对，并报告它对这些序列对计算得分的预测效果。</translation>
     </message>
@@ -13155,7 +13158,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">展示归一化网络得分对经长度校正的池化 embedding 相似度的保序拟合；若网络存有校准样本，还会显示这些校准序列对及其留出检验结果。</translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+101"/>
+        <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST-EFI]_EValue.h5`.</source>
+        <translation type="unfinished">EFI-EST 比对得分，由每个比对的比特得分和 FASTA 中两条序列的长度计算；保存为 `&lt;name&gt;_[BLAST-EFI]_EValue.h5`。</translation>
+    </message>
+    <message>
+        <location line="+41"/>
         <source>Chooses what is folded: one typed sequence, or every sequence of a FASTA file.</source>
         <translation type="unfinished">选择要折叠的内容：一条键入的序列，或 FASTA 文件中的每条序列。</translation>
     </message>
@@ -13652,12 +13660,12 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+10"/>
         <location line="+512"/>
-        <location line="+1167"/>
+        <location line="+1168"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1676"/>
+        <location line="-1677"/>
         <location line="+534"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
@@ -13800,14 +13808,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1634"/>
+        <location line="+1635"/>
         <location line="+480"/>
         <location line="+41"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2167"/>
+        <location line="-2168"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -13883,7 +13891,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">设置：{name}</translation>
     </message>
     <message>
-        <location line="+334"/>
+        <location line="+335"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -14132,17 +14140,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5419"/>
+        <location line="-5420"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
-        <location line="-202"/>
+        <location line="-207"/>
         <source>FP32 (Full Precision)</source>
         <translation type="unfinished">FP32（全精度）</translation>
     </message>
     <message>
-        <location line="+203"/>
+        <location line="+208"/>
         <source>Sparse MSA Converter</source>
         <translation type="unfinished">稀疏 MSA 转换器</translation>
     </message>
@@ -14397,12 +14405,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+156"/>
-        <location line="+1500"/>
+        <location line="+1501"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1485"/>
+        <location line="-1486"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -14416,7 +14424,7 @@ Fedora / RHEL：
         <translation type="obsolete">（无）</translation>
     </message>
     <message>
-        <location line="+2102"/>
+        <location line="+2103"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

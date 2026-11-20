@@ -23,6 +23,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from tests import MISSING_TOOL_SETTINGS
+from Cache_Manifest import network_name_label
 from utilities.BLAST_Tabular import load_header_manifest
 from utilities.Sequence_Utils import load_sanitized_fasta
 
@@ -195,8 +196,8 @@ class NetworkExtractionTests(unittest.TestCase):
             whitelist.write_text(">A\nAAAA\n>C\nCCCC\n", encoding="utf-8")
 
             for search_program, expected_name in (
-                (None, "selected_[blast]_EFIScore.h5"),
-                ("DIAMOND", "selected_[DIAMOND]_EFIScore.h5"),
+                (None, "selected_[blast-EFI]_EValue.h5"),
+                ("DIAMOND", "selected_[DIAMOND-EFI]_EValue.h5"),
             ):
                 with self.subTest(search_program=search_program):
                     input_network = root / f"efi_{search_program}.h5"
@@ -214,6 +215,11 @@ class NetworkExtractionTests(unittest.TestCase):
                     network_extraction.configure_runtime_paths()
                     self.assertEqual(
                         network_extraction.OUTPUT_NET, os.path.join(temp_dir, expected_name)
+                    )
+                    # The label is the one the source network's derived files get.
+                    self.assertEqual(
+                        expected_name,
+                        f"selected_[{network_name_label(input_network)}]_EValue.h5",
                     )
 
                     report = self._filter(

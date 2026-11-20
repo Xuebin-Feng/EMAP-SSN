@@ -693,19 +693,19 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 self.assertFalse(os.path.exists(workspace))
 
     def _run_mocked_workflow(
-        self, input_path, network_dir, fake_subprocess_run, score_name="EValue", **patches
+        self, input_path, network_dir, fake_subprocess_run, network_label="BLAST", **patches
     ):
         """Run main([]) for input_path with BLAST, the worker pool and settings mocked.
 
         Returns the exit code and the mocked multiprocessing.set_start_method.
         """
-        workspace = os.path.join(network_dir, f"input_[BLAST]_{score_name}_temp")
+        workspace = os.path.join(network_dir, f"input_[{network_label}]_EValue_temp")
         settings = {
             "INPUT_FASTA": "input.fasta",
             "FULL_INPUT_FASTA": input_path,
             "SEQUENCE_SET": "input",
             "NETWORK_DIR": network_dir,
-            "OUTPUT_HDF5": os.path.join(network_dir, f"input_[BLAST]_{score_name}.h5"),
+            "OUTPUT_HDF5": os.path.join(network_dir, f"input_[{network_label}]_EValue.h5"),
             "SAFE_TEMP_DIR": workspace,
             "CHUNKS_DIR": os.path.join(workspace, "chunks"),
             "RESULTS_DIR": os.path.join(workspace, "results"),
@@ -1074,7 +1074,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                    "CHUNKS_DIR", "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE")
         expected = {
             "evalue": "proteins_[BLAST]_EValue",
-            "efi_alignment_score": "proteins_[BLAST]_EFIScore",
+            "efi_alignment_score": "proteins_[BLAST-EFI]_EValue",
         }
         for metric, stem in expected.items():
             with self.subTest(metric=metric), tempfile.TemporaryDirectory() as network_dir, \
@@ -1261,8 +1261,8 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 ">a\n--" + "A" * 200 + "*\n>b\n" + "C" * 300 + "\n",
                 encoding="utf-8",
             )
-            workspace = os.path.join(network_dir, "input_[BLAST]_EFIScore_temp")
-            output_path = os.path.join(network_dir, "input_[BLAST]_EFIScore.h5")
+            workspace = os.path.join(network_dir, "input_[BLAST-EFI]_EValue_temp")
+            output_path = os.path.join(network_dir, "input_[BLAST-EFI]_EValue.h5")
             self.assertFalse(
                 os.path.exists(os.path.join(network_dir, "input_[BLAST]_EValue.h5"))
             )
@@ -1283,7 +1283,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                     input_path,
                     network_dir,
                     fake_subprocess_run,
-                    score_name="EFIScore",
+                    network_label="BLAST-EFI",
                     SCORE_METRIC="efi_alignment_score",
                 )
 

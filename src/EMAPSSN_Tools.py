@@ -1929,7 +1929,7 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "For either score, the strongest hit of a pair, in either direction, is kept."),),
                     options=(
                         TipOption("evalue", translate("Tools", "The negative log10 of the BLAST E-value; saved as `<set>_[BLAST]_EValue.h5`.")),
-                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `<set>_[BLAST]_EFIScore.h5`.")),
+                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `<set>_[BLAST-EFI]_EValue.h5`.")),
                     ),
                 ),
                 "NUM_THREADS": Tip(
@@ -2072,7 +2072,7 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "For either score, the strongest hit of a pair, in either direction, is kept."),),
                     options=(
                         TipOption("evalue", translate("Tools", "The negative log10 of the E-value; saved as `<name>_[BLAST]_EValue.h5`.")),
-                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score, from each hit's bit score and the two sequence lengths in the FASTA; saved as `<name>_[BLAST]_EFIScore.h5`.")),
+                        TipOption("efi_alignment_score", translate("Tools", "The EFI-EST alignment score, from each hit's bit score and the two sequence lengths in the FASTA; saved as `<name>_[BLAST-EFI]_EValue.h5`.")),
                     ),
                     notes=(
                         TipNote("info", translate("Tools", "The bit score is column 12 of `outfmt 6`, the `bit score` field of `outfmt 7`, or the Bit Score Column of a custom layout.")),

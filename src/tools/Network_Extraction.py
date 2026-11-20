@@ -157,16 +157,15 @@ def configure_runtime_paths():
     )
 
     network_metadata = validate_network_schema(FULL_INPUT_NET)
-    # The model, or DIAMOND for an imported DIAMOND network, as in its own name.
-    model_name = network_name_label(FULL_INPUT_NET, score_suffix=False)
+    # The label as in the network's own name: the model, DIAMOND for an imported
+    # DIAMOND network, and "-EFI" for an EFI alignment score network.
+    model_name = network_name_label(FULL_INPUT_NET)
     fasta_base = os.path.splitext(os.path.basename(FULL_INPUT_FASTA))[0]
 
     if network_metadata.network_type == "blast":
-        # An extract keeps its network's score, and names it as the network does.
-        score_name = "EFIScore" if network_metadata.score_kind == SCORE_KIND_EFI else "EValue"
         OUTPUT_NET = os.path.join(
             NETWORK_DIR,
-            f"{fasta_base}_[{model_name}]_{score_name}.h5",
+            f"{fasta_base}_[{model_name}]_EValue.h5",
         )
     else:
         OUTPUT_NET = os.path.join(

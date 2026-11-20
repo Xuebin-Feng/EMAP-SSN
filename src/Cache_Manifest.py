@@ -324,7 +324,7 @@ def validate_network_schema(network_source, expected_network_type=None):
 DIAMOND_SEARCH_PROGRAM = "DIAMOND"
 
 
-def _derived_name_label(network, metadata, score_suffix=True):
+def _derived_name_label(network, metadata):
     """Bracketed label for names derived from an open network: ``_[label]``.
 
     DIAMOND imports keep model_name "BLAST", so they load as BLAST networks,
@@ -333,7 +333,7 @@ def _derived_name_label(network, metadata, score_suffix=True):
     model_name label, so naming never fails on it. A network of EFI alignment
     scores adds "-EFI" (BLAST-EFI, DIAMOND-EFI), so what is derived from it
     never shares a name with what is derived from the E-value network of the
-    same sequences; ``score_suffix=False`` leaves it off.
+    same sequences.
     """
     label = metadata.model_name
     if metadata.network_type == "blast":
@@ -346,23 +346,21 @@ def _derived_name_label(network, metadata, score_suffix=True):
         except (OSError, ValueError, TypeError, KeyError):
             pass
     label = re.sub(r'[<>:"/\\|?*]', "_", label)
-    if score_suffix and metadata.score_kind == SCORE_KIND_EFI:
+    if metadata.score_kind == SCORE_KIND_EFI:
         label += EFI_LABEL_SUFFIX
     return label
 
 
-def network_name_label(network_source, score_suffix=True):
+def network_name_label(network_source):
     """The ``_[label]`` that files derived from a network carry in their names."""
     import h5py
 
     if hasattr(network_source, "attrs"):
         return _derived_name_label(
-            network_source, read_network_metadata(network_source), score_suffix
+            network_source, read_network_metadata(network_source)
         )
     with h5py.File(os.fspath(network_source), "r") as network:
-        return _derived_name_label(
-            network, read_network_metadata(network), score_suffix
-        )
+        return _derived_name_label(network, read_network_metadata(network))
 
 
 def _optional_float(value):

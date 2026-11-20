@@ -184,7 +184,7 @@ This script does not require additional configuration parameters.
 #### Extracted HDF5 Sub-Network Archive
 *   **Format**: HDF5 (`.h5`).
 *   **Embedding-network schema**: Copies source attributes and writes re-indexed `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`.
-*   **BLAST schema** (E-value or EFI alignment score): Copies source attributes, including `score_kind` of an EFI alignment score network, and writes re-indexed `/headers`, `/i`, `/j`, and `/score`. The file is named `<whitelist stem>_[BLAST]_EValue.h5`, or `_EFIScore.h5` for an EFI alignment score network (with `[DIAMOND]` for an imported DIAMOND network).
+*   **BLAST schema** (E-value or EFI alignment score): Copies source attributes, including `score_kind` of an EFI alignment score network, and writes re-indexed `/headers`, `/i`, `/j`, and `/score`. The file is named `<whitelist stem>_[BLAST]_EValue.h5`, with `[BLAST-EFI]` for an EFI alignment score network (and `[DIAMOND]` or `[DIAMOND-EFI]` for an imported DIAMOND network).
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>

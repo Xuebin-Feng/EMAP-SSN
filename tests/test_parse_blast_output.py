@@ -23,6 +23,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from tests import MISSING_TOOL_SETTINGS  # noqa: E402
+from Cache_Manifest import network_name_label  # noqa: E402
 from utilities import BLAST_Tabular as blast_tabular  # noqa: E402
 from utilities.BLAST_Tabular import ParseSummary  # noqa: E402
 
@@ -1415,9 +1416,9 @@ class ParseBlastToolTests(unittest.TestCase):
         self.tool.INPUT_FASTA = "input.fasta"
         cases = (
             ("diamond", "evalue", "[DIAMOND]_EValue"),
-            ("diamond", "efi_alignment_score", "[DIAMOND]_EFIScore"),
+            ("diamond", "efi_alignment_score", "[DIAMOND-EFI]_EValue"),
             ("plain", "evalue", "[BLAST]_EValue"),
-            ("plain", "efi_alignment_score", "[BLAST]_EFIScore"),
+            ("plain", "efi_alignment_score", "[BLAST-EFI]_EValue"),
         )
         for stem, metric, tail in cases:
             with self.subTest(stem=stem, metric=metric):
@@ -1474,10 +1475,16 @@ class ParseBlastToolTests(unittest.TestCase):
             self.assertEqual(self.tool.main([str(settings)]), 0)
 
         self.assertIn("Edge Score:           EFI alignment score", stdout.getvalue())
-        with h5py.File(self.temp_path / "hits_[BLAST]_EFIScore.h5", "r") as network:
+        network_path = self.temp_path / "hits_[BLAST-EFI]_EValue.h5"
+        with h5py.File(network_path, "r") as network:
             np.testing.assert_allclose(network["score"][:], [25.3248], atol=5e-5)
             self.assertEqual(network.attrs["score_kind"], "efi_alignment_score")
+            self.assertEqual(network.attrs["model_name"], "BLAST")
         self.assertFalse((self.temp_path / "hits_[BLAST]_EValue.h5").exists())
+        # The file is named with the label that everything derived from it gets.
+        self.assertEqual(
+            network_path.name, f"hits_[{network_name_label(network_path)}]_EValue.h5"
+        )
 
     def test_main_passes_the_score_settings_to_the_importer(self):
         with tempfile.TemporaryDirectory() as temp_dir:

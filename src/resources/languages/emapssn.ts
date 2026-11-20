@@ -8252,7 +8252,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST]_EFIScore.h5`.</source>
+        <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST-EFI]_EValue.h5`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8504,7 +8504,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST]_EFIScore.h5`.</source>
+        <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST-EFI]_EValue.h5`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

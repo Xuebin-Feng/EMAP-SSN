@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_and_Network_Tools.md, sha256 49f9e7df93339c46b5800c0200b900d351a64f6d0bf61cecb063a6518ed90abc -->
+<!-- Translation of Embedding_and_Network_Tools.md, sha256 5a61d5c791be3d18811b13387263f3ccbfc7fbae0d5ddfd9bda1a832f01135fd -->
 # Embedding 注入 (`Embedding_Injection.py`)
 
 该脚本把新序列的 embedding 注入（injection）到已有的 HDF5 embedding 数据库中。它扫描传入的 FASTA 序列列表，对已有的匹配项直接从数据库中取出预先计算的 embedding，只为新增的序列计算 embedding，以节省计算时间。
@@ -185,7 +185,7 @@
 #### 提取出的 HDF5 子网络存档
 *   **格式**：HDF5（`.h5`）。
 *   **Embedding 网络结构**：复制源属性，并写入重新编制索引的 `/headers`、`/seq_lens`、`/i`、`/j`、`/g_score`、`/g_len`、`/l_score` 和 `/l_len`。
-*   **BLAST 网络结构**（期望值或 EFI 比对得分）：复制源属性（EFI 比对得分网络还包括 `score_kind`），并写入重新编制索引的 `/headers`、`/i`、`/j` 和 `/score`。文件命名为 `<whitelist stem>_[BLAST]_EValue.h5`；EFI 比对得分网络则为 `_EFIScore.h5`（导入的 DIAMOND 网络用 `[DIAMOND]`）。
+*   **BLAST 网络结构**（期望值或 EFI 比对得分）：复制源属性（EFI 比对得分网络还包括 `score_kind`），并写入重新编制索引的 `/headers`、`/i`、`/j` 和 `/score`。文件命名为 `<whitelist stem>_[BLAST]_EValue.h5`；EFI 比对得分网络用 `[BLAST-EFI]`（导入的 DIAMOND 网络用 `[DIAMOND]` 或 `[DIAMOND-EFI]`）。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>

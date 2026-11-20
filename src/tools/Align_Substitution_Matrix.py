@@ -26,7 +26,7 @@ Input:
 
 Output:
 - An HDF5 file containing the list of pairwise edges, their source/target indices, and their negative Log10(E-Value) score (`{SEQUENCE_SET}_[BLAST]_EValue.h5`).
-  With SCORE_METRIC "efi_alignment_score" the score is instead the EFI-EST alignment score (`{SEQUENCE_SET}_[BLAST]_EFIScore.h5`).
+  With SCORE_METRIC "efi_alignment_score" the score is instead the EFI-EST alignment score (`{SEQUENCE_SET}_[BLAST-EFI]_EValue.h5`).
 
 Settings:
 - SEQUENCE_SET: The base name of the sequence group.
@@ -77,6 +77,7 @@ import h5py
 from Bio import SeqIO
 from tqdm import tqdm
 
+from Cache_Manifest import EFI_LABEL_SUFFIX
 from utilities import BLAST_Executables
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import validate_manifest_records
@@ -193,10 +194,11 @@ def configure_runtime_paths():
             f"SCORE_METRIC must be one of {list(SCORE_METRICS)}; "
             f"received {SCORE_METRIC!r}."
         )
-    # The network and its workspace carry the score in their names, so an
-    # E-value network and an EFI alignment score network of one sequence set
-    # never replace or resume each other.
-    score_name = "EFIScore" if SCORE_METRIC == SCORE_METRIC_EFI else "EValue"
+    # The network and its workspace carry the label of what is derived from
+    # them ([BLAST-EFI] for the EFI alignment score), so an E-value network and
+    # an EFI alignment score network of one sequence set never replace or
+    # resume each other.
+    network_label = "BLAST" + (EFI_LABEL_SUFFIX if SCORE_METRIC == SCORE_METRIC_EFI else "")
     if INPUT_FASTA is None or not str(INPUT_FASTA).strip():
         raise ValueError("No input FASTA file has been selected.")
 
@@ -209,13 +211,13 @@ def configure_runtime_paths():
     SEQUENCE_SET = os.path.splitext(os.path.basename(selected_path))[0]
     OUTPUT_HDF5 = os.path.join(
         NETWORK_DIR,
-        f"{SEQUENCE_SET}_[BLAST]_{score_name}.h5",
+        f"{SEQUENCE_SET}_[{network_label}]_EValue.h5",
     )
 
     # Keep resumable BLAST work beside the network it will produce.
     SAFE_TEMP_DIR = os.path.join(
         NETWORK_DIR,
-        f"{SEQUENCE_SET}_[BLAST]_{score_name}_temp",
+        f"{SEQUENCE_SET}_[{network_label}]_EValue_temp",
     )
     CHUNKS_DIR = os.path.join(SAFE_TEMP_DIR, "chunks")
     RESULTS_DIR = os.path.join(SAFE_TEMP_DIR, "results")

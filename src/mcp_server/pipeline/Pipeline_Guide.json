@@ -74,8 +74,8 @@
       },
       "outputs": [
         {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue.h5", "when": "SCORE_METRIC is evalue (the default)", "existing": "replaced"},
-        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EFIScore.h5", "when": "SCORE_METRIC is efi_alignment_score", "existing": "replaced"},
-        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue_temp/ or _EFIScore_temp/ (workspace)", "existing": "resumed when its configuration matches; removed after success"}
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST-EFI]_EValue.h5", "when": "SCORE_METRIC is efi_alignment_score", "existing": "replaced"},
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue_temp/ or _[BLAST-EFI]_EValue_temp/ (workspace)", "existing": "resumed when its configuration matches; removed after success"}
       ],
       "next": ["network_statistics", "start_layout_job"],
       "requirements": "blastp and makeblastdb from NCBI BLAST+. get_compute_capabilities reports (blast) the BLAST+ that a blank BLASTP_DIR finds: the PATH, then a standard install folder; a BLASTP_DIR in the parameters is used instead and must hold both programs. An agent cannot download BLAST+: when it is missing, tell the user to click the Download button beside BLASTP Directory in the Tools window (or to set BLASTP_DIR). CPU only.",
@@ -95,7 +95,7 @@
       },
       "outputs": [
         {"directory": "NETWORK_DIR", "name": "<INPUT_BLAST_TABULAR stem>_[BLAST]_EValue.h5, or _[DIAMOND]_EValue.h5 when the file has DIAMOND --header verbose comments", "when": "SCORE_METRIC is evalue (the default)", "existing": "replaced only after the new network validates"},
-        {"directory": "NETWORK_DIR", "name": "<INPUT_BLAST_TABULAR stem>_[BLAST]_EFIScore.h5, or _[DIAMOND]_EFIScore.h5 under the same rule", "when": "SCORE_METRIC is efi_alignment_score", "existing": "replaced only after the new network validates"}
+        {"directory": "NETWORK_DIR", "name": "<INPUT_BLAST_TABULAR stem>_[BLAST-EFI]_EValue.h5, or _[DIAMOND-EFI]_EValue.h5 under the same rule", "when": "SCORE_METRIC is efi_alignment_score", "existing": "replaced only after the new network validates"}
       ],
       "next": ["network_statistics", "start_layout_job"],
       "notes": [
@@ -189,7 +189,7 @@
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "FASTA or plain list of headers to keep"}
       },
       "outputs": [
-        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[<model>]_network.h5 (alignment networks) or <INPUT_FASTA stem>_[<model>]_EValue.h5 (E-value networks) or <INPUT_FASTA stem>_[<model>]_EFIScore.h5 (EFI alignment score networks); the model of an imported DIAMOND network is DIAMOND", "existing": "replaced"}
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[<model>]_network.h5 (alignment networks) or <INPUT_FASTA stem>_[<model>]_EValue.h5 (E-value networks) or <INPUT_FASTA stem>_[<model>-EFI]_EValue.h5 (EFI alignment score networks); the model of an imported DIAMOND network is DIAMOND", "existing": "replaced"}
       ],
       "next": ["start_layout_job"],
       "notes": ["A layout already keeps only the network nodes named in its node FASTA, so extraction is needed only for a standalone smaller network file."]

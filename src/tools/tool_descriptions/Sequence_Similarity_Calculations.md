@@ -142,7 +142,7 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 ### Output
 
 #### HDF5 Alignment Network
-*   **Format**: HDF5 (`.h5`), named `<set>_[BLAST]_EValue.h5`, or `<set>_[BLAST]_EFIScore.h5` with the EFI alignment score.
+*   **Format**: HDF5 (`.h5`), named `<set>_[BLAST]_EValue.h5`, or `<set>_[BLAST-EFI]_EValue.h5` with the EFI alignment score.
 *   **Structure**:
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.
@@ -226,7 +226,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 Import `sequences_diamond.tsv` with `standard_outfmt6` and the same `sequences.fasta`. DIAMOND's default `--outfmt 6` already holds the bit score, in column 12, for the EFI alignment score.
 
 *   **`-k 0` is required.** DIAMOND reports at most 25 target sequences per query by default (`--max-target-seqs 25`), so an all-vs-all network imported without `-k 0` silently loses every edge beyond each query's top 25 hits. `--top` truncates hit lists in the same way and should not be used.
-*   **`--header verbose`** writes `# DIAMOND v…` and `# Invocation: …` comment lines. The importer records them as the network's search program, version and command, names the output `<name>_[DIAMOND]_EValue.h5` (`_EFIScore.h5` for the EFI alignment score), and checks the recorded `--max-target-seqs`. Without the header, DIAMOND output still imports, with unknown provenance and the `[BLAST]` name. `--header simple` writes a column-name row, which is rejected.
+*   **`--header verbose`** writes `# DIAMOND v…` and `# Invocation: …` comment lines. The importer records them as the network's search program, version and command, names the output `<name>_[DIAMOND]_EValue.h5` (`_[DIAMOND-EFI]_EValue.h5` for the EFI alignment score), and checks the recorded `--max-target-seqs`. Without the header, DIAMOND output still imports, with unknown provenance and the `[BLAST]` name. `--header simple` writes a column-name row, which is rejected.
 *   **Headers**: search a FASTA whose headers contain no spaces, such as one written by `Sanitize_Sequences.py`, so that `qseqid`/`sseqid` carry complete headers, or use the title columns above.
 *   **Sensitivity and cutoff**: `--very-sensitive` or `--ultra-sensitive` finds the remote homologs that SSNs depend on; faster modes miss more distant pairs. `--max-hsps 1`, DIAMOND's default, keeps one alignment per pair. The E-value cutoff sets the weakest edge available to later score thresholds.
 
@@ -235,7 +235,7 @@ Both programs' networks keep `model_name="BLAST"`, so the Viewer loads either as
 ### Output
 
 #### HDF5 Alignment Network
-*   **Format**: HDF5 (`.h5`), named `<blast file name>_[BLAST]_EValue.h5`, or `_[DIAMOND]_EValue.h5` when the file declares DIAMOND in its comment header. With the EFI alignment score the name ends in `_EFIScore.h5` instead.
+*   **Format**: HDF5 (`.h5`), named `<blast file name>_[BLAST]_EValue.h5`, or `_[DIAMOND]_EValue.h5` when the file declares DIAMOND in its comment header. With the EFI alignment score the label is `[BLAST-EFI]` or `[DIAMOND-EFI]` instead.
 *   **Structure**:
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.

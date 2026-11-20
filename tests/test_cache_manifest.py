@@ -728,9 +728,6 @@ class EfiScoreKindTests(unittest.TestCase):
         self.assertEqual(self.label(score_kind=self.EFI), "BLAST-EFI")
         self.assertEqual(self.label("DIAMOND", self.EFI), "DIAMOND-EFI")
         self.assertEqual(self.label("BLASTP", self.EFI), "BLAST-EFI")
-        # The importer and extraction name files by the program alone.
-        self.assertEqual(self.label("DIAMOND", self.EFI, score_suffix=False), "DIAMOND")
-        self.assertEqual(self.label(score_kind=self.EFI, score_suffix=False), "BLAST")
         write_blast_network(self.path, "DIAMOND", self.EFI)
         with h5py.File(self.path, "r") as network:
             self.assertEqual(Cache_Manifest.network_name_label(network), "DIAMOND-EFI")

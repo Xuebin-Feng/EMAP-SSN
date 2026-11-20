@@ -22,6 +22,7 @@ try:
 except ModuleNotFoundError:
     import _bootstrap
 
+from Cache_Manifest import EFI_LABEL_SUFFIX
 from utilities.BLAST_Tabular import (
     BlastParseError,
     SCORE_METRIC_EFI,
@@ -83,10 +84,12 @@ def configure_runtime_paths():
     # DIAMOND output that declares itself (--header verbose) is named [DIAMOND];
     # model_name stays BLAST either way, so viewers load it as a BLAST network.
     program_tag = read_search_header(FULL_INPUT_BLAST_TABULAR).network_tag
-    suffix = "EFIScore" if SCORE_METRIC == SCORE_METRIC_EFI else "EValue"
+    # An EFI alignment score network is labelled as what is derived from it is.
+    if SCORE_METRIC == SCORE_METRIC_EFI:
+        program_tag += EFI_LABEL_SUFFIX
     OUTPUT_HDF5 = os.path.join(
         NETWORK_DIR,
-        f"{base_name}_[{program_tag}]_{suffix}.h5",
+        f"{base_name}_[{program_tag}]_EValue.h5",
     )
 
 
