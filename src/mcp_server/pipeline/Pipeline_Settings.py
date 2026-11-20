@@ -26,6 +26,7 @@ from tools.tool_helpers.Tool_Pipeline import (
     get_tool_spec,
     list_tool_specs,
     read_shared_settings,
+    split_retired_settings,
 )
 
 
@@ -203,6 +204,7 @@ def get_pipeline_schema(tool_id, project_root):
                 "Tiled execution cannot select CPU; explicit TF32 cannot select a non-CUDA device.",
                 "Local alignment scores cannot use alignment_length normalization.",
                 "Neighbor-joining (Slow) builds one guide tree: BOOTSTRAP_TREE true is overridden to false.",
+                "A retired setting (embedding_msa INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS) in an old document is accepted, dropped and listed under overrides; any other unknown key is an error.",
                 "Configuration validation does not check file existence, credentials, or hardware readiness.",
                 "Relative directories resolve against the project root. A relative input filename resolves inside "
                 "the directory named in inputs.<field>.directory; an absolute path is used as given."],
@@ -344,7 +346,10 @@ def normalize_pipeline_settings(tool_id, project_root, *, parameters=None, direc
             value = os.path.join(project_root, value)
         resolved[key] = os.path.abspath(os.path.normpath(value))
     schema = _parameter_schema(tool_id, project_root)
-    supplied = document[spec.settings_section]
+    # A retired setting is accepted and dropped, and reported; any other unknown key is an error.
+    supplied, retired = split_retired_settings(spec.settings_section, document[spec.settings_section])
+    for key, value, note in retired:
+        result["overrides"].append({"field": f"parameters.{key}", "supplied": value, "effective": None, "reason": note})
     values = {key: deepcopy(prop["default"]) for key, prop in schema["properties"].items()}
     result["applied_defaults"].update({f"parameters.{key}": deepcopy(value) for key, value in values.items() if key not in supplied})
     values.update(supplied)
@@ -376,7 +381,8 @@ def normalize_pipeline_settings(tool_id, project_root, *, parameters=None, direc
 def serialize_export_settings(tool_id, values, project_root):
     """Convert GUI text controls only; do not alter GUI execution or require inputs."""
     schema = _parameter_schema(tool_id, project_root, execution=False)
-    output = deepcopy(values)
+    # A retired setting a saved section still holds is left out of the export without a word.
+    output, _retired = split_retired_settings(get_tool_spec(tool_id).script_name, deepcopy(values))
     for key, value in output.items():
         prop = schema["properties"].get(key)
         if prop is None or not isinstance(value, str):

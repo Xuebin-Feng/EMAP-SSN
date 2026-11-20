@@ -121,6 +121,27 @@ class ToolSettingsLoaderTests(unittest.TestCase):
             os.path.normpath(PROJECT_ROOT / "Cache_Files" / "Temp"),
         )
 
+    def test_a_retired_setting_is_ignored_with_one_note_and_other_unknown_keys_stay_silent(self):
+        note = (
+            "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS is no longer a setting and is ignored: "
+            "a sparse network now always uses the full all-pairs consensus."
+        )
+        for value in (True, False):
+            with self.subTest(value=value):
+                namespace = {"NUM_TREES": 1}
+                document = {"DIRECTORIES": {}, "Embedding_MSA.py": {
+                    "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": value, "NUM_TREES": 5, "NOT_A_SETTING": 1}}
+                with redirect_stdout(io.StringIO()) as printed:
+                    apply_settings_document(namespace, document, "Embedding_MSA.py", str(PROJECT_ROOT))
+                self.assertEqual(printed.getvalue(), note + "\n")
+                self.assertEqual(namespace, {"NUM_TREES": 5})
+        # No retired key: nothing is printed, and another tool's section is not read for it.
+        for script, section in (("Embedding_MSA.py", {"NUM_TREES": 5, "NOT_A_SETTING": 1}),
+                                ("Sanitize_Sequences.py", {"INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": True})):
+            with self.subTest(script=script), redirect_stdout(io.StringIO()) as printed:
+                apply_settings_document({}, {"DIRECTORIES": {}, script: section}, script, str(PROJECT_ROOT))
+            self.assertEqual(printed.getvalue(), "")
+
     def test_explicit_path_is_resolved_from_working_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             current = pathlib.Path.cwd()

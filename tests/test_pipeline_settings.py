@@ -351,6 +351,52 @@ class PipelineSettingsTests(unittest.TestCase):
                 self.assertEqual(result["overrides"], [])
                 self.assertIs(result["settings_document"]["Embedding_MSA.py"]["BOOTSTRAP_TREE"], perturbed)
 
+    def test_the_retired_consensus_setting_is_accepted_dropped_and_reported(self):
+        key = "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"
+        note = (f"{key} is no longer a setting and is ignored: a sparse network now always "
+                "uses the full all-pairs consensus.")
+        base = {"INPUT_EMBED": "x", "INPUT_NETWORK": "y"}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "old_export.json"
+            for value in (True, False):
+                given = {**base, key: value}
+                path.write_text(json.dumps({"DIRECTORIES": {}, "Embedding_MSA.py": given}), encoding="utf-8")
+                forms = {
+                    "parameters": dict(parameters=given),
+                    "document": dict(settings_document={"DIRECTORIES": {}, "Embedding_MSA.py": given}),
+                    "path": dict(settings_path=str(path)),
+                }
+                for name, kwargs in forms.items():
+                    with self.subTest(form=name, value=value):
+                        result = self.preview("embedding_msa", **kwargs)
+                        self.assertTrue(result["valid"], result["errors"])
+                        self.assertEqual(result["overrides"], [
+                            {"field": f"parameters.{key}", "supplied": value, "effective": None, "reason": note}])
+                        self.assertNotIn(key, result["settings_document"]["Embedding_MSA.py"])
+                        self.assertNotIn(key, result["applied_defaults"])
+                        # The validated document a job starts from carries no note a second time.
+                        again = self.preview("embedding_msa", settings_document=result["settings_document"])
+                        self.assertEqual((again["valid"], again["overrides"]), (True, []))
+                self.assertEqual(given, {**base, key: value})
+        # Every other unknown key is still an error, with or without the retired one.
+        for extra in ({"NOT_A_SETTING": 1}, {"NOT_A_SETTING": 1, key: True}):
+            with self.subTest(extra=extra):
+                result = self.preview("embedding_msa", parameters={**base, **extra})
+                self.assertFalse(result["valid"])
+                self.assertEqual([(e["field"], e["message"]) for e in result["errors"]],
+                                 [("parameters.NOT_A_SETTING", "Unknown setting key.")])
+        # It is retired for Embedding MSA alone.
+        result = self.preview("sanitize_sequences", parameters={"INPUT_FASTA": "x", key: True})
+        self.assertFalse(result["valid"])
+        self.assertEqual([e["field"] for e in result["errors"]], [f"parameters.{key}"])
+        # An export built from a saved section that still holds it leaves it out; other unknown keys still fail.
+        saved = {**base, key: False}
+        exported = serialize_export_settings("embedding_msa", saved, ROOT)
+        self.assertEqual(exported, base)
+        self.assertEqual(saved, {**base, key: False})
+        with self.assertRaises(PipelineSettingsError):
+            serialize_export_settings("embedding_msa", {**base, "NOT_A_SETTING": 1}, ROOT)
+
     def test_the_length_histogram_switch_defaults_on_and_is_kept_headless(self):
         discovery = get_pipeline_schema("sanitize_sequences", ROOT)
         field = discovery["parameters_schema"]["properties"]["SHOW_LENGTH_HISTOGRAM"]

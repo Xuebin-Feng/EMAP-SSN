@@ -238,8 +238,31 @@ def _coerce_setting(value, original):
     return value
 
 
+# Settings a tool once had and no longer has, by tool script: what to tell a user whose
+# settings file still holds one. Every loader accepts and drops these keys; any other
+# key a tool lacks is treated as before (a tool run ignores it, the MCP server rejects it).
+RETIRED_SETTINGS = {
+    "Embedding_MSA.py": {
+        "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": (
+            "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS is no longer a setting and is ignored: "
+            "a sparse network now always uses the full all-pairs consensus."
+        ),
+    },
+}
+
+
+def split_retired_settings(script_name, section):
+    """Return (section without its retired keys, [(key, value, note), ...] for those it held)."""
+    retired = RETIRED_SETTINGS.get(script_name, {})
+    kept = {key: value for key, value in section.items() if key not in retired}
+    return kept, [(key, section[key], note) for key, note in retired.items() if key in section]
+
+
 def apply_settings_document(namespace, document, script_name, project_root):
-    """Apply recognized settings to a tool module namespace."""
+    """Apply recognized settings to a tool module namespace.
+
+    A retired setting is ignored, with one line saying so.
+    """
     for key, value in document.get("DIRECTORIES", {}).items():
         if key not in namespace or not _has_value(value):
             continue
@@ -248,7 +271,11 @@ def apply_settings_document(namespace, document, script_name, project_root):
             resolved = os.path.normpath(os.path.join(project_root, resolved))
         namespace[key] = resolved
 
-    for key, value in document.get(script_name, {}).items():
+    section, retired = split_retired_settings(script_name, document.get(script_name, {}))
+    for _key, _value, note in retired:
+        print(note)
+
+    for key, value in section.items():
         if key not in namespace or not _has_value(value):
             continue
         coerced = _coerce_setting(value, namespace[key])
@@ -872,6 +899,8 @@ __all__ = [
     "read_settings_document",
     "validate_settings_document",
     "apply_settings_document",
+    "RETIRED_SETTINGS",
+    "split_retired_settings",
     "load_tool_settings",
     "ToolSpec",
     "ToolInvocation",
