@@ -2521,9 +2521,10 @@ def run_msa_builder():
                 )
             except Exception as plot_err:
                 print(f"Could not open plot window: {plot_err}")
-        # The fit and its report are done. Release what only they read, the per-edge
-        # arrays, here and the n x n arrays below after their last use, or all of them
-        # would stay alive through the replicate trees and the whole merge.
+        # The fit and its report are done, so release the per-edge arrays that only
+        # they read. The n x n arrays below are released the same way, each right
+        # after its last use. Otherwise they all stay alive through the replicate
+        # trees and the whole merge.
         del fitted_x, fitted_y, Y_pred, X_cos, Y_align, norm_scores
 
     # 8. BUILD CONSENSUS TREE
