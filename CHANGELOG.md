@@ -46,6 +46,12 @@ still change before version 1.0.0.
   such a node is folded again when it is next asked for. The `ESM3_MODEL` line of
   `src/resources/Biohub_API.json` is ignored. In the remote mode, a sequence of more
   than 768 residues is refused.
+- Embedding MSA no longer has the setting `INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS` (see
+  Changed). A sparse network now always gets the full all-pairs consensus, which that
+  setting gave when it was on. Its default was off, so a sparse network that was aligned
+  with the default gets a different guide tree and alignment now. A settings file, the
+  Tools window's saved settings or an MCP document that still holds the setting is
+  accepted, and the setting is ignored.
 
 ### Added
 
@@ -456,6 +462,41 @@ still change before version 1.0.0.
     the 60 cases and fell in 12.
   - Network Injection leaves an input network's calibration pairs out when it takes the
     lowest similarity among the network's edges as the cut for new pairs.
+- **Embedding MSA gives every sparse network the full consensus, and Calibrated Imputation
+  chooses how its missing pairs are filled.**
+  - **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS` is retired.** The final matrix of a sparse
+    network is now the replicate-averaged tree distance of every pair, as it always was
+    for a complete network. With the setting off, its default, the matrix mixed two kinds
+    of value: averaged tree distances for the computed pairs and the raw filled-in value
+    for the skipped ones. The partial-consensus code is removed.
+  - **Calibrated Imputation (`CALIBRATED_IMPUTATION`, on by default) takes its place in
+    the Tools window.** On is the fit with the calibration sample (the entry above). Off
+    fits on the pairs above the prefilter cut only, unweighted, and gives every skipped
+    pair the fit's lowest value, as before the sample existed; the sample's pairs keep
+    their computed scores. A network without a sample is always filled the off way, so
+    the switch is greyed for it, as for a complete or a BLAST network.
+  - **What a run reports:** the uniform value, whenever it is used. The calibration check
+    is reported either way. With the switch off, the log, the regression chart and the
+    guide tree's `MISSING_PAIRS` note also give the uniform value's MAE and R² on the
+    calibration pairs. The guide tree records `CALIBRATED_IMPUTATION` where it recorded
+    the old setting.
+  - **Old settings still load.** A tool run prints one line saying the retired setting is
+    ignored. MCP accepts the document, drops the setting and lists it under `overrides`.
+    The Tools window drops it at the next Save. Any other unknown setting is treated as
+    before.
+  - **Why:** on the 12,927-sequence aminotransferase set (E1, three seeds, mean TC over
+    75, 50 and 25% of pairs kept), the calibrated fill with the full consensus scored
+    0.366, the uniform fill with it 0.349, the uniform fill with the partial consensus
+    0.340, and the calibrated fill with the partial consensus, the default until now,
+    0.292.
+  - **Checked on the HomFam kringle family** (829 sequences, Ankh base, 75% of pairs kept,
+    on the CPU). Without a sample, the guide tree has the same clades and replicate
+    percentages as the earlier version's with the old setting on, and the switch on and
+    off give byte-identical alignments. With a sample and the switch on, the guide tree
+    has the same clades and replicate percentages as the earlier version's calibrated
+    one with the old setting on. With the switch off, the uniform value equals that of
+    the network without a sample (4.4863), and 745 of the tree's 828 clades are shared
+    with the switch-on tree.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
