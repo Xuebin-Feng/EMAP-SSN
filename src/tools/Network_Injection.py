@@ -1760,15 +1760,21 @@ def run_injection():
     theoretical_old_total = (old_N * (old_N - 1)) // 2
     total_old_pairs = len(old_i)
     
-    actual_idx_map = np.full(theoretical_old_total, -1, dtype=np.int64)
     old_i_64 = old_i.astype(np.int64)
     old_j_64 = old_j.astype(np.int64)
     theoretical_flat_indices = (old_i_64 * old_N) - (old_i_64 * (old_i_64 + 1) // 2) + (old_j_64 - old_i_64 - 1)
-    
-    actual_idx_map[theoretical_flat_indices] = np.arange(total_old_pairs)
-    
-    exists_in_old = np.zeros(theoretical_old_total, dtype=bool)
-    exists_in_old[theoretical_flat_indices] = True
+
+    actual_idx_map = _OldEdgeIndex(theoretical_flat_indices)
+    del theoretical_flat_indices
+
+    # New index of each old sequence (-1 if it was dropped), and of each old edge's two ends.
+    new_header_to_idx = {h: idx for idx, h in enumerate(new_headers)}
+    old_to_new = np.fromiter(
+        (new_header_to_idx.get(h, -1) for h in old_headers), dtype=np.int64, count=old_N
+    )
+    edge_new_u = old_to_new[old_i_64]
+    edge_new_v = old_to_new[old_j_64]
+    del old_to_new, old_i_64, old_j_64
 
     is_sparse_old = total_old_pairs < theoretical_old_total
     cos_sim = None
@@ -1793,38 +1799,24 @@ def run_injection():
         print("Computing all-vs-all cosine similarities...")
         cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
         
-        new_header_to_idx = {h: idx for idx, h in enumerate(new_headers)}
-
-        calibration_edges = set()
+        calibration_edges = np.zeros(total_old_pairs, dtype=bool)
         if old_prefilter is not None and len(old_prefilter.sample):
             sample_keys = Prefilter_Calibration.pair_keys(
                 old_prefilter.sample.rows, old_prefilter.sample.cols, old_N
             )
             edge_keys = Prefilter_Calibration.pair_keys(old_i, old_j, old_N)
-            calibration_edges = set(np.flatnonzero(np.isin(edge_keys, sample_keys)).tolist())
+            calibration_edges = np.isin(edge_keys, sample_keys)
             del edge_keys
             print(
-                f"  > Leaving out the input network's {len(calibration_edges):,} calibration "
+                f"  > Leaving out the input network's {int(np.count_nonzero(calibration_edges)):,} calibration "
                 "pairs, which its prefilter aligned below its cut."
             )
 
         if total_old_pairs > 0:
-            min_cos_val = 1.0
-            min_cos_k = -1
+            min_cos_val, min_cos_k = _lowest_edge_cosine(
+                cos_sim, edge_new_u, edge_new_v, calibration_edges
+            )
 
-            for k in range(total_old_pairs):
-                if k in calibration_edges:
-                    continue
-                u_h = old_headers[old_i[k]]
-                v_h = old_headers[old_j[k]]
-                if u_h in new_header_to_idx and v_h in new_header_to_idx:
-                    u_new_idx = new_header_to_idx[u_h]
-                    v_new_idx = new_header_to_idx[v_h]
-                    sim_val = float(cos_sim[u_new_idx, v_new_idx])
-                    if sim_val < min_cos_val:
-                        min_cos_val = sim_val
-                        min_cos_k = k
-            
             if min_cos_k != -1:
                 threshold_cos = min_cos_val
                 h_i_min = old_headers[old_i[min_cos_k]]
@@ -1837,20 +1829,13 @@ def run_injection():
             print(f"  > Setting cosine similarity prefiltering threshold to: {threshold_cos:.6f}")
             
             print("  > Scanning original network for edges below the threshold...")
-            reported_count = 0
-            for k in range(total_old_pairs):
-                if k in calibration_edges:
-                    continue
+            reported_count, reported_edges = _edges_below_cosine(
+                cos_sim, edge_new_u, edge_new_v, calibration_edges, threshold_cos - 1e-5
+            )
+            for k, sim_val in reported_edges:
                 u_h = old_headers[old_i[k]]
                 v_h = old_headers[old_j[k]]
-                if u_h in new_header_to_idx and v_h in new_header_to_idx:
-                    u_new_idx = new_header_to_idx[u_h]
-                    v_new_idx = new_header_to_idx[v_h]
-                    sim_val = cos_sim[u_new_idx, v_new_idx]
-                    if sim_val < threshold_cos - 1e-5:
-                        if reported_count < 10:
-                            print(f"    * Warning: Edge '{u_h}' - '{v_h}' has cosine similarity {sim_val:.6f} < threshold {threshold_cos:.6f} (score: {old_l_score[k]:.4f})")
-                        reported_count += 1
+                print(f"    * Warning: Edge '{u_h}' - '{v_h}' has cosine similarity {sim_val:.6f} < threshold {threshold_cos:.6f} (score: {old_l_score[k]:.4f})")
             if reported_count > 0:
                 print(f"  > Total edges in original network below threshold: {reported_count}")
             else:
@@ -1862,36 +1847,16 @@ def run_injection():
     total_new_pairs = (new_N * (new_N - 1)) // 2
     old_headers_set = set(old_headers)
     
-    cached_old_pairs = set()
-    old_header_to_new_idx = {h: idx for idx, h in enumerate(new_headers)}
-    for k in range(total_old_pairs):
-        u_h = old_headers[old_i[k]]
-        v_h = old_headers[old_j[k]]
-        if u_h in old_header_to_new_idx and v_h in old_header_to_new_idx:
-            u_idx = old_header_to_new_idx[u_h]
-            v_idx = old_header_to_new_idx[v_h]
-            cached_old_pairs.add(min(u_idx, v_idx) * new_N + max(u_idx, v_idx))
-            
-    required_pairs = set()
-    for i in range(new_N):
-        h_i = new_headers[i]
-        is_old_i = h_i in old_headers_set
-        for j in range(i + 1, new_N):
-            h_j = new_headers[j]
-            is_old_j = h_j in old_headers_set
-            
-            keep = False
-            if is_old_i and is_old_j:
-                pair_id = i * new_N + j
-                if pair_id in cached_old_pairs:
-                    keep = True
-            else:
-                if not is_sparse_old or (cos_sim is not None and cos_sim[i, j] >= threshold_cos):
-                    keep = True
-                    
-            if keep:
-                required_pairs.add(i * new_N + j)
-                
+    cached_old_pairs = _cached_pair_keys(edge_new_u, edge_new_v, new_N)
+    del edge_new_u, edge_new_v
+    new_is_old = np.fromiter(
+        (h in old_headers_set for h in new_headers), dtype=bool, count=new_N
+    )
+    required_pairs = _required_pair_keys(
+        new_N, new_is_old, cached_old_pairs, cos_sim, threshold_cos
+    )
+    del new_is_old
+
     effective_total_pairs = len(required_pairs)
 
     computed_pairs = scan_existing_batches(
@@ -1901,6 +1866,7 @@ def run_injection():
         current_saving_mode,
         current_gap_penalties,
         inherited_precision,
+        as_array=True,
     )
 
     existing_batches = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
@@ -1914,19 +1880,18 @@ def run_injection():
             pass
     next_batch_id = max(batch_ids) + 1 if batch_ids else 0
 
-    def iter_pending_tasks():
-        return _iter_pending_pairs(
-            safe_new_headers, required_pairs, cached_old_pairs, computed_pairs
-        )
+    pending_keys = _pending_keys(
+        required_pairs, cached_old_pairs, computed_pairs, len(safe_new_headers)
+    )
 
-    pending_counts = np.zeros(new_N, dtype=np.int64)
-    for pair_id in required_pairs:
-        if pair_id not in cached_old_pairs and pair_id not in computed_pairs:
-            pending_counts[int(pair_id) // new_N] += 1
+    def iter_pending_tasks():
+        return _iter_pending_keys(safe_new_headers, pending_keys, len(safe_new_headers))
+
+    pending_counts = np.bincount(pending_keys // new_N, minlength=new_N).astype(np.int64) if new_N else np.zeros(0, dtype=np.int64)
     num_tasks = int(pending_counts.sum())
     print(f"Total Required pairs: {effective_total_pairs}")
-    print(f"Pre-existing cached pairs: {len(cached_old_pairs & required_pairs)}")
-    print(f"Already computed pairs: {len(computed_pairs & required_pairs)}")
+    print(f"Pre-existing cached pairs: {int(np.count_nonzero(_members(required_pairs, cached_old_pairs)))}")
+    print(f"Already computed pairs: {int(np.count_nonzero(_members(required_pairs, computed_pairs)))}")
     print(f"Pairs queued for calculation: {num_tasks}")
 
     if num_tasks > 0:
@@ -1945,18 +1910,8 @@ def run_injection():
 
         def pending_columns_for_row(row):
             base = int(row) * new_N
-            return np.asarray(
-                [
-                    column
-                    for column in range(int(row) + 1, new_N)
-                    if (
-                        base + column in required_pairs
-                        and base + column not in cached_old_pairs
-                        and base + column not in computed_pairs
-                    )
-                ],
-                dtype=np.int64,
-            )
+            low, high = np.searchsorted(pending_keys, (base, base + new_N))
+            return pending_keys[low:high] - base
 
         precision_tasks = None
         if inherited_precision == "bf16":
