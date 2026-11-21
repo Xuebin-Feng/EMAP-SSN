@@ -761,10 +761,18 @@ class TooltipAndPinTests(TreeCase):
             // waiting: callbacks run in the order they were asked for, so ours runs after every earlier one.
             const raf = window.requestAnimationFrame; let waiting = 0;
             window.requestAnimationFrame = (callback) => { waiting++; return raf.call(window, (time) => { waiting--; callback(time); }); };
+            // The page also draws, with no frame, when the Viewer's colours have come (it asks for them as it opens);
+            // the browser's list of finished requests says when that answer is in.
+            const fetched = () => performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/tree/colors')).length;
+            for (let rounds = 0; fetched() === 0; rounds++) {
+                if (rounds > 400) throw new Error('The colours never came');
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
             let settled = false;
             for (let rounds = 0; !settled; rounds++) {
                 if (rounds > 50) throw new Error('The page keeps asking for frames');
-                await new Promise((resolve) => { raf.call(window, () => { settled = waiting === 0; resolve(); }); });
+                const answers = fetched();
+                await new Promise((resolve) => { raf.call(window, () => { settled = waiting === 0 && fetched() === answers; resolve(); }); });
             }
             // Here, in the same step as that frame, nothing is waiting and nothing can come in before the lines below:
             // clear the flag with a real draw, then the fakes, and the draw asked for below is the only one queued.
