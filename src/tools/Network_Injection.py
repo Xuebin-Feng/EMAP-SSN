@@ -40,9 +40,17 @@ Algorithm:
 2. Mathematically calculates the exact number of pairs required for an all-vs-all grid `(N*(N-1))/2` for the new sequence length.
 3. Pre-allocates massive, correctly sized blank contiguous 1D numpy arrays into system memory.
 4. Iterates linearly over every theoretical combination pair in the new index space.
-5. If both headers previously existed, it converts their 2D coordinates back into a 1D flat index and instantly copies 
-   the raw alignment score bytes straight into the new arrays in RAM.
-6. If the combination involves a new header, the required index coordinates are tossed into a "To-Do" queue.
+5. If both headers previously existed and the old network has that edge, it converts their 2D coordinates back into a
+   1D flat index and instantly copies the raw alignment score bytes straight into the new arrays in RAM.
+6. Every other pair that is needed is tossed into a "To-Do" queue. For a complete input network that is every pair with
+   a new header. For a sparse input network (made with Edge Pre-filtering) a pair is needed when its length-adjusted
+   pooled-embedding similarity s (the rule of Align Similarity Matrix's prefilter) reaches the cut, old-old pairs
+   included. The cut is min(s_min, t'): s_min is the lowest s among the input network's edges that stay in the new
+   set (recorded calibration pairs left out); t' is the s that keeps the same share K of the new set's pairs as the
+   input network kept (K = its edges / all pairs of its sequences, calibration pairs left out). If the lowest old
+   edge lies below t', everything above it is aligned even though that keeps more than K; otherwise the kept share
+   stays at K. Every old edge that stays in the new set is kept. This needs the n x n similarity (8 n^2 bytes) and
+   the n (n - 1) / 2 values for the cut (4 n^2 bytes), the memory Align's prefilter needs.
 7. Multiprocessing CPU workers iterate over the to-do queue, plucking the required embeddings from disk and directly evaluating their Needleman-Wunsch/Smith-Waterman scores.
 8. Calculated results are merged into the massive contiguous array space and structurally streamed back to disk as HDF5 arrays.
 """
@@ -774,23 +782,23 @@ def _members(sorted_keys, needles):
     return _locate(sorted_keys, needles)[1]
 
 
-def _pair_similarity_rows(cos_sim, start, stop):
+def _pair_similarity_rows(similarity, start, stop):
     """The similarity of rows start..stop-1 to every sequence."""
-    return cos_sim[start:stop]
+    return similarity[start:stop]
 
 
-def _pair_similarity_at(cos_sim, rows, columns):
+def _pair_similarity_at(similarity, rows, columns):
     """The similarity of each (row, column) pair."""
-    return cos_sim[rows, columns]
+    return similarity[rows, columns]
 
 
-def _lowest_edge_cosine(cos_sim, edge_u, edge_v, skip):
-    """(value, edge) of the FIRST old edge with the lowest similarity below 1.0.
+def _lowest_edge_similarity(similarity, edge_u, edge_v, skip):
+    """(value, edge) of the FIRST old edge with the lowest similarity, s_min; (None, -1) when none counts.
 
     Only edges that keep both sequences (edge_u, edge_v >= 0) and are not
-    skipped (calibration edges) count; (1.0, -1) when none is below 1.0.
+    skipped (recorded calibration edges) count. A NaN similarity never counts.
     """
-    best_value = 1.0
+    best_value = None
     best_edge = -1
     for start in range(0, edge_u.size, _EDGE_CHUNK):
         stop = min(edge_u.size, start + _EDGE_CHUNK)
@@ -799,32 +807,69 @@ def _lowest_edge_cosine(cos_sim, edge_u, edge_v, skip):
         positions = np.flatnonzero((u >= 0) & (v >= 0) & ~skip[start:stop])
         if not positions.size:
             continue
-        sims = _pair_similarity_at(cos_sim, u[positions], v[positions])
-        below = np.flatnonzero(sims < best_value)
-        if below.size:
-            first = below[np.argmin(sims[below])]
+        sims = _pair_similarity_at(similarity, u[positions], v[positions])
+        usable = np.flatnonzero(~np.isnan(sims))
+        if not usable.size:
+            continue
+        first = usable[np.argmin(sims[usable])]
+        if best_value is None or float(sims[first]) < best_value:
             best_value = float(sims[first])
             best_edge = start + int(positions[first])
     return best_value, best_edge
 
 
-def _edges_below_cosine(cos_sim, edge_u, edge_v, skip, limit, keep_first=10):
-    """How many counted old edges have a similarity below limit, and the first few as (edge, value)."""
+def _share_cut(similarity, share):
+    """t': the similarity cut that keeps `share` of the pairs, or None when there is no pair.
+
+    np.percentile of the upper-triangle values at 100 * (1 - share), the call
+    Align_Similarity_Matrix's prefilter_pairs makes for its own threshold
+    (a pair is kept when its similarity is >= the cut). The values are copied
+    row by row into one float64 vector of n (n - 1) / 2 entries, 4 n^2 bytes.
+    """
+    n = similarity.shape[0]
+    total = n * (n - 1) // 2
+    if total == 0:
+        return None
+    values = np.empty(total, dtype=np.float64)
+    filled = 0
+    for row in range(n - 1):
+        length = n - row - 1
+        values[filled:filled + length] = similarity[row, row + 1:]
+        filled += length
+    return float(np.percentile(values, 100.0 * (1.0 - share), overwrite_input=True))
+
+
+def _similarity_cut(similarity, edge_u, edge_v, skip, kept_share):
+    """The cut of a sparse input: min(s_min, t').
+
+    Returns (cut, s_min, lowest_edge, t_prime, set_by). s_min is the lowest
+    similarity of an input edge that stays in the new set (None when no edge
+    does), t' the cut that keeps kept_share of the new set's pairs (None when
+    the set has no pair). The cut is s_min when that lies below t' (every pair
+    at or above it is then needed, which keeps more than kept_share), t'
+    otherwise. set_by is "s_min", "t'" or None (no pair, cut = infinity).
+    """
+    s_min, lowest_edge = _lowest_edge_similarity(similarity, edge_u, edge_v, skip)
+    t_prime = _share_cut(similarity, kept_share)
+    if t_prime is None:
+        return float("inf"), s_min, lowest_edge, t_prime, None
+    if lowest_edge != -1 and s_min < t_prime:
+        return s_min, s_min, lowest_edge, t_prime, "s_min"
+    return t_prime, s_min, lowest_edge, t_prime, "t'"
+
+
+def _pairs_at_or_above(similarity, cut):
+    """How many pairs (row < column) have a similarity >= cut, counted by row blocks."""
+    n = similarity.shape[0]
+    column_index = np.arange(n)
+    block_rows = max(1, _PAIR_BLOCK_CELLS // max(n, 1))
     count = 0
-    first = []
-    for start in range(0, edge_u.size, _EDGE_CHUNK):
-        stop = min(edge_u.size, start + _EDGE_CHUNK)
-        u = edge_u[start:stop]
-        v = edge_v[start:stop]
-        positions = np.flatnonzero((u >= 0) & (v >= 0) & ~skip[start:stop])
-        if not positions.size:
-            continue
-        sims = _pair_similarity_at(cos_sim, u[positions], v[positions])
-        hits = np.flatnonzero(sims < limit)
-        count += int(hits.size)
-        for hit in hits[: keep_first - len(first)]:
-            first.append((start + int(positions[hit]), sims[hit]))
-    return count, first
+    for start in range(0, n, block_rows):
+        stop = min(n, start + block_rows)
+        keep = column_index[None, :] > np.arange(start, stop)[:, None]
+        keep &= _pair_similarity_rows(similarity, start, stop) >= cut
+        count += int(np.count_nonzero(keep))
+    return count
 
 
 def _cached_pair_keys(edge_u, edge_v, new_N):
@@ -835,13 +880,14 @@ def _cached_pair_keys(edge_u, edge_v, new_N):
     return _sorted_unique(np.minimum(u, v) * new_N + np.maximum(u, v))
 
 
-def _required_pair_keys(new_N, is_old, cached, cos_sim, threshold):
+def _required_pair_keys(new_N, is_old, cached, similarity, cut):
     """Sorted keys of the pairs the new network needs.
 
-    A pair of two old sequences is needed when the old network has that edge
-    (cached). Any other pair is needed when cos_sim is None (a dense input) or
-    reaches the threshold. Built in row blocks, so no N x N array is held
-    beyond one block of at most _PAIR_BLOCK_CELLS cells.
+    Every cached pair (an old edge that stays in the new set) is needed. With a
+    similarity (a sparse input) every other pair, old-old included, is needed
+    when its similarity is >= cut. Without one (a complete input) every pair
+    with a new sequence is needed. Built in row blocks, so no N x N array is
+    held beyond one block of at most _PAIR_BLOCK_CELLS cells.
     """
     rows = cached // new_N if new_N else cached
     columns = cached % new_N if new_N else cached
@@ -852,16 +898,16 @@ def _required_pair_keys(new_N, is_old, cached, cos_sim, threshold):
     for start in range(0, new_N, block_rows):
         stop = min(new_N, start + block_rows)
         keep = column_index[None, :] > np.arange(start, stop)[:, None]
-        keep &= ~(is_old[start:stop, None] & is_old[None, :])
-        if cos_sim is not None:
-            keep &= _pair_similarity_rows(cos_sim, start, stop) >= threshold
+        if similarity is None:
+            keep &= ~(is_old[start:stop, None] & is_old[None, :])
+        else:
+            keep &= _pair_similarity_rows(similarity, start, stop) >= cut
         block_row, block_column = np.nonzero(keep)
         mixed = (block_row + start).astype(np.int64) * new_N + block_column
         low = np.searchsorted(old_cached, start * new_N)
         high = np.searchsorted(old_cached, stop * new_N)
-        piece = np.concatenate((mixed, old_cached[low:high]))
-        piece.sort()
-        pieces.append(piece)
+        # A cached pair at or above the cut is in both parts: keep it once.
+        pieces.append(_sorted_unique(np.concatenate((mixed, old_cached[low:high]))))
     return np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.int64)
 
 
@@ -875,6 +921,15 @@ def _pending_keys(required_pairs, cached_old_pairs, computed_pairs, count):
         return pending
     rows = pending // count
     return pending[(pending % count > rows) & (rows < count)]
+
+
+def _pending_kinds(pending, is_old, count):
+    """(old-old, old-new, new-new): how many pending pairs have two, one or no old sequence."""
+    if not pending.size:
+        return 0, 0, 0
+    old_ends = is_old[pending // count].astype(np.int64) + is_old[pending % count]
+    both, one, none = np.bincount(old_ends, minlength=3)[[2, 1, 0]]
+    return int(both), int(one), int(none)
 
 
 def _iter_pending_keys(headers, pending, count):
@@ -1785,28 +1840,16 @@ def run_injection():
     del old_to_new, old_i_64, old_j_64
 
     is_sparse_old = total_old_pairs < theoretical_old_total
-    cos_sim = None
-    threshold_cos = -1.0
-    
+    similarity = None
+    cut = None
+    kept_share = None
+    # Align every pair of the new set when a sparse input has no edge to reuse or compare.
+    align_everything = False
+
     if is_sparse_old:
         percent_exists = (total_old_pairs / theoretical_old_total) * 100
         print(f"\n--- 🛠️ Sparse Input Network Detected: {total_old_pairs} / {theoretical_old_total} edges exist ({percent_exists:.2f}%) ---")
-        
-        print("Loading mean embeddings for new sequence set...")
-        mean_embs = []
-        with h5py.File(NEW_EMBEDDINGS, "r") as hf_new_emb:
-            for h in tqdm(safe_new_headers, desc="Calculating mean embeddings"):
-                emb = hf_new_emb["embeddings"][h][:]
-                mean_emb = np.mean(emb, axis=0)
-                mean_embs.append(mean_emb)
-        mean_embs = np.array(mean_embs, dtype=np.float32)
-        
-        norms = np.linalg.norm(mean_embs, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1e-8, norms)
-        norm_embs = mean_embs / norms
-        print("Computing all-vs-all cosine similarities...")
-        cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
-        
+
         calibration_edges = np.zeros(total_old_pairs, dtype=bool)
         if old_prefilter is not None and len(old_prefilter.sample):
             sample_keys = Prefilter_Calibration.pair_keys(
@@ -1821,35 +1864,54 @@ def run_injection():
             )
 
         if total_old_pairs > 0:
-            min_cos_val, min_cos_k = _lowest_edge_cosine(
-                cos_sim, edge_new_u, edge_new_v, calibration_edges
+            # K: the share of all old pairs the input network kept (recorded calibration pairs left out).
+            counted_edges = total_old_pairs - int(np.count_nonzero(calibration_edges))
+            kept_share = counted_edges / theoretical_old_total
+            print(
+                f"  > Kept share of the input network, K: {kept_share:.6f} "
+                f"({counted_edges:,} of {theoretical_old_total:,} pairs of its {old_N:,} sequences)"
             )
+            print("Computing the length-adjusted pooled similarity of every pair of the new set...")
+            with h5py.File(NEW_EMBEDDINGS, "r") as hf_new_emb:
+                similarity = Prefilter_Calibration.pair_similarity(
+                    hf_new_emb["embeddings"],
+                    safe_new_headers,
+                    seq_lens,
+                    progress=lambda names: tqdm(
+                        names, desc=f"Pooling embeddings ({Prefilter_Calibration.POOLING})"
+                    ),
+                )
 
-            if min_cos_k != -1:
-                threshold_cos = min_cos_val
-                h_i_min = old_headers[old_i[min_cos_k]]
-                h_j_min = old_headers[old_j[min_cos_k]]
-                print(f"  > Lowest cosine similarity in input network: {threshold_cos:.6f} (between '{h_i_min}' and '{h_j_min}', score: {old_l_score[min_cos_k]:.4f})")
-            else:
-                threshold_cos = 0.0
-                print("  > Warning: No old network edges could be matched in new headers.")
-                
-            print(f"  > Setting cosine similarity prefiltering threshold to: {threshold_cos:.6f}")
-            
-            print("  > Scanning original network for edges below the threshold...")
-            reported_count, reported_edges = _edges_below_cosine(
-                cos_sim, edge_new_u, edge_new_v, calibration_edges, threshold_cos - 1e-5
+            # cut = min(s_min, t'): s_min is the lowest similarity of an input edge that stays in the
+            # new set, t' the cut that keeps K of the new set's pairs.
+            cut, s_min, lowest_edge, t_prime, set_by = _similarity_cut(
+                similarity, edge_new_u, edge_new_v, calibration_edges, kept_share
             )
-            for k, sim_val in reported_edges:
-                u_h = old_headers[old_i[k]]
-                v_h = old_headers[old_j[k]]
-                print(f"    * Warning: Edge '{u_h}' - '{v_h}' has cosine similarity {sim_val:.6f} < threshold {threshold_cos:.6f} (score: {old_l_score[k]:.4f})")
-            if reported_count > 0:
-                print(f"  > Total edges in original network below threshold: {reported_count}")
+            if lowest_edge != -1:
+                h_i_min = old_headers[old_i[lowest_edge]]
+                h_j_min = old_headers[old_j[lowest_edge]]
+                print(f"  > Lowest similarity of an input edge that stays in the new set, s_min: {s_min:.6f} (between '{h_i_min}' and '{h_j_min}', score: {old_l_score[lowest_edge]:.4f})")
             else:
-                print("  > No edges in original network are below the threshold. (As expected!)")
+                print("  > No edge of the input network stays in the new set: s_min does not apply.")
+
+            if set_by is None:
+                print("  > The new set has fewer than two sequences: there is no pair to cut.")
+            else:
+                print(f"  > Similarity cut that keeps K of the new set's pairs, t': {t_prime:.6f}")
+                if set_by == "s_min":
+                    print(
+                        f"  > Cut: {cut:.6f}, set by s_min. The lowest input edge lies below t', so every pair "
+                        "at or above it is aligned, which keeps more than K of the pairs."
+                    )
+                else:
+                    print(
+                        f"  > Cut: {cut:.6f}, set by t'. "
+                        + ("The lowest input edge lies at or above t'. " if lowest_edge != -1 else "")
+                        + "The kept share stays at K."
+                    )
         else:
-            print("  > Warning: Old network is empty.")
+            align_everything = True
+            print("  > Warning: The input network has no edge: there is nothing to reuse or to compare with, so every pair of the new set is aligned.")
         print("---------------------------------------------------------------------------\n")
 
     total_new_pairs = (new_N * (new_N - 1)) // 2
@@ -1861,9 +1923,18 @@ def run_injection():
         (h in old_headers_set for h in new_headers), dtype=bool, count=new_N
     )
     required_pairs = _required_pair_keys(
-        new_N, new_is_old, cached_old_pairs, cos_sim, threshold_cos
+        new_N,
+        # No old sequence counts as old when everything is aligned.
+        np.zeros(new_N, dtype=bool) if align_everything else new_is_old,
+        cached_old_pairs, similarity, cut,
     )
-    del new_is_old
+    if similarity is not None:
+        kept_after = _pairs_at_or_above(similarity, cut) / total_new_pairs if total_new_pairs else 0.0
+        print(
+            f"Kept share of the new set's pairs at or above the cut: {kept_after:.6f} "
+            f"(input network: {kept_share:.6f})"
+        )
+        del similarity
 
     effective_total_pairs = len(required_pairs)
 
@@ -1901,6 +1972,12 @@ def run_injection():
     print(f"Pre-existing cached pairs: {int(np.count_nonzero(_members(required_pairs, cached_old_pairs)))}")
     print(f"Already computed pairs: {int(np.count_nonzero(_members(required_pairs, computed_pairs)))}")
     print(f"Pairs queued for calculation: {num_tasks}")
+    queued_old_old, queued_old_new, queued_new_new = _pending_kinds(pending_keys, new_is_old, new_N)
+    print(
+        f"  > Queued by kind: {queued_old_old:,} old-old (both sequences were in the input network, "
+        f"but not joined by an edge), {queued_old_new:,} old-new, {queued_new_new:,} new-new"
+    )
+    del new_is_old
 
     if num_tasks > 0:
         embedding_store = EmbeddingTileStore(

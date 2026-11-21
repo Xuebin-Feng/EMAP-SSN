@@ -1145,11 +1145,10 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
         )
 
     def test_a_calibration_sample_does_not_lower_the_cut_for_new_pairs(self):
-        # One-residue embeddings, so each mean is the vector itself. A-B and
-        # A-C are kept pairs (cosine about 0.98 and up); C-D is the prefilter's
-        # calibration pair, far below its cut (about -0.92). The new sequence
-        # E's cosines to A-D lie between the two, so counting the calibration
-        # pair as the lowest kept edge would align all four E pairs.
+        # One-residue embeddings, so each pooled vector is the vector itself and
+        # the lengths are equal. A-B and A-C are kept pairs (cosine about 0.98 and
+        # up); C-D is the prefilter's calibration pair, far below its cut (about
+        # -0.92). Counting it as the lowest kept edge would set s_min to -0.92.
         vectors = {
             "A": [1.0, 0.0], "B": [1.0, 0.1], "C": [1.0, 0.2], "D": [-1.0, 0.2], "E": [0.0, 1.0],
         }
@@ -1189,7 +1188,9 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                     ),
                 ), np.uint16)
 
-            cpu_tasks = mock.Mock(return_value=[])
+            cpu_tasks = mock.Mock(
+                side_effect=lambda tasks, *_a, **_k: [(i, j, 1.0, 1, 1.0, 1) for i, j, *_ in tasks]
+            )
             assigned = (
                 "_old_seq_set", "_new_seq_set", "_model_name", "RESULTS_DIR",
                 "FINAL_OUTPUT_NET", "CONFIG_FILE", "LOCAL_GAP_P", "GLOBAL_GAP_P",
@@ -1214,10 +1215,25 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
 
         text = printed.getvalue()
         self.assertIn("Leaving out the input network's 1 calibration pairs", text)
-        cosine_ac = 1.0 / np.linalg.norm(vectors["C"])
-        self.assertIn(f"Setting cosine similarity prefiltering threshold to: {cosine_ac:.6f}", text)
+        headers = list(vectors)
+        similarity = _world_similarity(
+            {h: np.asarray([v], np.float32) for h, v in vectors.items()}, headers
+        )
+        decided = _oracle_cut_rule(old_headers, [0, 0, 2], [1, 2, 3], headers, similarity, {2})
+        # The calibration pair C-D (about -0.92) neither sets s_min nor counts in K: A-C does, 2 of 6 pairs are kept.
+        self.assertEqual(decided["s_min"], similarity[0, 2])
+        self.assertGreater(decided["s_min"], 0.9)
+        self.assertIn(f"Kept share of the input network, K: {2 / 6:.6f} (", text)
+        self.assertIn(f"s_min: {similarity[0, 2]:.6f} (between 'A' and 'C'", text)
+        self.assertIn(f"Cut: {decided['cut']:.6f}, set by {decided['set_by']}.", text)
+        # The queue is the rule's: every non-edge pair at or above the cut.
         tasks = [task for call in cpu_tasks.call_args_list for task in call.args[0]]
-        self.assertEqual([task for task in tasks if "E" in task[2:]], [])
+        self.assertEqual(
+            [(task[0], task[1]) for task in tasks],
+            [(p // 5, p % 5) for p in _oracle_pending(5, decided["required"], decided["cached"], set())],
+        )
+        # The calibration edge stays in the network as an edge.
+        self.assertIn(2 * 5 + 3, decided["required"])
 
 
 class InjectionResumeScanTests(BatchResumeScanFixture, unittest.TestCase):
@@ -1324,59 +1340,73 @@ class InjectionResumeScanTests(BatchResumeScanFixture, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Pair selection and the final merge against the original per-pair loops.
-# The oracle functions below are the loops the numpy code replaced, kept
-# slow and plain on purpose.
+# Pair selection (the cut rule) and the final merge against slow, plain
+# reference code written here: loops over every pair, no numpy shortcuts for
+# the decisions under test.
 # ---------------------------------------------------------------------------
 
-def _unit_cosines(vectors):
-    """The tool's all-vs-all cosine of (n, d) vectors: float32, clipped."""
-    mean_embs = np.array(vectors, dtype=np.float32)
-    norms = np.linalg.norm(mean_embs, axis=1, keepdims=True)
-    norms = np.where(norms == 0, 1e-8, norms)
-    norm_embs = mean_embs / norms
-    return np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
+def _world_similarity(embeddings, headers):
+    """The shared similarity of the new set: max-pooled, length-adjusted cosine (float64, n x n)."""
+    lengths = [len(embeddings[h]) for h in headers]
+    return Prefilter_Calibration.pair_similarity(embeddings, headers, lengths)
 
 
-def _oracle_selection(old_headers, old_i, old_j, new_headers, cos_sim, calibration, sparse):
-    """(threshold, lowest edge, cached pairs, required pairs) by the original loops."""
+def _oracle_cut_rule(old_headers, old_i, old_j, new_headers, s, calibration):
+    """What the cut rule decides, by plain loops. Returns a dict.
+
+    Keys: sparse, cached, required (sets of pair keys i * N + j), K, s_min,
+    lowest (first edge with the strictly lowest s, -1 if none), t_prime, cut,
+    set_by, kept_after (share of pairs with s >= cut). calibration is the set
+    of edge numbers that are recorded calibration edges.
+    """
     new_idx = {h: idx for idx, h in enumerate(new_headers)}
     new_n = len(new_headers)
-    threshold = -1.0
-    lowest = -1
-    if sparse and len(old_i) > 0:
-        min_val = 1.0
-        for k in range(len(old_i)):
-            if k in calibration:
-                continue
-            u_h = old_headers[old_i[k]]
-            v_h = old_headers[old_j[k]]
-            if u_h in new_idx and v_h in new_idx:
-                sim = float(cos_sim[new_idx[u_h], new_idx[v_h]])
-                if sim < min_val:
-                    min_val, lowest = sim, k
-        threshold = min_val if lowest != -1 else 0.0
+    old_n = len(old_headers)
+    total_old = old_n * (old_n - 1) // 2
+    sparse = len(old_i) < total_old
     old_set = set(old_headers)
     cached = set()
     for k in range(len(old_i)):
-        u_h = old_headers[old_i[k]]
-        v_h = old_headers[old_j[k]]
+        u_h, v_h = old_headers[old_i[k]], old_headers[old_j[k]]
         if u_h in new_idx and v_h in new_idx:
             u, v = new_idx[u_h], new_idx[v_h]
             cached.add(min(u, v) * new_n + max(u, v))
-    required = set()
-    for i in range(new_n):
-        is_old_i = new_headers[i] in old_set
-        for j in range(i + 1, new_n):
-            is_old_j = new_headers[j] in old_set
-            keep = False
-            if is_old_i and is_old_j:
-                keep = (i * new_n + j) in cached
-            elif not sparse or (cos_sim is not None and cos_sim[i, j] >= threshold):
-                keep = True
-            if keep:
-                required.add(i * new_n + j)
-    return threshold, lowest, cached, required
+    pairs = [(i, j) for i in range(new_n) for j in range(i + 1, new_n)]
+    info = {"sparse": sparse, "cached": cached, "K": None, "s_min": None, "lowest": -1,
+            "t_prime": None, "cut": None, "set_by": None, "kept_after": None}
+    if not sparse:
+        # A complete input: every pair with a new sequence, plus the old edges.
+        info["required"] = set(cached) | {
+            i * new_n + j for i, j in pairs
+            if not (new_headers[i] in old_set and new_headers[j] in old_set)
+        }
+        return info
+    if len(old_i) == 0:
+        info["required"] = {i * new_n + j for i, j in pairs}
+        return info
+    info["K"] = (len(old_i) - len(calibration)) / total_old
+    for k in range(len(old_i)):
+        if k in calibration:
+            continue
+        u_h, v_h = old_headers[old_i[k]], old_headers[old_j[k]]
+        if u_h in new_idx and v_h in new_idx:
+            value = float(s[new_idx[u_h], new_idx[v_h]])
+            if value == value and (info["lowest"] == -1 or value < info["s_min"]):
+                info["s_min"], info["lowest"] = value, k
+    values = np.array([s[i, j] for i, j in pairs], dtype=np.float64)
+    if values.size == 0:
+        info["cut"] = float("inf")
+    else:
+        info["t_prime"] = float(np.percentile(values, 100.0 * (1.0 - info["K"])))
+        if info["lowest"] != -1 and info["s_min"] < info["t_prime"]:
+            info["cut"], info["set_by"] = info["s_min"], "s_min"
+        else:
+            info["cut"], info["set_by"] = info["t_prime"], "t'"
+    info["required"] = set(cached) | {i * new_n + j for i, j in pairs if s[i, j] >= info["cut"]}
+    info["kept_after"] = (
+        sum(1 for i, j in pairs if s[i, j] >= info["cut"]) / len(pairs) if pairs else 0.0
+    )
+    return info
 
 
 def _oracle_pending(new_n, required, cached, computed):
@@ -1430,33 +1460,49 @@ def _oracle_merge(new_n, required, cached, new_headers, old_index, old_arrays,
 def _random_world(rng, kind, large=False):
     """An old network and a new sequence set that drops some old sequences and adds new ones.
 
-    Vectors come from a tiny grid so that many cosines are exactly equal (ties).
-    kind: "dense", "sparse_record" or "sparse_plain". large: about 300 to 380 new
-    sequences, so that pair keys (min * N + max) pass 65,535 and wrap in a 16-bit
-    index array.
+    Each sequence has 1 to 4 residue rows drawn from a tiny grid, so that many
+    similarities are exactly equal (ties) and the lengths differ.
+    kind: "dense" (a complete input), "sparse_record" (a recorded calibration
+    sample), "sparse_plain", "sparse_all_dropped" (every old edge loses an end
+    in the new set) or "sparse_no_edge". large: about 300 to 380 new sequences,
+    so that pair keys (min * N + max) pass 65,535 and wrap in a 16-bit index array.
+    Returns (embeddings, old_headers, new_headers, edges, calibration), edges
+    being (i, j) with i < j in old indices.
     """
     pool = [f"s{k}" for k in range(int(rng.integers(380, 420) if large else rng.integers(12, 24)))]
     grid = np.array([[1, 0, 0], [0, 1, 0], [1, 1, 0], [1, -1, 0], [0, 0, 1], [1, 0, 1], [-1, 0, 1]], np.float32)
-    vectors = {h: grid[int(rng.integers(len(grid)))] for h in pool}
+    embeddings = {
+        h: grid[rng.integers(len(grid), size=int(rng.integers(1, 5)))] for h in pool
+    }
     old_n = int(rng.integers(300, 340) if large else rng.integers(3, 10))
     old_headers = [pool[k] for k in rng.permutation(len(pool))[:old_n]]
-    kept = [h for h in old_headers if rng.random() < (0.92 if large else 0.75)]
-    others = [h for h in pool if h not in old_headers]
-    added = others[: int(rng.integers(30, 41) if large else rng.integers(0, 7))]
-    members = kept + added
-    if len(members) < 2:
-        members = old_headers[:2]
-    new_headers = [members[k] for k in rng.permutation(len(members))]
     all_pairs = [(i, j) for i in range(old_n) for j in range(i + 1, old_n)]
     if kind == "dense":
         edges = [all_pairs[k] for k in rng.permutation(len(all_pairs))]
+    elif kind == "sparse_no_edge":
+        edges = []
+    elif kind == "sparse_all_dropped" and large:
+        # Edges among the first 30 old sequences only, so that most sequences survive the drop.
+        few = [(i, j) for (i, j) in all_pairs if j < 30]
+        edges = [few[k] for k in rng.permutation(len(few))[: int(rng.integers(1, len(few)))]]
     else:
         count = int(rng.integers(1, len(all_pairs)))
         edges = [all_pairs[k] for k in rng.permutation(len(all_pairs))[:count]]
     calibration = set()
     if kind == "sparse_record":
         calibration = {int(k) for k in rng.permutation(len(edges))[: int(rng.integers(1, len(edges) + 1))]}
-    return vectors, old_headers, new_headers, edges, calibration
+    kept = [h for h in old_headers if rng.random() < (0.92 if large else 0.75)]
+    if kind == "sparse_all_dropped":
+        # Keep only sequences that no edge touches (a dropped one for every edge).
+        touched = {old_headers[k] for e in edges for k in e}
+        kept = [h for h in old_headers if h not in touched]
+    others = [h for h in pool if h not in old_headers]
+    added = others[: int(rng.integers(30, 41) if large else rng.integers(0, 7))]
+    members = kept + added
+    if len(members) < 2:
+        members = (members + others[len(added):] + old_headers)[:2] if kind == "sparse_all_dropped" else old_headers[:2]
+    new_headers = [members[k] for k in rng.permutation(len(members))]
+    return embeddings, old_headers, new_headers, edges, calibration
 
 
 class NetworkInjectionSelectionTests(unittest.TestCase):
@@ -1473,22 +1519,25 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             old_i, old_j = np.where(flip, old_j, old_i), np.where(flip, old_i, old_j)
         return old_i, old_j, old_to_new[old_i], old_to_new[old_j]
 
-    def test_selection_helpers_equal_the_original_loops(self):
-        for seed, large in [(s, False) for s in range(80)] + [(s, True) for s in range(300, 306)]:
+    KINDS = ("dense", "sparse_record", "sparse_plain", "sparse_all_dropped", "sparse_no_edge")
+
+    def test_cut_rule_helpers_equal_the_oracle(self):
+        set_by_seen = {"s_min": 0, "t'": 0}
+        seen_kinds = set()
+        for seed, large in [(s, False) for s in range(150)] + [(s, True) for s in range(300, 310)]:
             rng = np.random.default_rng(seed)
-            kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
-            vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
-            cos_sim = _unit_cosines([vectors[h] for h in new_headers])
+            kind = self.KINDS[seed % len(self.KINDS)]
+            embeddings, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
             new_n = len(new_headers)
+            old_n = len(old_headers)
             if large:
                 self.assertGreater(new_n, 300)  # keys pass 65,535
-            sparse = kind != "dense"
+            similarity = _world_similarity(embeddings, new_headers)
             old_i, old_j, edge_u, edge_v = self._glue(old_headers, edges, new_headers, rng)
             skip = np.zeros(len(edges), dtype=bool)
             skip[list(calibration)] = True
-            expected = _oracle_selection(
-                old_headers, old_i.tolist(), old_j.tolist(), new_headers, cos_sim,
-                calibration, sparse,
+            expected = _oracle_cut_rule(
+                old_headers, old_i.tolist(), old_j.tolist(), new_headers, similarity, calibration
             )
             block_cells = int(rng.choice([1, new_n, 2 * new_n + 1, 7, 10 ** 6]))
             chunk = int(rng.choice([977, 1 << 22] if large else [1, 2, 3, 1 << 22]))
@@ -1496,47 +1545,63 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     mock.patch.object(network_injection, "_PAIR_BLOCK_CELLS", block_cells), \
                     mock.patch.object(network_injection, "_EDGE_CHUNK", chunk), \
                     mock.patch.object(network_injection, "_PENDING_CHUNK", chunk):
-                threshold = -1.0
-                if sparse:
-                    value, lowest = network_injection._lowest_edge_cosine(
-                        cos_sim, edge_u, edge_v, skip
-                    )
-                    threshold = value if lowest != -1 else 0.0
-                    self.assertEqual(lowest, expected[1])
-                    self.assertEqual(threshold, expected[0])
-                    # The scan for edges below the cut: counts what the loop counted.
-                    for limit in (threshold - 1e-5, threshold + 0.2, 2.0):
-                        count, first = network_injection._edges_below_cosine(
-                            cos_sim, edge_u, edge_v, skip, limit
-                        )
-                        loop = [
-                            (k, cos_sim[edge_u[k], edge_v[k]]) for k in range(len(edges))
-                            if k not in calibration and edge_u[k] >= 0 and edge_v[k] >= 0
-                            and cos_sim[edge_u[k], edge_v[k]] < limit
-                        ]
-                        self.assertEqual(count, len(loop))
-                        self.assertEqual([k for k, _ in first], [k for k, _ in loop[:10]])
                 cached = network_injection._cached_pair_keys(edge_u, edge_v, new_n)
                 self.assertEqual(cached.dtype, np.int64)
-                self.assertEqual(cached.tolist(), sorted(expected[2]))
+                self.assertEqual(cached.tolist(), sorted(expected["cached"]))
                 old_set = set(old_headers)
                 is_old = np.array([h in old_set for h in new_headers])
-                required = network_injection._required_pair_keys(
-                    new_n, is_old, cached, cos_sim if sparse else None, threshold
-                )
+                total_pairs = new_n * (new_n - 1) // 2
+                if expected["sparse"] and len(edges) > 0:
+                    kept_share = (len(edges) - len(calibration)) / (old_n * (old_n - 1) // 2)
+                    cut, s_min, lowest, t_prime, set_by = network_injection._similarity_cut(
+                        similarity, edge_u, edge_v, skip, kept_share
+                    )
+                    self.assertEqual(lowest, expected["lowest"])
+                    self.assertEqual(s_min, expected["s_min"])
+                    self.assertEqual(t_prime, expected["t_prime"])
+                    self.assertEqual(cut, expected["cut"])
+                    self.assertEqual(set_by, expected["set_by"])
+                    if set_by:
+                        set_by_seen[set_by] += 1
+                    seen_kinds.add(kind)
+                    required = network_injection._required_pair_keys(
+                        new_n, is_old, cached, similarity, cut
+                    )
+                    kept_count = network_injection._pairs_at_or_above(similarity, cut)
+                    self.assertEqual(kept_count / total_pairs if total_pairs else 0.0, expected["kept_after"])
+                    # The properties of the rule, checked on the helpers' own output.
+                    self.assertEqual(cut, min(v for v in (s_min, t_prime) if v is not None))
+                    self.assertGreater(kept_count, kept_share * total_pairs - 1)  # >= K up to rounding
+                    first_keys = set(required.tolist())
+                    self.assertTrue(set(cached.tolist()) <= first_keys)  # no old edge is dropped
+                    for key in first_keys - set(cached.tolist()):
+                        self.assertGreaterEqual(similarity[key // new_n, key % new_n], cut)
+                    pair_rows, pair_columns = np.triu_indices(new_n, 1)
+                    at_or_above = pair_rows[similarity[pair_rows, pair_columns] >= cut] * new_n \
+                        + pair_columns[similarity[pair_rows, pair_columns] >= cut]
+                    self.assertTrue(set(at_or_above.tolist()) <= first_keys)  # every pair at or above the cut
+                elif expected["sparse"]:
+                    # A sparse input without an edge: every pair is aligned, old-old included.
+                    seen_kinds.add(kind)
+                    required = network_injection._required_pair_keys(
+                        new_n, np.zeros(new_n, dtype=bool), cached, None, None
+                    )
+                else:
+                    seen_kinds.add(kind)
+                    required = network_injection._required_pair_keys(new_n, is_old, cached, None, None)
                 self.assertEqual(required.dtype, np.int64)
-                self.assertEqual(required.tolist(), sorted(expected[3]))
+                self.assertEqual(required.tolist(), sorted(expected["required"]))
 
                 computed = {
                     int(k) for k in rng.choice(
                         new_n * new_n, int(rng.integers(0, 10)), replace=True
                     )
-                } | set(sorted(expected[3])[: int(rng.integers(0, 3))])
+                } | set(sorted(expected["required"])[: int(rng.integers(0, 3))])
                 headers = [f"h{k}" for k in range(new_n)]
-                pending = _oracle_pending(new_n, expected[3], expected[2], computed)
+                pending = _oracle_pending(new_n, expected["required"], expected["cached"], computed)
                 self.assertEqual(
                     list(network_injection._iter_pending_pairs(
-                        headers, expected[3], expected[2], computed
+                        headers, expected["required"], expected["cached"], computed
                     )),
                     [(p // new_n, p % new_n, headers[p // new_n], headers[p % new_n]) for p in pending],
                 )
@@ -1548,48 +1613,154 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     np.bincount(keys // new_n, minlength=new_n),
                     np.bincount([p // new_n for p in pending], minlength=new_n),
                 )
+                kinds = [0, 0, 0]
+                for p in pending:
+                    kinds[2 - int(is_old[p // new_n]) - int(is_old[p % new_n])] += 1
+                self.assertEqual(list(network_injection._pending_kinds(keys, is_old, new_n)), kinds)
+        # Both ways the rule can go, and every kind of input, were exercised.
+        self.assertGreater(set_by_seen["s_min"], 5)
+        self.assertGreater(set_by_seen["t'"], 5)
+        self.assertEqual(seen_kinds, set(self.KINDS))
 
-    def test_lowest_cosine_is_the_first_edge_among_equal_values(self):
-        cos_sim = np.array([[1.0, 0.5, 0.5, 0.9], [0.5, 1.0, 0.5, 0.5], [0.5, 0.5, 1.0, 0.7], [0.9, 0.5, 0.7, 1.0]], np.float32)
+    def test_share_cut_is_the_percentile_aligns_prefilter_takes(self):
+        rng = np.random.default_rng(3)
+        for n in (2, 3, 7, 40):
+            similarity = rng.random((n, n))
+            for share in (0.0, 0.1, 0.5, 0.62, 0.999, 1.0):
+                with self.subTest(n=n, share=share):
+                    upper = np.triu(np.ones((n, n), dtype=bool), k=1)
+                    expected = float(np.percentile(similarity[upper], 100.0 * (1.0 - share)))
+                    self.assertEqual(network_injection._share_cut(similarity, share), expected)
+        self.assertIsNone(network_injection._share_cut(np.ones((1, 1)), 0.5))
+
+    def test_a_network_align_made_keeps_exactly_its_own_pairs(self):
+        # Align's prefilter keeps the pairs at or above the strength percentile; the share of those
+        # pairs, fed back into the cut, must select the same pairs again (a no-op injection queues nothing).
+        rng = np.random.default_rng(11)
+        for n in (5, 12, 60):
+            similarity = rng.random((n, n))
+            upper = np.triu(np.ones((n, n), dtype=bool), k=1)
+            total = n * (n - 1) // 2
+            for strength in (10.0, 25.0, 50.0, 75.0, 90.0):
+                with self.subTest(n=n, strength=strength):
+                    threshold = float(np.percentile(similarity[upper], strength))
+                    kept = (similarity >= threshold) & upper
+                    share = np.count_nonzero(kept) / total
+                    cut = network_injection._share_cut(similarity, share)
+                    again = (similarity >= cut) & upper
+                    np.testing.assert_array_equal(again, kept)
+
+    def test_lowest_edge_similarity_is_the_first_edge_among_equal_values(self):
+        similarity = np.array([[1.0, 0.5, 0.5, 0.9], [0.5, 1.0, 0.5, 0.5], [0.5, 0.5, 1.0, 0.7], [0.9, 0.5, 0.7, 1.0]])
         edge_u = np.array([0, 2, 0, 1, 1, 0])
         edge_v = np.array([3, 3, 1, 2, 3, 2])
         skip = np.zeros(6, dtype=bool)
         for chunk in (1, 2, 4, 100):
             with mock.patch.object(network_injection, "_EDGE_CHUNK", chunk):
                 self.assertEqual(
-                    network_injection._lowest_edge_cosine(cos_sim, edge_u, edge_v, skip),
+                    network_injection._lowest_edge_similarity(similarity, edge_u, edge_v, skip),
                     (0.5, 2),
                 )
                 skip[2] = True
                 self.assertEqual(
-                    network_injection._lowest_edge_cosine(cos_sim, edge_u, edge_v, skip),
+                    network_injection._lowest_edge_similarity(similarity, edge_u, edge_v, skip),
                     (0.5, 3),
                 )
                 skip[2] = False
-        # Nothing below 1.0: no edge, and the caller falls back to 0.0.
-        ones = np.ones((2, 2), np.float32)
+                # An edge that lost an end (-1) never counts.
+                self.assertEqual(
+                    network_injection._lowest_edge_similarity(
+                        similarity, np.array([0, -1]), np.array([3, 1]), np.zeros(2, bool)
+                    ),
+                    (0.9, 0),
+                )
+        # An edge at similarity 1.0 is a lowest edge like any other; a NaN never is.
+        ones = np.ones((3, 3))
         self.assertEqual(
-            network_injection._lowest_edge_cosine(ones, np.array([0]), np.array([1]), np.zeros(1, bool)),
-            (1.0, -1),
+            network_injection._lowest_edge_similarity(ones, np.array([0]), np.array([1]), np.zeros(1, bool)),
+            (1.0, 0),
+        )
+        with_nan = np.array([[1.0, np.nan, 0.8], [np.nan, 1.0, 0.7], [0.8, 0.7, 1.0]])
+        self.assertEqual(
+            network_injection._lowest_edge_similarity(
+                with_nan, np.array([0, 0, 1]), np.array([1, 2, 2]), np.zeros(3, bool)
+            ),
+            (0.7, 2),
+        )
+        # No counted edge: nothing.
+        self.assertEqual(
+            network_injection._lowest_edge_similarity(
+                similarity, np.array([0]), np.array([1]), np.ones(1, bool)
+            ),
+            (None, -1),
         )
 
+    def test_the_cut_is_the_lower_of_s_min_and_t_prime_in_both_cases(self):
+        # Six sequences, 15 pairs. The off-diagonal similarities are 0.0, 0.1, ... 1.4 / 1.5 (distinct).
+        n = 6
+        similarity = np.zeros((n, n))
+        values = iter(np.arange(15) / 10.0)
+        for i in range(n):
+            similarity[i, i] = 1.0
+            for j in range(i + 1, n):
+                similarity[i, j] = similarity[j, i] = next(values)
+        # Pair (0, 1) has 0.0 ... pair (4, 5) 1.4.
+        edge_u = np.array([2, 3])
+        edge_v = np.array([4, 5])
+        skip = np.zeros(2, dtype=bool)
+        low_edge = similarity[2, 4]
+        high_edge = similarity[3, 5]
+        # A tiny kept share: t' is high; the lowest edge lies below it, so it sets the cut.
+        cut, s_min, lowest, t_prime, set_by = network_injection._similarity_cut(similarity, edge_u, edge_v, skip, 2 / 15)
+        self.assertEqual((set_by, cut, s_min, lowest), ("s_min", low_edge, low_edge, 0))
+        self.assertGreater(t_prime, low_edge)
+        # A large kept share: t' is low, below both edges: it sets the cut and keeps K.
+        cut, s_min, lowest, t_prime, set_by = network_injection._similarity_cut(similarity, edge_u, edge_v, skip, 14 / 15)
+        self.assertEqual(set_by, "t'")
+        self.assertEqual(cut, t_prime)
+        self.assertLess(t_prime, low_edge)
+        self.assertLessEqual(t_prime, min(low_edge, high_edge))
+        # Equal: the lowest edge at exactly t' does not set the cut (t' does), same value.
+        exact = float(network_injection._share_cut(similarity, 0.5))
+        edge_exact_u, edge_exact_v = np.nonzero(np.triu(similarity == exact, 1))
+        cut, s_min, lowest, t_prime, set_by = network_injection._similarity_cut(
+            similarity, edge_exact_u, edge_exact_v, np.zeros(edge_exact_u.size, bool), 0.5
+        ) if edge_exact_u.size else (exact, exact, 0, exact, "t'")
+        self.assertEqual((cut, set_by), (exact, "t'"))
+        # No edge in the new set: the cut is t'.
+        cut, s_min, lowest, t_prime, set_by = network_injection._similarity_cut(
+            similarity, np.array([-1]), np.array([4]), skip[:1], 0.5
+        )
+        self.assertEqual((set_by, s_min, lowest, cut), ("t'", None, -1, t_prime))
+        # A new set with fewer than two sequences has no pair: the cut is infinite.
+        cut, _, _, t_prime, set_by = network_injection._similarity_cut(
+            np.ones((1, 1)), np.array([0]), np.array([0]), skip[:1], 0.5
+        )
+        self.assertEqual((cut, t_prime, set_by), (float("inf"), None, None))
+
     def test_a_new_pair_at_exactly_the_cut_is_required(self):
-        # A-B is the lowest old edge; the new pair C-D has the same cosine.
-        cos_sim = np.array([
+        # Pair (0, 1) is the lowest old edge; the pair (2, 3) has exactly the same similarity.
+        similarity = np.array([
             [1.0, 0.6, 0.9, 0.9],
             [0.6, 1.0, 0.9, 0.9],
             [0.9, 0.9, 1.0, 0.6],
             [0.9, 0.9, 0.6, 1.0],
-        ], np.float32)
+        ])
         is_old = np.array([True, True, False, False])
         cached = np.array([0 * 4 + 1], dtype=np.int64)
-        required = network_injection._required_pair_keys(4, is_old, cached, cos_sim, float(cos_sim[0, 1]))
+        required = network_injection._required_pair_keys(4, is_old, cached, similarity, 0.6)
         self.assertEqual(required.tolist(), [1, 2, 3, 6, 7, 11])
+        # Just above the cut the cached edge stays (never dropped), the pair at 0.6 does not.
         self.assertEqual(
-            network_injection._required_pair_keys(4, is_old, cached, cos_sim, 0.61).tolist(),
+            network_injection._required_pair_keys(4, is_old, cached, similarity, 0.61).tolist(),
             [1, 2, 3, 6, 7],
         )
-
+        # Old-old pairs without an edge are required too when they reach the cut.
+        both_old = np.array([True, True, True, True])
+        self.assertEqual(
+            network_injection._required_pair_keys(4, both_old, cached, similarity, 0.9).tolist(),
+            [1, 2, 3, 6, 7],
+        )
     def test_pair_keys_stay_exact_far_beyond_32_bits(self):
         # N = 100,000: keys reach 10 ** 10, past both 2 ** 31 and 2 ** 32.
         n = 100_000
@@ -1653,7 +1824,7 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
         # The large cases have keys past 65,535 and store the batch rows as uint16.
         for seed, large in [(s, False) for s in range(40)] + [(s, True) for s in range(100, 104)]:
             rng = np.random.default_rng(1000 + seed)
-            vectors, old_headers, new_headers, edges, _calibration = _random_world(
+            embeddings, old_headers, new_headers, edges, _calibration = _random_world(
                 rng, ("dense", "sparse_plain")[seed % 2], large
             )
             batch_index_dtype = np.uint16 if large else np.uint32
@@ -1672,10 +1843,11 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             legacy_map = np.full(old_n * (old_n - 1) // 2, -1, dtype=np.int64)
             legacy_map[flat] = np.arange(count)
             old_index = {h: k for k, h in enumerate(old_headers)}
-            _t, _k, cached, required = _oracle_selection(
+            decided = _oracle_cut_rule(
                 old_headers, old_i.tolist(), old_j.tolist(), new_headers,
-                _unit_cosines([vectors[h] for h in new_headers]), set(), False,
+                _world_similarity(embeddings, new_headers), set(),
             )
+            cached, required = decided["cached"], decided["required"]
             # Batches: pairs to compute, a pair written twice, pairs that are not
             # required, a cached pair with a wrong score, and reversed (j, i) rows.
             everything = [(i, j) for i in range(new_n) for j in range(i + 1, new_n)]
@@ -1740,7 +1912,7 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
         large: 300 to 380 sequences, so pair keys pass 65,535; the old network's
         i/j are uint16 as always and the left-over batch stores its rows as uint16.
         """
-        vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
+        world, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
         embed_dir = os.path.join(temp_dir, "embed")
         network_dir = os.path.join(temp_dir, "network")
         os.makedirs(embed_dir)
@@ -1748,10 +1920,10 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
         embeddings = os.path.join(embed_dir, "newset_[esm2_t6_8m]_embeddings.h5")
         with h5py.File(embeddings, "w") as hf:
             group = Embedding_HDF5.create_metadata_first_file(
-                hf, new_headers, ["K"] * len(new_headers), "esm2_t6_8m", "float32",
+                hf, new_headers, ["K" * len(world[h]) for h in new_headers], "esm2_t6_8m", "float32",
             )
             for header in new_headers:
-                group.create_dataset(header, data=vectors[header][None, :].astype(np.float32))
+                group.create_dataset(header, data=world[header].astype(np.float32))
             Embedding_HDF5.mark_generation_complete(hf)
         old_n = len(old_headers)
         count = len(edges)
@@ -1780,13 +1952,12 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                         np.ones(len(ordered)),
                     ),
                 ), np.uint16)
-        cos_sim = _unit_cosines([vectors[h] for h in new_headers])
-        sparse = kind != "dense"
+        similarity = _world_similarity(world, new_headers)
         old_i = [e[0] for e in edges]
         old_j = [e[1] for e in edges]
-        threshold, _lowest, cached, required = _oracle_selection(
-            old_headers, old_i, old_j, new_headers, cos_sim, calibration, sparse
-        )
+        decided = _oracle_cut_rule(old_headers, old_i, old_j, new_headers, similarity, calibration)
+        cached, required = decided["cached"], decided["required"]
+        sparse = decided["sparse"]
         new_n = len(new_headers)
         number = lambda header: int(header[1:])
         stub = lambda i, j: (
@@ -1846,7 +2017,9 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             set_start_method=mock.DEFAULT,
             _benchmark_injection_plans=mock.Mock(return_value=[plan]),
             process_cpu_tasks=cpu_tasks,
-        ), redirect_stdout(printed), redirect_stderr(io.StringIO()):
+        ), redirect_stdout(printed), redirect_stderr(io.StringIO()), mock.patch.object(
+            Prefilter_Calibration, "pair_similarity", wraps=Prefilter_Calibration.pair_similarity
+        ) as similarity_probe:
             network_injection.run_injection()
         with h5py.File(os.path.join(network_dir, "newset_[esm2_t6_8m]_network.h5"), "r") as hf:
             actual = {name: hf[name][:] for name in ("i", "j", "l_score", "l_len", "g_score", "g_len")}
@@ -1868,15 +2041,18 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             "tasks": [list(call.args[0]) for call in cpu_tasks.call_args_list],
             "queue": queue, "new_n": new_n, "printed": printed.getvalue(),
             "actual": actual, "expected_rows": expected_rows,
-            "threshold": threshold, "required": required, "cached": cached,
+            "decided": decided, "required": required, "cached": cached,
             "resumed": resumed, "computed_all": computed_all,
             "calibration": calibration, "sparse": sparse,
+            "old_headers": old_headers, "new_headers": new_headers, "edges": edges,
+            "similarity": similarity, "similarity_calls": similarity_probe.call_count,
         }
 
-    def test_run_injection_equals_the_original_selection_end_to_end(self):
+    def test_run_injection_follows_the_cut_rule_end_to_end(self):
         resumed_seen = 0
-        for seed, large in [(s, False) for s in range(36)] + [(s, True) for s in range(200, 206)]:
-            kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
+        kinds_seen = set()
+        for seed, large in [(s, False) for s in range(60)] + [(s, True) for s in range(200, 210)]:
+            kind = self.KINDS[seed % len(self.KINDS)]
             rng = np.random.default_rng(5000 + seed)
             batch_size = int(rng.choice([997, 500000] if large else [1, 3, 7, 500000]))
             with self.subTest(seed=seed, kind=kind, batch_size=batch_size, large=large), \
@@ -1903,12 +2079,69 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     f"Already computed pairs: {len(result['computed_all'] & result['required'])}\n", text
                 )
                 self.assertIn(f"Pairs queued for calculation: {len(queue)}\n", text)
-                if result["sparse"] and "Old network is empty" not in text:
-                    self.assertIn(
-                        f"Setting cosine similarity prefiltering threshold to: {result['threshold']:.6f}\n", text
+                decided = result["decided"]
+                # The similarity is computed once for a sparse input with an edge, never otherwise.
+                self.assertEqual(
+                    result["similarity_calls"],
+                    1 if decided["sparse"] and decided["K"] is not None else 0,
+                )
+                if kind == "sparse_no_edge":
+                    # Nothing to reuse or compare with: every pair is aligned, old-old included.
+                    self.assertEqual(len(queue) + len(result["resumed"]), new_n * (new_n - 1) // 2)
+                if kind == "dense":
+                    # A complete input needs no similarity: every pair with a new sequence is aligned.
+                    self.assertEqual(
+                        set(queue) | set(result["resumed"]),
+                        {
+                            p for p in range(new_n * new_n)
+                            if p // new_n < p % new_n
+                            and not (result["new_headers"][p // new_n] in set(result["old_headers"])
+                                     and result["new_headers"][p % new_n] in set(result["old_headers"]))
+                        },
                     )
+                old_set = set(result["old_headers"])
+                new_headers = result["new_headers"]
+                old_ends = [
+                    int(new_headers[p // new_n] in old_set) + int(new_headers[p % new_n] in old_set)
+                    for p in queue
+                ]
+                self.assertIn(
+                    f"  > Queued by kind: {old_ends.count(2):,} old-old (both sequences were in the input "
+                    f"network, but not joined by an edge), {old_ends.count(1):,} old-new, "
+                    f"{old_ends.count(0):,} new-new\n",
+                    text,
+                )
+                if decided["sparse"] and decided["K"] is not None:
+                    self.assertIn(f"Kept share of the input network, K: {decided['K']:.6f} (", text)
+                    if decided["lowest"] != -1:
+                        edge = result["edges"][decided["lowest"]]
+                        self.assertIn(
+                            f"s_min: {decided['s_min']:.6f} (between '{result['old_headers'][edge[0]]}' "
+                            f"and '{result['old_headers'][edge[1]]}', score: {decided['lowest'] + 10.5:.4f})\n",
+                            text,
+                        )
+                    else:
+                        self.assertIn("s_min does not apply.\n", text)
+                    if decided["set_by"] is None:
+                        self.assertIn("fewer than two sequences", text)
+                    else:
+                        self.assertIn(f"t': {decided['t_prime']:.6f}\n", text)
+                        self.assertIn(f"Cut: {decided['cut']:.6f}, set by {decided['set_by']}.", text)
+                        self.assertIn(
+                            f"Kept share of the new set's pairs at or above the cut: "
+                            f"{decided['kept_after']:.6f} (input network: {decided['K']:.6f})\n",
+                            text,
+                        )
+                    # The old scan and its lines are gone.
+                    self.assertNotIn("below the threshold", text)
+                elif decided["sparse"]:
+                    self.assertIn("The input network has no edge", text)
+                else:
+                    self.assertNotIn("Kept share", text)
+                kinds_seen.add(kind)
                 resumed_seen += bool(result["resumed"])
         self.assertGreater(resumed_seen, 5)
+        self.assertEqual(kinds_seen, set(self.KINDS))
 
 
 if __name__ == "__main__":
