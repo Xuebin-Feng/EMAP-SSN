@@ -1374,15 +1374,13 @@ def _oracle_cut_rule(old_headers, old_i, old_j, new_headers, s, calibration):
     pairs = [(i, j) for i in range(new_n) for j in range(i + 1, new_n)]
     info = {"sparse": sparse, "cached": cached, "K": None, "s_min": None, "lowest": -1,
             "t_prime": None, "cut": None, "set_by": None, "kept_after": None}
-    if not sparse:
-        # A complete input: every pair with a new sequence, plus the old edges.
+    if not sparse or len(old_i) == 0:
+        # A complete input, or a sparse one with no edge at all (nothing to compare with, as
+        # on main): every pair with a new sequence, plus the old edges; no other old-old pair.
         info["required"] = set(cached) | {
             i * new_n + j for i, j in pairs
             if not (new_headers[i] in old_set and new_headers[j] in old_set)
         }
-        return info
-    if len(old_i) == 0:
-        info["required"] = {i * new_n + j for i, j in pairs}
         return info
     info["K"] = (len(old_i) - len(calibration)) / total_old
     for k in range(len(old_i)):
@@ -1581,11 +1579,9 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                         + pair_columns[similarity[pair_rows, pair_columns] >= cut]
                     self.assertTrue(set(at_or_above.tolist()) <= first_keys)  # every pair at or above the cut
                 elif expected["sparse"]:
-                    # A sparse input without an edge: every pair is aligned, old-old included.
+                    # A sparse input without an edge: every pair with a new sequence, no old-old pair.
                     seen_kinds.add(kind)
-                    required = network_injection._required_pair_keys(
-                        new_n, np.zeros(new_n, dtype=bool), cached, None, None
-                    )
+                    required = network_injection._required_pair_keys(new_n, is_old, cached, None, None)
                 else:
                     seen_kinds.add(kind)
                     required = network_injection._required_pair_keys(new_n, is_old, cached, None, None)
@@ -2086,8 +2082,21 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     1 if decided["sparse"] and decided["K"] is not None else 0,
                 )
                 if kind == "sparse_no_edge":
-                    # Nothing to reuse or compare with: every pair is aligned, old-old included.
-                    self.assertEqual(len(queue) + len(result["resumed"]), new_n * (new_n - 1) // 2)
+                    # Nothing to compare with: every pair with a new sequence is aligned, as on
+                    # main, and no pair of two old sequences.
+                    new_old_set = set(result["old_headers"])
+                    self.assertEqual(
+                        set(queue) | set(result["resumed"]),
+                        {
+                            p for p in range(new_n * new_n)
+                            if p // new_n < p % new_n
+                            and not (result["new_headers"][p // new_n] in new_old_set
+                                     and result["new_headers"][p % new_n] in new_old_set)
+                        },
+                    )
+                    self.assertIn(
+                        "every pair with a new sequence is aligned and no pair of two old sequences.", text
+                    )
                 if kind == "dense":
                     # A complete input needs no similarity: every pair with a new sequence is aligned.
                     self.assertEqual(

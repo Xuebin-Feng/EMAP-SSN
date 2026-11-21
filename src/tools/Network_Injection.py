@@ -49,8 +49,10 @@ Algorithm:
    set (recorded calibration pairs left out); t' is the s that keeps the same share K of the new set's pairs as the
    input network kept (K = its edges / all pairs of its sequences, calibration pairs left out). If the lowest old
    edge lies below t', everything above it is aligned even though that keeps more than K; otherwise the kept share
-   stays at K. Every old edge that stays in the new set is kept. This needs the n x n similarity (8 n^2 bytes) and
-   the n (n - 1) / 2 values for the cut (4 n^2 bytes), the memory Align's prefilter needs.
+   stays at K. Every old edge that stays in the new set is kept. This needs 12 n^2 bytes while the similarity is
+   computed, then the n x n similarity (8 n^2 bytes) and the n (n - 1) / 2 values for the cut (4 n^2 bytes), the
+   memory Align's prefilter needs. A sparse input with no edge at all has nothing to compare with: every pair with
+   a new sequence is aligned, and no pair of two old sequences.
 7. Multiprocessing CPU workers iterate over the to-do queue, plucking the required embeddings from disk and directly evaluating their Needleman-Wunsch/Smith-Waterman scores.
 8. Calculated results are merged into the massive contiguous array space and structurally streamed back to disk as HDF5 arrays.
 """
@@ -1843,8 +1845,6 @@ def run_injection():
     similarity = None
     cut = None
     kept_share = None
-    # Align every pair of the new set when a sparse input has no edge to reuse or compare.
-    align_everything = False
 
     if is_sparse_old:
         percent_exists = (total_old_pairs / theoretical_old_total) * 100
@@ -1910,8 +1910,7 @@ def run_injection():
                         + "The kept share stays at K."
                     )
         else:
-            align_everything = True
-            print("  > Warning: The input network has no edge: there is nothing to reuse or to compare with, so every pair of the new set is aligned.")
+            print("  > Warning: The input network has no edge: there is nothing to compare with, so every pair with a new sequence is aligned and no pair of two old sequences.")
         print("---------------------------------------------------------------------------\n")
 
     total_new_pairs = (new_N * (new_N - 1)) // 2
@@ -1923,10 +1922,7 @@ def run_injection():
         (h in old_headers_set for h in new_headers), dtype=bool, count=new_N
     )
     required_pairs = _required_pair_keys(
-        new_N,
-        # No old sequence counts as old when everything is aligned.
-        np.zeros(new_N, dtype=bool) if align_everything else new_is_old,
-        cached_old_pairs, similarity, cut,
+        new_N, new_is_old, cached_old_pairs, similarity, cut,
     )
     if similarity is not None:
         kept_after = _pairs_at_or_above(similarity, cut) / total_new_pairs if total_new_pairs else 0.0
