@@ -238,6 +238,29 @@ class SampleTests(CalibrationRunTestCase):
         self.assertIn("Calibration unavailable: the sample could not be aligned (RuntimeError: no device)", output.getvalue())
 
 
+class AlignmentCallTests(unittest.TestCase):
+    def test_the_real_call_hands_align_the_networks_values_and_this_runs_device_choice(self):
+        seen = {}
+
+        class FakeAlign:
+            def align_pairs_in_memory(self, *args, **kwargs):
+                seen["args"], seen["kwargs"] = args, kwargs
+                return "aligned"
+
+        pairs = np.array([[0, 1], [1, 2]])
+        names = ["a", "b", "c"]
+        with mock.patch.object(Embedding_MSA.Align_Library, "load", return_value=FakeAlign()), mock.patch.object(
+            Embedding_MSA, "DEVICE_SELECTION", "cuda:1"
+        ), mock.patch.object(Embedding_MSA.Numba_Threads, "default_thread_count", return_value=5):
+            result = Embedding_MSA.align_calibration_pairs(pairs, "embeddings.h5", names, [-3.0, -0.5], "tf32")
+        self.assertEqual(result, "aligned")
+        given = seen["args"]
+        self.assertIs(given[0], pairs)
+        # The embeddings path, the dataset names, then the gap penalties as [local, global] and the precision.
+        self.assertEqual(list(given[1:]), ["embeddings.h5", names, [-3.0, -0.5], "tf32"])
+        self.assertEqual(seen["kwargs"], {"device_selection": "cuda:1", "workers": 5})
+
+
 class CheckEdgeTests(unittest.TestCase):
     def network(self, directory, count=500, seed=5):
         rng = np.random.default_rng(seed)
