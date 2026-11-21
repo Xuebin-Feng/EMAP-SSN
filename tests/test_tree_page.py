@@ -288,21 +288,26 @@ class DrawingTests(TreeCase):
             TreeView.zoomToNode(m.root);
             const ctx = document.createElement('canvas').getContext('2d');
             const rgb = css => { ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1); return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)); };
-            // A line one pixel wide on the middle of a pixel row, and branches wide enough to sample.
+            // A line one device pixel wide on the middle of a device pixel row (a branch is one device pixel wide, so on
+            // the edge of two rows, at a ratio of 2, it is half of each), and branches wide enough to sample.
             // (Every tip of this tree is at the same distance from the root: put them at x = 900.)
-            s.view.sx *= 50; s.view.ox = 900 - s.layout.width * s.view.sx; s.view.sy = 30; s.view.oy = 0.5; TreeView.drawNow();
+            const ratio = window.devicePixelRatio;
+            s.view.sx *= 50; s.view.ox = 900 - s.layout.width * s.view.sx; s.view.sy = 30; s.view.oy = 0.5 / ratio; TreeView.drawNow();
             const found = {shown: {}, faded: {}};
             for (let k = 0; k < 14; k++) {
                 const box = TreeView.nodePixels(s, m.leafNode[k]);
                 const key = m.viewerNode[k] >= 0 ? 'shown' : 'faded';
                 if (!found[key].dot) found[key].dot = fire.pixel(box.x, box.y);
-                if (!found[key].branch && box.x - box.x0 >= 14) found[key].branch = fire.pixel(box.x - 9, Math.floor(box.y));
+                if (!found[key].branch && box.x - box.x0 >= 14) found[key].branch = fire.pixel(box.x - 9, Math.floor(box.y * ratio) / ratio);
             }
             return {found, shown: rgb(s.palette.branch), faded: rgb(s.palette.faded)};""")
         for part in ("dot", "branch"):
             with self.subTest(part=part):
-                self.assertEqual(colours["found"]["shown"][part][:3], colours["shown"])
-                self.assertEqual(colours["found"]["faded"][part][:3], colours["faded"])
+                # A line of one device pixel is antialiased: a channel can be a step off the colour it is drawn in.
+                slack = 3 if part == "branch" else 0
+                for key in ("shown", "faded"):
+                    for channel, wanted in zip(colours["found"][key][part][:3], colours[key]):
+                        self.assertLessEqual(abs(channel - wanted), slack, (key, part, colours["found"][key][part], colours[key]))
         self.assertNotEqual(colours["shown"], colours["faded"])
 
     def test_names_of_leaves_the_network_lacks_are_in_the_disabled_text_colour(self):
