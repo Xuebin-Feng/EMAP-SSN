@@ -107,6 +107,14 @@ class EntryTests(LibraryTestCase):
         self.assertEqual((got.precision, got.timed, got.trial_pairs), ("ieee_fp32", False, 0))
         self.assertIn("CPU", got.device)
 
+    def test_the_call_works_while_the_caller_holds_the_embeddings_file_open_the_shared_way(self):
+        # Embedding MSA keeps its embeddings open (opened by open_embeddings_shared) during the call.
+        from utilities.HDF5_Storage import open_embeddings_shared
+
+        with open_embeddings_shared(self.embeddings):
+            got = self.call(pairs=all_pairs(4))
+        self.assertEqual(len(got.l_score), 6)
+
     def test_the_module_values_and_the_environment_are_put_back_also_after_an_error(self):
         before_values = {name: getattr(align, name) for name in align._LIBRARY_GLOBALS}
         before_environment = environment()

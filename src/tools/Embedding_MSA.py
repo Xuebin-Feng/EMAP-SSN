@@ -100,7 +100,7 @@ from sklearn.metrics import r2_score
 from Cache_Manifest import validate_network_schema
 from utilities.Localization import Message, set_translator
 from utilities.Sequence_Utils import load_sanitized_fasta
-from utilities.HDF5_Storage import read_embedding_manifest
+from utilities.HDF5_Storage import open_embeddings_shared, read_embedding_manifest
 from utilities.Guide_Tree_File import guide_tree_path_for_alignment, newick_label, nexus_string
 from utilities import Prefilter_Calibration
 from utilities import Align_Library
@@ -2399,7 +2399,9 @@ def run_msa_builder():
     # A. Open HDF5 files and run rigorous embedding file validation
     print("Opening HDF5 data...")
     try:
-        f_emb = h5py.File(FULL_INPUT_EMBED, "r")
+        # Opened as the alignment path opens embeddings (SWMR read): the calibration alignment, run in this
+        # process while the file is open, opens it again, and HDF5 refuses a second open with another flag.
+        f_emb = open_embeddings_shared(FULL_INPUT_EMBED)
         f_net = h5py.File(FULL_INPUT_NETWORK, "r")
     except Exception as e:
         sys.exit(f"❌ Error opening HDF5 files: {e}")

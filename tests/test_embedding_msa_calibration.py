@@ -36,7 +36,7 @@ class CalibrationRunTestCase(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         self.directory = pathlib.Path(temp_dir.name)
 
-    def run_builder(self, fixture, *, bounds=True, reproduce=True, **settings):
+    def run_builder(self, fixture, *, bounds=True, reproduce=True, wrap_align=None, **settings):
         """Run to the guide tree with the calibration alignment replaced; return (output, state, plot, kernel).
 
         bounds sets the draw's bounds to SAMPLE pairs. kernel lists what the normalization kernel was given.
@@ -60,6 +60,9 @@ class CalibrationRunTestCase(unittest.TestCase):
                 **builder_settings(fixture, SHOW_REGRESSION_PLOT=True, **settings),
             ))
             stack.enter_context(patches)
+            if wrap_align is not None:  # wrap the replaced alignment, so the test can do what the real one does first
+                stack.enter_context(mock.patch.object(
+                    Embedding_MSA, "align_calibration_pairs", wrap_align(Embedding_MSA.align_calibration_pairs)))
             stack.enter_context(mock.patch.object(Embedding_MSA.mp, "set_start_method"))
             stack.enter_context(mock.patch.object(Embedding_MSA.mp, "Pool", InProcessPool))
             if bounds:
@@ -276,6 +279,47 @@ class SharedSimilarityTests(CalibrationRunTestCase):
         # Align's cut is that matrix's 50th percentile of the upper triangle.
         upper = np.triu(np.ones(from_msa.shape, dtype=bool), k=1)
         self.assertEqual(record.threshold, float(np.percentile(from_msa[upper], 50)))
+
+
+class OpenEmbeddingsTests(CalibrationRunTestCase):
+    def test_the_accelerator_paths_opens_succeed_on_the_embeddings_the_run_holds_open(self):
+        # In a real run Embedding MSA holds its embeddings file open while the calibration alignment runs, and
+        # as soon as an accelerator is a candidate the alignment opens the same file in this process (the tile
+        # store, the scalar pipeline) with SWMR; HDF5 refuses that when the first open had no SWMR flag. The
+        # alignment itself is replaced here, so the wrapper makes those two opens, without a GPU.
+        from Embedding_Alignment_Engine import EmbeddingTileStore
+
+        def accelerator_opens(real):
+            def wrapper(pairs, embeddings_path, names, *rest, **kwargs):
+                EmbeddingTileStore(embeddings_path, list(names), 0)
+                with h5py.File(embeddings_path, "r", libver="latest", swmr=True) as hf:
+                    hf["embeddings"][names[0]][:]
+                return real(pairs, embeddings_path, names, *rest, **kwargs)
+            return wrapper
+
+        fixture = self.fixture(drop=60)
+        output, state, plot, _ = self.run_builder(fixture, wrap_align=accelerator_opens)
+        self.assertNotIn("OSError", output)
+        self.assertNotIn("Calibration unavailable", output)
+        self.assertIn("Calibration sample of 12 of the 60 missing pairs", output)
+        self.assertEqual(len(state.calls), 1)
+
+    def test_a_file_opened_plainly_blocks_those_opens_and_the_shared_open_does_not_for_any_file(self):
+        from Embedding_Alignment_Engine import EmbeddingTileStore
+        from utilities.HDF5_Storage import open_embeddings_shared
+
+        first = NetworkFixture(self.directory / "a", sequences=6, ghosts=0, seed=1)
+        second = NetworkFixture(self.directory / "b", sequences=6, ghosts=0, seed=2)
+        first_path, second_path = (str(f.embed_dir / EMBED_NAME) for f in (first, second))
+        with h5py.File(first_path, "r") as plain:
+            with self.assertRaises(OSError):
+                EmbeddingTileStore(first_path, first.emb_headers, 0)
+        # Two files held open at once, each opened the shared way: the alignment path can open both.
+        with open_embeddings_shared(first_path), open_embeddings_shared(second_path):
+            EmbeddingTileStore(first_path, first.emb_headers, 0)
+            EmbeddingTileStore(second_path, second.emb_headers, 0)
+            with h5py.File(second_path, "r", libver="latest", swmr=True) as hf:
+                self.assertEqual(len(hf["embeddings"]), 6)
 
 
 class AlignmentCallTests(unittest.TestCase):

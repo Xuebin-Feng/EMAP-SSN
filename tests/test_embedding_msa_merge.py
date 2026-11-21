@@ -343,7 +343,9 @@ class FullRunTests(unittest.TestCase):
                 Embedding_MSA.mp, "Pool", InProcessPool
             ), mock.patch.object(
                 Embedding_MSA, "h5py", wraps=h5py
-            ) as h5py_module, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            ) as h5py_module, mock.patch.object(
+                Embedding_MSA, "open_embeddings_shared", wraps=Embedding_MSA.open_embeddings_shared
+            ) as shared_open, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 Embedding_MSA.run_msa_builder()
                 output = pathlib.Path(Embedding_MSA.OUTPUT_FASTA)
             actual = output.read_bytes()
@@ -351,7 +353,7 @@ class FullRunTests(unittest.TestCase):
                 fixture, seen["tree"], seen["headers"], -0.5, 0.0
             )
             embedding_opens = [
-                call for call in h5py_module.File.call_args_list
+                call for call in h5py_module.File.call_args_list + shared_open.call_args_list
                 if pathlib.Path(call.args[0]).name == EMBED_NAME
             ]
             # Release the builder's HDF5 handles before the folder is removed.

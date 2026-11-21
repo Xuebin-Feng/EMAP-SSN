@@ -127,7 +127,7 @@ from utilities.Network_Kernels import (
     global_local_pair_scores,
     global_local_scores,
 )
-from utilities.HDF5_Storage import read_embedding_manifest
+from utilities.HDF5_Storage import open_embeddings_shared, read_embedding_manifest
 from utilities import Prefilter_Calibration
 
 # ==========================================
@@ -2990,7 +2990,7 @@ def align_pairs_in_memory(
     ids = np.unique(pairs)
     position = {int(index): k for k, index in enumerate(ids)}
     local_names = [names[int(index)] for index in ids]
-    with h5py.File(embeddings_path, "r") as hf:
+    with open_embeddings_shared(embeddings_path) as hf:  # as the path below opens it: the caller may hold the file open
         group = hf["embeddings"]
         local_lengths = [int(group[name].shape[0]) for name in local_names]
     tasks = [

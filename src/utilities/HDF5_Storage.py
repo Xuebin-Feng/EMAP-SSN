@@ -193,6 +193,18 @@ def _validate_embedding_group(
     return feature_dimension
 
 
+def open_embeddings_shared(path):
+    """Open an embeddings file read-only the way the alignment code opens it: latest format, SWMR read.
+
+    HDF5 refuses a second open of a file in the same process when the SWMR flag differs from the open
+    one. The alignment path (the tile store, the accelerator pipelines, Align_Similarity_Matrix's
+    align_pairs_in_memory) opens embeddings this way, so a program that keeps an embeddings file open
+    while it calls that path (Embedding_MSA does, during the calibration alignment) opens it with this
+    function too, whichever embeddings file it is.
+    """
+    return h5py.File(path, "r", libver="latest", swmr=True)
+
+
 def read_embedding_manifest(
     hf,
     *,
