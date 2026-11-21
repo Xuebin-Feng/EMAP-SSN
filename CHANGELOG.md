@@ -682,6 +682,17 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Embedding MSA's guide tree no longer depends on the number of workers or on timing.**
+  The consensus adds up every replicate tree's distances as 32-bit numbers, and the
+  replicates were added in the order their workers finished. With more than one worker
+  that order changed from run to run, so two runs with the same settings and seed could
+  save guide trees whose branch lengths differed in the last digit: 257 of 1,656 branch
+  lengths in one comparison on the HomFam kringle family (829 sequences, 4 workers). The
+  clades and the alignment were the same in the comparisons made. Replicates are now
+  added in seed order. A run with one worker gives the same result as before, and a run
+  with any number of workers now gives that result too. Checked on kringle with 1, 2 and
+  4 workers, with UPGMA and with neighbor-joining: guide trees and alignments are
+  byte-identical, and equal to the earlier version's with one worker.
 - **Embedding MSA no longer keeps a sparse network's imputation arrays in memory for the
   rest of the run.** For a sparse network the tool builds an all-pairs similarity matrix
   and two dense matrices of filled-in scores and distances, and holds one similarity and
