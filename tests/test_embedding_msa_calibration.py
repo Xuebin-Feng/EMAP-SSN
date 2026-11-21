@@ -19,6 +19,7 @@ import numpy as np
 from tests.msa_fixtures import (
     EMBED_NAME,
     GuideTreeBuilt,
+    NETWORK_NAME,
     InProcessPool,
     NetworkFixture,
     builder_settings,
@@ -279,6 +280,35 @@ class SharedSimilarityTests(CalibrationRunTestCase):
         # Align's cut is that matrix's 50th percentile of the upper triangle.
         upper = np.triu(np.ones(from_msa.shape, dtype=bool), k=1)
         self.assertEqual(record.threshold, float(np.percentile(from_msa[upper], 50)))
+
+
+class EdgeOrderTests(CalibrationRunTestCase):
+    def test_the_same_edges_in_another_order_give_the_same_fit_and_guide_tree(self):
+        real_fit = Embedding_MSA.fit_imputation
+
+        def small_pick(*args, **kwargs):
+            return real_fit(*args, fit_pairs=20, **kwargs)  # fewer pairs than observed, so the pick matters
+
+        results = []
+        for name, shuffle in (("ordered", None), ("shuffled", 5), ("shuffled_again", 6)):
+            fixture = self.fixture(name, duplicates=0, out_of_range=False, drop=60)
+            if shuffle is not None:
+                with h5py.File(fixture.network_dir / NETWORK_NAME, "r+") as network:
+                    size = len(network["i"])
+                    order = np.random.default_rng(shuffle).permutation(size)
+                    for dataset in [network[key] for key in network if len(network[key]) == size]:
+                        dataset[...] = dataset[:][order]
+            with mock.patch.object(Embedding_MSA, "fit_imputation", small_pick):
+                _, _, plot, _ = self.run_builder(fixture)
+            fit = plot.call_args.kwargs["calibration"]
+            tree = "\n".join(line for line in self.guide_tree_notes(fixture).splitlines() if not line.strip().startswith("WRITTEN"))
+            results.append((fit.fit_x.copy(), fit.iso.X_thresholds_.copy(), fit.iso.y_thresholds_.copy(), tree))
+        self.assertEqual(results[0][0].size, 20)
+        for other in results[1:]:
+            np.testing.assert_array_equal(other[0], results[0][0])
+            np.testing.assert_array_equal(other[1], results[0][1])
+            np.testing.assert_array_equal(other[2], results[0][2])
+            self.assertEqual(other[3], results[0][3])
 
 
 class OpenEmbeddingsTests(CalibrationRunTestCase):

@@ -47,6 +47,75 @@ class ImputationFitTests(unittest.TestCase):
         self.positions = np.arange(600, 640)[::-1]
         self.weights = rng.uniform(5.0, 50.0, 40)
 
+    def keys_for(self, size):
+        """Distinct pair keys in no particular order, one per observed pair."""
+        return np.random.default_rng(21).permutation(size * 3)[:size].astype(np.int64)
+
+    def permuted(self, with_sample, seed):
+        """x, y, keys and sample positions with the observed pairs in another order; the sample stays at the end in its order."""
+        keys = self.keys_for(self.x.size)
+        order = np.random.default_rng(seed).permutation(600)
+        full = np.concatenate([order, np.arange(600, 640)])
+        return self.x[full], self.y[full], keys[full]
+
+    def test_the_pick_does_not_follow_the_order_of_the_edges_when_keys_are_given(self):
+        for with_sample in (False, True):
+            fits = []
+            for seed in (1, 2, 3):
+                with self.subTest(with_sample=with_sample, seed=seed):
+                    x, y, keys = self.permuted(with_sample, seed)
+                    positions = np.arange(600, 640)[::-1] if with_sample else None
+                    weights = self.weights if with_sample else None
+                    fits.append(Embedding_MSA.fit_imputation(x, y, positions, weights, fit_pairs=100, pair_keys=keys))
+            for fit in fits[1:]:
+                np.testing.assert_array_equal(fit.fit_x, fits[0].fit_x)
+                np.testing.assert_array_equal(fit.fit_y, fits[0].fit_y)
+                np.testing.assert_array_equal(fit.iso.X_thresholds_, fits[0].iso.X_thresholds_)
+                np.testing.assert_array_equal(fit.iso.y_thresholds_, fits[0].iso.y_thresholds_)
+        # Without keys the pick does follow the order (what the keys fix).
+        x1, y1, _ = self.permuted(False, 1)
+        x2, y2, _ = self.permuted(False, 2)
+        one = Embedding_MSA.fit_imputation(x1, y1, fit_pairs=100)
+        two = Embedding_MSA.fit_imputation(x2, y2, fit_pairs=100)
+        self.assertFalse(np.array_equal(one.fit_x, two.fit_x))
+
+    def test_edges_already_in_canonical_order_give_the_fit_they_always_gave(self):
+        keys = np.arange(self.x.size, dtype=np.int64) * 5
+        for positions, weights in ((None, None), (np.arange(600, 640)[::-1], self.weights)):
+            for fit_pairs in (100, 1_000):
+                with self.subTest(sample=positions is not None, fit_pairs=fit_pairs):
+                    old = Embedding_MSA.fit_imputation(self.x, self.y, positions, weights, fit_pairs=fit_pairs)
+                    new = Embedding_MSA.fit_imputation(self.x, self.y, positions, weights, fit_pairs=fit_pairs, pair_keys=keys)
+                    np.testing.assert_array_equal(new.fit_x, old.fit_x)
+                    np.testing.assert_array_equal(new.iso.X_thresholds_, old.iso.X_thresholds_)
+                    np.testing.assert_array_equal(new.iso.y_thresholds_, old.iso.y_thresholds_)
+
+    def test_the_sample_pairs_stay_out_of_the_pick_and_keep_their_order(self):
+        keys = self.keys_for(self.x.size)
+        fit = Embedding_MSA.fit_imputation(
+            self.x, self.y, self.positions, self.weights, fit_pairs=100, pair_keys=keys)
+        np.testing.assert_array_equal(fit.calibration_x, self.x[self.positions])
+        self.assertEqual(fit.fit_x.size, 100)
+        self.assertFalse(np.isin(fit.fit_x, self.below_x).any())
+
+    def test_the_key_is_the_ranks_of_the_code_point_sorted_headers_and_ignores_every_order(self):
+        headers = ["b", "B", "a", "é", "Z", "10", "9"]  # code points: "10" < "9" < "B" < "Z" < "a" < "b" < "é"
+        edge_i = np.array([0, 3, 6, 2])
+        edge_j = np.array([1, 2, 0, 3])
+        keys = Embedding_MSA.canonical_pair_keys(edge_i, edge_j, headers)
+        rank = {name: k for k, name in enumerate(sorted(headers))}
+        n = len(headers)
+        for key, a, b in zip(keys, edge_i, edge_j):
+            ra, rb = rank[headers[a]], rank[headers[b]]
+            self.assertEqual(int(key), min(ra, rb) * n + max(ra, rb))
+        self.assertEqual(sorted(rank, key=rank.get), ["10", "9", "B", "Z", "a", "b", "é"])
+        # The same pairs with the sequences listed in another order and the ends turned round: the same keys.
+        shuffled = [headers[k] for k in (4, 0, 6, 2, 5, 1, 3)]
+        where = {name: k for k, name in enumerate(shuffled)}
+        again = Embedding_MSA.canonical_pair_keys(
+            np.array([where[headers[b]] for b in edge_j]), np.array([where[headers[a]] for a in edge_i]), shuffled)
+        np.testing.assert_array_equal(again, keys)
+
     def test_without_a_sample_the_fit_is_the_one_it_always_was(self):
         fit = Embedding_MSA.fit_imputation(self.x, self.y, fit_pairs=100)
         np.random.seed(42)

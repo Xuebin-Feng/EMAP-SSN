@@ -1759,9 +1759,37 @@ def held_out_check(predicted, actual):
     return CalibrationCheck(int(actual.size), rho, float(np.mean(np.abs(error))), r2)
 
 
+_KEY_CHUNK = 8_000_000
+
+
+def canonical_pair_keys(edge_i, edge_j, headers):
+    """One int64 key per observed pair that depends only on which two sequences it joins: min(rank) * n + max(rank).
+
+    rank is the position of a sequence's header in the headers sorted in plain code-point order (Python's
+    string order, never a locale's), so neither the order of the edges in the network file nor the order of the
+    run's sequences changes a pair's key. edge_i and edge_j are indices into headers (a pair's two ends in
+    either order); headers are distinct (the run keeps one entry per header). Computed in chunks.
+    """
+    n = len(headers)
+    rank = np.empty(n, dtype=np.int64)
+    rank[sorted(range(n), key=headers.__getitem__)] = np.arange(n, dtype=np.int64)
+    keys = np.empty(len(edge_i), dtype=np.int64)
+    for start in range(0, len(edge_i), _KEY_CHUNK):
+        stop = min(start + _KEY_CHUNK, len(edge_i))
+        a = rank[np.asarray(edge_i[start:stop], dtype=np.int64)]
+        b = rank[np.asarray(edge_j[start:stop], dtype=np.int64)]
+        keys[start:stop] = np.minimum(a, b) * n + np.maximum(a, b)
+    return keys
+
+
 def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
-                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42):
+                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42, pair_keys=None):
     """Fit normalized scores y on similarity x over a sparse network's observed pairs.
+
+    pair_keys (canonical_pair_keys of the observed pairs, one per entry of x) puts the pairs in a canonical
+    order before the random pick, so the pick, and so the fit, does not depend on the order of the edges in
+    the network file; a stable argsort of the keys, then the same seeded pick as ever. The calibration
+    sample's pairs keep their positions and their order. Without pair_keys the pick follows the given order.
 
     Without a calibration sample, or with fewer than MIN_CALIBRATION_PAIRS of
     it, the fit takes every observed pair or a random fit_pairs of them; every
@@ -1778,11 +1806,16 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
     y = np.asarray(y)
     if calibration_positions is not None:
         calibration_positions = np.asarray(calibration_positions, dtype=np.int64)
+    canonical = None if pair_keys is None else np.argsort(pair_keys, kind="stable")
     if calibration_positions is None or calibration_positions.size < MIN_CALIBRATION_PAIRS:
         if len(x) > fit_pairs:
             np.random.seed(seed)
             pick = np.random.choice(len(x), size=fit_pairs, replace=False)
+            if canonical is not None:
+                pick = canonical[pick]
             fit_x, fit_y = x[pick], y[pick]
+        elif canonical is not None:
+            fit_x, fit_y = x[canonical], y[canonical]
         else:
             fit_x, fit_y = x, y
         iso = IsotonicRegression(out_of_bounds="clip").fit(fit_x, fit_y)
@@ -1790,7 +1823,11 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
 
     is_calibration = np.zeros(len(x), dtype=bool)
     is_calibration[calibration_positions] = True
-    others = np.flatnonzero(~is_calibration)
+    if canonical is None:
+        others = np.flatnonzero(~is_calibration)
+    else:
+        others = canonical[~is_calibration[canonical]]
+    del canonical
     other_count = others.size
     if others.size > fit_pairs:
         np.random.seed(seed)
@@ -2734,7 +2771,10 @@ def run_msa_builder():
             calibration_weights = sample.weights
 
         print("Fitting Isotonic Regression (Adjusted Similarity -> Alignment Score)...")
-        imputation = fit_imputation(X_cos, Y_align, calibration_positions, calibration_weights)
+        # The pick of observed pairs is made in an order that does not depend on the network file's edge order.
+        pair_keys = canonical_pair_keys(edge_i, edge_j, valid_headers)
+        imputation = fit_imputation(X_cos, Y_align, calibration_positions, calibration_weights, pair_keys=pair_keys)
+        del pair_keys
         iso_reg = imputation.iso
 
         # Evaluate fitness on the observed pairs, the calibration sample's among them.
