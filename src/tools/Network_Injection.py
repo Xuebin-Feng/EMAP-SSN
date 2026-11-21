@@ -734,15 +734,173 @@ def _execute_injection_plan(
     )
 
 
+# Pair selection works on int64 pair keys, min * N + max (row * N + column with
+# row < column): sorted arrays, tested with searchsorted. For N = 50,000 the
+# largest key is 2,500,049,999.
+_PAIR_BLOCK_CELLS = 1 << 22   # cells of one row block of the required-pair mask
+_EDGE_CHUNK = 1 << 22         # old edges handled at once by the cosine scans
+_PENDING_CHUNK = 1 << 16      # queued pairs turned into tuples at once
+
+
+def _as_sorted_keys(keys):
+    """Pair keys as a sorted, unique int64 array; a set, list or array is accepted."""
+    if isinstance(keys, np.ndarray):
+        array = keys.astype(np.int64, copy=False)
+    else:
+        array = np.fromiter(keys, dtype=np.int64, count=len(keys))
+    if array.size > 1 and not bool(np.all(array[1:] > array[:-1])):
+        array = np.unique(array)
+    return array
+
+
+def _locate(sorted_keys, needles):
+    """Position of each needle in sorted_keys (clipped) and whether it is there."""
+    if sorted_keys.size == 0:
+        return np.zeros(needles.shape, dtype=np.int64), np.zeros(needles.shape, dtype=bool)
+    position = np.searchsorted(sorted_keys, needles)
+    np.minimum(position, sorted_keys.size - 1, out=position)
+    return position, sorted_keys[position] == needles
+
+
+def _members(sorted_keys, needles):
+    return _locate(sorted_keys, needles)[1]
+
+
+def _pair_similarity_rows(cos_sim, start, stop):
+    """The similarity of rows start..stop-1 to every sequence."""
+    return cos_sim[start:stop]
+
+
+def _pair_similarity_at(cos_sim, rows, columns):
+    """The similarity of each (row, column) pair."""
+    return cos_sim[rows, columns]
+
+
+def _lowest_edge_cosine(cos_sim, edge_u, edge_v, skip):
+    """(value, edge) of the FIRST old edge with the lowest similarity below 1.0.
+
+    Only edges that keep both sequences (edge_u, edge_v >= 0) and are not
+    skipped (calibration edges) count; (1.0, -1) when none is below 1.0.
+    """
+    best_value = 1.0
+    best_edge = -1
+    for start in range(0, edge_u.size, _EDGE_CHUNK):
+        stop = min(edge_u.size, start + _EDGE_CHUNK)
+        u = edge_u[start:stop]
+        v = edge_v[start:stop]
+        positions = np.flatnonzero((u >= 0) & (v >= 0) & ~skip[start:stop])
+        if not positions.size:
+            continue
+        sims = _pair_similarity_at(cos_sim, u[positions], v[positions])
+        below = np.flatnonzero(sims < best_value)
+        if below.size:
+            first = below[np.argmin(sims[below])]
+            best_value = float(sims[first])
+            best_edge = start + int(positions[first])
+    return best_value, best_edge
+
+
+def _edges_below_cosine(cos_sim, edge_u, edge_v, skip, limit, keep_first=10):
+    """How many counted old edges have a similarity below limit, and the first few as (edge, value)."""
+    count = 0
+    first = []
+    for start in range(0, edge_u.size, _EDGE_CHUNK):
+        stop = min(edge_u.size, start + _EDGE_CHUNK)
+        u = edge_u[start:stop]
+        v = edge_v[start:stop]
+        positions = np.flatnonzero((u >= 0) & (v >= 0) & ~skip[start:stop])
+        if not positions.size:
+            continue
+        sims = _pair_similarity_at(cos_sim, u[positions], v[positions])
+        hits = np.flatnonzero(sims < limit)
+        count += int(hits.size)
+        for hit in hits[: keep_first - len(first)]:
+            first.append((start + int(positions[hit]), sims[hit]))
+    return count, first
+
+
+def _cached_pair_keys(edge_u, edge_v, new_N):
+    """Sorted keys of the old edges whose two sequences are both in the new set."""
+    kept = (edge_u >= 0) & (edge_v >= 0)
+    u = edge_u[kept]
+    v = edge_v[kept]
+    return np.unique(np.minimum(u, v) * new_N + np.maximum(u, v))
+
+
+def _required_pair_keys(new_N, is_old, cached, cos_sim, threshold):
+    """Sorted keys of the pairs the new network needs.
+
+    A pair of two old sequences is needed when the old network has that edge
+    (cached). Any other pair is needed when cos_sim is None (a dense input) or
+    reaches the threshold. Built in row blocks, so no N x N array is held
+    beyond one block of at most _PAIR_BLOCK_CELLS cells.
+    """
+    rows = cached // new_N if new_N else cached
+    columns = cached % new_N if new_N else cached
+    old_cached = cached[(rows < columns) & is_old[rows] & is_old[columns]] if cached.size else cached
+    column_index = np.arange(new_N)
+    block_rows = max(1, _PAIR_BLOCK_CELLS // max(new_N, 1))
+    pieces = []
+    for start in range(0, new_N, block_rows):
+        stop = min(new_N, start + block_rows)
+        keep = column_index[None, :] > np.arange(start, stop)[:, None]
+        keep &= ~(is_old[start:stop, None] & is_old[None, :])
+        if cos_sim is not None:
+            keep &= _pair_similarity_rows(cos_sim, start, stop) >= threshold
+        block_row, block_column = np.nonzero(keep)
+        mixed = (block_row + start).astype(np.int64) * new_N + block_column
+        low = np.searchsorted(old_cached, start * new_N)
+        high = np.searchsorted(old_cached, stop * new_N)
+        piece = np.concatenate((mixed, old_cached[low:high]))
+        piece.sort()
+        pieces.append(piece)
+    return np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.int64)
+
+
+def _pending_keys(required_pairs, cached_old_pairs, computed_pairs, count):
+    """Sorted keys of the required pairs that are neither cached nor computed."""
+    required = _as_sorted_keys(required_pairs)
+    cached = _as_sorted_keys(cached_old_pairs)
+    computed = _as_sorted_keys(computed_pairs)
+    pending = required[~_members(cached, required) & ~_members(computed, required)]
+    if not count:
+        return pending
+    rows = pending // count
+    return pending[(pending % count > rows) & (rows < count)]
+
+
+def _iter_pending_keys(headers, pending, count):
+    """Yield (row, column, header, header) for sorted pending keys: production order."""
+    for start in range(0, pending.size, _PENDING_CHUNK):
+        chunk = pending[start:start + _PENDING_CHUNK]
+        for row, column in zip((chunk // count).tolist(), (chunk % count).tolist()):
+            yield row, column, headers[row], headers[column]
+
+
 def _iter_pending_pairs(headers, required_pairs, cached_old_pairs, computed_pairs):
     """Yield injection pairs in production order, excluding cached work."""
     count = len(headers)
-    for row in range(count):
-        for column in range(row + 1, count):
-            pair_id = row * count + column
-            if (pair_id in required_pairs and pair_id not in cached_old_pairs
-                    and pair_id not in computed_pairs):
-                yield row, column, headers[row], headers[column]
+    pending = _pending_keys(required_pairs, cached_old_pairs, computed_pairs, count)
+    yield from _iter_pending_keys(headers, pending, count)
+
+
+class _OldEdgeIndex:
+    """File row of an old edge, looked up by its flat (condensed) pair index; -1 when absent."""
+
+    def __init__(self, flat_indices):
+        flat_indices = np.asarray(flat_indices, dtype=np.int64)
+        self._order = np.argsort(flat_indices, kind="stable")
+        self._sorted = flat_indices[self._order]
+
+    def __getitem__(self, flat):
+        flat = np.asarray(flat, dtype=np.int64)
+        if self._sorted.size == 0:
+            return np.full(flat.shape, -1, dtype=np.int64)
+        # side="right" - 1 finds the last duplicate, as a later assignment did.
+        position = np.searchsorted(self._sorted, flat, side="right") - 1
+        position = np.maximum(position, 0)
+        found = self._sorted[position] == flat
+        return np.where(found, self._order[position], -1)
 
 
 def _benchmark_injection_plans(
@@ -1200,15 +1358,18 @@ def scan_existing_batches(
     saving_mode,
     gap_penalties,
     requested_matmul_precision="ieee_fp32",
+    as_array=False,
 ):
+    """The pair keys already computed in RESULTS_DIR: a set, or with as_array a sorted unique int64 array."""
     computed_pairs = set()
+    computed_chunks = []
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR, exist_ok=True)
-        return computed_pairs
-    
+        return np.zeros(0, dtype=np.int64) if as_array else computed_pairs
+
     batch_files = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
     if not batch_files:
-        return computed_pairs
+        return np.zeros(0, dtype=np.int64) if as_array else computed_pairs
 
     mismatches = []
     found_attrs = {
@@ -1321,7 +1482,7 @@ def scan_existing_batches(
 
         os.makedirs(RESULTS_DIR, exist_ok=True)
         print(f"  > Initialized fresh calculation directory: '{RESULTS_DIR}'\n")
-        return set()
+        return np.zeros(0, dtype=np.int64) if as_array else set()
 
     for bf in batch_files:
         try:
@@ -1332,9 +1493,14 @@ def scan_existing_batches(
                     arr_i = hf["i"][:].astype(np.int64)
                     arr_j = hf["j"][:].astype(np.int64)
                     pair_ids = np.minimum(arr_i, arr_j) * new_N + np.maximum(arr_i, arr_j)
-                    computed_pairs.update(pair_ids.tolist())
+                    if as_array:
+                        computed_chunks.append(pair_ids)
+                    else:
+                        computed_pairs.update(pair_ids.tolist())
         except Exception as e:
             print(f"Warning: Could not read batch file {bf}: {e}")
+    if as_array:
+        return np.unique(np.concatenate(computed_chunks)) if computed_chunks else np.zeros(0, dtype=np.int64)
     return computed_pairs
 
 def compile_final_output(
@@ -1360,45 +1526,42 @@ def compile_final_output(
             "Cannot publish an alignment network without nonempty model_name metadata."
         )
     model_name = model_name.strip()
-    print(f"\n--- Compiling Final HDF5 Output (Keep count: {len(required_pairs)}) ---")
-    
-    num_kept = len(required_pairs)
+    sorted_pairs = _as_sorted_keys(required_pairs)
+    cached_pairs = _as_sorted_keys(cached_old_pairs)
+    print(f"\n--- Compiling Final HDF5 Output (Keep count: {len(sorted_pairs)}) ---")
+
+    num_kept = len(sorted_pairs)
     idx_dtype = np.uint16 if new_N <= 65535 else np.uint32
-    
-    final_i = np.zeros(num_kept, dtype=idx_dtype)
-    final_j = np.zeros(num_kept, dtype=idx_dtype)
+
+    final_i = (sorted_pairs // new_N).astype(idx_dtype)
+    final_j = (sorted_pairs % new_N).astype(idx_dtype)
     final_l_score = np.zeros(num_kept, dtype=np.float32)
     final_l_len = np.zeros(num_kept, dtype=np.uint16)
     final_g_score = np.zeros(num_kept, dtype=np.float32)
     final_g_len = np.zeros(num_kept, dtype=np.uint16)
-            
-    sorted_pairs = sorted(list(required_pairs))
-    pair_id_to_final_idx = {}
-    for idx, pair_id in enumerate(sorted_pairs):
-        i = pair_id // new_N
-        j = pair_id % new_N
-        final_i[idx] = i
-        final_j[idx] = j
-        pair_id_to_final_idx[pair_id] = idx
-        
-    old_headers_set = set(old_header_to_idx.keys())
-    for pair_id in cached_old_pairs:
-        if pair_id in pair_id_to_final_idx:
-            idx = pair_id_to_final_idx[pair_id]
-            i = pair_id // new_N
-            j = pair_id % new_N
-            h_i = new_headers[i]
-            h_j = new_headers[j]
-            u = old_header_to_idx[h_i]
-            v = old_header_to_idx[h_j]
-            theoretical_idx = int(u * len(old_headers_set) - u * (u + 1) // 2 + (v - u - 1)) if u < v else int(v * len(old_headers_set) - v * (v + 1) // 2 + (u - v - 1))
-            actual_idx = actual_idx_map[theoretical_idx]
-            
-            final_l_score[idx] = old_l_score[actual_idx]
-            final_l_len[idx] = old_l_len[actual_idx]
-            final_g_score[idx] = old_g_score[actual_idx]
-            final_g_len[idx] = old_g_len[actual_idx]
-                
+
+    old_count = len(old_header_to_idx)
+    reused = cached_pairs[_members(sorted_pairs, cached_pairs)]
+    if reused.size:
+        position = _locate(sorted_pairs, reused)[0]
+        # Old index of each new sequence (-1 if it is not an old one).
+        new_to_old = np.fromiter(
+            (old_header_to_idx.get(header, -1) for header in new_headers),
+            dtype=np.int64, count=len(new_headers),
+        )
+        old_u = new_to_old[reused // new_N]
+        old_v = new_to_old[reused % new_N]
+        if (old_u < 0).any() or (old_v < 0).any():
+            raise KeyError("a reused pair has a sequence the old network does not have")
+        low = np.minimum(old_u, old_v)
+        high = np.maximum(old_u, old_v)
+        theoretical_idx = low * old_count - low * (low + 1) // 2 + (high - low - 1)
+        actual_idx = actual_idx_map[theoretical_idx]
+        final_l_score[position] = old_l_score[actual_idx]
+        final_l_len[position] = old_l_len[actual_idx]
+        final_g_score[position] = old_g_score[actual_idx]
+        final_g_len[position] = old_g_len[actual_idx]
+
     batch_files = sorted(glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5")))
     for bf in tqdm(batch_files, desc="Filtering computed batches"):
         try:
@@ -1409,17 +1572,16 @@ def compile_final_output(
                 arr_l_len = hf["l_len"][:]
                 arr_g_score = hf["g_score"][:]
                 arr_g_len = hf["g_len"][:]
-                    
-                for k in range(len(arr_i)):
-                    i_val = int(arr_i[k])
-                    j_val = int(arr_j[k])
-                    pair_id = min(i_val, j_val) * new_N + max(i_val, j_val)
-                    if pair_id in pair_id_to_final_idx and pair_id not in cached_old_pairs:
-                        idx = pair_id_to_final_idx[pair_id]
-                        final_l_score[idx] = arr_l_score[k]
-                        final_l_len[idx] = arr_l_len[k]
-                        final_g_score[idx] = arr_g_score[k]
-                        final_g_len[idx] = arr_g_len[k]
+
+                pair_ids = np.minimum(arr_i, arr_j) * new_N + np.maximum(arr_i, arr_j)
+                position, wanted = _locate(sorted_pairs, pair_ids)
+                wanted &= ~_members(cached_pairs, pair_ids)
+                # A pair written twice keeps its last row, as the row-by-row loop did.
+                position = position[wanted]
+                final_l_score[position] = arr_l_score[wanted]
+                final_l_len[position] = arr_l_len[wanted]
+                final_g_score[position] = arr_g_score[wanted]
+                final_g_len[position] = arr_g_len[wanted]
         except Exception as e:
             # Skipping the batch would publish its pairs with zero scores.
             raise NetworkCompilationError(
