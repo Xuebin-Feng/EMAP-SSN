@@ -742,6 +742,14 @@ _EDGE_CHUNK = 1 << 22         # old edges handled at once by the cosine scans
 _PENDING_CHUNK = 1 << 16      # queued pairs turned into tuples at once
 
 
+def _sorted_unique(keys):
+    """Sorted distinct values (np.unique, which is several times slower on millions of int64 keys)."""
+    keys = np.sort(keys)
+    if keys.size > 1:
+        keys = keys[np.concatenate(([True], keys[1:] != keys[:-1]))]
+    return keys
+
+
 def _as_sorted_keys(keys):
     """Pair keys as a sorted, unique int64 array; a set, list or array is accepted."""
     if isinstance(keys, np.ndarray):
@@ -749,7 +757,7 @@ def _as_sorted_keys(keys):
     else:
         array = np.fromiter(keys, dtype=np.int64, count=len(keys))
     if array.size > 1 and not bool(np.all(array[1:] > array[:-1])):
-        array = np.unique(array)
+        array = _sorted_unique(array)
     return array
 
 
@@ -824,7 +832,7 @@ def _cached_pair_keys(edge_u, edge_v, new_N):
     kept = (edge_u >= 0) & (edge_v >= 0)
     u = edge_u[kept]
     v = edge_v[kept]
-    return np.unique(np.minimum(u, v) * new_N + np.maximum(u, v))
+    return _sorted_unique(np.minimum(u, v) * new_N + np.maximum(u, v))
 
 
 def _required_pair_keys(new_N, is_old, cached, cos_sim, threshold):
@@ -1500,7 +1508,7 @@ def scan_existing_batches(
         except Exception as e:
             print(f"Warning: Could not read batch file {bf}: {e}")
     if as_array:
-        return np.unique(np.concatenate(computed_chunks)) if computed_chunks else np.zeros(0, dtype=np.int64)
+        return _sorted_unique(np.concatenate(computed_chunks)) if computed_chunks else np.zeros(0, dtype=np.int64)
     return computed_pairs
 
 def compile_final_output(
