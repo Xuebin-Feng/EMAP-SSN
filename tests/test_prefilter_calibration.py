@@ -309,7 +309,8 @@ class RunSampleTests(unittest.TestCase):
         has_edge = rng.random(rows.size) < 0.6
         self.edge_i, self.edge_j = rows[has_edge], cols[has_edge]
         self.present = calibration.pair_presence(self.edge_i, self.edge_j, self.n)
-        self.values, self.rows, self.cols = calibration.missing_pairs(self.similarity, self.present)
+        self.values, self.locate = calibration.missing_pairs(self.similarity, self.present)
+        self.rows, self.cols = self.locate(np.arange(self.values.size))
 
     def test_the_bounds_of_a_run_sample_are_5000_and_100000(self):
         self.assertEqual((calibration.DRAW_MIN_PAIRS, calibration.DRAW_MAX_PAIRS), (5_000, 100_000))
@@ -336,7 +337,7 @@ class RunSampleTests(unittest.TestCase):
         np.testing.assert_array_equal(self.values, self.similarity[all_rows[expected], all_cols[expected]])
 
     def test_the_sample_is_drawn_only_among_the_missing_pairs(self):
-        sample = calibration.select_among(self.values, self.rows, self.cols, size=2_000)
+        sample = calibration.select_among(self.values, self.locate, size=2_000)
         self.assertEqual(len(sample), 2_000)
         self.assertFalse(self.present[sample.rows, sample.cols].any())
         self.assertTrue(np.all(sample.rows < sample.cols))
@@ -350,20 +351,62 @@ class RunSampleTests(unittest.TestCase):
         rows_all, cols_all = np.triu_indices(self.n, k=1)
         keep = upper >= threshold
         present = calibration.pair_presence(rows_all[keep], cols_all[keep], self.n)
-        values, rows, cols = calibration.missing_pairs(self.similarity, present)
+        values, locate = calibration.missing_pairs(self.similarity, present)
         new = calibration.select_among(
-            values, rows, cols, minimum=calibration.MIN_PAIRS, maximum=calibration.MAX_PAIRS)
+            values, locate, minimum=calibration.MIN_PAIRS, maximum=calibration.MAX_PAIRS)
         np.testing.assert_array_equal(new.rows, old.rows)
         np.testing.assert_array_equal(new.cols, old.cols)
         np.testing.assert_array_equal(new.weights, old.weights)
 
     def test_no_more_missing_pairs_than_the_size_are_all_taken_with_weight_one(self):
-        sample = calibration.select_among(self.values, self.rows, self.cols, size=10 ** 6)
+        sample = calibration.select_among(self.values, self.locate, size=10 ** 6)
         np.testing.assert_array_equal(sample.rows, self.rows)
         np.testing.assert_array_equal(sample.cols, self.cols)
         np.testing.assert_array_equal(sample.weights, np.ones(self.values.size))
-        none = calibration.select_among(self.values[:0], self.rows[:0], self.cols[:0])
+        none = calibration.select_among(self.values[:0], self.locate)
         self.assertEqual(len(none), 0)
+
+    def test_locate_gives_the_rows_and_columns_of_any_positions_in_any_order(self):
+        all_rows, all_cols = np.triu_indices(self.n, k=1)
+        expected = ~np.isin(all_rows * self.n + all_cols, self.edge_i * self.n + self.edge_j)
+        want_rows, want_cols = all_rows[expected], all_cols[expected]
+        rng = np.random.default_rng(9)
+        positions = np.concatenate([[0, want_rows.size - 1], rng.integers(0, want_rows.size, 500)])
+        rng.shuffle(positions)
+        rows, cols = self.locate(positions)
+        np.testing.assert_array_equal(rows, want_rows[positions])
+        np.testing.assert_array_equal(cols, want_cols[positions])
+        self.assertEqual(rows.dtype, np.int64)
+        # Rows that are full and rows that are empty of edges: every pair of an edgeless network, none of a complete one.
+        for edges in (np.zeros(0, dtype=int), None):
+            n = 9
+            r, c = np.triu_indices(n, k=1)
+            present = calibration.pair_presence(r if edges is None else edges, c if edges is None else edges, n)
+            values, locate = calibration.missing_pairs(np.ones((n, n)), present)
+            self.assertEqual(values.size, 0 if edges is None else n * (n - 1) // 2)
+            if edges is not None:
+                got = locate(np.arange(values.size))
+                np.testing.assert_array_equal(got[0], r)
+                np.testing.assert_array_equal(got[1], c)
+
+    def test_the_missing_pairs_hold_the_values_alone_eight_bytes_each(self):
+        import tracemalloc
+
+        n = 600
+        similarity = random_similarity(n, seed=1)
+        rows, cols = np.triu_indices(n, k=1)
+        keep = np.random.default_rng(2).random(rows.size) < 0.5
+        present = calibration.pair_presence(rows[keep], cols[keep], n)
+        tracemalloc.start()
+        try:
+            before = tracemalloc.get_traced_memory()[0]
+            values, locate = calibration.missing_pairs(similarity, present)
+            held = tracemalloc.get_traced_memory()[0] - before
+        finally:
+            tracemalloc.stop()
+        # The values (8 bytes per missing pair) plus the packed presence (n * n / 8) and a few vectors of n.
+        self.assertLess(held, values.size * 8 + n * n // 8 + 100_000)
+        self.assertGreater(held, values.size * 8)
 
 
 class SharedSimilarityRuleTests(unittest.TestCase):
@@ -403,6 +446,56 @@ class SharedSimilarityRuleTests(unittest.TestCase):
 
         self.assertEqual(list(inspect.signature(calibration.pair_similarity).parameters),
                          ["embeddings", "headers", "lengths", "progress"])
+
+    @staticmethod
+    def whole_matrix_reference(pooled, lengths, power):
+        """The arithmetic as it was before the row blocks: n x n temporaries, the one-thread product."""
+        from threadpoolctl import threadpool_limits
+
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1e-8, norms)
+        unit = pooled / norms
+        with threadpool_limits(limits=1, user_api="blas"):
+            similarity = np.clip(np.dot(unit, unit.T), -1.0, 1.0)
+        lengths = np.asarray(lengths, dtype=np.int32)
+        shorter = np.minimum(lengths[:, None], lengths[None, :])
+        longer = np.maximum(np.maximum(lengths[:, None], lengths[None, :]), 1)
+        ratio = shorter / longer
+        if power != 1.0:
+            ratio = ratio ** power
+        return similarity * ratio
+
+    def test_the_row_blocks_give_the_bytes_of_the_whole_matrix_arithmetic(self):
+        rng = np.random.default_rng(11)
+        pooled = rng.standard_normal((257, 24)).astype(np.float32)
+        pooled[5] = 0.0  # a zero vector counts as length 1e-8
+        lengths = rng.integers(0, 400, 257)  # unequal, with zeros
+        for power in (2.0, 1.0, 1.5, 3.0):
+            for block in (4_000_000, 257 * 7, 257, 1):  # one block, a few rows, one row, less than a row
+                with self.subTest(power=power, block=block), mock.patch.object(calibration, "_SIMILARITY_BLOCK", block):
+                    got = calibration.length_adjusted_similarity(pooled, lengths, power)
+                    want = self.whole_matrix_reference(pooled, lengths, power)
+                    self.assertEqual(got.dtype, np.float64)
+                    self.assertEqual(got.tobytes(), want.tobytes())
+
+    def test_the_similarity_holds_the_product_and_the_result_and_one_block(self):
+        import tracemalloc
+
+        rng = np.random.default_rng(12)
+        n = 1200
+        pooled = rng.standard_normal((n, 16)).astype(np.float32)
+        lengths = rng.integers(20, 300, n)
+        block = 50_000
+        with mock.patch.object(calibration, "_SIMILARITY_BLOCK", block):
+            tracemalloc.start()
+            try:
+                result = calibration.length_adjusted_similarity(pooled, lengths, 2.0)
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+        # 4 bytes (product) + 8 bytes (result) per pair of sequences, plus one block's few temporaries.
+        self.assertLess(peak, 12 * n * n + 40 * block + 1_000_000)
+        self.assertEqual(result.nbytes, 8 * n * n)
 
     def test_the_bytes_are_the_same_whatever_number_of_blas_threads_the_process_has(self):
         from threadpoolctl import threadpool_info, threadpool_limits

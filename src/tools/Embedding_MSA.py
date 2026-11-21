@@ -2146,10 +2146,10 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
         return CalibrationResult(CalibrationOutcome(
             "unavailable", f"calibration unavailable: {unavailable}", missing=missing, share=share,
         ))
-    values, rows, cols = Prefilter_Calibration.missing_pairs(similarity, present)
+    values, locate = Prefilter_Calibration.missing_pairs(similarity, present)
     del present
-    sample = Prefilter_Calibration.select_among(values, rows, cols)
-    del values, rows, cols
+    sample = Prefilter_Calibration.select_among(values, locate)
+    del values, locate
     pairs = np.concatenate([
         np.column_stack([sample.rows, sample.cols]),
         np.column_stack([check_edges.rows, check_edges.cols]),

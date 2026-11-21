@@ -25,7 +25,7 @@ This module imports no torch, numba or Qt.
 from dataclasses import dataclass
 
 import numpy as np
-from threadpoolctl import threadpool_limits  # a dependency of scikit-learn, which requirements.txt pins
+from threadpoolctl import threadpool_limits  # pinned in src/requirements.txt
 
 # The sample: FRACTION of the skipped pairs, at least MIN_PAIRS and at most
 # MAX_PAIRS (all of them when fewer are skipped), spread over BINS equal-count
@@ -60,6 +60,10 @@ DATA_WEIGHT = "calibration_weight"
 
 # Edges matched against the sample per step, to bound the temporary arrays.
 _MATCH_CHUNK = 8_000_000
+# Elements of the length-ratio block length_adjusted_similarity makes at a time (a few int32 and float64
+# temporaries of this size, about 100 MB), and values assigned to bands per step in _draw_by_bands.
+_SIMILARITY_BLOCK = 4_000_000
+_BAND_CHUNK = 8_000_000
 
 
 @dataclass
@@ -113,19 +117,34 @@ def length_adjusted_similarity(pooled, seq_lens, power):
     adds the float32 terms in another order, differs in the last bits, and so can move a pair across
     a band edge of the calibration draw or the prefilter's cut. Every tool therefore gets the bits a
     process with one BLAS thread gets (the way Align_Similarity_Matrix has always run).
+
+    Memory: the one float32 product (4 bytes per pair of sequences, clipped in place) and the float64
+    result (8 bytes) are the only n x n arrays; the length ratio and its power are made for a block of
+    rows at a time and multiplied into the result. Every element still passes through the same operations
+    on the same values (integer minimum and maximum, one division, one power, one multiplication, each
+    correctly rounded and none combining elements), so the order in which blocks are made cannot change a bit.
     """
     norms = np.linalg.norm(pooled, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1e-8, norms)
     unit = pooled / norms
     with threadpool_limits(limits=1, user_api="blas"):
-        similarity = np.clip(np.dot(unit, unit.T), -1.0, 1.0)
+        similarity = np.dot(unit, unit.T)
+    del unit
+    np.clip(similarity, -1.0, 1.0, out=similarity)
     lengths = np.asarray(seq_lens, dtype=np.int32)
-    shorter = np.minimum(lengths[:, None], lengths[None, :])
-    longer = np.maximum(np.maximum(lengths[:, None], lengths[None, :]), 1)
-    ratio = shorter / longer
-    if power != 1.0:
-        ratio = ratio ** power
-    return similarity * ratio
+    n = similarity.shape[0]
+    result = np.empty((n, n), dtype=np.float64)
+    block = max(1, _SIMILARITY_BLOCK // max(n, 1))
+    for start in range(0, n, block):
+        stop = min(start + block, n)
+        mine = lengths[start:stop, None]
+        shorter = np.minimum(mine, lengths[None, :])
+        longer = np.maximum(np.maximum(mine, lengths[None, :]), 1)
+        ratio = shorter / longer
+        if power != 1.0:
+            ratio = ratio ** power
+        np.multiply(similarity[start:stop], ratio, out=result[start:stop])
+    return result
 
 
 def pair_similarity(embeddings, headers, lengths, progress=None):
@@ -213,8 +232,14 @@ def _draw_by_bands(candidate_values, size, bins, seed):
     them band by band, so the same candidates in the same order give the same
     draw. A weight is its band's candidate count over the pairs drawn from it.
     """
+    # np.quantile partitions one copy of the values (8 bytes per candidate, freed on return, exact); the
+    # band of each candidate is one byte, found a chunk at a time, so no int64 array of the size of the values exists.
     edges = np.quantile(candidate_values, np.linspace(0.0, 1.0, bins + 1))
-    band = np.clip(np.searchsorted(edges, candidate_values, side="right") - 1, 0, bins - 1)
+    count = len(candidate_values)
+    band = np.empty(count, dtype=np.uint8 if bins <= 255 else np.int64)
+    for start in range(0, count, _BAND_CHUNK):
+        chunk = candidate_values[start:start + _BAND_CHUNK]
+        band[start:start + len(chunk)] = np.clip(np.searchsorted(edges, chunk, side="right") - 1, 0, bins - 1)
     rng = np.random.default_rng(seed)
     base, extra = divmod(size, bins)
     picked, weights = [], []
@@ -250,28 +275,46 @@ def missing_count(present):
 
 
 def missing_pairs(similarity, present):
-    """(values, rows, cols) of the pairs without an edge, in row-major upper-triangle order.
+    """(values, locate) of the pairs without an edge, in row-major upper-triangle order.
 
-    similarity is the (n, n) adjusted similarity, present the pair_presence of
-    the run's edges. rows and cols are int32; values are float64 as given.
+    similarity is the (n, n) adjusted similarity, present the pair_presence of the run's edges.
+    values holds the similarity of each missing pair (float64, 8 bytes per pair) and nothing else:
+    locate(positions) gives the (rows, cols) of the missing pairs at those positions (int64), found
+    from a bit-packed copy of present (n x n / 8 bytes) and the missing count of each row, so only
+    the pairs a draw picks ever get their rows and columns.
     """
     n = present.shape[0]
-    total = missing_count(present)
+    counts = (n - 1 - np.arange(n, dtype=np.int64)) - np.count_nonzero(present, axis=1)
+    total = int(counts.sum())
     values = np.empty(total, dtype=np.float64)
-    rows = np.empty(total, dtype=np.int32)
-    cols = np.empty(total, dtype=np.int32)
     filled = 0
     for row in range(n - 1):
         columns = np.flatnonzero(~present[row, row + 1:]) + row + 1
         stop = filled + columns.size
         values[filled:stop] = similarity[row, columns]
-        rows[filled:stop] = row
-        cols[filled:stop] = columns
         filled = stop
-    return values, rows, cols
+    packed = np.packbits(present, axis=1)
+    ends = np.cumsum(counts)
+
+    def locate(positions):
+        positions = np.asarray(positions, dtype=np.int64)
+        rows = np.searchsorted(ends, positions, side="right")
+        offsets = positions - (ends[rows] - counts[rows])
+        cols = np.empty(positions.size, dtype=np.int64)
+        order = np.argsort(rows, kind="stable")
+        sorted_rows = rows[order]
+        distinct, first = np.unique(sorted_rows, return_index=True)
+        last = np.append(first[1:], sorted_rows.size)
+        for row, begin, end in zip(distinct.tolist(), first.tolist(), last.tolist()):
+            absent = np.flatnonzero(np.unpackbits(packed[row], count=n)[row + 1:] == 0) + row + 1
+            chosen = order[begin:end]
+            cols[chosen] = absent[offsets[chosen]]
+        return rows, cols
+
+    return values, locate
 
 
-def select_among(values, rows, cols, size=None, bins=BINS, seed=SEED, minimum=None, maximum=None):
+def select_among(values, locate, size=None, bins=BINS, seed=SEED, minimum=None, maximum=None):
     """The calibration sample of a run's missing pairs (missing_pairs gives its arguments).
 
     The same rule as select_calibration, applied to the missing pairs in
@@ -294,11 +337,12 @@ def select_among(values, rows, cols, size=None, bins=BINS, seed=SEED, minimum=No
         empty = np.zeros(0, dtype=np.int64)
         return CalibrationSample(empty, empty.copy(), np.zeros(0, dtype=np.float64))
     if size == count:
+        rows, cols = locate(np.arange(count, dtype=np.int64))
         return CalibrationSample(np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64),
                                  np.ones(count, dtype=np.float64))
     picked, weights = _draw_by_bands(values, size, bins, seed)
-    return CalibrationSample(np.asarray(rows[picked], dtype=np.int64),
-                             np.asarray(cols[picked], dtype=np.int64), weights)
+    rows, cols = locate(picked)
+    return CalibrationSample(np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64), weights)
 
 
 def write_record(hf, record, idx_dtype):
