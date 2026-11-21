@@ -1323,5 +1323,530 @@ class InjectionResumeScanTests(BatchResumeScanFixture, unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# Pair selection and the final merge against the original per-pair loops.
+# The oracle functions below are the loops the numpy code replaced, kept
+# slow and plain on purpose.
+# ---------------------------------------------------------------------------
+
+def _unit_cosines(vectors):
+    """The tool's all-vs-all cosine of (n, d) vectors: float32, clipped."""
+    mean_embs = np.array(vectors, dtype=np.float32)
+    norms = np.linalg.norm(mean_embs, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1e-8, norms)
+    norm_embs = mean_embs / norms
+    return np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
+
+
+def _oracle_selection(old_headers, old_i, old_j, new_headers, cos_sim, calibration, sparse):
+    """(threshold, lowest edge, cached pairs, required pairs) by the original loops."""
+    new_idx = {h: idx for idx, h in enumerate(new_headers)}
+    new_n = len(new_headers)
+    threshold = -1.0
+    lowest = -1
+    if sparse and len(old_i) > 0:
+        min_val = 1.0
+        for k in range(len(old_i)):
+            if k in calibration:
+                continue
+            u_h = old_headers[old_i[k]]
+            v_h = old_headers[old_j[k]]
+            if u_h in new_idx and v_h in new_idx:
+                sim = float(cos_sim[new_idx[u_h], new_idx[v_h]])
+                if sim < min_val:
+                    min_val, lowest = sim, k
+        threshold = min_val if lowest != -1 else 0.0
+    old_set = set(old_headers)
+    cached = set()
+    for k in range(len(old_i)):
+        u_h = old_headers[old_i[k]]
+        v_h = old_headers[old_j[k]]
+        if u_h in new_idx and v_h in new_idx:
+            u, v = new_idx[u_h], new_idx[v_h]
+            cached.add(min(u, v) * new_n + max(u, v))
+    required = set()
+    for i in range(new_n):
+        is_old_i = new_headers[i] in old_set
+        for j in range(i + 1, new_n):
+            is_old_j = new_headers[j] in old_set
+            keep = False
+            if is_old_i and is_old_j:
+                keep = (i * new_n + j) in cached
+            elif not sparse or (cos_sim is not None and cos_sim[i, j] >= threshold):
+                keep = True
+            if keep:
+                required.add(i * new_n + j)
+    return threshold, lowest, cached, required
+
+
+def _oracle_pending(new_n, required, cached, computed):
+    return [
+        i * new_n + j
+        for i in range(new_n)
+        for j in range(i + 1, new_n)
+        if (i * new_n + j) in required
+        and (i * new_n + j) not in cached
+        and (i * new_n + j) not in computed
+    ]
+
+
+def _oracle_merge(new_n, required, cached, new_headers, old_index, old_arrays,
+                  actual_idx_map, batches):
+    """The original compile_final_output arrays: (i, j, l_score, l_len, g_score, g_len)."""
+    old_l_score, old_l_len, old_g_score, old_g_len = old_arrays
+    sorted_pairs = sorted(required)
+    final = {name: np.zeros(len(sorted_pairs), dtype=dtype) for name, dtype in (
+        ("i", np.uint16), ("j", np.uint16), ("l_score", np.float32),
+        ("l_len", np.uint16), ("g_score", np.float32), ("g_len", np.uint16))}
+    slot = {}
+    for idx, pair_id in enumerate(sorted_pairs):
+        final["i"][idx] = pair_id // new_n
+        final["j"][idx] = pair_id % new_n
+        slot[pair_id] = idx
+    for pair_id in cached:
+        if pair_id in slot:
+            idx = slot[pair_id]
+            u = old_index[new_headers[pair_id // new_n]]
+            v = old_index[new_headers[pair_id % new_n]]
+            lo, hi = min(u, v), max(u, v)
+            theoretical = lo * len(old_index) - lo * (lo + 1) // 2 + (hi - lo - 1)
+            actual = actual_idx_map[theoretical]
+            final["l_score"][idx] = old_l_score[actual]
+            final["l_len"][idx] = old_l_len[actual]
+            final["g_score"][idx] = old_g_score[actual]
+            final["g_len"][idx] = old_g_len[actual]
+    for arr_i, arr_j, l_score, l_len, g_score, g_len in batches:
+        for k in range(len(arr_i)):
+            pair_id = min(int(arr_i[k]), int(arr_j[k])) * new_n + max(int(arr_i[k]), int(arr_j[k]))
+            if pair_id in slot and pair_id not in cached:
+                idx = slot[pair_id]
+                final["l_score"][idx] = l_score[k]
+                final["l_len"][idx] = l_len[k]
+                final["g_score"][idx] = g_score[k]
+                final["g_len"][idx] = g_len[k]
+    return final
+
+
+def _random_world(rng, kind):
+    """An old network and a new sequence set that drops some old sequences and adds new ones.
+
+    Vectors come from a tiny grid so that many cosines are exactly equal (ties).
+    kind: "dense", "sparse_record" or "sparse_plain".
+    """
+    pool = [f"s{k}" for k in range(int(rng.integers(12, 24)))]
+    grid = np.array([[1, 0, 0], [0, 1, 0], [1, 1, 0], [1, -1, 0], [0, 0, 1], [1, 0, 1], [-1, 0, 1]], np.float32)
+    vectors = {h: grid[int(rng.integers(len(grid)))] for h in pool}
+    old_n = int(rng.integers(3, 10))
+    old_headers = [pool[k] for k in rng.permutation(len(pool))[:old_n]]
+    kept = [h for h in old_headers if rng.random() < 0.75]
+    others = [h for h in pool if h not in old_headers]
+    added = others[: int(rng.integers(0, 7))]
+    members = kept + added
+    if len(members) < 2:
+        members = old_headers[:2]
+    new_headers = [members[k] for k in rng.permutation(len(members))]
+    all_pairs = [(i, j) for i in range(old_n) for j in range(i + 1, old_n)]
+    if kind == "dense":
+        edges = [all_pairs[k] for k in rng.permutation(len(all_pairs))]
+    else:
+        count = int(rng.integers(1, len(all_pairs)))
+        edges = [all_pairs[k] for k in rng.permutation(len(all_pairs))[:count]]
+    calibration = set()
+    if kind == "sparse_record":
+        calibration = {int(k) for k in rng.permutation(len(edges))[: int(rng.integers(1, len(edges) + 1))]}
+    return vectors, old_headers, new_headers, edges, calibration
+
+
+class NetworkInjectionSelectionTests(unittest.TestCase):
+    """The numpy pair selection and merge equal the original per-pair loops."""
+
+    def _glue(self, old_headers, edges, new_headers, random_orientation=None):
+        """old_to_new maps and the two ends of every old edge, as run_injection builds them."""
+        new_idx = {h: idx for idx, h in enumerate(new_headers)}
+        old_to_new = np.array([new_idx.get(h, -1) for h in old_headers], dtype=np.int64)
+        old_i = np.array([e[0] for e in edges], dtype=np.int64)
+        old_j = np.array([e[1] for e in edges], dtype=np.int64)
+        if random_orientation is not None:
+            flip = random_orientation.random(len(edges)) < 0.5
+            old_i, old_j = np.where(flip, old_j, old_i), np.where(flip, old_i, old_j)
+        return old_i, old_j, old_to_new[old_i], old_to_new[old_j]
+
+    def test_selection_helpers_equal_the_original_loops(self):
+        for seed in range(80):
+            rng = np.random.default_rng(seed)
+            kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
+            vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind)
+            cos_sim = _unit_cosines([vectors[h] for h in new_headers])
+            new_n = len(new_headers)
+            sparse = kind != "dense"
+            old_i, old_j, edge_u, edge_v = self._glue(old_headers, edges, new_headers, rng)
+            skip = np.zeros(len(edges), dtype=bool)
+            skip[list(calibration)] = True
+            expected = _oracle_selection(
+                old_headers, old_i.tolist(), old_j.tolist(), new_headers, cos_sim,
+                calibration, sparse,
+            )
+            block_cells = int(rng.choice([1, new_n, 2 * new_n + 1, 7, 10 ** 6]))
+            chunk = int(rng.choice([1, 2, 3, 1 << 22]))
+            with self.subTest(seed=seed, kind=kind, block_cells=block_cells, chunk=chunk), \
+                    mock.patch.object(network_injection, "_PAIR_BLOCK_CELLS", block_cells), \
+                    mock.patch.object(network_injection, "_EDGE_CHUNK", chunk), \
+                    mock.patch.object(network_injection, "_PENDING_CHUNK", chunk):
+                threshold = -1.0
+                if sparse:
+                    value, lowest = network_injection._lowest_edge_cosine(
+                        cos_sim, edge_u, edge_v, skip
+                    )
+                    threshold = value if lowest != -1 else 0.0
+                    self.assertEqual(lowest, expected[1])
+                    self.assertEqual(threshold, expected[0])
+                    # The scan for edges below the cut: counts what the loop counted.
+                    for limit in (threshold - 1e-5, threshold + 0.2, 2.0):
+                        count, first = network_injection._edges_below_cosine(
+                            cos_sim, edge_u, edge_v, skip, limit
+                        )
+                        loop = [
+                            (k, cos_sim[edge_u[k], edge_v[k]]) for k in range(len(edges))
+                            if k not in calibration and edge_u[k] >= 0 and edge_v[k] >= 0
+                            and cos_sim[edge_u[k], edge_v[k]] < limit
+                        ]
+                        self.assertEqual(count, len(loop))
+                        self.assertEqual([k for k, _ in first], [k for k, _ in loop[:10]])
+                cached = network_injection._cached_pair_keys(edge_u, edge_v, new_n)
+                self.assertEqual(cached.dtype, np.int64)
+                self.assertEqual(cached.tolist(), sorted(expected[2]))
+                old_set = set(old_headers)
+                is_old = np.array([h in old_set for h in new_headers])
+                required = network_injection._required_pair_keys(
+                    new_n, is_old, cached, cos_sim if sparse else None, threshold
+                )
+                self.assertEqual(required.dtype, np.int64)
+                self.assertEqual(required.tolist(), sorted(expected[3]))
+
+                computed = {
+                    int(k) for k in rng.choice(
+                        new_n * new_n, int(rng.integers(0, 10)), replace=True
+                    )
+                } | set(sorted(expected[3])[: int(rng.integers(0, 3))])
+                headers = [f"h{k}" for k in range(new_n)]
+                pending = _oracle_pending(new_n, expected[3], expected[2], computed)
+                self.assertEqual(
+                    list(network_injection._iter_pending_pairs(
+                        headers, expected[3], expected[2], computed
+                    )),
+                    [(p // new_n, p % new_n, headers[p // new_n], headers[p % new_n]) for p in pending],
+                )
+                keys = network_injection._pending_keys(
+                    required, cached, np.array(sorted(computed), dtype=np.int64), new_n
+                )
+                self.assertEqual(keys.tolist(), pending)
+                counts = np.bincount(keys // new_n, minlength=new_n)
+                for row in range(new_n):
+                    self.assertEqual(
+                        counts[row], sum(1 for p in pending if p // new_n == row)
+                    )
+
+    def test_lowest_cosine_is_the_first_edge_among_equal_values(self):
+        cos_sim = np.array([[1.0, 0.5, 0.5, 0.9], [0.5, 1.0, 0.5, 0.5], [0.5, 0.5, 1.0, 0.7], [0.9, 0.5, 0.7, 1.0]], np.float32)
+        edge_u = np.array([0, 2, 0, 1, 1, 0])
+        edge_v = np.array([3, 3, 1, 2, 3, 2])
+        skip = np.zeros(6, dtype=bool)
+        for chunk in (1, 2, 4, 100):
+            with mock.patch.object(network_injection, "_EDGE_CHUNK", chunk):
+                self.assertEqual(
+                    network_injection._lowest_edge_cosine(cos_sim, edge_u, edge_v, skip),
+                    (0.5, 2),
+                )
+                skip[2] = True
+                self.assertEqual(
+                    network_injection._lowest_edge_cosine(cos_sim, edge_u, edge_v, skip),
+                    (0.5, 3),
+                )
+                skip[2] = False
+        # Nothing below 1.0: no edge, and the caller falls back to 0.0.
+        ones = np.ones((2, 2), np.float32)
+        self.assertEqual(
+            network_injection._lowest_edge_cosine(ones, np.array([0]), np.array([1]), np.zeros(1, bool)),
+            (1.0, -1),
+        )
+
+    def test_a_new_pair_at_exactly_the_cut_is_required(self):
+        # A-B is the lowest old edge; the new pair C-D has the same cosine.
+        cos_sim = np.array([
+            [1.0, 0.6, 0.9, 0.9],
+            [0.6, 1.0, 0.9, 0.9],
+            [0.9, 0.9, 1.0, 0.6],
+            [0.9, 0.9, 0.6, 1.0],
+        ], np.float32)
+        is_old = np.array([True, True, False, False])
+        cached = np.array([0 * 4 + 1], dtype=np.int64)
+        required = network_injection._required_pair_keys(4, is_old, cached, cos_sim, float(cos_sim[0, 1]))
+        self.assertEqual(required.tolist(), [1, 2, 3, 6, 7, 11])
+        self.assertEqual(
+            network_injection._required_pair_keys(4, is_old, cached, cos_sim, 0.61).tolist(),
+            [1, 2, 3, 6, 7],
+        )
+
+    def _write_batch(self, results_dir, name, pairs, scores):
+        arr_i = np.array([p[0] for p in pairs], dtype=np.uint32)
+        arr_j = np.array([p[1] for p in pairs], dtype=np.uint32)
+        with h5py.File(os.path.join(results_dir, name), "w") as hf:
+            hf.create_dataset("i", data=arr_i)
+            hf.create_dataset("j", data=arr_j)
+            hf.create_dataset("l_score", data=np.array([s[0] for s in scores], np.float32))
+            hf.create_dataset("l_len", data=np.array([s[1] for s in scores], np.uint16))
+            hf.create_dataset("g_score", data=np.array([s[2] for s in scores], np.float32))
+            hf.create_dataset("g_len", data=np.array([s[3] for s in scores], np.uint16))
+
+    def test_compile_equals_the_original_merge_on_random_inputs(self):
+        for seed in range(40):
+            rng = np.random.default_rng(1000 + seed)
+            vectors, old_headers, new_headers, edges, _calibration = _random_world(
+                rng, ("dense", "sparse_plain")[seed % 2]
+            )
+            new_n = len(new_headers)
+            old_n = len(old_headers)
+            old_i = np.array([e[0] for e in edges], dtype=np.int64)
+            old_j = np.array([e[1] for e in edges], dtype=np.int64)
+            count = len(edges)
+            old_arrays = (
+                (np.arange(count) + 10.5).astype(np.float32),
+                (np.arange(count) + 3).astype(np.uint16),
+                (np.arange(count) + 500.25).astype(np.float32),
+                (np.arange(count) + 4).astype(np.uint16),
+            )
+            flat = old_i * old_n - old_i * (old_i + 1) // 2 + (old_j - old_i - 1)
+            legacy_map = np.full(old_n * (old_n - 1) // 2, -1, dtype=np.int64)
+            legacy_map[flat] = np.arange(count)
+            old_index = {h: k for k, h in enumerate(old_headers)}
+            _t, _k, cached, required = _oracle_selection(
+                old_headers, old_i.tolist(), old_j.tolist(), new_headers,
+                _unit_cosines([vectors[h] for h in new_headers]), set(), False,
+            )
+            # Batches: pairs to compute, a pair written twice, pairs that are not
+            # required, a cached pair with a wrong score, and reversed (j, i) rows.
+            everything = [(i, j) for i in range(new_n) for j in range(i + 1, new_n)]
+            batch_pairs = [
+                [everything[k] for k in rng.permutation(len(everything))[: int(rng.integers(0, len(everything) + 1))]]
+                for _ in range(int(rng.integers(1, 4)))
+            ]
+            batches = []
+            with tempfile.TemporaryDirectory() as temp_dir:
+                results_dir = os.path.join(temp_dir, "batches")
+                os.makedirs(results_dir)
+                for number, pairs in enumerate(batch_pairs):
+                    pairs = [p[::-1] if rng.random() < 0.3 else p for p in pairs]
+                    scores = [(float(100 * number + n + 0.5), n % 50 + 1, float(7 * number + n + 0.25), n % 40 + 2)
+                              for n in range(len(pairs))]
+                    self._write_batch(results_dir, f"batch_{number:05d}.h5", pairs, scores)
+                    batches.append((
+                        np.array([p[0] for p in pairs], dtype=np.int64),
+                        np.array([p[1] for p in pairs], dtype=np.int64),
+                        np.array([s[0] for s in scores], np.float32),
+                        np.array([s[1] for s in scores], np.uint16),
+                        np.array([s[2] for s in scores], np.float32),
+                        np.array([s[3] for s in scores], np.uint16),
+                    ))
+                expected = _oracle_merge(
+                    new_n, required, cached, new_headers, old_index, old_arrays, legacy_map,
+                    batches if batch_pairs else [],
+                )
+                kinds = {
+                    "sets and legacy map": (set(required), set(cached), legacy_map),
+                    "arrays and edge index": (
+                        np.array(sorted(required), dtype=np.int64),
+                        np.array(sorted(cached), dtype=np.int64),
+                        network_injection._OldEdgeIndex(flat),
+                    ),
+                }
+                for label, (req, cac, index_map) in kinds.items():
+                    output = os.path.join(temp_dir, label.split()[0], "net_[model]_network.h5")
+                    with self.subTest(seed=seed, inputs=label), mock.patch.object(
+                        network_injection, "RESULTS_DIR", results_dir
+                    ), mock.patch.object(
+                        network_injection, "FINAL_OUTPUT_NET", output
+                    ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        network_injection.compile_final_output(
+                            new_headers=new_headers, seq_lens=[5] * new_n,
+                            required_pairs=req, cached_old_pairs=cac, new_N=new_n,
+                            old_header_to_idx=old_index,
+                            old_l_score=old_arrays[0], old_l_len=old_arrays[1],
+                            old_g_score=old_arrays[2], old_g_len=old_arrays[3],
+                            actual_idx_map=index_map, current_checksum="c",
+                            model_name="model", saving_mode="float32",
+                            gap_penalties=[-2.0, 0.0],
+                        )
+                        with h5py.File(output, "r") as hf:
+                            for name in ("i", "j", "l_score", "l_len", "g_score", "g_len"):
+                                np.testing.assert_array_equal(hf[name][:], expected[name], err_msg=name)
+                                self.assertEqual(hf[name].dtype, expected[name].dtype)
+
+    def _run_injection(self, temp_dir, rng, kind, batch_size):
+        """Run run_injection on a random world with stubbed alignment; return what it did."""
+        vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind)
+        embed_dir = os.path.join(temp_dir, "embed")
+        network_dir = os.path.join(temp_dir, "network")
+        os.makedirs(embed_dir)
+        os.makedirs(network_dir)
+        embeddings = os.path.join(embed_dir, "newset_[esm2_t6_8m]_embeddings.h5")
+        with h5py.File(embeddings, "w") as hf:
+            group = Embedding_HDF5.create_metadata_first_file(
+                hf, new_headers, ["K"] * len(new_headers), "esm2_t6_8m", "float32",
+            )
+            for header in new_headers:
+                group.create_dataset(header, data=vectors[header][None, :].astype(np.float32))
+            Embedding_HDF5.mark_generation_complete(hf)
+        old_n = len(old_headers)
+        count = len(edges)
+        with h5py.File(os.path.join(network_dir, "oldset_[esm2_t6_8m]_network.h5"), "w") as hf:
+            hf.attrs["model_name"] = "esm2_t6_8m"
+            hf.attrs["saving_mode"] = "float32"
+            hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], np.float32)
+            hf.attrs["matmul_precision"] = "ieee_fp32"
+            hf.create_dataset("headers", data=np.array(old_headers, dtype=object),
+                              dtype=h5py.string_dtype(encoding="utf-8"))
+            hf.create_dataset("seq_lens", data=np.ones(old_n, np.uint16))
+            for name, data in (
+                ("i", [e[0] for e in edges]), ("j", [e[1] for e in edges]),
+                ("l_score", np.arange(count) + 10.5), ("l_len", np.arange(count) + 1),
+                ("g_score", np.arange(count) + 500.25), ("g_len", np.arange(count) + 2),
+            ):
+                dtype = np.float32 if name.endswith("score") else np.uint16
+                hf.create_dataset(name, data=np.asarray(data, dtype))
+            if calibration:
+                ordered = sorted(calibration)
+                Prefilter_Calibration.write_record(hf, Prefilter_Calibration.PrefilterRecord(
+                    strength=50.0, threshold=0.9, pooling="max", length_power=2.0, kept=count, skipped=count,
+                    sample=Prefilter_Calibration.CalibrationSample(
+                        np.array([edges[k][0] for k in ordered]),
+                        np.array([edges[k][1] for k in ordered]),
+                        np.ones(len(ordered)),
+                    ),
+                ), np.uint16)
+        cos_sim = _unit_cosines([vectors[h] for h in new_headers])
+        sparse = kind != "dense"
+        old_i = [e[0] for e in edges]
+        old_j = [e[1] for e in edges]
+        threshold, _lowest, cached, required = _oracle_selection(
+            old_headers, old_i, old_j, new_headers, cos_sim, calibration, sparse
+        )
+        new_n = len(new_headers)
+        number = lambda header: int(header[1:])
+        stub = lambda i, j: (
+            1000.5 + 10 * number(new_headers[i]) + number(new_headers[j]),
+            number(new_headers[i]) + number(new_headers[j]) + 1,
+            2000.25 + 7 * number(new_headers[i]) + number(new_headers[j]),
+            number(new_headers[i]) + number(new_headers[j]) + 2,
+        )
+        # A batch left by an earlier run: some pending pairs, a pair no longer
+        # required, and a cached pair with a wrong score; all must be handled.
+        pending = _oracle_pending(new_n, required, cached, set())
+        resumed = {}
+        computed_all = set()
+        if rng.random() < 0.85 and pending:
+            results_dir = os.path.join(network_dir, "newset_[esm2_t6_8m]_network_temp")
+            os.makedirs(results_dir)
+            chosen = [pending[k] for k in rng.permutation(len(pending))[: int(rng.integers(1, len(pending) + 1))]]
+            rows = [(p // new_n, p % new_n) for p in chosen]
+            scores = [(7000.5 + n, n + 1, 8000.25 + n, n + 2) for n in range(len(rows))]
+            resumed = {p: scores[n] for n, p in enumerate(chosen)}
+            extra = [p for p in range(new_n * new_n)
+                     if p // new_n < p % new_n and p not in required][:1] + sorted(cached)[:1]
+            for p in extra:
+                rows.append((p // new_n, p % new_n))
+                scores.append((9999.5, 9, 9999.25, 9))
+            computed_all = set(resumed) | set(extra)
+            self._write_batch(results_dir, "batch_00000.h5", rows, scores)
+            with h5py.File(os.path.join(results_dir, "batch_00000.h5"), "a") as hf:
+                hf.attrs["embedding_checksum"] = network_injection.calculate_file_hash(embeddings)
+                hf.attrs["model_name"] = "esm2_t6_8m"
+                hf.attrs["saving_mode"] = "float32"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], np.float32)
+                hf.attrs["matmul_precision"] = "ieee_fp32"
+        queue = _oracle_pending(new_n, required, cached, set(resumed))
+
+        def compute(tasks, *_args, **_kwargs):
+            return [(i, j, *stub(i, j)) for i, j, _h_i, _h_j in tasks]
+
+        cpu_tasks = mock.Mock(side_effect=compute)
+        plan = mock.Mock(variant="scalar", lanes=1)
+        plan.candidate.is_cpu = True
+        plan.candidate.device = torch.device("cpu")
+        assigned = (
+            "_old_seq_set", "_new_seq_set", "_model_name", "RESULTS_DIR",
+            "FINAL_OUTPUT_NET", "CONFIG_FILE", "LOCAL_GAP_P", "GLOBAL_GAP_P",
+        )
+        printed = io.StringIO()
+        with mock.patch.multiple(
+            network_injection,
+            **{name: getattr(network_injection, name) for name in assigned},
+            OLD_NETWORK="oldset_[esm2_t6_8m]_network.h5",
+            NEW_EMBEDDINGS="newset_[esm2_t6_8m]_embeddings.h5",
+            EMBED_DIR=embed_dir, NETWORK_DIR=network_dir,
+            EXECUTION_MODE="auto", DEVICE_SELECTION="auto", BATCH_SIZE=batch_size,
+            set_start_method=mock.DEFAULT,
+            _benchmark_injection_plans=mock.Mock(return_value=[plan]),
+            process_cpu_tasks=cpu_tasks,
+        ), redirect_stdout(printed), redirect_stderr(io.StringIO()):
+            network_injection.run_injection()
+        with h5py.File(os.path.join(network_dir, "newset_[esm2_t6_8m]_network.h5"), "r") as hf:
+            actual = {name: hf[name][:] for name in ("i", "j", "l_score", "l_len", "g_score", "g_len")}
+        expected_rows = []
+        for p in sorted(required):
+            if p in cached:
+                u = old_headers.index(new_headers[p // new_n])
+                v = old_headers.index(new_headers[p % new_n])
+                k = [n for n in range(count) if {edges[n][0], edges[n][1]} == {u, v}][-1]
+                row = (k + 10.5, k + 1, k + 500.25, k + 2)
+            elif p in resumed:
+                row = resumed[p]
+            else:
+                row = stub(p // new_n, p % new_n)
+            expected_rows.append((p // new_n, p % new_n, *row))
+        return {
+            "tasks": [list(call.args[0]) for call in cpu_tasks.call_args_list],
+            "queue": queue, "new_n": new_n, "printed": printed.getvalue(),
+            "actual": actual, "expected_rows": expected_rows,
+            "threshold": threshold, "required": required, "cached": cached,
+            "resumed": resumed, "computed_all": computed_all,
+            "calibration": calibration, "sparse": sparse,
+        }
+
+    def test_run_injection_equals_the_original_selection_end_to_end(self):
+        resumed_seen = 0
+        for seed in range(36):
+            kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
+            rng = np.random.default_rng(5000 + seed)
+            batch_size = int(rng.choice([1, 3, 7, 500000]))
+            with self.subTest(seed=seed, kind=kind, batch_size=batch_size), \
+                    tempfile.TemporaryDirectory() as temp_dir:
+                result = self._run_injection(temp_dir, rng, kind, batch_size)
+                new_n = result["new_n"]
+                queue = result["queue"]
+                flat = [task for batch in result["tasks"] for task in batch]
+                self.assertEqual([(t[0], t[1]) for t in flat], [(p // new_n, p % new_n) for p in queue])
+                self.assertEqual(
+                    [len(batch) for batch in result["tasks"]],
+                    [len(queue[k:k + batch_size]) for k in range(0, len(queue), batch_size)],
+                )
+                rows = list(zip(*(result["actual"][n].tolist() for n in ("i", "j", "l_score", "l_len", "g_score", "g_len"))))
+                self.assertEqual(rows, result["expected_rows"])
+                text = result["printed"]
+                self.assertIn(f"Total Required pairs: {len(result['required'])}\n", text)
+                self.assertIn(f"Pre-existing cached pairs: {len(result['cached'])}\n", text)
+                # Every pair the left-over batch holds that the network requires counts,
+                # including its cached extra row.
+                self.assertIn(
+                    f"Already computed pairs: {len(result['computed_all'] & result['required'])}\n", text
+                )
+                self.assertIn(f"Pairs queued for calculation: {len(queue)}\n", text)
+                if result["sparse"] and "Old network is empty" not in text:
+                    self.assertIn(
+                        f"Setting cosine similarity prefiltering threshold to: {result['threshold']:.6f}\n", text
+                    )
+                resumed_seen += bool(result["resumed"])
+        self.assertGreater(resumed_seen, 5)
+
+
 if __name__ == "__main__":
     unittest.main()
