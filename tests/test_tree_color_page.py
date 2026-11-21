@@ -81,6 +81,9 @@ class ColorCase(TreePageMixin, unittest.TestCase):
         """Draw a frame with spies on the drawing, and run ``body`` (which may use drawn, stylesOf and stemOf) on it."""
         return self.script(SPY + f"""
             let result;
+            // stylesOf lists a colour once for each stroke of the path: at a pixel ratio above 1 the page strokes a wider
+            // line as several one-pixel lines (strokeLines), so one line of colour is listed several times there.
+            const distinct = (styles) => styles.filter((style, i) => styles.findIndex((other) => other.every((v, k) => v === style[k])) === i);
             try {{ TreeView.drawNow(); result = (() => {{ {body} }})(); }} finally {{ restore(); }}
             return result;""")
 
@@ -519,7 +522,7 @@ class ColorDrawingTests(ColorCase):
             with self.subTest(kind=kind):
                 self.choose(kind)
                 found = self.spied("""
-                    const m = TreeView.state.model, p = TreeView.state.palette, at = (k) => stylesOf(...stemOf(m.leafNode[k]));
+                    const m = TreeView.state.model, p = TreeView.state.palette, at = (k) => distinct(stylesOf(...stemOf(m.leafNode[k])));
                     return {a: at(0), e: at(4), g: at(6), h: at(7), c: at(2)};""")
                 self.assertEqual(found["a"], [[255, 0, 0]])
                 self.assertEqual(found["e"], [[0, 0, 255]])
@@ -534,7 +537,7 @@ class ColorDrawingTests(ColorCase):
             with self.subTest(kind=kind):
                 self.choose(kind)
                 found = self.spied("""
-                    const m = TreeView.state.model, p = TreeView.state.palette, at = (i) => stylesOf(...stemOf(i));
+                    const m = TreeView.state.model, p = TreeView.state.palette, at = (i) => distinct(stylesOf(...stemOf(i)));
                     return {ab: at(2), abcd: at(6), ef: at(9), efgh: at(13), gh: at(12), branch: TreeView.rgbOf(p.branch)};""")
                 self.assertEqual(found["ab"], [[255, 0, 0]])
                 self.assertEqual(found["abcd"], [[255, 0, 0]])
@@ -648,7 +651,7 @@ class ColorDrawingTests(ColorCase):
             const m = TreeView.state.model, p = TreeView.state.palette;
             const reds = drawn.filter(e => e.op === 'stroke' && e.main && JSON.stringify(e.style) === JSON.stringify(TreeView.rgbOf(p.branch)));
             return {strokeStyles: new Set(drawn.filter(e => e.op === 'stroke' && e.main).map(e => JSON.stringify(e.style))).size,
-                    leaf: stylesOf(...stemOf(m.leafNode[0])), branch: TreeView.rgbOf(p.branch)};""")
+                    leaf: distinct(stylesOf(...stemOf(m.leafNode[0]))), branch: TreeView.rgbOf(p.branch)};""")
         self.assertEqual(found["leaf"], [[0x44, 0x88, 0xFF]])
 
     def test_drawing_with_colours_writes_nothing_to_the_console(self):

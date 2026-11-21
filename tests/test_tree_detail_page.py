@@ -682,9 +682,16 @@ class LevelOfDetailEverywhereTests(TreePageMixin, unittest.TestCase):
 
     def test_a_rectangular_tree_is_drawn_on_the_middle_of_its_pixels(self):
         # Lines that fall on the middle of a pixel draw several times faster than those spread over two.
+        # Measured on the page as it draws at rest: at a pixel ratio of 1 a stem is one row of full colour with the
+        # background beside it; at 2 it is centred on a device pixel (full colour there) and is 2 device pixels wide
+        # (the page makes it of one-pixel lines moved half a pixel up, down, left and right), so the row on each side
+        # is half of it and the next is the background. Other ratios have not been measured.
         self.serve_shape("balanced")
+        ratio = self.state("window.devicePixelRatio")
+        if ratio not in (1, 2):
+            self.skipTest(f"the stems were measured at pixel ratios 1 and 2, not {ratio}")
         info = self.script("""
-            const s = TreeView.state, v = s.view, L = s.layout;
+            const s = TreeView.state, v = s.view, L = s.layout, ratio = window.devicePixelRatio;
             TreeView.zoomToNode(TreeView.state.model.root);
             TreeView.zoomAbout(600, 300, 1, 60);
             TreeView.drawNow();
@@ -693,14 +700,20 @@ class LevelOfDetailEverywhereTests(TreePageMixin, unittest.TestCase):
             const colour = (css) => { ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1); return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)); };
             const branch = colour(s.palette.branch), background = colour(s.palette.background);
             let crisp = 0, blurred = 0;
-            const m = s.model;
+            const m = s.model, canvas = document.getElementById('tree-canvas');
             for (let k = 0; k < m.leafCount; k++) {
                 const box = TreeView.nodePixels(s, m.leafNode[k]);
                 if (box.y < 20 || box.y > 640 || box.x0 < 40 || box.x - box.x0 < 40) continue;
-                const x = Math.round(box.x0 + 20), row = Math.floor(box.y);
-                const on = fire.pixel(x, row).slice(0, 3), above = fire.pixel(x, row - 1).slice(0, 3), below = fire.pixel(x, row + 1).slice(0, 3);
-                const same = (a, b) => a.every((value, i) => value === b[i]);
-                if (same(on, branch) && same(above, background) && same(below, background)) crisp++; else blurred++;
+                // Device pixels: the stem's own row is the one the page puts its middle on.
+                const x = Math.round((box.x0 + 20) * ratio), row = Math.floor(box.y * ratio);
+                const at = (r) => Array.from(canvas.getContext('2d').getImageData(x, r, 1, 1).data.slice(0, 3));
+                // (A step in a channel is antialiasing: at a ratio of 2 the blue of the stem reads 90 for 91.)
+                const on = at(row), same = (a, b) => a.every((value, i) => Math.abs(value - b[i]) <= 3);
+                const between = (a) => a.every((value, i) => Math.abs(value - background[i]) > 0 && Math.abs(value - branch[i]) > 0
+                    && Math.min(branch[i], background[i]) <= value && value <= Math.max(branch[i], background[i]));
+                const beside = ratio === 1 ? [[-1, background], [1, background]] : [[-2, background], [2, background]];
+                const half = ratio === 1 ? [] : [at(row - 1), at(row + 1)];
+                if (same(on, branch) && beside.every(([d, c]) => same(at(row + d), c)) && half.every(between)) crisp++; else blurred++;
             }
             return {crisp, blurred};""")
         self.assertGreater(info["crisp"], 5)

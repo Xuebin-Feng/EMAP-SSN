@@ -288,8 +288,9 @@ class DrawingTests(TreeCase):
             TreeView.zoomToNode(m.root);
             const ctx = document.createElement('canvas').getContext('2d');
             const rgb = css => { ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1); return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)); };
-            // A line one device pixel wide on the middle of a device pixel row (a branch is one device pixel wide, so on
-            // the edge of two rows, at a ratio of 2, it is half of each), and branches wide enough to sample.
+            // The middle of a stem is on the middle of a device pixel row (the page puts it there); at a ratio of 2 the stem
+            // is 2 device pixels wide with half strength on the rows beside, so sample the middle row, in device pixels.
+            // Branches wide enough to sample.
             // (Every tip of this tree is at the same distance from the root: put them at x = 900.)
             const ratio = window.devicePixelRatio;
             s.view.sx *= 50; s.view.ox = 900 - s.layout.width * s.view.sx; s.view.sy = 30; s.view.oy = 0.5 / ratio; TreeView.drawNow();
