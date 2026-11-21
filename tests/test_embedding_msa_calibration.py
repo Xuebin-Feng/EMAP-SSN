@@ -282,6 +282,157 @@ class SharedSimilarityTests(CalibrationRunTestCase):
         self.assertEqual(record.threshold, float(np.percentile(from_msa[upper], 50)))
 
 
+class NetworkEmbeddingsTests(CalibrationRunTestCase):
+    """INPUT_NETWORK_EMBED: the optional second embeddings file that describes the network."""
+
+    SECOND = "Second_[test_model]_embeddings.h5"
+
+    def second_file(self, fixture, model="test_model", drop=None, name=None, rewrite=False):
+        """A copy of the run's embeddings as the second file, with the model it records, optionally missing a dataset."""
+        import shutil
+
+        target = fixture.embed_dir / (name or self.SECOND)
+        shutil.copy(fixture.embed_dir / EMBED_NAME, target)
+        with h5py.File(target, "r+") as copy:
+            copy.attrs["model_name"] = model
+            if drop is not None:
+                del copy["embeddings"][drop]
+            if rewrite:
+                rng = np.random.default_rng(99)
+                for key in copy["embeddings"]:
+                    copy["embeddings"][key][...] = rng.standard_normal(copy["embeddings"][key].shape).astype(np.float16)
+        return target
+
+    def own_model_a(self, fixture):
+        """The run's own embeddings become another model's: its label and its numbers."""
+        with h5py.File(fixture.embed_dir / EMBED_NAME, "r+") as own:
+            own.attrs["model_name"] = "model_a"
+            rng = np.random.default_rng(7)
+            for key in own["embeddings"]:
+                own["embeddings"][key][...] = rng.standard_normal(own["embeddings"][key].shape).astype(np.float16)
+
+    def run_recording(self, fixture, **settings):
+        """run_builder with the similarity source and the alignment's embeddings path recorded."""
+        seen = {"groups": [], "paths": []}
+        real_similarity = Prefilter_Calibration.pair_similarity
+
+        def spy(embeddings, headers, lengths, progress=None):
+            seen["groups"].append(os.path.basename(embeddings.file.filename))
+            return real_similarity(embeddings, headers, lengths, progress)
+
+        def record(real):
+            def wrapper(pairs, embeddings_path, *args, **kwargs):
+                seen["paths"].append(os.path.basename(embeddings_path))
+                return real(pairs, embeddings_path, *args, **kwargs)
+            return wrapper
+
+        with mock.patch.object(Prefilter_Calibration, "pair_similarity", spy):
+            result = self.run_builder(fixture, wrap_align=record, **settings)
+        return result, seen
+
+    def tree_line(self, fixture):
+        import re
+
+        return re.search(r"TREE guide_tree = (.*)", self.guide_tree_notes(fixture)).group(1)
+
+    def test_a_copy_of_the_runs_embeddings_gives_the_results_of_the_empty_field(self):
+        fixture = self.fixture(drop=60)
+        (empty_output, _, empty_plot, empty_kernel), _ = self.run_recording(fixture)
+        empty_tree, empty_fit = self.tree_line(fixture), empty_plot.call_args.kwargs["calibration"]
+        self.second_file(fixture)
+        (output, state, plot, kernel), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED=self.SECOND)
+        fit = plot.call_args.kwargs["calibration"]
+        self.assertEqual(self.tree_line(fixture), empty_tree)
+        np.testing.assert_array_equal(fit.iso.X_thresholds_, empty_fit.iso.X_thresholds_)
+        np.testing.assert_array_equal(fit.iso.y_thresholds_, empty_fit.iso.y_thresholds_)
+        np.testing.assert_array_equal(fit.calibration_x, empty_fit.calibration_x)
+        self.assertEqual(float(kernel[0]["raw_scores"].sum()), float(empty_kernel[0]["raw_scores"].sum()))
+        # The second file served both the similarity and the alignment, and the line says so.
+        self.assertEqual(seen["groups"], [self.SECOND])
+        self.assertEqual(seen["paths"], [self.SECOND])
+        self.assertIn(f"aligned from the network's embeddings {self.SECOND} (model test_model): reproduced", output)
+        self.assertIn(f"from {self.SECOND} and their all-vs-all", output)
+        self.assertIn(f"embeddings {self.SECOND} (model test_model)", self.guide_tree_notes(fixture))
+
+    def test_a_mixed_model_run_calibrates_from_the_given_file_and_records_it(self):
+        fixture = self.fixture(drop=60)
+        self.second_file(fixture)  # model test_model, the numbers the network was made from
+        self.own_model_a(fixture)  # the run's own embeddings: model_a, other numbers
+        (output, state, plot, _), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED=self.SECOND)
+        self.assertIn("Calibration sample of 12 of the 60 missing pairs", output)
+        self.assertEqual(seen["groups"], [self.SECOND])
+        self.assertEqual(seen["paths"], [self.SECOND])
+        notes = self.guide_tree_notes(fixture)
+        self.assertIn(f"embeddings {self.SECOND} (model test_model)", notes)
+        self.assertNotIn("Calibration unavailable", output)
+
+    def test_without_the_field_a_model_other_than_the_networks_is_unavailable_and_aligns_nothing(self):
+        fixture = self.fixture(drop=60)
+        self.own_model_a(fixture)
+        (output, state, plot, _), seen = self.run_recording(fixture)
+        self.assertEqual(state.calls, [])
+        self.assertEqual(seen["paths"], [])
+        self.assertIn("Calibration unavailable: the run's embeddings (" + EMBED_NAME + ") are of model model_a, but the network "
+                      "was made with test_model; give the network's embeddings in INPUT_NETWORK_EMBED", output)
+        self.assertIn("the missing pairs get the uniform fill", output)
+        self.assertIn("INPUT_NETWORK_EMBED", self.guide_tree_notes(fixture))
+
+    def test_a_second_file_of_another_model_is_refused_and_the_own_embeddings_make_the_similarity(self):
+        fixture = self.fixture(drop=60)
+        self.second_file(fixture, model="other_model")
+        (output, state, plot, _), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED=self.SECOND)
+        self.assertEqual(state.calls, [])
+        self.assertEqual(seen["groups"], [EMBED_NAME])
+        self.assertIn(f"INPUT_NETWORK_EMBED {self.SECOND} is of model other_model, but the network was made with test_model", output)
+        self.assertIn("INPUT_NETWORK_EMBED", self.guide_tree_notes(fixture))
+
+    def test_a_second_file_missing_a_sequence_is_refused(self):
+        fixture = self.fixture(drop=60)
+        self.second_file(fixture, drop=fixture.emb_headers[4])
+        (output, state, plot, _), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED=self.SECOND)
+        self.assertEqual(state.calls, [])
+        self.assertEqual(seen["groups"], [EMBED_NAME])
+        self.assertIn(f"INPUT_NETWORK_EMBED {self.SECOND} lacks 1 of the run's sequences (for example {fixture.emb_headers[4]})", output)
+
+    def test_a_second_file_that_cannot_be_read_is_refused(self):
+        fixture = self.fixture(drop=60)
+        (output, state, plot, _), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED="No_such_file.h5")
+        self.assertEqual(state.calls, [])
+        self.assertEqual(seen["groups"], [EMBED_NAME])
+        self.assertIn("INPUT_NETWORK_EMBED No_such_file.h5 could not be read", output)
+
+    def test_a_second_file_whose_scores_are_not_reproduced_fails_the_self_check_but_keeps_the_similarity(self):
+        fixture = self.fixture(drop=60)
+        self.second_file(fixture)
+        (output, state, plot, _), seen = self.run_recording(fixture, INPUT_NETWORK_EMBED=self.SECOND, reproduce=False)
+        self.assertEqual(seen["groups"], [self.SECOND])
+        self.assertEqual(len(state.calls), 1)
+        self.assertIn(f"Calibration unavailable: the network's own edges were not reproduced by the embeddings {self.SECOND}", output)
+
+    def test_the_field_is_ignored_with_a_line_for_a_complete_network_and_with_the_switch_off(self):
+        complete = self.fixture("complete", complete=True, missing=(), out_of_range=False)
+        self.second_file(complete)
+        output, state, *_ = self.run_builder(complete, INPUT_NETWORK_EMBED=self.SECOND)
+        self.assertIn(f"INPUT_NETWORK_EMBED ({self.SECOND}) is ignored: the network is complete", output)
+        self.assertEqual(state.calls, [])
+        sparse = self.fixture("switch_off", drop=60)
+        self.second_file(sparse, model="other_model")  # would be refused if it were looked at
+        (output, state, plot, _), seen = self.run_recording(sparse, INPUT_NETWORK_EMBED=self.SECOND, CALIBRATED_IMPUTATION=False)
+        self.assertIn(f"INPUT_NETWORK_EMBED ({self.SECOND}) is ignored: calibrated imputation is switched off", output)
+        self.assertEqual(state.calls, [])
+        self.assertEqual(seen["groups"], [EMBED_NAME])
+        self.assertNotIn("is of model", output)
+
+    def test_the_field_is_resolved_in_the_embedding_folder_and_empty_means_none(self):
+        resolve = lambda value: Embedding_MSA.resolve_msa_configuration(
+            "fasta", "embed", "net", "", "a.h5", "n.h5", False, value)["full_input_network_embed"]
+        self.assertEqual(resolve("b.h5"), os.path.join("embed", "b.h5"))
+        self.assertEqual(resolve(""), "")
+        self.assertEqual(resolve(None), "")
+        with self.assertRaises(Embedding_MSA.MSAConfigurationError):
+            resolve(5)
+
+
 class EdgeOrderTests(CalibrationRunTestCase):
     def test_the_same_edges_in_another_order_give_the_same_fit_and_guide_tree(self):
         real_fit = Embedding_MSA.fit_imputation

@@ -51,6 +51,10 @@ Settings:
   only the observed pairs, giving every missing pair below its range the fit's lowest value (OFF). It is not applied when fewer
   than 10% of the run's pairs are missing, nor when the network does not record how its scores were made or a check on some of
   its own edges does not reproduce them. Every sparse network averages replicate tree distances over all pairs.
+- INPUT_NETWORK_EMBED: Optional, with CALIBRATED_IMPUTATION on and a sparse network: the embeddings the network's scores were
+  made from, when the run's own embeddings (INPUT_EMBED) are of another model. They must record the network's model and hold
+  every sequence of the run; they then serve the similarity of the fill and the calibration alignment. Left empty, INPUT_EMBED
+  serves both and must be of the network's model. Ignored otherwise.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 - DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
 - SHOW_REGRESSION_PLOT: For a sparse network, shows the isotonic regression fit over the observed pairs as a pop-up
@@ -117,6 +121,7 @@ from dataclasses import dataclass, field
 INPUT_FASTA   = ""
 INPUT_EMBED   = None
 INPUT_NETWORK = None
+INPUT_NETWORK_EMBED = ""   # optional: the embeddings the network was made from, for the calibration (see choose_network_embeddings)
 USE_SEQUENCE_FILTER = False
 
 # Metric for Guide Tree: "local" or "global"
@@ -271,8 +276,15 @@ def resolve_msa_configuration(
     input_embed,
     input_network,
     use_sequence_filter,
+    input_network_embed="",
 ):
-    """Resolve configured input paths without joining an inactive FASTA value."""
+    """Resolve configured input paths without joining an inactive FASTA value.
+
+    input_network_embed, the optional second embeddings file, resolves in embed_dir exactly as input_embed does;
+    empty (or None) gives "".
+    """
+    if input_network_embed is not None and not isinstance(input_network_embed, str):
+        raise MSAConfigurationError("INPUT_NETWORK_EMBED must be an embedding HDF5 filename or an empty string.")
     if not isinstance(input_embed, str) or input_embed == "":
         raise MSAConfigurationError("INPUT_EMBED must select an embedding HDF5 file.")
     if not isinstance(input_network, str) or input_network == "":
@@ -297,6 +309,9 @@ def resolve_msa_configuration(
         "full_input_fasta": full_input_fasta,
         "full_input_embed": os.path.join(embed_dir, input_embed),
         "full_input_network": os.path.join(network_dir, input_network),
+        "full_input_network_embed": (
+            os.path.join(embed_dir, input_network_embed) if input_network_embed else ""
+        ),
         "sequence_set": sequence_set,
     }
 
@@ -1989,6 +2004,7 @@ class CalibrationOutcome:
     check_edges: int = 0
     check_difference: float = 0.0
     tolerance: str = ""  # what the self-check allowed, when it was not the same-precision rule
+    embeddings: str = ""  # the embeddings that served the network, "name (model m)", when the run knew them
     notes: list = field(default_factory=list)
 
 
@@ -2094,6 +2110,79 @@ def compare_with_stored(aligned, offset, stored):
     return not problems, worst, "; ".join(problems)
 
 
+@dataclass
+class NetworkEmbeddings:
+    """The embeddings that describe the network for this run (see choose_network_embeddings).
+
+    path is the file the calibration alignment reads, label its base name, model the model it records,
+    group the open /embeddings group the similarity is pooled from (None: the run's own embeddings),
+    handle the open file when it is a given one, given whether INPUT_NETWORK_EMBED supplied it, and problem
+    why calibration is unavailable with it ("" when nothing stands in the way).
+    """
+
+    path: str
+    label: str
+    model: str
+    group: object = None
+    handle: object = None
+    given: bool = False
+    problem: str = ""
+
+    def description(self):
+        return f"{self.label} (model {self.model})" if self.model else self.label
+
+
+def choose_network_embeddings(given_path, own_path, own_model, network_model, safe_names):
+    """Decide which embeddings describe the network: the given second file, or the run's own.
+
+    given_path is INPUT_NETWORK_EMBED resolved ("" when empty), own_path and own_model the run's embeddings
+    and the model they record, network_model the model the network records, safe_names the run's dataset names.
+    A given file is accepted if (1) it records a model and it is the network's, and (2) it holds every sequence of the run.
+    Not accepted: it is not used at all (the run's own embeddings make the similarity), with problem set, so that
+    calibration is unavailable and nothing is aligned. Without a given file, the run's own embeddings of a model
+    other than the network's make calibration unavailable the same way, naming the remedy; an own file that
+    records no model, or a network that records none, leaves the self-check alone to decide.
+    """
+    own_model = (own_model or "").strip()
+    network_model = (network_model or "").strip()
+    own = NetworkEmbeddings(own_path, os.path.basename(own_path), own_model)
+    if not given_path:
+        if own_model and network_model and own_model != network_model:
+            own.problem = (
+                f"the run's embeddings ({own.label}) are of model {own_model}, but the network was made with "
+                f"{network_model}; give the network's embeddings in INPUT_NETWORK_EMBED"
+            )
+        return own
+    label = os.path.basename(given_path)
+    problem, handle, model = "", None, ""
+    try:
+        handle = open_embeddings_shared(given_path)
+        manifest = read_embedding_manifest(handle, require_complete=True, validate_embeddings=False)
+        model = (manifest.model_name or "").strip()
+        if not model:
+            problem = f"INPUT_NETWORK_EMBED {label} records no embedding model"
+        elif not network_model:
+            problem = f"the network records no model, so INPUT_NETWORK_EMBED {label} (model {model}) cannot be checked against it"
+        elif model != network_model:
+            problem = f"INPUT_NETWORK_EMBED {label} is of model {model}, but the network was made with {network_model}"
+        else:
+            group = handle["embeddings"]
+            missing = [name for name in safe_names if name not in group]
+            if missing:
+                problem = (
+                    f"INPUT_NETWORK_EMBED {label} lacks {len(missing):,} of the run's sequences "
+                    f"(for example {missing[0]})"
+                )
+    except Exception as error:
+        problem = f"INPUT_NETWORK_EMBED {label} could not be read ({type(error).__name__}: {error})"
+    if problem:
+        if handle is not None:
+            handle.close()
+        own.problem = problem
+        return own
+    return NetworkEmbeddings(given_path, label, model, handle["embeddings"], handle, True)
+
+
 def calibration_workers(pairs, lengths):
     """How many CPU pool children the calibration alignment gets: one per CALIBRATION_CELLS_PER_WORKER cells of work.
 
@@ -2143,7 +2232,7 @@ def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precis
 
 
 def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, precision, check_edges,
-                         embeddings_path, lengths, is_blast=False):
+                         embeddings_path, lengths, is_blast=False, embeddings=None):
     """Draw, align and check the calibration sample of a sparse run's missing pairs; return a CalibrationResult.
 
     With CALIBRATED_IMPUTATION off nothing is drawn or aligned. With it on: first, fewer than
@@ -2154,7 +2243,9 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
     not reproduced, or the alignment fails, calibration is unavailable and nothing is added.
     similarity is the run's (n, n) adjusted similarity, edge_i and edge_j its observed pairs, names the dataset
     names of its sequences, check_edges the CheckEdges of choose_check_edges (or None), lengths the
-    sequences' lengths (they size the alignment's CPU pool).
+    sequences' lengths (they size the alignment's CPU pool). embeddings, a NetworkEmbeddings, says which file
+    the sample is aligned from (its path replaces embeddings_path) and, through its problem, that calibration
+    is unavailable before anything is aligned (a model other than the network's, a given file refused).
     """
     if not CALIBRATED_IMPUTATION:
         return CalibrationResult(CalibrationOutcome("off", "the calibration switch is off"))
@@ -2171,8 +2262,14 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
             f"{100.0 * CALIBRATION_MIN_MISSING_FRACTION:g}%",
             missing=missing, share=share,
         ))
+    used = ""
+    if embeddings is not None:
+        embeddings_path = embeddings.path
+        used = embeddings.description()
     unavailable = None
-    if is_blast:
+    if embeddings is not None and embeddings.problem:
+        unavailable = embeddings.problem
+    elif is_blast:
         unavailable = "a BLAST network's scores were not made by this program's alignment"
     elif gap_penalties is None:
         unavailable = "the network does not record the gap penalties its scores were made with"
@@ -2204,11 +2301,13 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
         sample=len(sample), missing=missing, share=share, device=aligned.device, plan=aligned.plan,
         precision=aligned.precision, seconds=aligned.seconds, check_edges=len(check_edges.rows),
         check_difference=difference, notes=list(aligned.notes), tolerance=check_tolerance(aligned)[3],
+        embeddings=used,
     )
     if not reproduced:
         outcome.status = "unavailable"
         outcome.reason = (
-            "calibration unavailable: the network's own edges were not reproduced by this run's embeddings and "
+            "calibration unavailable: the network's own edges were not reproduced by "
+            + (f"the embeddings {used}" if used else "this run's embeddings") + " and "
             f"the network's scoring ({problems}"
             + (f"; {outcome.tolerance}" if outcome.tolerance else "") + ")"
         )
@@ -2242,7 +2341,8 @@ def calibration_text(outcome):
         )
     text += (
         f", aligned on {outcome.device} ({outcome.plan}, {outcome.precision}) in {outcome.seconds:.1f} s; "
-        f"self-check on {outcome.check_edges} of the network's own edges: reproduced "
+        f"self-check on {outcome.check_edges} of the network's own edges"
+        + (f", aligned from the network's embeddings {outcome.embeddings}" if outcome.embeddings else "") + ": reproduced "
         f"(largest score difference {outcome.check_difference:.2g}"
         + (f"; {outcome.tolerance}" if outcome.tolerance else "") + ")"
     )
@@ -2481,10 +2581,12 @@ def run_msa_builder():
             INPUT_EMBED,
             INPUT_NETWORK,
             USE_SEQUENCE_FILTER,
+            INPUT_NETWORK_EMBED,
         )
     except MSAConfigurationError as error:
         sys.exit(f"❌ Configuration Error: {error}")
 
+    given_network_embed = resolved["full_input_network_embed"]  # "" when INPUT_NETWORK_EMBED is empty
     FULL_INPUT_FASTA = resolved["full_input_fasta"]
     FULL_INPUT_EMBED = resolved["full_input_embed"]
     FULL_INPUT_NETWORK = resolved["full_input_network"]
@@ -2693,21 +2795,38 @@ def run_msa_builder():
 
         # The all-vs-all similarity of the run's sequences, by the rule every tool shares.
         safe_names = [h.replace("/", "_").replace("\\", "_") for h in valid_headers]
+        # Which embeddings describe the network: INPUT_NETWORK_EMBED when it is given and accepted, else the run's own.
+        network_embed = None
+        if given_network_embed:
+            if network_metadata.network_type == "blast":
+                print(f"INPUT_NETWORK_EMBED ({os.path.basename(given_network_embed)}) is ignored: a BLAST network was not made from embeddings.")
+            elif not CALIBRATED_IMPUTATION:
+                print(f"INPUT_NETWORK_EMBED ({os.path.basename(given_network_embed)}) is ignored: calibrated imputation is switched off.")
+        if CALIBRATED_IMPUTATION and network_metadata.network_type != "blast":
+            network_embed = choose_network_embeddings(
+                given_network_embed, FULL_INPUT_EMBED, _model_name, network_metadata.model_name, safe_names,
+            )
+        similarity_source = f_emb["embeddings"] if network_embed is None or network_embed.group is None else network_embed.group
         print(f"Computing pooled embeddings ({Prefilter_Calibration.POOLING} pooling) for all sequences "
-              "and their all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
+              + (f"from {network_embed.label} " if network_embed is not None and network_embed.given else "")
+              + "and their all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
         cos_sim_mat = Prefilter_Calibration.pair_similarity(
-            f_emb["embeddings"],
+            similarity_source,
             safe_names,
             seq_lens_array,
             progress=lambda names: tqdm(names, desc="Computing Pooled Embeddings"),
         )
+        del similarity_source
 
         # The calibration sample: aligned now, so its pairs are observed pairs of the run from here on.
         result = calibrate_sparse_run(
             cos_sim_mat, edge_i, edge_j, safe_names, network_gap_penalties, network_precision,
             check_edges, network_embeddings, is_blast=network_metadata.network_type == "blast",
-            lengths=seq_lens_array,
+            lengths=seq_lens_array, embeddings=network_embed,
         )
+        if network_embed is not None and network_embed.handle is not None:
+            network_embed.handle.close()
+        del network_embed
         calibration = result.outcome
         print(calibration_text(calibration))
         if result.sample is not None:
@@ -2727,6 +2846,8 @@ def run_msa_builder():
                 is_sparse = False
                 cos_sim_mat = None  # nothing is imputed, so nothing reads it again
         del result, check_edges
+    elif given_network_embed:
+        print(f"INPUT_NETWORK_EMBED ({os.path.basename(given_network_embed)}) is ignored: the network is complete, so nothing is imputed or calibrated.")
 
     # 7c. Execute C-Speed Kernel
     print("Executing Numba Math Kernel...")

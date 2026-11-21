@@ -410,6 +410,11 @@
         "default": null,
         "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression.\nWhen the network's Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores."
       },
+      "INPUT_NETWORK_EMBED": {
+        "type": "string",
+        "default": "",
+        "description": "Network Embedding Set (.h5): Optional embeddings the network's scores were made from, used for the similarity of the fill and the calibration alignment when INPUT_EMBED is of another model.\nOnly for a sparse network with Calibrated Imputation on; it must record the network's model and hold every sequence of the run. Empty: INPUT_EMBED serves."
+      },
       "TREE_METHOD": {
         "type": "string",
         "default": "UPGMA (Fast)",
