@@ -155,8 +155,6 @@ GAP_EXTEND = 0.0
 WORKERS = 1   
 DEVICE_SELECTION = "auto"
 SHOW_REGRESSION_PLOT = False
-POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
-LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 
 # --- JSON Settings Override ---
 import json
@@ -2050,7 +2048,7 @@ def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precis
 
 
 def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, precision, check_edges,
-                         embeddings_path, is_blast=False, lengths=None):
+                         embeddings_path, lengths, is_blast=False):
     """Draw, align and check the calibration sample of a sparse run's missing pairs; return a CalibrationResult.
 
     With CALIBRATED_IMPUTATION off nothing is drawn or aligned. With it on: first, fewer than
@@ -2060,7 +2058,8 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
     size). The sample and the check edges go through one call of align_calibration_pairs; if the check edges are
     not reproduced, or the alignment fails, calibration is unavailable and nothing is added.
     similarity is the run's (n, n) adjusted similarity, edge_i and edge_j its observed pairs, names the dataset
-    names of its sequences, check_edges the CheckEdges of choose_check_edges (or None).
+    names of its sequences, check_edges the CheckEdges of choose_check_edges (or None), lengths the
+    sequences' lengths (they size the alignment's CPU pool).
     """
     if not CALIBRATED_IMPUTATION:
         return CalibrationResult(CalibrationOutcome("off", "the calibration switch is off"))
@@ -2427,11 +2426,6 @@ def run_msa_builder():
     arr_j = f_net['j'][:]
     
     network_metadata = validate_network_schema(f_net)
-    # The pooling and length-ratio power the network's similarity was made with, when it records them (a network
-    # that stored a calibration sample in an earlier version records them the same way; the stored sample is not used).
-    similarity_settings = None
-    if network_metadata.network_type != "blast":
-        similarity_settings = Prefilter_Calibration.read_similarity_settings(f_net)
     # How the network's scores were made, which the calibration sample is aligned with.
     network_gap_penalties = f_net.attrs.get("gap_penalties")
     network_precision = f_net.attrs.get("matmul_precision", "ieee_fp32")
@@ -2598,32 +2592,16 @@ def run_msa_builder():
     if is_sparse:
         print(f"Network is sparse ({num_edges} / {total_pairs} edges). Activating hybrid cosine-alignment transformation...")
 
-        # The similarity the network was cut on, when it records one.
-        pooling, length_power = POOLING_METHOD, float(LENGTH_RATIO_POWER)
-        if similarity_settings is not None:
-            if tuple(similarity_settings) != (pooling, length_power):
-                print(
-                    f"⚠️ The network's similarity was made with {similarity_settings[0]} pooling and "
-                    f"length-ratio power {similarity_settings[1]:g}, but this run is set "
-                    f"to {pooling} and {length_power:g}. The imputation uses the network's."
-                )
-            pooling, length_power = similarity_settings
-
-        # Load embeddings for valid_headers and calculate their pooled vectors
+        # The all-vs-all similarity of the run's sequences, by the rule every tool shares.
         safe_names = [h.replace("/", "_").replace("\\", "_") for h in valid_headers]
-        print(f"Computing pooled embeddings ({pooling} pooling) for all sequences...")
-        mean_embs = Prefilter_Calibration.pooled_vectors(
+        print(f"Computing pooled embeddings ({Prefilter_Calibration.POOLING} pooling) for all sequences "
+              "and their all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
+        cos_sim_mat = Prefilter_Calibration.pair_similarity(
             f_emb["embeddings"],
             safe_names,
-            pooling,
+            seq_lens_array,
             progress=lambda names: tqdm(names, desc="Computing Pooled Embeddings"),
         )
-
-        print("Calculating all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
-        cos_sim_mat = Prefilter_Calibration.length_adjusted_similarity(
-            mean_embs, seq_lens_array, length_power
-        )
-        del mean_embs
 
         # The calibration sample: aligned now, so its pairs are observed pairs of the run from here on.
         result = calibrate_sparse_run(

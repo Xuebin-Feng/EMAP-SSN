@@ -297,8 +297,6 @@ def builder_settings(fixture, **settings):
         "WORKERS": 1,
         "DEVICE_SELECTION": "cpu",
         "SHOW_REGRESSION_PLOT": False,
-        "POOLING_METHOD": "max",
-        "LENGTH_RATIO_POWER": 2.0,
         "FASTA_DIR": str(fixture.root),
         "EMBED_DIR": str(fixture.embed_dir),
         "NETWORK_DIR": str(fixture.network_dir),

@@ -302,7 +302,7 @@ class RegressionPlotRunTests(unittest.TestCase):
         self.assertEqual(uniform, [line for line in results[False][0].splitlines() if line.startswith("Uniform fill:")])
         self.assertEqual(len(uniform), 1)
 
-    def test_the_imputation_uses_the_prefilters_pooling_and_power(self):
+    def test_the_imputation_uses_the_shared_pooling_and_power_whatever_an_old_network_recorded(self):
         fixture = NetworkFixture(self.directory, complete=False, seed=2)
         fixture.add_calibration_sample(count=12, pooling="mean", length_power=1.0)
         calibration = Embedding_MSA.Prefilter_Calibration
@@ -321,17 +321,10 @@ class RegressionPlotRunTests(unittest.TestCase):
 
         with mock.patch.object(calibration, "pooled_vectors", pooled), \
                 mock.patch.object(calibration, "length_adjusted_similarity", similarity):
-            output = self.run_builder(fixture, mock.Mock(), POOLING_METHOD="max", LENGTH_RATIO_POWER=2.0)
-        self.assertEqual(used, {"pooling": "mean", "power": 1.0})
-        self.assertIn(
-            "⚠️ The network's similarity was made with mean pooling and length-ratio power 1, but this run "
-            "is set to max and 2. The imputation uses the network's.",
-            output,
-        )
-        # Matching settings say nothing.
-        fixture = NetworkFixture(self.directory / "same", complete=False, seed=2)
-        fixture.add_calibration_sample(count=12)
-        output = self.run_builder(fixture, mock.Mock())
+            output = self.run_builder(fixture, mock.Mock())
+        # An old network recorded mean pooling and power 1.0; nothing reads that any more.
+        self.assertEqual(used, {"pooling": calibration.POOLING, "power": calibration.LENGTH_RATIO_POWER})
+        self.assertEqual((calibration.POOLING, calibration.LENGTH_RATIO_POWER), ("max", 2.0))
         self.assertNotIn("The network's similarity was made with", output)
 
 

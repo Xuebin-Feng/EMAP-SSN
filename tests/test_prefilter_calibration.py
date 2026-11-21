@@ -365,27 +365,67 @@ class RunSampleTests(unittest.TestCase):
         none = calibration.select_among(self.values[:0], self.rows[:0], self.cols[:0])
         self.assertEqual(len(none), 0)
 
-    def test_the_similarity_settings_read_without_the_rest_of_the_record(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = pathlib.Path(temp_dir) / "network.h5"
-            record = calibration.PrefilterRecord(
-                strength=25.0, threshold=0.5, pooling="mean", length_power=1.5, kept=9, skipped=3,
-                sample=calibration.CalibrationSample(np.array([0]), np.array([1]), np.array([3.0])))
-            with h5py.File(path, "w") as hf:
-                calibration.write_record(hf, record, np.uint16)
-                del hf[calibration.DATA_I]
-            with h5py.File(path, "r") as hf:
-                self.assertIsNone(calibration.read_record(hf))
-                self.assertEqual(calibration.read_similarity_settings(hf), ("mean", 1.5))
-            with h5py.File(path, "w") as hf:
-                calibration.write_similarity_settings(hf, "max", 2.0)
-            with h5py.File(path, "r") as hf:
-                self.assertEqual(set(hf.attrs), {calibration.ATTR_POOLING, calibration.ATTR_LENGTH_POWER})
-                self.assertEqual(calibration.read_similarity_settings(hf), ("max", 2.0))
-            with h5py.File(path, "w") as hf:
-                hf.attrs["model_name"] = "m"
-            with h5py.File(path, "r") as hf:
-                self.assertIsNone(calibration.read_similarity_settings(hf))
+
+class SharedSimilarityRuleTests(unittest.TestCase):
+    """One function owns the similarity rule; no tool keeps its own copy of it."""
+
+    def embeddings(self):
+        rng = np.random.default_rng(3)
+        return {
+            "a_b": rng.standard_normal((5, 6)).astype(np.float32),
+            "c_d": rng.standard_normal((9, 6)).astype(np.float32),
+            "e": rng.standard_normal((7, 6)).astype(np.float32),
+        }
+
+    def test_the_rule_is_the_shared_pooling_and_power_over_the_dataset_names_of_the_headers(self):
+        embeddings = self.embeddings()
+        headers, lengths = ["a/b", "c\\d", "e"], [5, 9, 7]
+        got = calibration.pair_similarity(embeddings, headers, lengths)
+        pooled = calibration.pooled_vectors(embeddings, ["a_b", "c_d", "e"], calibration.POOLING)
+        want = calibration.length_adjusted_similarity(pooled, lengths, calibration.LENGTH_RATIO_POWER)
+        self.assertEqual(got.dtype, np.float64)
+        self.assertEqual(got.tobytes(), want.tobytes())
+        # Headers already mapped to dataset names give the same matrix.
+        self.assertEqual(calibration.pair_similarity(embeddings, ["a_b", "c_d", "e"], lengths).tobytes(), got.tobytes())
+        self.assertEqual((calibration.POOLING, calibration.LENGTH_RATIO_POWER), ("max", 2.0))
+
+    def test_the_constants_are_what_the_rule_uses_and_the_progress_hook_wraps_the_names(self):
+        embeddings = self.embeddings()
+        with mock.patch.multiple(calibration, POOLING="mean", LENGTH_RATIO_POWER=1.0):
+            seen = []
+            got = calibration.pair_similarity(
+                embeddings, ["a/b", "c\\d", "e"], [5, 9, 7], progress=lambda names: seen.append(list(names)) or names)
+            pooled = calibration.pooled_vectors(embeddings, ["a_b", "c_d", "e"], "mean")
+            want = calibration.length_adjusted_similarity(pooled, [5, 9, 7], 1.0)
+        self.assertEqual(got.tobytes(), want.tobytes())
+        self.assertEqual(seen, [["a_b", "c_d", "e"]])
+        import inspect
+
+        self.assertEqual(list(inspect.signature(calibration.pair_similarity).parameters),
+                         ["embeddings", "headers", "lengths", "progress"])
+
+    def test_no_tool_script_keeps_its_own_pooling_or_power_or_calls_the_pieces_of_the_rule(self):
+        import ast
+
+        tools = pathlib.Path(__file__).resolve().parent.parent / "src" / "tools"
+        problems = []
+        for path in sorted(tools.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = [t for t in node.targets if isinstance(t, ast.Name)]
+                elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(node.target, ast.Name):
+                    targets = [node.target]
+                for target in targets:
+                    if target.id in ("POOLING_METHOD", "LENGTH_RATIO_POWER"):
+                        problems.append(f"{path.name}:{node.lineno} defines {target.id}")
+                if isinstance(node, ast.Call):
+                    function = node.func
+                    name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
+                    if name in ("pooled_vectors", "length_adjusted_similarity"):
+                        problems.append(f"{path.name}:{node.lineno} calls {name}")
+        self.assertEqual(problems, [])
 
 
 if __name__ == "__main__":

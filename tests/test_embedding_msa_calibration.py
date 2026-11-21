@@ -17,6 +17,7 @@ import h5py
 import numpy as np
 
 from tests.msa_fixtures import (
+    EMBED_NAME,
     GuideTreeBuilt,
     InProcessPool,
     NetworkFixture,
@@ -241,6 +242,40 @@ class SampleTests(CalibrationRunTestCase):
                 Embedding_MSA.run_msa_builder()
         gc.collect()
         self.assertIn("Calibration unavailable: the sample could not be aligned (RuntimeError: no device)", output.getvalue())
+
+
+class SharedSimilarityTests(CalibrationRunTestCase):
+    def test_align_prefilter_and_the_msa_get_the_same_matrix_from_the_same_inputs(self):
+        # Both real code paths run: the MSA's builder up to its guide tree, and Align's prefilter_pairs on the
+        # embeddings file and the very headers and lengths the MSA gave the rule. A spy on the shared function
+        # keeps the matrix each of them was handed.
+        from utilities import Align_Library
+
+        fixture = self.fixture(drop=60)
+        real = Prefilter_Calibration.pair_similarity
+        seen = []
+
+        def spy(embeddings, headers, lengths, progress=None):
+            result = real(embeddings, headers, lengths, progress)
+            seen.append((list(headers), np.array(lengths), result))
+            return result
+
+        with mock.patch.object(Prefilter_Calibration, "pair_similarity", spy):
+            self.run_builder(fixture)
+            self.assertEqual(len(seen), 1)
+            headers, lengths, from_msa = seen[0]
+            align = Align_Library.load()
+            with mock.patch.multiple(
+                align, FULL_INPUT_HDF5=str(fixture.embed_dir / EMBED_NAME), PREFILTER_STRENGTH=50
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                required, record = align.prefilter_pairs(headers, lengths.tolist())
+        self.assertEqual(len(seen), 2)
+        from_align = seen[1][2]
+        self.assertEqual(from_align.shape, from_msa.shape)
+        self.assertEqual(from_align.tobytes(), from_msa.tobytes())
+        # Align's cut is that matrix's 50th percentile of the upper triangle.
+        upper = np.triu(np.ones(from_msa.shape, dtype=bool), k=1)
+        self.assertEqual(record.threshold, float(np.percentile(from_msa[upper], 50)))
 
 
 class AlignmentCallTests(unittest.TestCase):

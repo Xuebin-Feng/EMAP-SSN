@@ -1513,8 +1513,6 @@ class AlignmentPipelineTests(unittest.TestCase):
             settings = {
                 "FULL_INPUT_HDF5": path,
                 "PREFILTER_STRENGTH": 40,
-                "POOLING_METHOD": "max",
-                "LENGTH_RATIO_POWER": 2.0,
             }
             with mock.patch.multiple(similarity_matrix, **settings), \
                     redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()):
@@ -1556,8 +1554,8 @@ class AlignmentPipelineTests(unittest.TestCase):
             def __exit__(self, *exc_info):
                 return False
 
-        with mock.patch.multiple(similarity_matrix, PREFILTER_STRENGTH=50,
-                                 POOLING_METHOD="mean", LENGTH_RATIO_POWER=1.0), \
+        with mock.patch.multiple(similarity_matrix, PREFILTER_STRENGTH=50), \
+                mock.patch.multiple(similarity_matrix.Prefilter_Calibration, POOLING="mean", LENGTH_RATIO_POWER=1.0), \
                 mock.patch.object(similarity_matrix.Prefilter_Calibration, "MIN_PAIRS", 300), \
                 mock.patch.object(similarity_matrix.h5py, "File",
                                   return_value=FakeFile(embeddings=embeddings)), \

@@ -40,6 +40,10 @@ SEED = 42
 DRAW_MIN_PAIRS = 5000
 DRAW_MAX_PAIRS = 100000
 
+# The similarity rule's two constants (see pair_similarity): shared code, not settings of any tool.
+POOLING = "max"            # ("mean", "max") - how a sequence's residue embeddings become one vector
+LENGTH_RATIO_POWER = 2.0   # the exponent of the shorter/longer length ratio the cosine is multiplied by
+
 # The network file's record (root attributes and datasets).
 ATTR_STRENGTH = "prefilter_strength"
 ATTR_THRESHOLD = "prefilter_threshold"
@@ -115,6 +119,21 @@ def length_adjusted_similarity(pooled, seq_lens, power):
     if power != 1.0:
         ratio = ratio ** power
     return similarity * ratio
+
+
+def pair_similarity(embeddings, headers, lengths, progress=None):
+    """The similarity rule every tool uses: the (n, n) float64 matrix of the sequences' length-adjusted pooled cosine.
+
+    This is the one place that owns the rule, so Align_Similarity_Matrix's prefilter, Embedding_MSA (and,
+    later, Network_Injection) cannot drift apart: the pooling is POOLING, the power LENGTH_RATIO_POWER,
+    neither an argument. headers are the sequences' headers in matrix order, as they are in the file or
+    already mapped to dataset names ('/' and '\\' become '_', which mapping twice leaves alone); lengths
+    the sequences' residue counts, in the same order; embeddings the HDF5 group (or a mapping) of
+    per-residue arrays; progress, when given, wraps the dataset names (tqdm).
+    """
+    names = [header.replace("/", "_").replace("\\", "_") for header in headers]
+    pooled = pooled_vectors(embeddings, names, POOLING, progress=progress)
+    return length_adjusted_similarity(pooled, lengths, LENGTH_RATIO_POWER)
 
 
 def sample_size(skipped, minimum=None, maximum=None):
@@ -322,24 +341,6 @@ def read_record(hf):
         bins=int(hf.attrs.get(ATTR_BINS, BINS)),
         seed=int(hf.attrs.get(ATTR_SEED, SEED)),
     )
-
-
-def read_similarity_settings(hf):
-    """(pooling, length-ratio power) the similarity of an open network file was made with, or None.
-
-    Both are attributes of a network whose prefilter recorded its cut, and of a network
-    Network_Injection made from one; neither needs the calibration datasets, so a network
-    that stores no sample reads the same. Embedding_MSA computes its similarity with them.
-    """
-    if ATTR_POOLING not in hf.attrs or ATTR_LENGTH_POWER not in hf.attrs:
-        return None
-    return _text(hf.attrs[ATTR_POOLING]), float(hf.attrs[ATTR_LENGTH_POWER])
-
-
-def write_similarity_settings(hf, pooling, length_power):
-    """Store the pooling and length-ratio power of the similarity in an open network file."""
-    hf.attrs[ATTR_POOLING] = str(pooling)
-    hf.attrs[ATTR_LENGTH_POWER] = float(length_power)
 
 
 def pair_keys(rows, cols, n):

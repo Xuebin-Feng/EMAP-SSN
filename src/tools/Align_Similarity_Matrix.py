@@ -136,8 +136,6 @@ from utilities import Prefilter_Calibration
 INPUT_HDF5 = None
 EDGE_PREFILTERING = False
 PREFILTER_STRENGTH = 20
-POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
-LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 WORKERS = 12
 DEVICE_SELECTION = "auto"
 EXECUTION_MODE = "auto"
@@ -2362,19 +2360,15 @@ def prefilter_pairs(safe_headers, seq_lens):
     PREFILTER_STRENGTH percentile, plus the calibration sample of the pairs
     below it (see utilities.Prefilter_Calibration).
     """
-    print(f"\n--- 🛠️ Edge Prefiltering: Calculating {POOLING_METHOD} Pooled Length-Adjusted Similarities ---")
+    print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
+    # All-vs-all on the CPU, by the rule every tool shares.
     with h5py.File(FULL_INPUT_HDF5, "r") as hf:
-        pooled = Prefilter_Calibration.pooled_vectors(
+        similarity = Prefilter_Calibration.pair_similarity(
             hf["embeddings"],
             safe_headers,
-            POOLING_METHOD,
-            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({POOLING_METHOD})"),
+            seq_lens,
+            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
         )
-    # All-vs-all on the CPU.
-    similarity = Prefilter_Calibration.length_adjusted_similarity(
-        pooled, seq_lens, LENGTH_RATIO_POWER
-    )
-    del pooled
     n = len(safe_headers)
     total_pairs = n * (n - 1) // 2
     upper = np.triu(np.ones((n, n), dtype=bool), k=1)
@@ -2403,8 +2397,8 @@ def prefilter_pairs(safe_headers, seq_lens):
     record = Prefilter_Calibration.PrefilterRecord(
         strength=float(PREFILTER_STRENGTH),
         threshold=threshold,
-        pooling=POOLING_METHOD,
-        length_power=float(LENGTH_RATIO_POWER),
+        pooling=Prefilter_Calibration.POOLING,
+        length_power=float(Prefilter_Calibration.LENGTH_RATIO_POWER),
         kept=num_kept,
         skipped=skipped,
         sample=sample,

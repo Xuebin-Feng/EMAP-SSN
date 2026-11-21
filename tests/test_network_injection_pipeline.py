@@ -530,7 +530,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 for column, data in columns.items():
                     hf.create_dataset(column, data=data)
 
-    def _compile_batches(self, temp_dir, **extra):
+    def _compile_batches(self, temp_dir):
         new_n = 5
         output = os.path.join(temp_dir, "network", "set_[model]_network.h5")
         old_count = len(self.COMPILE_OLD_PAIRS)
@@ -566,7 +566,6 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 model_name="model",
                 saving_mode="float32",
                 gap_penalties=[-2.0, 0.0],
-                **extra,
             )
         return output, stdout.getvalue()
 
@@ -602,24 +601,6 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 np.testing.assert_array_equal(hf["j"][:], [p[1] for p in pairs])
                 np.testing.assert_array_equal(hf["l_score"][:], expected_l_score)
                 np.testing.assert_array_equal(hf["g_len"][:], expected_g_len)
-
-    def test_compile_records_the_similarity_settings_it_is_given_and_nothing_else_of_a_record(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            self._write_compile_batches(os.path.join(temp_dir, "batches"))
-            output, _ = self._compile_batches(temp_dir, similarity_settings=("mean", 1.5))
-            with h5py.File(output, "r") as hf:
-                self.assertEqual(Prefilter_Calibration.read_similarity_settings(hf), ("mean", 1.5))
-                self.assertEqual(
-                    set(hf.attrs),
-                    {"embedding_checksum", "model_name", "saving_mode", "gap_penalties", "matmul_precision",
-                     Prefilter_Calibration.ATTR_POOLING, Prefilter_Calibration.ATTR_LENGTH_POWER},
-                )
-                self.assertFalse(any(name.startswith("calibration_") for name in hf))
-        with tempfile.TemporaryDirectory() as temp_dir:
-            self._write_compile_batches(os.path.join(temp_dir, "batches"))
-            output, _ = self._compile_batches(temp_dir)
-            with h5py.File(output, "r") as hf:
-                self.assertIsNone(Prefilter_Calibration.read_similarity_settings(hf))
 
     def test_pair_ids_above_65535_nodes_do_not_wrap_in_32_bits(self):
         # uint32 indices times new_N wrapped modulo 2**32 for a network over 65,536 nodes.
@@ -1231,15 +1212,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             ), redirect_stdout(io.StringIO()) as printed, redirect_stderr(io.StringIO()):
                 network_injection.run_injection()
 
-            text = printed.getvalue()
-            # The new network keeps the old one's similarity settings, and none of its calibration sample.
-            output_path = os.path.join(network_dir, "newset_[esm2_t6_8m]_network.h5")
-            self.assertTrue(os.path.exists(output_path), text[-1500:] + str(os.listdir(network_dir)))
-            with h5py.File(output_path, "r") as hf:
-                self.assertEqual(Prefilter_Calibration.read_similarity_settings(hf), ("max", 2.0))
-                self.assertNotIn(Prefilter_Calibration.ATTR_STRENGTH, hf.attrs)
-                self.assertFalse(any(name.startswith("calibration_") for name in hf))
-
+        text = printed.getvalue()
         self.assertIn("Leaving out the input network's 1 calibration pairs", text)
         cosine_ac = 1.0 / np.linalg.norm(vectors["C"])
         self.assertIn(f"Setting cosine similarity prefiltering threshold to: {cosine_ac:.6f}", text)
