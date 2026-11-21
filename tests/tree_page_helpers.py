@@ -99,6 +99,33 @@ RED, BLUE, GREEN = "#ff0000", "#0000ff", "#00ff00"
 BASE_PAINT = {0: RED, 1: RED, 2: RED, 3: RED, 4: BLUE, 5: BLUE, 6: GREEN}  # h (7) is left plain
 NO_CLASS = 65535
 
+# JavaScript for a test that counts the page's draws. A page that has just shown its tree can still draw on its own: a
+# frame callback asked for while it opened (a frame callback draws whatever the page's one "draw queued" flag says), and
+# the draw that follows the Viewer's colours when they come. ``await settled()`` returns, in the same step as a frame
+# that came with none of the page's frame callbacks left waiting and the colours in, so that what the test installs
+# next (a counter, a fake) is installed before anything else the page asked for can draw.
+SETTLED = """
+    async function settled() {
+        const raf = window.requestAnimationFrame; let waiting = 0;
+        window.requestAnimationFrame = (callback) => { waiting++; return raf.call(window, (time) => { waiting--; callback(time); }); };
+        try {
+            const answers = () => performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/tree/colors')).length;
+            for (let rounds = 0; answers() === 0; rounds++) {
+                if (rounds > 400) throw new Error('The colours never came');
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            let done = false;
+            for (let rounds = 0; !done; rounds++) {
+                if (rounds > 50) throw new Error('The page keeps asking for frames');
+                const before = answers();
+                await new Promise((resolve) => { raf.call(window, () => { done = waiting === 0 && answers() === before; resolve(); }); });
+            }
+        } finally {
+            window.requestAnimationFrame = raf;
+        }
+    }
+"""
+
 # Spies on what the page draws: every stroke and fill of a Path2D, with the lines and arcs the path holds.
 SPY = """
     const original = {stroke: CanvasRenderingContext2D.prototype.stroke, fill: CanvasRenderingContext2D.prototype.fill,

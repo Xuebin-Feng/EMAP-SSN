@@ -43,6 +43,7 @@ from tests.tree_fixtures import (  # noqa: E402
     writer,
 )
 from tests.tree_page_helpers import (  # noqa: E402
+    SETTLED,
     LayoutCase,
     clade_of,
     tip_of,
@@ -752,35 +753,16 @@ class TooltipAndPinTests(TreeCase):
         self.wait_for("document.getElementById('tooltip').style.display === 'block'")
 
     def test_a_page_that_is_hidden_is_not_drawn_and_is_drawn_once_when_it_is_seen_again(self):
-        found = self.script("""
+        found = self.script(SETTLED + """
+            await settled();
+            // Still in the step of that frame: clear the page's "draw queued" flag with a real draw, then put the
+            // counter and the fakes in, so the draw asked for below is the only one queued and the only one that can come.
             const real = TreeView.drawNow; let frames = 0;
-            TreeView.drawNow = function () { frames++; return real.apply(this, arguments); };
-            // The page may still have a frame callback waiting from when it opened (a layout that settles asks for a
-            // draw), and a frame callback draws whatever the page's one "draw queued" flag says, hidden or not. So
-            // first count the page's own frame callbacks and wait for a frame that comes with none of them left
-            // waiting: callbacks run in the order they were asked for, so ours runs after every earlier one.
-            const raf = window.requestAnimationFrame; let waiting = 0;
-            window.requestAnimationFrame = (callback) => { waiting++; return raf.call(window, (time) => { waiting--; callback(time); }); };
-            // The page also draws, with no frame, when the Viewer's colours have come (it asks for them as it opens);
-            // the browser's list of finished requests says when that answer is in.
-            const fetched = () => performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/tree/colors')).length;
-            for (let rounds = 0; fetched() === 0; rounds++) {
-                if (rounds > 400) throw new Error('The colours never came');
-                await new Promise((resolve) => setTimeout(resolve, 25));
-            }
-            let settled = false;
-            for (let rounds = 0; !settled; rounds++) {
-                if (rounds > 50) throw new Error('The page keeps asking for frames');
-                const answers = fetched();
-                await new Promise((resolve) => { raf.call(window, () => { settled = waiting === 0 && fetched() === answers; resolve(); }); });
-            }
-            // Here, in the same step as that frame, nothing is waiting and nothing can come in before the lines below:
-            // clear the flag with a real draw, then the fakes, and the draw asked for below is the only one queued.
             real.call(TreeView);
-            frames = 0;
+            TreeView.drawNow = function () { frames++; return real.apply(this, arguments); };
             let hidden = true;
             Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
-            window.requestAnimationFrame = () => 0;
+            const raf = window.requestAnimationFrame; window.requestAnimationFrame = () => 0;
             TreeView.requestDraw();
             await new Promise((resolve) => setTimeout(resolve, 300));
             const whileHidden = frames;
