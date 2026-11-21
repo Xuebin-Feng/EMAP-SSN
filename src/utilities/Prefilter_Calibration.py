@@ -324,26 +324,22 @@ def read_record(hf):
     )
 
 
-def read_prefilter_settings(hf):
-    """The prefilter attributes of an open network file as a PrefilterRecord without a sample, or None.
+def read_similarity_settings(hf):
+    """(pooling, length-ratio power) the similarity of an open network file was made with, or None.
 
-    Unlike read_record it needs no calibration datasets, so it reads a network
-    that records only the cut's settings (pooling, length-ratio power) as well
-    as one that stores a sample, whose sample it leaves out.
+    Both are attributes of a network whose prefilter recorded its cut, and of a network
+    Network_Injection made from one; neither needs the calibration datasets, so a network
+    that stores no sample reads the same. Embedding_MSA computes its similarity with them.
     """
-    needed = (ATTR_STRENGTH, ATTR_THRESHOLD, ATTR_POOLING, ATTR_LENGTH_POWER, ATTR_KEPT, ATTR_SKIPPED)
-    if any(name not in hf.attrs for name in needed):
+    if ATTR_POOLING not in hf.attrs or ATTR_LENGTH_POWER not in hf.attrs:
         return None
-    empty = np.zeros(0, dtype=np.int64)
-    return PrefilterRecord(
-        strength=float(hf.attrs[ATTR_STRENGTH]),
-        threshold=float(hf.attrs[ATTR_THRESHOLD]),
-        pooling=_text(hf.attrs[ATTR_POOLING]),
-        length_power=float(hf.attrs[ATTR_LENGTH_POWER]),
-        kept=int(hf.attrs[ATTR_KEPT]),
-        skipped=int(hf.attrs[ATTR_SKIPPED]),
-        sample=CalibrationSample(empty, empty.copy(), np.zeros(0, dtype=np.float64)),
-    )
+    return _text(hf.attrs[ATTR_POOLING]), float(hf.attrs[ATTR_LENGTH_POWER])
+
+
+def write_similarity_settings(hf, pooling, length_power):
+    """Store the pooling and length-ratio power of the similarity in an open network file."""
+    hf.attrs[ATTR_POOLING] = str(pooling)
+    hf.attrs[ATTR_LENGTH_POWER] = float(length_power)
 
 
 def pair_keys(rows, cols, n):

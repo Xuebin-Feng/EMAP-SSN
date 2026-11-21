@@ -1354,6 +1354,7 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
     matmul_precision="ieee_fp32",
+    similarity_settings=None,
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -1442,6 +1443,8 @@ def compile_final_output(
             if gap_penalties is not None:
                 hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
             hf_out.attrs["matmul_precision"] = matmul_precision
+            if similarity_settings is not None:
+                Prefilter_Calibration.write_similarity_settings(hf_out, *similarity_settings)
 
             dt_str = h5py.string_dtype(encoding='utf-8')
             hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
@@ -1517,6 +1520,9 @@ def run_injection():
         # An Edge Pre-filtering network's calibration sample lies below its
         # cut on purpose, so it must not set the cut for the new pairs.
         old_prefilter = Prefilter_Calibration.read_record(hf_old_net)
+        # The new network keeps the pooling and length-ratio power its similarity was made
+        # with, so Embedding_MSA computes the same similarity for it.
+        similarity_settings = Prefilter_Calibration.read_similarity_settings(hf_old_net)
         inherited_precision = _decode_attr(
             hf_old_net.attrs.get("matmul_precision", "ieee_fp32")
         ).strip().lower()
@@ -1901,6 +1907,7 @@ def run_injection():
         saving_mode=current_saving_mode,
         gap_penalties=current_gap_penalties,
         matmul_precision=inherited_precision,
+        similarity_settings=similarity_settings,
     )
 
 def main(argv=None):

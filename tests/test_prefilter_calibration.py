@@ -365,7 +365,7 @@ class RunSampleTests(unittest.TestCase):
         none = calibration.select_among(self.values[:0], self.rows[:0], self.cols[:0])
         self.assertEqual(len(none), 0)
 
-    def test_the_prefilter_settings_read_without_a_sample(self):
+    def test_the_similarity_settings_read_without_the_rest_of_the_record(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = pathlib.Path(temp_dir) / "network.h5"
             record = calibration.PrefilterRecord(
@@ -376,13 +376,16 @@ class RunSampleTests(unittest.TestCase):
                 del hf[calibration.DATA_I]
             with h5py.File(path, "r") as hf:
                 self.assertIsNone(calibration.read_record(hf))
-                got = calibration.read_prefilter_settings(hf)
-            self.assertEqual((got.pooling, got.length_power, got.kept, got.skipped), ("mean", 1.5, 9, 3))
-            self.assertEqual(len(got.sample), 0)
+                self.assertEqual(calibration.read_similarity_settings(hf), ("mean", 1.5))
+            with h5py.File(path, "w") as hf:
+                calibration.write_similarity_settings(hf, "max", 2.0)
+            with h5py.File(path, "r") as hf:
+                self.assertEqual(set(hf.attrs), {calibration.ATTR_POOLING, calibration.ATTR_LENGTH_POWER})
+                self.assertEqual(calibration.read_similarity_settings(hf), ("max", 2.0))
             with h5py.File(path, "w") as hf:
                 hf.attrs["model_name"] = "m"
             with h5py.File(path, "r") as hf:
-                self.assertIsNone(calibration.read_prefilter_settings(hf))
+                self.assertIsNone(calibration.read_similarity_settings(hf))
 
 
 if __name__ == "__main__":
