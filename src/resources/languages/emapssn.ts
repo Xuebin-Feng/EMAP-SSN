@@ -6427,14 +6427,6 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Spearman ρ {rho} · R² {r2} · {count} observed pair above the prefilter cut</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Spearman ρ {rho} · R² {r2} · {count} observed pairs above the prefilter cut</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Spearman ρ {rho} · R² {r2} · {count} observed pair</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6443,15 +6435,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Calibrated fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Uniform fill {value} on {count} calibration pairs · MAE {mae} · R² {r2}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6475,7 +6459,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Calibration pairs, aligned below the prefilter cut</source>
+        <source>Calibration pairs, a sample of the missing pairs</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7827,11 +7811,11 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>BLAST networks store no calibration sample, so their missing pairs get the uniform fill.</source>
+        <source>BLAST network: its scores were not made by this program&apos;s alignment, so nothing can be calibrated and its missing pairs get the uniform fill.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>No network is selected. Select a valid network to determine whether it stores a calibration sample.</source>
+        <source>No network is selected. Select a valid network to see whether calibration can be used.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7839,16 +7823,60 @@ The BLASTP Directory field now names that folder. It is saved with the tool&apos
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>This network stores no calibration sample, so its missing pairs get the uniform fill.</source>
+        <source>This network does not record how its scores were made (its gap penalties), so its missing pairs get the uniform fill.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>It stores a calibration sample of {pairs:,} pairs.</source>
+        <source>{share:.1f}% of its pairs are missing; calibration is used from {limit:g}%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The window counts the whole network; the run counts the sequences it uses and has the last word.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>At the start of the run a sample of the missing pairs is aligned with the network&apos;s own scoring, to fit and check the imputation. The run counts the sequences it uses and has the last word.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not used: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not used while Calibrated Imputation is off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The run itself decides: the model, a check on 32 of the network&apos;s own edges, and every sequence being present.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} could not be read, so its model is unknown.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} records no embedding model, so it cannot be checked against the network&apos;s.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The network records no model, so {name} (model {model}) cannot be checked against it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} is of model {model}, but the network was made with {network}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>With this field empty the Embedding Set {name} serves; it records no embedding model, so it cannot be checked against the network&apos;s ({network}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>With this field empty the Embedding Set {name} (model {model}) serves, but the network was made with {network}: choose the network&apos;s embeddings here.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.
-Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
+Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the calibration pairs and their held-out check when Calibrated Imputation is on.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7945,6 +7973,10 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>Host cache size in GiB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(none)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8128,7 +8160,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>A calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs.</source>
+        <source>Only the kept pairs are aligned and stored; the network records nothing of the cut.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8332,7 +8364,19 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>When the network&apos;s Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores.</source>
+        <source>With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The embeddings the network was made from. Needed only when the Embedding Set is of another model than the network&apos;s.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calibrated Imputation aligns a sample of the missing pairs with the network&apos;s own scoring, and that needs the embeddings the network was made from. They must be of the network&apos;s model and hold every sequence of the run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leave it as (none) to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8340,7 +8384,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network&apos;s calibration pairs and their held-out check when it stores them.</source>
+        <source>Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the calibration pairs and their held-out check when Calibrated Imputation is on.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8404,23 +8448,23 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Fills a sparse network&apos;s missing pairs with a fit that uses the network&apos;s calibration sample.</source>
+        <source>Fills a sparse network&apos;s missing pairs with a fit that uses a sample of them, aligned at the start of the run.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>ON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit&apos;s lowest value.</source>
+        <source>ON draws a sample of this run&apos;s missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network&apos;s own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit&apos;s lowest value.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uses the calibration sample.</source>
+        <source>Aligns a sample of the missing pairs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uses only the pairs above the cut.</source>
+        <source>Aligns nothing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The calibration check is reported either way. A network without a calibration sample is always filled the OFF way.</source>
+        <source>Used only for a sparse network made by this program that records its gap penalties and lacks at least 10% of its pairs; the run counts the sequences it uses and has the last word.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9193,6 +9237,10 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>Network File (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network Embeddings:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
