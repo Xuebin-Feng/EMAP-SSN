@@ -134,7 +134,8 @@ class SampleTests(CalibrationRunTestCase):
     def test_the_sample_is_drawn_among_the_missing_pairs_and_added_before_the_normalization(self):
         fixture = self.fixture(drop=60)
         edges, size = fixture.run_pairs()
-        output, state, plot, kernel = self.run_builder(fixture, ALIGNMENT_SCORE="global")
+        with mock.patch.object(Embedding_MSA, "fit_imputation", wraps=Embedding_MSA.fit_imputation) as fitted:
+            output, state, plot, kernel = self.run_builder(fixture, ALIGNMENT_SCORE="global")
         self.assertEqual(len(state.calls), 1)
         pairs = state.calls[0]
         sample, check = pairs[:SAMPLE], pairs[SAMPLE:]
@@ -157,6 +158,10 @@ class SampleTests(CalibrationRunTestCase):
         fit = plot.call_args.kwargs["calibration"]
         self.assertEqual(fit.calibration_x.size, SAMPLE)
         self.assertEqual(fit.check.pairs, SAMPLE // 2)
+        _, _, positions, weights = fitted.call_args.args
+        self.assertEqual(positions.tolist(), list(range(len(given["edge_i"]) - SAMPLE, len(given["edge_i"]))))
+        # Each pair stands for the missing pairs of its similarity band: 60 pairs in 20 equal bands of 3, one drawn from each.
+        self.assertEqual(weights.tolist(), [3.0] * SAMPLE)
         self.assertIn("Calibration check (12 directly computed pairs from this run's missing pairs):", output)
         self.assertNotIn("No calibration sample", output)
         # The note names the sample, its bounds and seed, the device, and the check.
