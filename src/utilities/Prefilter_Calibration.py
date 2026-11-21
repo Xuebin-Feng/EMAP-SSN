@@ -25,6 +25,7 @@ This module imports no torch, numba or Qt.
 from dataclasses import dataclass
 
 import numpy as np
+from threadpoolctl import threadpool_limits  # a dependency of scikit-learn, which requirements.txt pins
 
 # The sample: FRACTION of the skipped pairs, at least MIN_PAIRS and at most
 # MAX_PAIRS (all of them when fewer are skipped), spread over BINS equal-count
@@ -107,11 +108,17 @@ def length_adjusted_similarity(pooled, seq_lens, power):
     pooled is float32 (n, d); the cosine stays float32, clipped to [-1, 1],
     and the length ratio is float64, so the (n, n) result is float64. Zero
     vectors count as length 1e-8.
+
+    The matrix product runs with BLAS on one thread, whatever the process has: a threaded product
+    adds the float32 terms in another order, differs in the last bits, and so can move a pair across
+    a band edge of the calibration draw or the prefilter's cut. Every tool therefore gets the bits a
+    process with one BLAS thread gets (the way Align_Similarity_Matrix has always run).
     """
     norms = np.linalg.norm(pooled, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1e-8, norms)
     unit = pooled / norms
-    similarity = np.clip(np.dot(unit, unit.T), -1.0, 1.0)
+    with threadpool_limits(limits=1, user_api="blas"):
+        similarity = np.clip(np.dot(unit, unit.T), -1.0, 1.0)
     lengths = np.asarray(seq_lens, dtype=np.int32)
     shorter = np.minimum(lengths[:, None], lengths[None, :])
     longer = np.maximum(np.maximum(lengths[:, None], lengths[None, :]), 1)

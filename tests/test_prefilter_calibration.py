@@ -404,6 +404,34 @@ class SharedSimilarityRuleTests(unittest.TestCase):
         self.assertEqual(list(inspect.signature(calibration.pair_similarity).parameters),
                          ["embeddings", "headers", "lengths", "progress"])
 
+    def test_the_bytes_are_the_same_whatever_number_of_blas_threads_the_process_has(self):
+        from threadpoolctl import threadpool_info, threadpool_limits
+
+        many = max((p["num_threads"] for p in threadpool_info() if p["user_api"] == "blas"), default=1)
+        if many < 2:
+            self.skipTest("this machine's BLAS has one thread, so a threaded product cannot be compared with a single one")
+        rng = np.random.default_rng(1)
+        pooled = rng.standard_normal((200, 64)).astype(np.float32)
+        lengths = rng.integers(50, 90, 200)
+        unit = pooled / np.linalg.norm(pooled, axis=1, keepdims=True)
+        with threadpool_limits(limits=1, user_api="blas"):
+            raw_one = np.dot(unit, unit.T).tobytes()
+        with threadpool_limits(limits=many, user_api="blas"):
+            raw_many = np.dot(unit, unit.T).tobytes()
+        if raw_one == raw_many:
+            self.skipTest("this BLAS gives the same bits at every thread count here, so the limit cannot be seen")
+        results = {}
+        for threads in (1, 2, many):
+            with threadpool_limits(limits=threads, user_api="blas"):
+                results[threads] = calibration.length_adjusted_similarity(pooled, lengths, 2.0).tobytes()
+        self.assertEqual(len(set(results.values())), 1, "the similarity follows the process's BLAS thread count")
+        # And it is the one-thread bits: what a process with one BLAS thread (Align's own) computes.
+        with threadpool_limits(limits=1, user_api="blas"):
+            shorter = np.minimum(lengths[:, None], lengths[None, :])
+            longer = np.maximum(lengths[:, None], lengths[None, :])
+            expected = np.clip(np.dot(unit, unit.T), -1.0, 1.0) * ((shorter / longer) ** 2.0)
+        self.assertEqual(results[many], expected.tobytes())
+
     def test_no_tool_script_keeps_its_own_pooling_or_power_or_calls_the_pieces_of_the_rule(self):
         import ast
 
