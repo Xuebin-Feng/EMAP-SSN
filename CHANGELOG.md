@@ -35,12 +35,19 @@ still change before version 1.0.0.
 - Generate Embeddings now saves float16 by default (see Changed). To resume an interrupted
   run that was saving float32, set Saving Mode to float32 first: a resume keeps the file's
   saving mode and refuses a different one.
-- A network made with Edge Pre-filtering by an earlier version has no calibration sample
-  (see Changed), and neither has a BLAST network or one made by Network Injection or Network
-  Extraction. Embedding MSA imputes their missing pairs as before and warns that the
-  estimates are unchecked. To rebuild a prefiltered network with its sample, move the
-  network file aside and run Align Similarity Matrix again: while its `_network_temp` batch
-  folder is still there, only the calibration pairs are aligned.
+- Embedding MSA now aligns a calibration sample of a sparse network's missing pairs
+  itself, at the start of the run (see Changed). No network has to be rebuilt for it: any
+  sparse network that records its gap penalties is calibrated, also one made by an earlier
+  version. A sparse network therefore gets a different guide tree and alignment than
+  before. Turn Calibrated Imputation off to align nothing extra.
+- An Embedding MSA whose embeddings are of another model than its sparse network's needs
+  the network's own embeddings for that calibration: choose them in Network Embeddings
+  (see Changed). Without them the missing pairs get the uniform fill, and the log says
+  why.
+- Network Injection chooses different pairs for a sparse input network than before (see
+  Changed). It uses the similarity of Edge Pre-filtering and keeps the input network's
+  share of pairs, so it usually aligns far fewer pairs for new sequences, and it can
+  align pairs of two old sequences.
 - `esmfold large` now folds with ESMFold 2 through the Biohub API (see Changed).
   Structures that were folded remotely with ESM3 98B stay on disk but are not reused:
   such a node is folded again when it is next asked for. The `ESM3_MODEL` line of
@@ -458,21 +465,47 @@ still change before version 1.0.0.
   0.999999 or better with float32 storage, at most 6 of 8,194 top-5% network edges changed,
   and embedding-based MSA accuracy moved by at most 0.0008 SP F1 (TC unchanged on all 43
   sets). Choose float32 to store values exactly as computed.
-- **Edge Pre-filtering aligns a calibration sample of the pairs it skips, and Embedding MSA
-  fits and checks its estimates of a sparse network's missing pairs on it.** Before, the
-  isotonic fit saw only the kept pairs, so every skipped pair below the lowest of them got
-  one and the same estimate, and the R² it printed was measured on the kept pairs.
-  - Align Similarity Matrix aligns 1% of the skipped pairs (at least 2,000 and at most
-    50,000; all of them when fewer are skipped), the same number from each of 20
-    equal-count similarity bands, with seed 42. They are stored as ordinary edges, and the
-    network file records which pairs they are, how many skipped pairs each stands for, and
-    the prefilter's settings.
-  - Embedding MSA reads that record, uses the prefilter's pooling and length exponent (and
-    warns when its own settings differ), and fits on the kept pairs and the sample,
-    weighted. A fit without every second calibration pair is scored on those pairs: its
-    Spearman ρ, MAE and R² against their computed scores are printed, shown in the
-    regression chart (with the sample as dots) and saved in the guide tree's
-    `MISSING_PAIRS` note, with the share of missing pairs outside the fit's range.
+- **Embedding MSA aligns a calibration sample of a sparse network's missing pairs, and
+  fits and checks its estimates on it.** Before, the isotonic fit saw only the pairs the
+  network has, so every missing pair below the lowest of them got one and the same
+  estimate, and the R² it printed was measured on the pairs the network has.
+  - **The sample.** At the start of the run Embedding MSA draws 1% of this run's missing
+    pairs (at least 5,000 and at most 100,000; all of them when fewer are missing, and
+    then nothing is imputed), the same number from each of 20 equal-count similarity
+    bands, with seed 42. It aligns them with the network's own gap penalties and
+    precision, through Align Similarity Matrix's alignment code. For this run they count
+    as pairs of the network. The network file is not changed.
+  - **The fit and its check.** The fit takes the network's pairs and the sample, each
+    sampled pair weighted by the number of missing pairs it stands for. A fit without
+    every second sampled pair is scored on those pairs: its Spearman ρ, MAE and R²
+    against their computed scores are printed, shown in the regression chart (with the
+    sample as dots) and saved in the guide tree's `MISSING_PAIRS` note, with the share of
+    missing pairs outside the fit's range.
+  - **A self-check guards against the wrong embeddings.** 32 of the network's own edges
+    are aligned in the same step and must come out as the network stores them: scores
+    within 0.01%, alignment lengths equal. A TF32 network aligned in IEEE FP32 may differ
+    by 0.1% and a BF16 network by 2%, and in those two cases 2 of the 32 edges may differ
+    in a length. When the check fails, or the network records no gap penalties,
+    calibration is not used: the missing pairs get the uniform fill, and the log and the
+    guide tree's `CALIBRATION` note say why.
+  - **Not below 10% missing.** When fewer than 10% of the run's pairs are missing, nothing
+    is drawn or aligned and the missing pairs get the uniform fill.
+  - **Network Embeddings (`INPUT_NETWORK_EMBED`), a second, optional embeddings input.**
+    The sample has to be aligned from the embeddings the network was made from. When the
+    alignment's own embeddings are of another model, choose the network's embeddings
+    there. The file must record the network's model and hold every sequence of the run;
+    it then also gives the similarity the fit runs on. A file that is refused is not
+    used, and the log says why. The Tools window warns when the models differ.
+  - **Device and cost.** A named device is used as named. With `auto`, a small sample
+    goes to the CPU without timing the devices; only a sample too large for that has the
+    devices timed on a share of it. On the HomFam kringle and DEATH families (829 and 881
+    sequences, 5,000 sampled pairs) the step took 4 to 9 s on the CPU.
+  - **Edge Pre-filtering itself aligns and stores only the pairs it keeps.** A network
+    file records nothing of the cut. The similarity it cuts on (max-pooled embeddings,
+    cosine × (shorter/longer)²) is now one shared function for Align Similarity Matrix,
+    Embedding MSA and Network Injection, computed the same way in each, so the three get
+    identical values. While it is computed it holds 12 bytes per pair of sequences
+    (2.0 GB for 12,927 sequences).
   - Tested offline on 15 dense networks with 20–75% of their pairs hidden as the prefilter
     would hide them: the 12,927-sequence aminotransferase set with E1, Ankh base and ESM C
     600M, and four HomFam families with Ankh base, ESM C 600M and ProstT5. The estimates'
@@ -480,8 +513,15 @@ still change before version 1.0.0.
     and the held-out check came within 0.004 of the true R² (median). The guide tree's
     topology barely changed; its agreement with the dense tree's distances rose in 39 of
     the 60 cases and fell in 12.
-  - Network Injection leaves an input network's calibration pairs out when it takes the
-    lowest similarity among the network's edges as the cut for new pairs.
+    The samples in that test were drawn the same way, from 2,000 to 50,000 pairs, and
+    were stored in the network file.
+  - **Checked against that stored-sample design**, which development builds had and no
+    release: with its bounds of 2,000 and 50,000 pairs, the sample drawn at run time is
+    the stored sample pair for pair on the HomFam kringle family and on two networks of
+    the DEATH family, the newly aligned scores agree with the stored ones within 0.0003%
+    with equal alignment lengths, and the guide tree has the same clades (828 of 828 and
+    880 of 880). A network file from such a build still loads: Embedding MSA treats its
+    stored sample as ordinary pairs and draws its own.
 - **Embedding MSA gives every sparse network the full consensus, and Calibrated Imputation
   chooses how its missing pairs are filled.**
   - **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS` is retired.** The final matrix of a sparse
@@ -490,16 +530,17 @@ still change before version 1.0.0.
     of value: averaged tree distances for the computed pairs and the raw filled-in value
     for the skipped ones. The partial-consensus code is removed.
   - **Calibrated Imputation (`CALIBRATED_IMPUTATION`, on by default) takes its place in
-    the Tools window.** On is the fit with the calibration sample (the entry above). Off
-    fits on the pairs above the prefilter cut only, unweighted, and gives every skipped
-    pair the fit's lowest value, as before the sample existed; the sample's pairs keep
-    their computed scores. A network without a sample is always filled the off way, so
-    the switch is greyed for it, as for a complete or a BLAST network.
-  - **What a run reports:** the uniform value, whenever it is used. The calibration check
-    is reported either way. With the switch off, the log, the regression chart and the
-    guide tree's `MISSING_PAIRS` note also give the uniform value's MAE and R² on the
-    calibration pairs. The guide tree records `CALIBRATED_IMPUTATION` where it recorded
-    the old setting.
+    the Tools window.** On aligns the calibration sample and fits with it (the entry
+    above). Off aligns nothing: the fit takes the network's pairs only, unweighted, and
+    every missing pair below the fit's range gets the fit's lowest value, as in earlier
+    versions. The switch is greyed, with the reason, for a complete or a BLAST network,
+    for a network that does not record its gap penalties, and for one that lacks fewer
+    than 10% of its pairs.
+  - **What a run reports:** the uniform value, whenever it is used, and the calibration
+    check when a sample was aligned. The guide tree records `CALIBRATED_IMPUTATION` where
+    it recorded the old setting, and in `CALIBRATION` what the run did: the sample's
+    size, the device, the time and the self-check's result, or why calibration was not
+    used.
   - **Old settings still load.** A tool run prints one line saying the retired setting is
     ignored. MCP accepts the document, drops the setting and lists it under `overrides`.
     The Tools window drops it at the next Save. Any other unknown setting is treated as
@@ -509,14 +550,44 @@ still change before version 1.0.0.
     0.366, the uniform fill with it 0.349, the uniform fill with the partial consensus
     0.340, and the calibrated fill with the partial consensus, the default until now,
     0.292.
-  - **Checked on the HomFam kringle family** (829 sequences, Ankh base, 75% of pairs kept,
-    on the CPU). Without a sample, the guide tree has the same clades and replicate
-    percentages as the earlier version's with the old setting on, and the switch on and
-    off give byte-identical alignments. With a sample and the switch on, the guide tree
-    has the same clades and replicate percentages as the earlier version's calibrated
-    one with the old setting on. With the switch off, the uniform value equals that of
-    the network without a sample (4.4863), and 745 of the tree's 828 clades are shared
-    with the switch-on tree.
+  - **Checked when the consensus code changed**, on the HomFam kringle family (829
+    sequences, Ankh base, 75% of pairs kept, on the CPU): with the uniform fill, the
+    guide tree had the same clades and replicate percentages as the earlier version's
+    with the old setting on.
+- **Network Injection chooses a sparse network's pairs by Edge Pre-filtering's similarity
+  and keeps the network's share of pairs.** It used to cut on another similarity (the
+  cosine of mean-pooled embeddings, without the length ratio), at the lowest value among
+  the input network's edges. On that scale the kept edges reach far down, so the cut
+  removed little: on the 12,927-sequence aminotransferase set (E1, 75% of pairs kept,
+  300 sequences taken out and injected back) every one of the 3,832,950 pairs with an
+  injected sequence was aligned.
+  - **The rule.** s is the shared similarity (max-pooled embeddings, cosine ×
+    (shorter/longer)²) of every pair of the new set. K is the share of pairs the input
+    network keeps. The cut is the lower of two values: the lowest s among the input
+    network's edges that stay in the new set, and the s that keeps K of the new set's
+    pairs. Every pair at or above the cut that the network does not have is aligned,
+    pairs of two old sequences included. No existing edge is dropped.
+  - **What that means.** New sequences like the old ones: the cut stays at the lowest old
+    edge and the kept share rises. New sequences unlike the old ones: the share stays at
+    K, and pairs of two old sequences just above the new cut are aligned. Injecting
+    nothing new adds nothing. A complete input network is treated as before: every pair
+    with a new sequence is aligned.
+  - **Checked** on 200 sequences of the HomFam kringle family at 50% of pairs kept: with
+    30 sequences held out and injected back, the result holds all 9,950 edges that Edge
+    Pre-filtering keeps on the whole set, and one more; 30 more kringle sequences raise
+    the kept share to 50.3%; 30 sequences of another family keep it at 50.0% by aligning
+    2,021 pairs of two old sequences. Reused edges are byte-identical to the old file's.
+  - A network file from a development build that stored a calibration sample still
+    loads: its sample pairs stay as edges and count neither for K nor for the lowest
+    edge.
+  - It needs the memory Edge Pre-filtering needs, 12 bytes per pair of sequences of the
+    new set while the similarity is computed (about 23 GB for 44,000 sequences).
+- **Network Injection picks its pairs faster and in less memory.** Pair selection and
+  the final merge went through every pair in Python. They now work on sorted arrays of
+  pair numbers. On the 12,927-sequence set above, with the earlier version's cut, pair
+  selection took 8.3 s where it took 79.6 s, and the tool's memory peaked at 6.9 GB
+  where it peaked at 12.6 GB. The required, reused and queued pairs were the same, in
+  the same order.
 - **PyTorch 2.14.0 for every backend, and ROCm 10.1 for AMD GPUs.**
   - The CPU, CUDA 12.6, CUDA 13.2, Intel XPU and Apple MPS builds move from PyTorch
     2.12.0 to 2.14.0. PyTorch now lists CUDA 13.2 as a stable build. 2.14 is the last
@@ -702,6 +773,15 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Embedding MSA's imputation fit no longer depends on the order of the edges in the
+  network file.** For a sparse network with more than 100,000 pairs the fit takes a
+  random 100,000 of them, with a fixed seed. The pick followed the order of the edges in
+  the file, so two files with the same edges in another order gave different fits and
+  guide trees. Before the pick, the pairs are now put in an order that depends only on
+  which two sequences a pair joins. The pick is therefore another random 100,000 than
+  before, and results change: on the HomFam kringle family (829 sequences, 75% of pairs
+  kept) a calibrated run shares 822 of 828 clades with its tree before this change. A
+  network with 100,000 pairs or fewer is not affected.
 - **Embedding MSA's guide tree no longer depends on the number of workers or on timing.**
   The consensus adds up every replicate tree's distances as 32-bit numbers, and the
   replicates were added in the order their workers finished. With more than one worker
