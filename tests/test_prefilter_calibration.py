@@ -389,6 +389,23 @@ class RunSampleTests(unittest.TestCase):
                 np.testing.assert_array_equal(got[0], r)
                 np.testing.assert_array_equal(got[1], c)
 
+    def test_the_draw_adds_at_most_about_ten_bytes_per_candidate_to_the_values(self):
+        import tracemalloc
+
+        count = 400_000
+        values = np.random.default_rng(4).random(count)
+        with mock.patch.object(calibration, "_BAND_CHUNK", 10_000):
+            tracemalloc.start()
+            try:
+                base = tracemalloc.get_traced_memory()[0]
+                picked, weights = calibration._draw_by_bands(values, 1_000, calibration.BINS, calibration.SEED)
+                peak = tracemalloc.get_traced_memory()[1] - base
+            finally:
+                tracemalloc.stop()
+        # The quantile's one copy (8), the one-byte bands (1), a band's mask (1) and its members (8 / 20): about 10.4.
+        self.assertLess(peak, 12 * count + 1_000_000)
+        self.assertEqual(len(picked), 1_000)
+
     def test_the_missing_pairs_hold_the_values_alone_eight_bytes_each(self):
         import tracemalloc
 
