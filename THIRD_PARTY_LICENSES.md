@@ -298,7 +298,7 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | pydantic (installed with mcp; imported directly by the MCP server) | MIT |
 | sentencepiece 0.2.2 | Apache-2.0 |
 | protobuf 7.36.2 (required by Transformers to convert sentencepiece tokenizers) | BSD-3-Clause |
-| numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
+| numpy, scipy, pandas, scikit-learn, threadpoolctl | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown, psutil | BSD-3-Clause |
 | numba | BSD-2-Clause |
 | umap-learn | BSD-3-Clause |
@@ -344,7 +344,7 @@ They are listed for completeness.
 | botocore (its bundled CA root certificates; the package itself is Apache-2.0) | MPL-2.0 | boto3 (an ESM runtime dependency) |
 
 All remaining transitive dependencies (safetensors, regex, filelock, sympy,
-pillow, requests, joblib, pynndescent, fonttools, threadpoolctl, llvmlite, and
+pillow, requests, joblib, pynndescent, fonttools, llvmlite, and
 others) are under permissive licenses: MIT, MIT-0, MIT-CMU, BSD, ISC,
 Apache-2.0 (including Apache-2.0 WITH LLVM-exception), or PSF/CNRI-Python.
 

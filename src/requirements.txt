@@ -51,6 +51,10 @@ xlrd==2.0.2
 pandas==3.0.6
 scikit-learn==1.9.1
 scipy==1.18.1
+# Limits BLAS to one thread around the similarity matrix product (utilities/Prefilter_Calibration.py), so every
+# tool gets the same bits whatever its process's thread count. scikit-learn installs it as its own dependency;
+# it is named here because the code imports it.
+threadpoolctl==3.7.0
 # Required for Transformers' sentencepiece-backed tokenizer conversion, not
 # optional. Transformers 5.x rebuilt T5Tokenizer on the Rust `tokenizers`
 # backend, so a model that ships only `spiece.model` and no `tokenizer.json`

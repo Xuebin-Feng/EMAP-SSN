@@ -1713,6 +1713,21 @@ class LegacyExcelReaderDependencyTests(unittest.TestCase):
         self.assertIsNotNone(import_optional_dependency("xlrd"))
 
 
+class SimilarityThreadLimitDependencyTests(unittest.TestCase):
+    """The shared similarity function limits BLAS to one thread with threadpoolctl."""
+
+    def test_requirements_name_threadpoolctl_because_the_similarity_code_imports_it(self):
+        lines = Install_Dependencies._requirement_lines(SRC / "requirements.txt")
+        self.assertEqual(len([line for line in lines if line.startswith("threadpoolctl==")]), 1)
+        source = (SRC / "utilities" / "Prefilter_Calibration.py").read_text(encoding="utf-8")
+        self.assertIn("from threadpoolctl import threadpool_limits", source)
+
+    def test_the_pinned_package_can_be_imported(self):
+        import threadpoolctl
+
+        self.assertTrue(callable(threadpoolctl.threadpool_limits))
+
+
 class PinnedRequirementTests(unittest.TestCase):
     """Every requirement the two files list is pinned to the version a release tested."""
 
