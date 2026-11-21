@@ -101,7 +101,14 @@ This script does not require additional configuration parameters.
 
 # Network Injection (`Network_Injection.py`)
 
-This script performs incremental similarity network calculations. When new sequences are added to a project, it copies all pre-existing sequence-to-sequence alignment scores directly from the old network cache, aligning only the newly introduced sequence pairs to save time and compute resources.
+This script performs incremental similarity network calculations. When new sequences are added to a project, it copies all pre-existing sequence-to-sequence alignment scores directly from the old network cache, aligning only the pairs the new network needs and the old one lacks, to save time and compute resources.
+
+**Which pairs are aligned.** An old edge whose two sequences are both still in the new set is always kept, with its old scores. With a complete input network, every pair that involves a new sequence is aligned. With a sparse input network (made with Edge Pre-filtering), the tool measures every pair of the new set with the same similarity Edge Pre-filtering uses (max-pooled embeddings, cosine times the shorter-to-longer length ratio squared) and aligns every pair, old-old pairs without an edge included, whose similarity reaches a cut. The cut is the lower of two values:
+
+1. the lowest similarity among the input network's edges that stay in the new set (recorded calibration pairs left out), and
+2. the similarity that keeps the same share of the new set's pairs as the input network kept (its edges divided by all pairs of its sequences, recorded calibration pairs left out).
+
+If the lowest old edge lies below the second value, everything above that edge is aligned, even though this keeps more pairs than the input network did. In the opposite case the kept share stays the same as in the input network. A sparse input network that has no edge at all has nothing to compare with, so every pair is aligned. The tool prints the share, both values, the cut and which of the two set it, and how many pairs it queues (old-old, old-new, new-new).
 
 ### Input
 
@@ -124,6 +131,7 @@ This script performs incremental similarity network calculations. When new seque
 | Execution Mode **`EXECUTION_MODE`** | `Auto` compares scalar and tiled plans where supported. `Scalar` restricts tuning and production to one-matrix-at-a-time plans. `Tiled` forces memory-bounded embedding tiles and padded microbatches on CUDA/ROCm or XPU and fails early if no compatible accelerator is available. |
 | Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget capped at 128 GiB and `0` disables it. |
 | Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. BF16 networks require a capable accelerator. Before calculating new edges, Network Injection prints a low-precision warning and reports FP32-relative alignment-length and raw-score statistics on up to 2,048 representative pairs; finite numerical differences never reject BF16. |
+| Memory | A complete input network needs no similarity. A sparse one needs the similarity of every pair of the new set in memory (8 bytes per pair of sequences squared) and, for the cut, the values of the upper triangle (4 bytes per pair of sequences squared): about 15.5 GB plus 7.7 GB at 44,000 sequences, the same as Edge Pre-filtering in Align Similarity Matrix. The similarity is released once the pairs are chosen. |
 
 ### Output
 
@@ -143,7 +151,7 @@ This script performs incremental similarity network calculations. When new seque
      For all pairwise combinations in the new network (u, v) (where 0 ≤ u < v < M):
      - **Case 1 (Cached Pair)**: If the old network contains that exact header pair, its global/local scores and lengths are copied.
      - **Case 2 (New Pair, Complete Old Network)**: If either endpoint is new, the pair is scheduled for active dynamic-programming alignment.
-     - **Case 3 (New Pair, Sparse Old Network)**: Mean-pooled embedding cosine similarity is compared with the lowest cosine similarity among reusable old edges. Only new pairs meeting that inherited threshold are aligned, preserving a sparse-network policy.
+     - **Case 3 (Sparse Old Network)**: Let $s(u, v)$ be the max-pooled, length-adjusted cosine similarity of Edge Pre-filtering, $K$ the share of all old pairs the old network kept (recorded calibration pairs left out), $s_{\min}$ the lowest $s$ among the old edges that stay in the new set (calibration pairs left out) and $t'$ the $100\,(1-K)$-th percentile of $s$ over the pairs of the new set. The cut is $\min(s_{\min}, t')$. Every pair with $s \ge$ cut that is not an old edge is scheduled for alignment, old-old pairs included; every old edge is kept. When $s_{\min} < t'$ the kept share rises above $K$; otherwise it stays at $K$. With no old edge in the new set the cut is $t'$; with no old edge at all every pair is aligned.
 
 3. **Incremental Alignment**:
      Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. CUDA/ROCm and XPU share persistent normalized-embedding tiles, length-bucketed targets with bounded padding, and device-memory preflight before execution. Each pair:
