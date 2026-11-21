@@ -2352,13 +2352,22 @@ def _count_computed_required_pairs(computed_mask, required_mask):
         return int(np.count_nonzero(computed_mask & required_mask))
     return int(np.count_nonzero(computed_mask) // 2)
 
+@dataclass
+class PrefilterCut:
+    """The cut Edge Pre-filtering made: the similarity threshold and how many pairs it kept and skipped."""
+
+    threshold: float
+    kept: int
+    skipped: int
+
+
 def prefilter_pairs(safe_headers, seq_lens):
-    """Edge Pre-filtering: the pairs to align, and the record the network keeps of the cut.
+    """Edge Pre-filtering: the pairs to align, and the cut (a PrefilterCut).
 
     The required mask marks, in its upper triangle, every pair whose
-    length-adjusted pooled-embedding similarity reaches the
-    PREFILTER_STRENGTH percentile, plus the calibration sample of the pairs
-    below it (see utilities.Prefilter_Calibration).
+    length-adjusted pooled-embedding similarity (utilities.Prefilter_Calibration.pair_similarity)
+    reaches the PREFILTER_STRENGTH percentile. Nothing else is aligned and the network
+    records nothing of the cut.
     """
     print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
     # All-vs-all on the CPU, by the rule every tool shares.
@@ -2379,31 +2388,13 @@ def prefilter_pairs(safe_headers, seq_lens):
     num_kept = int(np.count_nonzero(required_mask))
     skipped = total_pairs - num_kept
 
-    sample = Prefilter_Calibration.select_calibration(values, threshold, n)
     del values
-    required_mask[sample.rows, sample.cols] = True
 
     print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
     print(f"  > Adjusted Similarity Threshold: {threshold:.6f}")
     print(f"  > Retaining {num_kept} / {total_pairs} pairs ({100.0 * num_kept / total_pairs:.2f}%)")
-    if skipped:
-        print(
-            f"  > Calibration sample: {len(sample):,} of the {skipped:,} skipped pairs "
-            f"({100.0 * len(sample) / skipped:.2f}%), drawn evenly from "
-            f"{Prefilter_Calibration.BINS} similarity bands (seed {Prefilter_Calibration.SEED}). "
-            "Embedding MSA uses their scores to fit and check its estimates of the skipped pairs."
-        )
     print("-----------------------------------------------------------\n")
-    record = Prefilter_Calibration.PrefilterRecord(
-        strength=float(PREFILTER_STRENGTH),
-        threshold=threshold,
-        pooling=Prefilter_Calibration.POOLING,
-        length_power=float(Prefilter_Calibration.LENGTH_RATIO_POWER),
-        kept=num_kept,
-        skipped=skipped,
-        sample=sample,
-    )
-    return required_mask, record
+    return required_mask, PrefilterCut(threshold=threshold, kept=num_kept, skipped=skipped)
 
 
 def compile_final_output(
@@ -2416,7 +2407,6 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
     matmul_precision="ieee_fp32",
-    prefilter_record=None,
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -2484,7 +2474,6 @@ def compile_final_output(
             model_name,
             gap_penalties,
             matmul_precision,
-            prefilter_record,
         )
         os.replace(partial_output, FINAL_OUTPUT_NET)
     except BaseException:
@@ -2510,7 +2499,6 @@ def _merge_batches_into(
     model_name,
     gap_penalties,
     matmul_precision,
-    prefilter_record=None,
 ):
     with h5py.File(output_path, "w") as hf_out:
         if current_checksum is not None:
@@ -2519,8 +2507,6 @@ def _merge_batches_into(
         if gap_penalties is not None:
             hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
         hf_out.attrs["matmul_precision"] = matmul_precision
-        if prefilter_record is not None:
-            Prefilter_Calibration.write_record(hf_out, prefilter_record, idx_dtype)
 
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf_out.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
@@ -2633,9 +2619,8 @@ def run_job_distributor():
     
     # Prefiltering logic
     required_mask = None
-    prefilter_record = None
     if EDGE_PREFILTERING and PREFILTER_STRENGTH > 0 and n >= 2:
-        required_mask, prefilter_record = prefilter_pairs(safe_headers, seq_lens)
+        required_mask, _cut = prefilter_pairs(safe_headers, seq_lens)
 
     # Allocate computed mask
     computed_mask = np.zeros((n, n), dtype=bool)
@@ -2822,7 +2807,6 @@ def run_job_distributor():
         current_saving_mode,
         current_gap_penalties,
         active_matmul_precision,
-        prefilter_record=prefilter_record,
     )
 
 # %% =======================================

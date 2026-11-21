@@ -1441,7 +1441,7 @@ class AlignmentPipelineTests(unittest.TestCase):
                 for column, data in columns.items():
                     hf.create_dataset(column, data=data)
 
-    def _compile_batches(self, temp_dir, required_mask=None, prefilter_record=None):
+    def _compile_batches(self, temp_dir, required_mask=None):
         output = os.path.join(temp_dir, "network", "set_[model]_network.h5")
         stdout = io.StringIO()
         with mock.patch.object(
@@ -1463,41 +1463,30 @@ class AlignmentPipelineTests(unittest.TestCase):
                 "float32",
                 [-2.0, 0.0],
                 "ieee_fp32",
-                prefilter_record=prefilter_record,
             )
         return output, stdout.getvalue()
 
-    def test_compile_stores_the_prefilter_record_and_its_sample(self):
-        record = similarity_matrix.Prefilter_Calibration.PrefilterRecord(
-            strength=20.0, threshold=0.25, pooling="max", length_power=2.0,
-            kept=6, skipped=2,
-            sample=similarity_matrix.Prefilter_Calibration.CalibrationSample(
-                np.array([3]), np.array([4]), np.array([2.0])
-            ),
-        )
+    OLD_ATTRIBUTES = {"embedding_checksum", "model_name", "gap_penalties", "matmul_precision"}
+    OLD_DATASETS = {"headers", "seq_lens", "i", "j", "l_score", "l_len", "g_score", "g_len"}
+
+    def test_compile_writes_the_required_pairs_and_the_old_metadata_only(self):
         required = np.zeros((6, 6), dtype=bool)
         for pair in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3), (3, 4)]:
             required[pair] = True
         with tempfile.TemporaryDirectory() as temp_dir:
             self._write_compile_batches(os.path.join(temp_dir, "batches"))
-            output, _ = self._compile_batches(temp_dir, required, record)
+            output, _ = self._compile_batches(temp_dir, required)
             with h5py.File(output, "r") as hf:
-                got = similarity_matrix.Prefilter_Calibration.read_record(hf)
                 edges = set(zip(hf["i"][:].tolist(), hf["j"][:].tolist()))
-            # The calibration pair (3, 4) is written; (4, 5) was not required.
+                attributes, datasets = set(hf.attrs), set(hf)
+                self.assertIsNone(similarity_matrix.Prefilter_Calibration.read_record(hf))
             self.assertIn((3, 4), edges)
             self.assertNotIn((4, 5), edges)
-            self.assertEqual((got.strength, got.threshold, got.kept, got.skipped), (20.0, 0.25, 6, 2))
-            np.testing.assert_array_equal(got.sample.rows, [3])
-            np.testing.assert_array_equal(got.sample.cols, [4])
-            # A network made without the prefilter has no record.
-            self._write_compile_batches(os.path.join(temp_dir, "plain", "batches"))
-            plain, _ = self._compile_batches(os.path.join(temp_dir, "plain"))
-            with h5py.File(plain, "r") as hf:
-                self.assertIsNone(similarity_matrix.Prefilter_Calibration.read_record(hf))
-                self.assertNotIn("prefilter_strength", hf.attrs)
+            # What a network carried before the prefilter stored anything: no prefilter_* attribute, no calibration dataset.
+            self.assertEqual(attributes, self.OLD_ATTRIBUTES)
+            self.assertEqual(datasets, self.OLD_DATASETS)
 
-    def test_prefilter_requires_the_kept_pairs_and_the_calibration_sample(self):
+    def test_prefilter_requires_exactly_the_kept_pairs(self):
         n = 90
         rng = np.random.default_rng(5)
         lengths = rng.integers(40, 160, n)
@@ -1516,7 +1505,7 @@ class AlignmentPipelineTests(unittest.TestCase):
             }
             with mock.patch.multiple(similarity_matrix, **settings), \
                     redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()):
-                required, record = similarity_matrix.prefilter_pairs(names, list(lengths))
+                required, cut = similarity_matrix.prefilter_pairs(names, list(lengths))
             with h5py.File(path, "r") as hf:
                 pooled = np.array([np.max(hf["embeddings"][name][:], axis=0) for name in names],
                                   dtype=np.float32)
@@ -1526,18 +1515,17 @@ class AlignmentPipelineTests(unittest.TestCase):
         upper = np.triu(np.ones((n, n), dtype=bool), k=1)
         threshold = np.percentile(similarity[upper], 40)
         kept = (similarity >= threshold) & upper
-        self.assertEqual(record.threshold, threshold)
-        self.assertEqual(record.kept, int(kept.sum()))
-        self.assertEqual(record.skipped, int(upper.sum() - kept.sum()))
-        # The lowest 40 % of 4,005 pairs are skipped: fewer than the 2,000-pair
-        # floor, so all of them are calibration pairs and every pair is required.
-        self.assertLess(record.skipped, 2_000)
-        self.assertEqual(len(record.sample), record.skipped)
-        self.assertTrue(np.array_equal(required, upper))
-        self.assertTrue(np.all(similarity[record.sample.rows, record.sample.cols] < threshold))
-        self.assertIn(f"Calibration sample: {record.skipped:,} of the {record.skipped:,} skipped pairs", stdout.getvalue())
+        self.assertEqual(cut.threshold, threshold)
+        self.assertEqual(cut.kept, int(kept.sum()))
+        self.assertEqual(cut.skipped, int(upper.sum() - kept.sum()))
+        # Exactly the kept pairs are required: no calibration sample is added among the skipped ones.
+        self.assertTrue(np.array_equal(required, kept))
+        text = stdout.getvalue()
+        self.assertIn(f"Adjusted Similarity Threshold: {threshold:.6f}", text)
+        self.assertIn(f"Retaining {cut.kept} / {int(upper.sum())} pairs", text)
+        self.assertNotIn("Calibration sample", text)
 
-    def test_prefilter_aligns_a_sample_of_many_skipped_pairs(self):
+    def test_prefilter_uses_the_shared_pooling_and_power_and_requires_only_the_kept_pairs(self):
         n = 120
         rng = np.random.default_rng(6)
         lengths = rng.integers(50, 60, n)
@@ -1556,19 +1544,18 @@ class AlignmentPipelineTests(unittest.TestCase):
 
         with mock.patch.multiple(similarity_matrix, PREFILTER_STRENGTH=50), \
                 mock.patch.multiple(similarity_matrix.Prefilter_Calibration, POOLING="mean", LENGTH_RATIO_POWER=1.0), \
-                mock.patch.object(similarity_matrix.Prefilter_Calibration, "MIN_PAIRS", 300), \
                 mock.patch.object(similarity_matrix.h5py, "File",
                                   return_value=FakeFile(embeddings=embeddings)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            required, record = similarity_matrix.prefilter_pairs(names, list(lengths))
+            required, cut = similarity_matrix.prefilter_pairs(names, list(lengths))
         upper = np.triu(np.ones((n, n), dtype=bool), k=1)
-        self.assertEqual(record.pooling, "mean")
-        self.assertEqual(record.length_power, 1.0)
-        self.assertEqual(len(record.sample), 300)
-        self.assertEqual(int(required.sum()), record.kept + 300)
+        similarity = similarity_matrix.Prefilter_Calibration.length_adjusted_similarity(
+            np.array([embeddings[name].mean(axis=0) for name in names], dtype=np.float32), lengths, 1.0)
+        threshold = float(np.percentile(similarity[upper], 50))
+        self.assertEqual(cut.threshold, threshold)
+        self.assertEqual(int(required.sum()), cut.kept)
+        self.assertTrue(np.array_equal(required, (similarity >= threshold) & upper))
         self.assertFalse(np.any(required & ~upper))
-        self.assertTrue(np.all(required[record.sample.rows, record.sample.cols]))
-        self.assertAlmostEqual(float(record.sample.weights.sum()), record.skipped, places=6)
 
     def test_compile_publishes_complete_network_atomically(self):
         with tempfile.TemporaryDirectory() as temp_dir:

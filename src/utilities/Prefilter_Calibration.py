@@ -1,23 +1,20 @@
 # Copyright 2026 Xuebin Feng
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
-"""The prefilter's similarity, and the calibration sample of the pairs it skips.
+"""The shared similarity rule, and the calibration sample of a run's missing pairs.
 
-Align_Similarity_Matrix's Edge Pre-filtering aligns only the pairs whose
-length-adjusted pooled-embedding cosine similarity (length_adjusted_similarity)
-reaches the PREFILTER_STRENGTH percentile. It also aligns a calibration sample
-of the pairs below that cut (select_calibration): an equal number from each of
-BINS similarity bands of the skipped pairs, the lowest band included, chosen
-with SEED. Their scores are stored with the other edges, and the network file
-records which pairs they are, how many skipped pairs each stands for, and the
-prefilter's settings (write_record, read_record).
+pair_similarity is the one rule every tool uses for the length-adjusted pooled-embedding cosine
+similarity: Align_Similarity_Matrix's Edge Pre-filtering keeps the pairs that reach the
+PREFILTER_STRENGTH percentile of it, and Embedding_MSA fills a sparse network's missing pairs with
+an isotonic fit of the normalized score on it.
 
-Embedding_MSA fills a sparse network's missing pairs with an isotonic fit of
-the normalized score on that same similarity. With the sample, the fit spans
-the skipped pairs' range instead of giving all of them the value at the cut,
-and the half of the sample held back from a first fit shows how well it
-predicts directly computed scores. Network_Injection leaves the sample out
-when it reads its own similarity cut from a network's edges.
+Embedding_MSA draws its calibration sample from the run's own missing pairs (missing_pairs,
+select_among): an equal number from each of BINS similarity bands, the lowest band included, chosen
+with SEED, then aligned with the network's own scoring. Builds from 89c914b to a7f0e18 had Align
+store a sample of the skipped pairs in the network file instead (select_calibration drew it,
+write_record stored it with the prefilter's settings); Align no longer does, but read_record,
+locate_sample and pair_keys still read such a file (Network_Injection keeps the stored sample out
+of its cut), and write_record and select_calibration stay so that tests can build one.
 
 This module imports no torch, numba or Qt.
 """
