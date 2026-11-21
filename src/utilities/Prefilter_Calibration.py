@@ -34,6 +34,11 @@ MIN_PAIRS = 2000
 MAX_PAIRS = 50000
 BINS = 20
 SEED = 42
+# The bounds of the sample Embedding_MSA draws from a run's missing pairs (select_among).
+# MIN_PAIRS and MAX_PAIRS stay the bounds of the sample a network stores until Align
+# stops storing one.
+DRAW_MIN_PAIRS = 5000
+DRAW_MAX_PAIRS = 100000
 
 # The network file's record (root attributes and datasets).
 ATTR_STRENGTH = "prefilter_strength"
@@ -112,11 +117,16 @@ def length_adjusted_similarity(pooled, seq_lens, power):
     return similarity * ratio
 
 
-def sample_size(skipped):
-    """How many skipped pairs the calibration sample aligns."""
+def sample_size(skipped, minimum=None, maximum=None):
+    """How many skipped pairs the calibration sample aligns: FRACTION of them between the bounds.
+
+    The bounds default to MIN_PAIRS and MAX_PAIRS, read when called.
+    """
+    minimum = MIN_PAIRS if minimum is None else minimum
+    maximum = MAX_PAIRS if maximum is None else maximum
     skipped = int(skipped)
     size = int(round(FRACTION * skipped))
-    return min(max(size, MIN_PAIRS), MAX_PAIRS, skipped)
+    return min(max(size, int(minimum)), int(maximum), skipped)
 
 
 def condensed_pairs(positions, n):
@@ -165,10 +175,20 @@ def select_calibration(values, threshold, n, size=None, bins=BINS, seed=SEED):
         rows, cols = condensed_pairs(skipped_positions, n)
         return CalibrationSample(rows, cols, np.ones(skipped, dtype=np.float64))
 
-    skipped_values = values[skipped_positions]
-    edges = np.quantile(skipped_values, np.linspace(0.0, 1.0, bins + 1))
-    band = np.clip(np.searchsorted(edges, skipped_values, side="right") - 1, 0, bins - 1)
-    del skipped_values
+    picked, weights = _draw_by_bands(values[skipped_positions], size, bins, seed)
+    rows, cols = condensed_pairs(skipped_positions[picked], n)
+    return CalibrationSample(rows, cols, weights)
+
+
+def _draw_by_bands(candidate_values, size, bins, seed):
+    """Indices into candidate_values, the same number from each of bins equal-count bands, and weights.
+
+    The bands are the quantiles of the values; a generator seeded by seed draws
+    them band by band, so the same candidates in the same order give the same
+    draw. A weight is its band's candidate count over the pairs drawn from it.
+    """
+    edges = np.quantile(candidate_values, np.linspace(0.0, 1.0, bins + 1))
+    band = np.clip(np.searchsorted(edges, candidate_values, side="right") - 1, 0, bins - 1)
     rng = np.random.default_rng(seed)
     base, extra = divmod(size, bins)
     picked, weights = [], []
@@ -180,11 +200,79 @@ def select_calibration(values, threshold, n, size=None, bins=BINS, seed=SEED):
         if take == 0:
             continue
         chosen = rng.choice(members.size, size=take, replace=False)
-        picked.append(skipped_positions[members[chosen]])
+        picked.append(members[chosen])
         weights.append(np.full(take, members.size / take, dtype=np.float64))
-    positions = np.concatenate(picked)
-    rows, cols = condensed_pairs(positions, n)
-    return CalibrationSample(rows, cols, np.concatenate(weights))
+    return np.concatenate(picked), np.concatenate(weights)
+
+
+def pair_presence(edge_i, edge_j, n):
+    """An (n, n) boolean array, True at [min, max] of every pair that has an edge (the upper triangle only)."""
+    present = np.zeros((n, n), dtype=bool)
+    for start in range(0, len(edge_i), _MATCH_CHUNK):
+        a = np.asarray(edge_i[start:start + _MATCH_CHUNK], dtype=np.int64)
+        b = np.asarray(edge_j[start:start + _MATCH_CHUNK], dtype=np.int64)
+        keep = a != b
+        a, b = a[keep], b[keep]
+        present[np.minimum(a, b), np.maximum(a, b)] = True
+    return present
+
+
+def missing_count(present):
+    """How many of the n(n-1)/2 pairs have no edge, given pair_presence."""
+    n = present.shape[0]
+    return n * (n - 1) // 2 - int(np.count_nonzero(present))
+
+
+def missing_pairs(similarity, present):
+    """(values, rows, cols) of the pairs without an edge, in row-major upper-triangle order.
+
+    similarity is the (n, n) adjusted similarity, present the pair_presence of
+    the run's edges. rows and cols are int32; values are float64 as given.
+    """
+    n = present.shape[0]
+    total = missing_count(present)
+    values = np.empty(total, dtype=np.float64)
+    rows = np.empty(total, dtype=np.int32)
+    cols = np.empty(total, dtype=np.int32)
+    filled = 0
+    for row in range(n - 1):
+        columns = np.flatnonzero(~present[row, row + 1:]) + row + 1
+        stop = filled + columns.size
+        values[filled:stop] = similarity[row, columns]
+        rows[filled:stop] = row
+        cols[filled:stop] = columns
+        filled = stop
+    return values, rows, cols
+
+
+def select_among(values, rows, cols, size=None, bins=BINS, seed=SEED, minimum=None, maximum=None):
+    """The calibration sample of a run's missing pairs (missing_pairs gives its arguments).
+
+    The same rule as select_calibration, applied to the missing pairs in
+    row-major order: size defaults to sample_size(count, minimum, maximum)
+    with the bounds DRAW_MIN_PAIRS and DRAW_MAX_PAIRS (read when called), and
+    every pair is taken, with weight 1, when there are no more than that.
+    With the pairs a prefilter skipped, and the stored bounds, it draws what
+    select_calibration drew.
+    """
+    values = np.asarray(values)
+    count = values.size
+    if size is None:
+        size = sample_size(
+            count,
+            DRAW_MIN_PAIRS if minimum is None else minimum,
+            DRAW_MAX_PAIRS if maximum is None else maximum,
+        )
+    size = min(int(size), count)
+    if size <= 0:
+        empty = np.zeros(0, dtype=np.int64)
+        return CalibrationSample(empty, empty.copy(), np.zeros(0, dtype=np.float64))
+    if size == count:
+        return CalibrationSample(np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64),
+                                 np.ones(count, dtype=np.float64))
+    picked, weights = _draw_by_bands(values, size, bins, seed)
+    return CalibrationSample(np.asarray(rows[picked], dtype=np.int64),
+                             np.asarray(cols[picked], dtype=np.int64), weights)
 
 
 def write_record(hf, record, idx_dtype):
@@ -233,6 +321,28 @@ def read_record(hf):
         sample=CalibrationSample(rows, cols, weights),
         bins=int(hf.attrs.get(ATTR_BINS, BINS)),
         seed=int(hf.attrs.get(ATTR_SEED, SEED)),
+    )
+
+
+def read_prefilter_settings(hf):
+    """The prefilter attributes of an open network file as a PrefilterRecord without a sample, or None.
+
+    Unlike read_record it needs no calibration datasets, so it reads a network
+    that records only the cut's settings (pooling, length-ratio power) as well
+    as one that stores a sample, whose sample it leaves out.
+    """
+    needed = (ATTR_STRENGTH, ATTR_THRESHOLD, ATTR_POOLING, ATTR_LENGTH_POWER, ATTR_KEPT, ATTR_SKIPPED)
+    if any(name not in hf.attrs for name in needed):
+        return None
+    empty = np.zeros(0, dtype=np.int64)
+    return PrefilterRecord(
+        strength=float(hf.attrs[ATTR_STRENGTH]),
+        threshold=float(hf.attrs[ATTR_THRESHOLD]),
+        pooling=_text(hf.attrs[ATTR_POOLING]),
+        length_power=float(hf.attrs[ATTR_LENGTH_POWER]),
+        kept=int(hf.attrs[ATTR_KEPT]),
+        skipped=int(hf.attrs[ATTR_SKIPPED]),
+        sample=CalibrationSample(empty, empty.copy(), np.zeros(0, dtype=np.float64)),
     )
 
 

@@ -298,5 +298,92 @@ class LocateSampleTests(unittest.TestCase):
         self.assertEqual(located.size, 0)
 
 
+class RunSampleTests(unittest.TestCase):
+    """The sample Embedding_MSA draws from a run's own missing pairs."""
+
+    def setUp(self):
+        self.n = 240
+        self.similarity = random_similarity(self.n, seed=3)
+        rows, cols = np.triu_indices(self.n, k=1)
+        rng = np.random.default_rng(5)
+        has_edge = rng.random(rows.size) < 0.6
+        self.edge_i, self.edge_j = rows[has_edge], cols[has_edge]
+        self.present = calibration.pair_presence(self.edge_i, self.edge_j, self.n)
+        self.values, self.rows, self.cols = calibration.missing_pairs(self.similarity, self.present)
+
+    def test_the_bounds_of_a_run_sample_are_5000_and_100000(self):
+        self.assertEqual((calibration.DRAW_MIN_PAIRS, calibration.DRAW_MAX_PAIRS), (5_000, 100_000))
+        cases = {0: 0, 3_000: 3_000, 5_000: 5_000, 200_000: 5_000, 1_000_000: 10_000,
+                 10_000_000: 100_000, 90_000_000: 100_000}
+        for missing, size in cases.items():
+            with self.subTest(missing=missing):
+                self.assertEqual(
+                    calibration.sample_size(missing, calibration.DRAW_MIN_PAIRS, calibration.DRAW_MAX_PAIRS), size)
+        # Without bounds the stored sample's own bounds still apply.
+        self.assertEqual(calibration.sample_size(150_000), 2_000)
+
+    def test_presence_ignores_the_order_of_a_pair_duplicates_and_self_edges(self):
+        present = calibration.pair_presence([3, 1, 2, 4], [1, 3, 2, 0], 5)
+        self.assertTrue(present[1, 3] and present[0, 4])
+        self.assertEqual(int(np.count_nonzero(present)), 2)
+        self.assertEqual(calibration.missing_count(present), 5 * 4 // 2 - 2)
+
+    def test_the_missing_pairs_are_exactly_the_pairs_without_an_edge_in_row_major_order(self):
+        all_rows, all_cols = np.triu_indices(self.n, k=1)
+        expected = ~np.isin(all_rows * self.n + all_cols, self.edge_i * self.n + self.edge_j)
+        np.testing.assert_array_equal(self.rows, all_rows[expected])
+        np.testing.assert_array_equal(self.cols, all_cols[expected])
+        np.testing.assert_array_equal(self.values, self.similarity[all_rows[expected], all_cols[expected]])
+
+    def test_the_sample_is_drawn_only_among_the_missing_pairs(self):
+        sample = calibration.select_among(self.values, self.rows, self.cols, size=2_000)
+        self.assertEqual(len(sample), 2_000)
+        self.assertFalse(self.present[sample.rows, sample.cols].any())
+        self.assertTrue(np.all(sample.rows < sample.cols))
+        self.assertEqual(len(set(zip(sample.rows.tolist(), sample.cols.tolist()))), 2_000)
+        self.assertAlmostEqual(float(sample.weights.sum()), self.values.size, places=6)
+
+    def test_with_the_stored_bounds_it_draws_what_the_prefilter_drew(self):
+        upper = upper_values(self.similarity)
+        threshold = float(np.percentile(upper, 40))
+        old = calibration.select_calibration(upper, threshold, self.n)
+        rows_all, cols_all = np.triu_indices(self.n, k=1)
+        keep = upper >= threshold
+        present = calibration.pair_presence(rows_all[keep], cols_all[keep], self.n)
+        values, rows, cols = calibration.missing_pairs(self.similarity, present)
+        new = calibration.select_among(
+            values, rows, cols, minimum=calibration.MIN_PAIRS, maximum=calibration.MAX_PAIRS)
+        np.testing.assert_array_equal(new.rows, old.rows)
+        np.testing.assert_array_equal(new.cols, old.cols)
+        np.testing.assert_array_equal(new.weights, old.weights)
+
+    def test_no_more_missing_pairs_than_the_size_are_all_taken_with_weight_one(self):
+        sample = calibration.select_among(self.values, self.rows, self.cols, size=10 ** 6)
+        np.testing.assert_array_equal(sample.rows, self.rows)
+        np.testing.assert_array_equal(sample.cols, self.cols)
+        np.testing.assert_array_equal(sample.weights, np.ones(self.values.size))
+        none = calibration.select_among(self.values[:0], self.rows[:0], self.cols[:0])
+        self.assertEqual(len(none), 0)
+
+    def test_the_prefilter_settings_read_without_a_sample(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = pathlib.Path(temp_dir) / "network.h5"
+            record = calibration.PrefilterRecord(
+                strength=25.0, threshold=0.5, pooling="mean", length_power=1.5, kept=9, skipped=3,
+                sample=calibration.CalibrationSample(np.array([0]), np.array([1]), np.array([3.0])))
+            with h5py.File(path, "w") as hf:
+                calibration.write_record(hf, record, np.uint16)
+                del hf[calibration.DATA_I]
+            with h5py.File(path, "r") as hf:
+                self.assertIsNone(calibration.read_record(hf))
+                got = calibration.read_prefilter_settings(hf)
+            self.assertEqual((got.pooling, got.length_power, got.kept, got.skipped), ("mean", 1.5, 9, 3))
+            self.assertEqual(len(got.sample), 0)
+            with h5py.File(path, "w") as hf:
+                hf.attrs["model_name"] = "m"
+            with h5py.File(path, "r") as hf:
+                self.assertIsNone(calibration.read_prefilter_settings(hf))
+
+
 if __name__ == "__main__":
     unittest.main()
