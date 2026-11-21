@@ -175,10 +175,11 @@ class NetworkFixture:
 
 
 class InProcessPool:
-    """Runs bootstrap trees in this process, in seed order.
+    """Runs bootstrap trees in this process.
 
-    The consensus sum is then reproducible, and test patches reach the
-    workers.
+    imap gives them in seed order, as the real pool's ordered call does, so the
+    consensus sum is reproducible, and test patches reach the workers.
+    imap_unordered gives them in the reverse order, as a real pool may.
     """
 
     def __init__(self, processes=None):
@@ -190,8 +191,12 @@ class InProcessPool:
     def __exit__(self, *exc_info):
         return False
 
-    def imap_unordered(self, func, iterable):
+    def imap(self, func, iterable):
         return map(func, iterable)
+
+    def imap_unordered(self, func, iterable):
+        # The other order a real pool may give, so a caller that needs seed order must not use this.
+        return map(func, list(iterable)[::-1])
 
 
 class GuideTreeBuilt(Exception):

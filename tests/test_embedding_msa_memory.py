@@ -153,7 +153,7 @@ class HeldMemoryPool(InProcessPool):
     held_bytes = None
     arrays = None
 
-    def imap_unordered(self, func, iterable):
+    def imap(self, func, iterable):
         HeldMemoryPool.held_bytes = tracemalloc.get_traced_memory()[0]
         HeldMemoryPool.arrays = array_locals(sys._getframe(1))
         raise GuideTreeBuilt
@@ -182,6 +182,9 @@ def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **se
         seen["linkage_dtypes"].append(np.asarray(y).dtype)
         # The single tree of a run without perturbed trees is built here, from run_msa_builder.
         seen.setdefault("linkage_arrays", array_locals(sys._getframe(1)))
+        if record_edges:
+            # Every tree's input; the last is the consensus the master tree is built from.
+            seen.setdefault("linkage_inputs", []).append(np.array(y))
         return real_linkage(y, *args, **kwargs)
 
     def stop_at_guide_tree(linkage_matrix, *args, **kwargs):
@@ -443,6 +446,29 @@ class GuideTreeEquivalenceTests(ArrayAssertions, unittest.TestCase):
             baseline, max_distance, 0.02, num_trees=3, random_seed=42
         )
         self.assertSameArray(seen["guide_tree"], expected_tree)
+
+    def test_the_consensus_is_summed_in_seed_order_whatever_order_a_pool_finishes_in(self):
+        # The float32 sums depend on the order of the replicates, so the builder has to ask
+        # for them in seed order (imap), not in the order they finish (imap_unordered).
+        class OrderedPool(InProcessPool):
+            def imap_unordered(self, func, iterable):
+                return self.imap(func, iterable)
+
+        class ReversedPool(InProcessPool):
+            def imap(self, func, iterable):
+                return self.imap_unordered(func, iterable)
+
+        fixture = NetworkFixture(self.directory, seed=7)
+
+        def consensus(pool):
+            seen = run_until_guide_tree(fixture, BOOTSTRAP_TREE=True, NUM_TREES=8, pool=pool)
+            return seen["linkage_inputs"][-1]
+
+        reference = consensus(OrderedPool)
+        # The other order does give other bytes here; otherwise this test would prove nothing.
+        self.assertNotEqual(consensus(ReversedPool).tobytes(), reference.tobytes())
+        # InProcessPool gives seed order through imap and the reverse through imap_unordered.
+        self.assertSameArray(consensus(InProcessPool), reference)
 
     def test_blast_network_matches_reference(self):
         fixture = NetworkFixture(self.directory, blast=True, seed=3)

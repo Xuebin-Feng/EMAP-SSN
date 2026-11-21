@@ -2611,7 +2611,9 @@ def run_msa_builder():
         
         split_keys = []
         with mp.Pool(processes=WORKERS) as pool:
-            iterator = pool.imap_unordered(worker_func, seeds)
+            # In seed order, so the float32 sums of the consensus do not depend on which
+            # worker finishes first and the guide tree is the same for any WORKERS.
+            iterator = pool.imap(worker_func, seeds)
             for Z, replicate_lengths in tqdm(
                 iterator, total=NUM_TREES, desc="Bootstrapping Trees"
             ):
