@@ -753,11 +753,26 @@ class TooltipAndPinTests(TreeCase):
 
     def test_a_page_that_is_hidden_is_not_drawn_and_is_drawn_once_when_it_is_seen_again(self):
         found = self.script("""
-            let hidden = true;
-            Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
             const real = TreeView.drawNow; let frames = 0;
             TreeView.drawNow = function () { frames++; return real.apply(this, arguments); };
-            const raf = window.requestAnimationFrame; window.requestAnimationFrame = () => 0;
+            // The page may still have a frame callback waiting from when it opened (a layout that settles asks for a
+            // draw), and a frame callback draws whatever the page's one "draw queued" flag says, hidden or not. So
+            // first count the page's own frame callbacks and wait for a frame that comes with none of them left
+            // waiting: callbacks run in the order they were asked for, so ours runs after every earlier one.
+            const raf = window.requestAnimationFrame; let waiting = 0;
+            window.requestAnimationFrame = (callback) => { waiting++; return raf.call(window, (time) => { waiting--; callback(time); }); };
+            let settled = false;
+            for (let rounds = 0; !settled; rounds++) {
+                if (rounds > 50) throw new Error('The page keeps asking for frames');
+                await new Promise((resolve) => { raf.call(window, () => { settled = waiting === 0; resolve(); }); });
+            }
+            // Here, in the same step as that frame, nothing is waiting and nothing can come in before the lines below:
+            // clear the flag with a real draw, then the fakes, and the draw asked for below is the only one queued.
+            real.call(TreeView);
+            frames = 0;
+            let hidden = true;
+            Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
+            window.requestAnimationFrame = () => 0;
             TreeView.requestDraw();
             await new Promise((resolve) => setTimeout(resolve, 300));
             const whileHidden = frames;
