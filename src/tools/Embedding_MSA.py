@@ -1955,7 +1955,7 @@ def report_imputation(fit, summary):
 # A sparse network's imputation is fitted with, and checked on, a sample of this run's own missing
 # pairs, aligned at the start of the run with the scoring the network records (calibrate_sparse_run).
 # It is not applied when fewer than this share of the run's pairs are missing (the Tools window greys the switch then).
-CALIBRATION_MIN_MISSING_FRACTION = 0.10
+CALIBRATION_MIN_MISSING_FRACTION = Prefilter_Calibration.MIN_MISSING_FRACTION  # one constant with the Tools window
 # Edges of the network itself that go through the same alignment call as the sample. Their four stored score
 # fields must come out as stored: that shows the embeddings, gap penalties and precision are the network's.
 # They are chosen with the sample's seed from CALIBRATION_CHECK_POOL random edges of the run, spread over the
@@ -2509,7 +2509,7 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
         if sampled:
             keys.append(Line2D([], [], linestyle="none", marker="o", markersize=4,
                                markerfacecolor=tokens["text_muted"], markeredgecolor="none"))
-            labels.append(Message("Calibration pairs, aligned below the prefilter cut").display())
+            labels.append(Message("Calibration pairs, a sample of the missing pairs").display())
         keys.append(Line2D([], [], color=tokens["text"], linewidth=_FIT_WIDTH))
         labels.append(Message("Isotonic fit").display())
         axes.legend(

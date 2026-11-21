@@ -134,9 +134,11 @@ from desktop.Desktop_App import (
 )
 from Cache_Manifest import (
     file_cache_key,
+    inspect_embedding_model,
     inspect_network_completeness,
     validate_network_schema,
 )
+from utilities.Prefilter_Calibration import MIN_MISSING_FRACTION as CALIBRATION_MIN_MISSING_FRACTION
 
 MAX_CORES = os.cpu_count() or 16
 HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
@@ -468,19 +470,22 @@ def _incomplete_network_summary(network_info):
 def calibrated_imputation_switch_state(network_info, is_blast):
     """Return the enabled state and explanatory tooltip for the Calibrated Imputation switch.
 
-    It matters only for an incomplete network that is not a BLAST network and
-    stores a calibration sample; for any other, it is off the table.
+    It matters only for a sparse network made by this program's alignment (not a BLAST network) that
+    records its gap penalties and lacks at least CALIBRATION_MIN_MISSING_FRACTION of its pairs, the
+    limit Embedding MSA applies to its own sequences; for any other it is off the table. The window
+    judges the whole network, the run judges the sequences it uses and has the last word.
     """
     if is_blast:
         return False, translate(
-            "Tools", "BLAST networks store no calibration sample, so their missing pairs get the uniform fill."
+            "Tools",
+            "BLAST network: its scores were not made by this program's alignment, so nothing can be calibrated "
+            "and its missing pairs get the uniform fill.",
         )
 
     if network_info is None:
         return False, translate(
             "Tools",
-            "No network is selected. Select a valid network to determine whether "
-            "it stores a calibration sample.",
+            "No network is selected. Select a valid network to see whether calibration can be used.",
         )
 
     if network_info.status == "unknown":
@@ -496,18 +501,91 @@ def calibrated_imputation_switch_state(network_info, is_blast):
             expected=network_info.expected_edge_count,
         )
 
-    if network_info.calibration_pairs <= 0:
+    if not network_info.records_scoring:
         return False, " ".join([
             _incomplete_network_summary(network_info),
-            translate("Tools", "This network stores no calibration sample, so its missing pairs get the uniform fill."),
+            translate(
+                "Tools",
+                "This network does not record how its scores were made (its gap penalties), so its missing "
+                "pairs get the uniform fill.",
+            ),
+        ])
+
+    expected = network_info.expected_edge_count
+    missing_share = (expected - network_info.edge_count) / expected if expected else 0.0
+    if missing_share < CALIBRATION_MIN_MISSING_FRACTION:
+        return False, " ".join([
+            translate(
+                "Tools",
+                "{share:.1f}% of its pairs are missing; calibration is used from {limit:g}%.",
+            ).format(share=100.0 * missing_share, limit=100.0 * CALIBRATION_MIN_MISSING_FRACTION),
+            translate(
+                "Tools",
+                "The window counts the whole network; the run counts the sequences it uses and has the last word.",
+            ),
         ])
 
     return True, " ".join([
         _incomplete_network_summary(network_info),
-        translate("Tools", "It stores a calibration sample of {pairs:,} pairs.").format(
-            pairs=network_info.calibration_pairs
+        translate(
+            "Tools",
+            "At the start of the run a sample of the missing pairs is aligned with the network's own scoring, "
+            "to fit and check the imputation. The run counts the sequences it uses and has the last word.",
         ),
     ])
+
+
+def network_embeddings_state(switch_enabled, switch_checked, switch_tip):
+    """Whether the Network Embeddings field is usable, and the tip saying why when it is not.
+
+    It is usable only while the Calibrated Imputation switch is enabled and on.
+    """
+    if not switch_enabled:
+        return False, translate("Tools", "Not used: {reason}").format(reason=switch_tip)
+    if not switch_checked:
+        return False, translate("Tools", "Not used while Calibrated Imputation is off.")
+    return True, ""
+
+
+def network_embeddings_warning(network_model, given_name, given_model, own_name, own_model):
+    """The warning the Network Embeddings field shows about the models, or None.
+
+    network_model is the model the network records ("" when none); given_name and given_model the chosen
+    second embeddings file and the model it records (given_name "" when the field is empty; given_model None
+    when the file could not be read); own_name and own_model the run's own embeddings (INPUT_EMBED), with
+    own_model None when unreadable. It only warns: the run itself decides.
+    """
+    decides = translate(
+        "Tools",
+        "The run itself decides: the model, a check on 32 of the network's own edges, and every sequence being present.",
+    )
+    if given_name:
+        if given_model is None:
+            return translate("Tools", "{name} could not be read, so its model is unknown.").format(name=given_name) + " " + decides
+        if not given_model:
+            return translate("Tools", "{name} records no embedding model, so it cannot be checked against the network's.").format(
+                name=given_name
+            ) + " " + decides
+        if not network_model:
+            return translate("Tools", "The network records no model, so {name} (model {model}) cannot be checked against it.").format(
+                name=given_name, model=given_model
+            ) + " " + decides
+        if given_model != network_model:
+            return translate("Tools", "{name} is of model {model}, but the network was made with {network}.").format(
+                name=given_name, model=given_model, network=network_model
+            ) + " " + decides
+        return None
+    if network_model and own_name and own_model is not None:
+        if not own_model:
+            return translate(
+                "Tools", "With this field empty the Embedding Set {name} serves; it records no embedding model, so it cannot be checked against the network's ({network})."
+            ).format(name=own_name, network=network_model) + " " + decides
+        if own_model != network_model:
+            return translate(
+                "Tools",
+                "With this field empty the Embedding Set {name} (model {model}) serves, but the network was made with {network}: choose the network's embeddings here.",
+            ).format(name=own_name, model=own_model, network=network_model) + " " + decides
+    return None
 
 
 def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
@@ -519,7 +597,7 @@ def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
         "Tools",
         "Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.\n"
         "Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, "
-        "with the network's calibration pairs and their held-out check when it stores them.",
+        "with the calibration pairs and their held-out check when Calibrated Imputation is on.",
     )
     return True, " ".join([note, default_tip or fallback])
 
@@ -1360,12 +1438,20 @@ class HostCacheControl(QWidget):
         return int(value) if value.is_integer() else value
 
 class DynamicComboBox(SteadyPopupComboBox):
-    def __init__(self, folder, ext, include_ext=False, exclude_str=None, parent=None):
+    def __init__(self, folder, ext, include_ext=False, exclude_str=None, parent=None, optional=False):
         super().__init__(parent)
         self.folder = folder
         self.ext = ext
         self.include_ext = include_ext
         self.exclude_str = exclude_str
+        # An optional chooser lists "(none)" first; choosing it means no file, saved as an empty value.
+        self.optional = optional
+
+    def chosen(self):
+        """The file the chooser stands for, "" for the optional chooser's "(none)"."""
+        if self.optional and self.currentIndex() == 0 and self.currentData() == "":
+            return ""
+        return self.currentData() or self.currentText()
 
     def wheelEvent(self, e):
         e.ignore()
@@ -1379,6 +1465,8 @@ class DynamicComboBox(SteadyPopupComboBox):
         try:
             self.clear()
             options = []
+            if self.optional:
+                self.addItem(translate("Tools", "(none)"), "")
             if os.path.exists(self.folder):
                 for f in os.listdir(self.folder):
                     if f.endswith(self.ext):
@@ -1391,7 +1479,7 @@ class DynamicComboBox(SteadyPopupComboBox):
                         else:
                             options.append(f.replace(self.ext, ""))
             self.addItems(options)
-            for index in range(self.count()):
+            for index in range(1 if self.optional else 0, self.count()):
                 mark_name_item(self, index)  # File names, which no language translates.
             if kept_file:
                 self.select_file(kept_file)
@@ -1851,7 +1939,7 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Pre-filters sequence pairs using cosine similarity of global pooled embeddings."),
                     details=(
                         translate("Tools", "Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),
-                        translate("Tools", "A calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs."),
+                        translate("Tools", "Only the kept pairs are aligned and stored; the network records nothing of the cut."),
                     ),
                 ),
                 "PREFILTER_STRENGTH": Tip(
@@ -1969,12 +2057,19 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Pairwise similarity network (`.h5`) used to construct the guide tree."),
                     details=(
                         translate("Tools", "For sparse networks, missing edge scores are automatically imputed using isotonic regression."),
-                        translate("Tools", "When the network's Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores."),
+                        translate("Tools", "With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores."),
+                    ),
+                ),
+                "INPUT_NETWORK_EMBED": Tip(
+                    translate("Tools", "The embeddings the network was made from. Needed only when the Embedding Set is of another model than the network's."),
+                    details=(
+                        translate("Tools", "Calibrated Imputation aligns a sample of the missing pairs with the network's own scoring, and that needs the embeddings the network was made from. They must be of the network's model and hold every sequence of the run."),
+                        translate("Tools", "Leave it as (none) to use the Embedding Set for this; that is right when the Embedding Set is of the network's model."),
                     ),
                 ),
                 "SHOW_REGRESSION_PLOT": Tip(
                     translate("Tools", "Displays a diagnostic chart of the imputation fit for sparse networks."),
-                    details=(translate("Tools", "Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network's calibration pairs and their held-out check when it stores them."),),
+                    details=(translate("Tools", "Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the calibration pairs and their held-out check when Calibrated Imputation is on."),),
                 ),
                 "TREE_METHOD": Tip(
                     translate("Tools", "Algorithm used to construct the evolutionary guide tree."),
@@ -2006,14 +2101,14 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "Higher values yield a more stable consensus guide tree but increase computation time."),),
                 ),
                 "CALIBRATED_IMPUTATION": Tip(
-                    translate("Tools", "Fills a sparse network's missing pairs with a fit that uses the network's calibration sample."),
-                    details=(translate("Tools", "ON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit's lowest value."),),
+                    translate("Tools", "Fills a sparse network's missing pairs with a fit that uses a sample of them, aligned at the start of the run."),
+                    details=(translate("Tools", "ON draws a sample of this run's missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network's own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit's lowest value."),),
                     options=(
-                        TipOption(True, translate("Tools", "Uses the calibration sample.")),
-                        TipOption(False, translate("Tools", "Uses only the pairs above the cut.")),
+                        TipOption(True, translate("Tools", "Aligns a sample of the missing pairs.")),
+                        TipOption(False, translate("Tools", "Aligns nothing.")),
                     ),
                     notes=(
-                        TipNote("info", translate("Tools", "The calibration check is reported either way. A network without a calibration sample is always filled the OFF way.")),
+                        TipNote("info", translate("Tools", "Used only for a sparse network made by this program that records its gap penalties and lacks at least 10% of its pairs; the run counts the sequences it uses and has the last word.")),
                     ),
                 ),
                 "NOISE_SCALE": Tip(
@@ -2792,6 +2887,16 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Network File (.h5):")
                         },
                         {
+                            "var_name": "INPUT_NETWORK_EMBED",
+                            "type": "dropdown_from_folder",
+                            "folder": "Embeddings",
+                            "extension": ".h5",
+                            "include_ext": True,
+                            "dir_key": "EMBED_DIR",
+                            "optional": True,
+                            "display": translate("Tools", "Network Embeddings:")
+                        },
+                        {
                             "var_name": "title_guide",
                             "type": "title",
                             "display": translate("Tools", "Guide Tree Settings:")
@@ -3387,7 +3492,9 @@ class ToolsGUI(QMainWindow):
 
         self.tip_db = {}
         self.network_completeness_cache = dict(carried["network_completeness_cache"]) if carried else {}
-        
+        # The model each embeddings file records, per file (file_cache_key), like the network facts above.
+        self.embedding_model_cache = dict(carried["embedding_model_cache"]) if carried and "embedding_model_cache" in carried else {}
+
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
         # An unusable tools_settings.json is left as it is: the fields show their
@@ -4010,7 +4117,7 @@ class ToolsGUI(QMainWindow):
                 dir_key = s_def.get('dir_key')
                 exclude_str = s_def.get('exclude_str', None) # <-- Fetch exclusion
                 
-                combo = DynamicComboBox(folder, ext, include_ext, exclude_str) # <-- Pass it in
+                combo = DynamicComboBox(folder, ext, include_ext, exclude_str, optional=s_def.get('optional', False)) # <-- Pass it in
                 
                 # Override the populate method to fetch the live directory path right before opening
                 original_populate = combo.populate
@@ -4548,6 +4655,8 @@ class ToolsGUI(QMainWindow):
                 calibrated_switch = calibrated_input['widget']
                 calibrated_label = row_widgets.get("CALIBRATED_IMPUTATION", (None, None))[0]
                 calibrated_base_tip = self.tip_db[calibrated_switch]
+                calibrated_state = {"tip": ""}
+                network_embeddings_update = []  # the Network Embeddings field's refresh, once it is built below
 
                 def update_calibrated_toggle(*_):
                     # The switch keeps its state when it is greyed out; the tip says why.
@@ -4565,9 +4674,70 @@ class ToolsGUI(QMainWindow):
                     if calibrated_label is not None:
                         calibrated_label.setEnabled(enabled)
                         self._set_state_tip([calibrated_label], calibrated_base_tip, tip, "info" if enabled else "warning")
+                    calibrated_state["tip"] = tip
+                    for refresh in network_embeddings_update:
+                        refresh()
 
                 net_combo.currentTextChanged.connect(update_calibrated_toggle)
                 update_calibrated_toggle()
+
+                # The Network Embeddings field: usable while the switch is enabled and on; its tip warns, never blocks,
+                # about the models (the file's, or with the field empty the Embedding Set's, against the network's).
+                embed_input = inputs.get("INPUT_NETWORK_EMBED")
+                own_input = inputs.get("INPUT_EMBED")
+                if embed_input:
+                    embed_widget = embed_input['widget']
+                    embed_combo = embed_widget.combo
+                    own_combo = own_input['widget'].combo if own_input else None
+                    embed_label = row_widgets.get("INPUT_NETWORK_EMBED", (None, None))[0]
+                    embed_base_tip = self.tip_db[embed_widget]
+
+                    def embeddings_path(combo):
+                        name = combo.chosen().strip()
+                        return os.path.join(_dropdown_folder(self, "EMBED_DIR"), name) if name else None
+
+                    def cached_embedding_model(path):
+                        """The model a file records, "" for none, None when it cannot be read; cached per file."""
+                        try:
+                            key = file_cache_key(path)
+                        except OSError:
+                            info = inspect_embedding_model(path)
+                        else:
+                            if key not in self.embedding_model_cache:
+                                self.embedding_model_cache[key] = inspect_embedding_model(path)
+                            info = self.embedding_model_cache[key]
+                        return info.model_name if info.status == "ok" else None
+
+                    def update_network_embeddings(*_):
+                        enabled, note = network_embeddings_state(
+                            calibrated_switch.isEnabled(), calibrated_switch.isChecked(), calibrated_state["tip"]
+                        )
+                        kind = "warning"
+                        if enabled:
+                            network_info = cached_network_completeness()
+                            network_model = (network_info.model_name if network_info is not None else "") or ""
+                            given_path = embeddings_path(embed_combo)
+                            own_path = embeddings_path(own_combo) if own_combo is not None else None
+                            note = network_embeddings_warning(
+                                network_model,
+                                os.path.basename(given_path) if given_path else "",
+                                cached_embedding_model(given_path) if given_path else "",
+                                os.path.basename(own_path) if own_path else "",
+                                cached_embedding_model(own_path) if own_path else "",
+                            )
+                        embed_widget.setEnabled(enabled)
+                        targets = [embed_widget] + ([embed_label] if embed_label is not None else [])
+                        if embed_label is not None:
+                            embed_label.setEnabled(enabled)
+                        self._set_state_tip(targets, embed_base_tip, note, kind)
+
+                    network_embeddings_update.append(update_network_embeddings)
+                    for signal_source in (calibrated_switch, ):
+                        signal_source.toggled.connect(update_network_embeddings)
+                    for combo in (embed_combo, own_combo):
+                        if combo is not None:
+                            combo.currentTextChanged.connect(update_network_embeddings)
+                    update_network_embeddings()
 
         if script_name == "Sparse_MSA_Converter.py":
             conv_all_input = inputs.get("CONVERT_ALL")
@@ -5275,6 +5445,7 @@ class ToolsGUI(QMainWindow):
             "document": document,
             "settings_load_error": self.settings_load_error,
             "network_completeness_cache": dict(self.network_completeness_cache),
+            "embedding_model_cache": dict(self.embedding_model_cache),
         }
 
     def eventFilter(self, obj, event):
@@ -5313,7 +5484,7 @@ class ToolsGUI(QMainWindow):
             if w_type in ["dropdown", "dropdown_from_folder", "device_dropdown"]:
                 if w_type == "dropdown_from_folder":
                     # A kept saved file, shown as itself or as unavailable, is its data.
-                    val = widget.combo.currentData() or widget.combo.currentText()
+                    val = widget.combo.chosen()
                 elif w_type == "device_dropdown":
                     val = widget.currentData()
                 else:

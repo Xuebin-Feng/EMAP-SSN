@@ -10,7 +10,7 @@ an isotonic fit of the normalized score on it.
 
 Embedding_MSA draws its calibration sample from the run's own missing pairs (missing_pairs,
 select_among): an equal number from each of BINS similarity bands, the lowest band included, chosen
-with SEED, then aligned with the network's own scoring. Builds from 89c914b to a7f0e18 had Align
+with SEED, then aligned with the network's own scoring. Builds from 89c914b until this change had Align
 store a sample of the skipped pairs in the network file instead (select_calibration drew it,
 write_record stored it with the prefilter's settings); Align no longer does, but read_record,
 locate_sample and pair_keys still read such a file (Network_Injection keeps the stored sample out
@@ -37,6 +37,9 @@ SEED = 42
 # stops storing one.
 DRAW_MIN_PAIRS = 5000
 DRAW_MAX_PAIRS = 100000
+# Calibration is used when at least this share of a network's (or a run's) pairs is missing: Embedding_MSA
+# judges its own sequences with it, the Tools window judges the whole network with it.
+MIN_MISSING_FRACTION = 0.10
 
 # The similarity rule's two constants (see pair_similarity): shared code, not settings of any tool.
 POOLING = "max"            # ("mean", "max") - how a sequence's residue embeddings become one vector

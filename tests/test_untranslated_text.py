@@ -449,13 +449,29 @@ class ToolsRunTimeTextTests(WindowTestCase):
             NetworkCompletenessInfo("unknown"),
             NetworkCompletenessInfo("complete", 4, 6, 6),
             NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000),
-            NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000, "", 2000),
+            NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000, "", True, "m"),
+            NetworkCompletenessInfo("incomplete", 4000, 7990000, 7998000, "", True, "m"),  # under 10% missing
         ]
         for info in states:
             for blast in (True, False):
                 with self.subTest(info=info, blast=blast):
                     self.assert_translated(self.tools.calibrated_imputation_switch_state(info, blast)[1])
                     self.assert_translated(self.tools.isotonic_regression_switch_state(info, blast)[1])
+
+    def test_the_network_embeddings_tips_in_every_state(self):
+        for switch in ((False, True, "Not so."), (True, False, ""), (True, True, "")):
+            text = self.tools.network_embeddings_state(*switch)[1]
+            if text:
+                self.assert_translated(text)
+        cases = (
+            ("m", "a.h5", None, "", None), ("m", "a.h5", "", "", None), ("", "a.h5", "k", "", None),
+            ("m", "a.h5", "k", "", None), ("m", "", "", "own.h5", ""), ("m", "", "", "own.h5", "k"),
+        )
+        for network_model, given, given_model, own, own_model in cases:
+            with self.subTest(given=given, own=own):
+                warning = self.tools.network_embeddings_warning(network_model, given, given_model, own, own_model)
+                if warning:
+                    self.assert_translated(warning)
 
     def test_export_name_errors(self):
         for name in ("", ".", "a/b", "name.", "con"):

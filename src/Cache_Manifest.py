@@ -79,23 +79,49 @@ class NetworkCompletenessInfo:
     edge_count: int = 0
     expected_edge_count: int = 0
     reason: str = ""
-    # How many pairs the network's Edge Pre-filtering stored as its calibration sample (0: none).
-    calibration_pairs: int = 0
+    # Whether the network records the gap penalties its scores were made with, which a calibration
+    # sample is aligned with, and the embedding model it records ("" when none).
+    records_scoring: bool = False
+    model_name: str = ""
 
 
-def _stored_calibration_pairs(network):
-    """The length of an open network file's calibration sample, 0 without one; shapes only."""
-    names = ("calibration_i", "calibration_j", "calibration_weight")
-    if any(name not in network for name in names):
-        return 0
-    lengths = {int(network[name].shape[0]) for name in names if network[name].ndim == 1}
-    return lengths.pop() if len(lengths) == 1 else 0
+@dataclass(frozen=True)
+class EmbeddingModelInfo:
+    """The model an embeddings file records, from its attributes alone.
+
+    status is "ok" (the file was read; model_name is "" when it records none) or "unknown" (it could not be opened).
+    """
+
+    status: str
+    model_name: str = ""
+    reason: str = ""
+
+
+def inspect_embedding_model(embeddings_path):
+    """The embedding model recorded by an embeddings HDF5 file; reads the root attribute only."""
+    import h5py
+
+    resolved = os.path.abspath(os.path.normpath(embeddings_path))
+    try:
+        with h5py.File(resolved, "r") as embeddings:
+            return EmbeddingModelInfo("ok", _recorded_model(embeddings))
+    except (OSError, ValueError, KeyError) as error:
+        return EmbeddingModelInfo("unknown", reason=f"Unable to inspect embedding metadata: {error}")
+
+
+def _recorded_model(network):
+    """The model_name attribute of an open network file as text, "" without one."""
+    value = network.attrs.get("model_name", "")
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return str(value).strip()
 
 
 def inspect_network_completeness(network_path):
     """Classify a network using HDF5 dataset shapes without reading edge data.
 
-    The result also counts the pairs of the calibration sample the network stores, if any.
+    The result also says whether the network records its gap penalties and which model it records
+    (attributes only).
     """
     import h5py
 
@@ -153,7 +179,8 @@ def inspect_network_completeness(network_path):
                 sequence_count=sequence_count,
                 edge_count=edge_count_i,
                 expected_edge_count=expected_edge_count,
-                calibration_pairs=_stored_calibration_pairs(network),
+                records_scoring="gap_penalties" in network.attrs,
+                model_name=_recorded_model(network),
             )
     except (OSError, ValueError, KeyError) as error:
         return NetworkCompletenessInfo(

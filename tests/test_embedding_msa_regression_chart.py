@@ -594,7 +594,7 @@ class RegressionChartTests(unittest.TestCase):
         legend = [text.get_text() for text in axes.get_legend().get_texts()]
         self.assertEqual(legend, [
             "Observed pairs (random sample of 400)",
-            "Calibration pairs, aligned below the prefilter cut",
+            "Calibration pairs, a sample of the missing pairs",
             "Isotonic fit",
         ])
         texts = {text.get_text(): text for text in figure.findobj(Text) if text.get_text()}
