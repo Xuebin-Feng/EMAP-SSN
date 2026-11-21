@@ -26,7 +26,7 @@ for folder in (SRC_DIR, PROJECT_ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.tree_page_helpers import SPY  # noqa: E402
+from tests.tree_page_helpers import SETTLED, SPY  # noqa: E402
 from tests.tree_fixtures import give_edges, headers_of, node_colors  # noqa: E402
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 from web_ui import tree_backend  # noqa: E402
@@ -347,9 +347,9 @@ class CutLineTests(SourceCase):
     def test_the_line_follows_the_threshold_event_and_nothing_else_is_asked_or_drawn(self):
         self.start(guide=False)
         before = self.cut_strokes()["lines"][0]
-        self.js("""window.__draws = 0; window.__fetches = 0;
+        self.script(SETTLED + """await settled(); window.__draws = 0; window.__fetches = 0;
             const drawNow = TreeView.drawNow; TreeView.drawNow = function () { window.__draws++; return drawNow.apply(this, arguments); };
-            const fetchOriginal = window.fetch; window.fetch = function () { window.__fetches++; return fetchOriginal.apply(this, arguments); }; 1""")
+            const fetchOriginal = window.fetch; window.fetch = function () { window.__fetches++; return fetchOriginal.apply(this, arguments); }; return 1""")
         self.viewer.broadcast_event({"type": "threshold_changed", "value": 20.0})
         self.wait_for("TreeView.state.cut === 20")
         self.pump(0.4)
@@ -367,7 +367,7 @@ class CutLineTests(SourceCase):
 
     def test_the_threshold_event_with_the_guide_tree_draws_nothing(self):
         self.start()
-        self.js("window.__draws = 0; const d = TreeView.drawNow; TreeView.drawNow = function () { window.__draws++; return d.apply(this, arguments); }; 1")
+        self.script(SETTLED + "await settled(); window.__draws = 0; const d = TreeView.drawNow; TreeView.drawNow = function () { window.__draws++; return d.apply(this, arguments); }; return 1")
         self.viewer.broadcast_event({"type": "threshold_changed", "value": 3.0})
         self.wait_for("TreeView.state.cut === 3")
         self.pump(0.3)
