@@ -402,9 +402,24 @@ class RunSampleTests(unittest.TestCase):
                 peak = tracemalloc.get_traced_memory()[1] - base
             finally:
                 tracemalloc.stop()
-        # The quantile's one copy (8), the one-byte bands (1), a band's mask (1) and its members (8 / 20): about 10.4.
+        # The quantile's one copy and what np.quantile needs besides (measured 10.65 in all).
         self.assertLess(peak, 12 * count + 1_000_000)
         self.assertEqual(len(picked), 1_000)
+        # Without the quantile, what is left is the bands: one byte each (measured 2.4 with the mask and the members),
+        # not the eight of an int64 array.
+        edges = np.quantile(values, np.linspace(0.0, 1.0, calibration.BINS + 1))
+        with mock.patch.object(calibration, "_BAND_CHUNK", 10_000), mock.patch.object(
+            calibration.np, "quantile", lambda *args, **kwargs: edges
+        ):
+            tracemalloc.start()
+            try:
+                base = tracemalloc.get_traced_memory()[0]
+                again, _ = calibration._draw_by_bands(values, 1_000, calibration.BINS, calibration.SEED)
+                bands_peak = tracemalloc.get_traced_memory()[1] - base
+            finally:
+                tracemalloc.stop()
+        np.testing.assert_array_equal(again, picked)
+        self.assertLess(bands_peak, 4 * count + 1_000_000)
 
     def test_the_missing_pairs_hold_the_values_alone_eight_bytes_each(self):
         import tracemalloc
