@@ -9,6 +9,8 @@ ArrayAssertions compares arrays bit for bit.
 
 import pathlib
 import sys
+from types import SimpleNamespace
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -40,6 +42,10 @@ class NetworkFixture:
     network sequences have no embedding, some pairs are listed twice with new
     scores, and three edges point outside the header table, so every filter
     path runs.
+
+    drop, when given, lists every pair but that many: drop_from "run" takes them from the pairs
+    between sequences that have embeddings (the sequences a run uses), "ghost" from the pairs of a
+    network sequence without an embedding. complete=False lists a random 60% instead.
     """
 
     def __init__(
@@ -54,6 +60,8 @@ class NetworkFixture:
         out_of_range=True,
         blast=False,
         seed=0,
+        drop=None,
+        drop_from="run",
     ):
         rng = np.random.default_rng(seed)
         self.root = pathlib.Path(root)
@@ -81,6 +89,15 @@ class NetworkFixture:
         if not complete:
             listed = rng.random(sources.size) < 0.6
             sources, targets = sources[listed], targets[listed]
+        if drop is not None:
+            embedded = set(self.emb_headers)
+            has_embedding = np.array([header in embedded for header in self.net_headers])
+            both = has_embedding[sources] & has_embedding[targets]
+            eligible = np.flatnonzero(both if drop_from == "run" else ~both)
+            removed = rng.choice(eligible, size=drop, replace=False)
+            keep = np.ones(sources.size, dtype=bool)
+            keep[removed] = False
+            sources, targets = sources[keep], targets[keep]
         order = rng.permutation(sources.size)
         sources, targets = sources[order], targets[order]
         flipped = rng.random(sources.size) < 0.5
@@ -138,6 +155,29 @@ class NetworkFixture:
                 network.create_dataset("l_score", data=self.score / 2)
                 network.create_dataset("l_len", data=self.length)
 
+    def record_scoring(self, gap_penalties=(-2.0, 0.0), precision="ieee_fp32", pooling=None, length_power=None):
+        """Record how the network's scores were made, as Align_Similarity_Matrix does."""
+        with h5py.File(self.network_dir / NETWORK_NAME, "a") as network:
+            network.attrs["gap_penalties"] = np.asarray(gap_penalties, dtype=np.float32)
+            network.attrs["matmul_precision"] = precision
+            if pooling is not None:
+                network.attrs["prefilter_pooling"] = pooling
+                network.attrs["prefilter_length_ratio_power"] = float(length_power)
+
+    def run_pairs(self):
+        """The pairs of a run, as (smaller, larger) run indices that have an edge, and the run's sequence count."""
+        embedded = set(self.emb_headers)
+        valid = [header for header in self.net_headers if header in embedded]
+        position = {header: k for k, header in enumerate(valid)}
+        pairs = set()
+        for a, b in zip(self.arr_i.tolist(), self.arr_j.tolist()):
+            if max(a, b) >= len(self.net_headers):
+                continue
+            first, second = self.net_headers[a], self.net_headers[b]
+            if first in position and second in position and first != second:
+                pairs.add((min(position[first], position[second]), max(position[first], position[second])))
+        return pairs, len(valid)
+
     def add_calibration_sample(self, count=12, pooling="max", length_power=2.0, weight=3.0):
         """Record count of the network's listed pairs as an Edge Pre-filtering calibration sample.
 
@@ -172,6 +212,42 @@ class NetworkFixture:
         with h5py.File(self.network_dir / NETWORK_NAME, "a") as network:
             Prefilter_Calibration.write_record(network, record, np.uint16)
         return record
+
+
+def fake_calibration_alignment(reproduce=True):
+    """Replace Embedding_MSA's calibration alignment, and record what it was asked to do.
+
+    Returns (patches, state): use patches as a context manager. state.calls holds the
+    (k, 2) pair arrays align_calibration_pairs was given, state.check the network's
+    check edges. The sample's pairs get scores made from their indices; the check edges
+    get their stored scores back, or (reproduce False) a different value.
+    """
+    real_choose = Embedding_MSA.choose_check_edges
+    state = SimpleNamespace(calls=[], arguments=[], check=None)
+
+    def choose(*args, **kwargs):
+        state.check = real_choose(*args, **kwargs)
+        return state.check
+
+    def align(pairs, embeddings_path, names, gap_penalties, precision):
+        pairs = np.asarray(pairs)
+        state.calls.append(pairs)
+        state.arguments.append((list(gap_penalties), precision))
+        i, j = pairs[:, 0].astype(np.int64), pairs[:, 1].astype(np.int64)
+        score = (40.0 + (i * 7 + j * 3) % 50).astype(np.float32)
+        length = (10 + (i + j) % 30).astype(np.uint16)
+        fields = {"g_score": score, "g_len": length, "l_score": score / 2, "l_len": length}
+        if state.check is not None:
+            first = len(pairs) - len(state.check.rows)
+            for name in fields:
+                fields[name][first:] = state.check.stored[name] + (0 if reproduce or name.endswith("_len") else 5.0)
+        return SimpleNamespace(
+            device="Fake CPU [cpu]", plan="scalar", precision="ieee_fp32", seconds=0.01,
+            trial_pairs=0, timed=False, notes=[], **fields,
+        )
+
+    patches = mock.patch.multiple(Embedding_MSA, choose_check_edges=choose, align_calibration_pairs=align)
+    return patches, state
 
 
 class InProcessPool:

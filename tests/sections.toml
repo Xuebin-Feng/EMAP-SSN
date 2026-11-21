@@ -302,6 +302,7 @@ modules = [
 description = "Similarity and substitution matrix tools, SSEARCH, PWA, injection, BLAST"
 seconds = 30
 modules = [
+    "test_align_library",
     "test_align_similarity_matrix_pipeline",
     "test_align_substitution_matrix_pipeline",
     "test_alignment_engine",
@@ -332,6 +333,7 @@ modules = [
     "test_remote_requests",
     "test_embedding_import",
     "test_embedding_injection",
+    "test_embedding_msa_calibration",
     "test_embedding_msa_configuration",
     "test_embedding_msa_gui_logic",
     "test_embedding_msa_memory",

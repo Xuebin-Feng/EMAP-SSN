@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from unittest import mock
 
 import numpy as np
@@ -40,6 +40,7 @@ from tests.msa_fixtures import (
     InProcessPool,
     NetworkFixture,
     builder_settings,
+    fake_calibration_alignment,
 )
 
 
@@ -490,6 +491,17 @@ class NexusFileTests(unittest.TestCase):
 
 
 class BuilderGuideTreeTests(unittest.TestCase):
+    def calibrating(self, sample=12):
+        """A context in which the calibration alignment is replaced and the draw takes sample pairs."""
+        from utilities import Prefilter_Calibration
+
+        stack = ExitStack()
+        patches, _ = fake_calibration_alignment()
+        stack.enter_context(patches)
+        stack.enter_context(mock.patch.object(Prefilter_Calibration, "DRAW_MIN_PAIRS", sample))
+        stack.enter_context(mock.patch.object(Prefilter_Calibration, "DRAW_MAX_PAIRS", sample))
+        return stack
+
     def run_builder(self, fixture, **settings):
         values = builder_settings(fixture, **settings)
         seen = {}
@@ -567,17 +579,18 @@ class BuilderGuideTreeTests(unittest.TestCase):
             plain = NetworkFixture(pathlib.Path(directory) / "plain", complete=False, seed=4)
             unchecked = nexus_notes(self.run_builder(plain)["text"])["MISSING_PAIRS"]
             sampled = NetworkFixture(pathlib.Path(directory) / "sampled", complete=False, seed=4)
-            sampled.add_calibration_sample(count=12)
-            checked = nexus_notes(self.run_builder(sampled)["text"])["MISSING_PAIRS"]
+            sampled.record_scoring()
+            with self.calibrating():
+                checked = nexus_notes(self.run_builder(sampled)["text"])["MISSING_PAIRS"]
             complete = NetworkFixture(pathlib.Path(directory) / "complete", seed=4)
             dense = nexus_notes(self.run_builder(complete)["text"])["MISSING_PAIRS"]
 
         number = r"(-?\d+\.\d{4}|nan)"
         self.assertRegex(
             unchecked,
-            r"^Regression-imputed from embedding distances; the network has no calibration "
-            r"pairs, so the estimates are unchecked; \d+\.\d% of missing pairs outside the "
-            r"fit's range$",
+            r"^Regression-imputed from embedding distances; calibration unavailable: the network does not "
+            r"record the gap penalties its scores were made with, so the estimates are unchecked; "
+            r"\d+\.\d% of missing pairs outside the fit's range$",
         )
         self.assertRegex(
             checked,
@@ -587,17 +600,18 @@ class BuilderGuideTreeTests(unittest.TestCase):
         )
         self.assertEqual(dense, "None. Every pair is in the network.")
 
-    def test_a_sparse_tree_records_the_calibration_switch_and_no_tree_records_the_retired_flag(self):
+    def test_a_sparse_tree_records_the_calibration_switch_and_what_it_did_and_no_tree_records_the_retired_flag(self):
         with tempfile.TemporaryDirectory() as directory:
             sparse = NetworkFixture(pathlib.Path(directory) / "sparse", complete=False, seed=4)
-            sparse.add_calibration_sample(count=12)
+            sparse.record_scoring()
             complete = NetworkFixture(pathlib.Path(directory) / "complete", seed=4)
-            texts = {
-                ("sparse", switch, perturbed): self.run_builder(
-                    sparse, CALIBRATED_IMPUTATION=switch, BOOTSTRAP_TREE=perturbed, NUM_TREES=2
-                )["text"]
-                for switch in (True, False) for perturbed in (True, False)
-            }
+            texts = {}
+            for switch in (True, False):
+                for perturbed in (True, False):
+                    with self.calibrating():
+                        texts[("sparse", switch, perturbed)] = self.run_builder(
+                            sparse, CALIBRATED_IMPUTATION=switch, BOOTSTRAP_TREE=perturbed, NUM_TREES=2
+                        )["text"]
             texts["complete"] = self.run_builder(complete, BOOTSTRAP_TREE=True, NUM_TREES=2)["text"]
 
         for key, text in texts.items():
@@ -607,14 +621,19 @@ class BuilderGuideTreeTests(unittest.TestCase):
                 self.assertNotIn("INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS", text)
                 if key == "complete":
                     self.assertNotIn("CALIBRATED_IMPUTATION", notes)
+                    self.assertNotIn("CALIBRATION", notes)
                 else:
                     self.assertEqual(notes["CALIBRATED_IMPUTATION"], "true" if key[1] else "false")
-                    # The note stands next to the way the missing pairs were filled.
+                    # The note stands next to the way the missing pairs were filled, and what calibration did follows.
                     names = list(notes)
                     self.assertEqual(names.index("CALIBRATED_IMPUTATION"), names.index("MISSING_PAIRS") + 1)
+                    self.assertEqual(names.index("CALIBRATION"), names.index("MISSING_PAIRS") + 2)
+                    if key[1]:
+                        self.assertIn("Calibration sample of 12 of the ", notes["CALIBRATION"])
+                    else:
+                        self.assertTrue(notes["CALIBRATION"].startswith("Calibration switched off"))
         off = nexus_notes(texts[("sparse", False, False)])["MISSING_PAIRS"]
-        self.assertIn("uniform fill, calibration sample not used", off)
-        self.assertIn("the calibrated fit's held-out check on 6 pairs", off)
+        self.assertIn("the calibration switch is off, so the estimates are unchecked", off)
 
     def test_neighbor_joining_tree_keeps_its_branch_lengths_and_labels_splits(self):
         with tempfile.TemporaryDirectory() as directory:

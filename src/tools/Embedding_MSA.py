@@ -46,9 +46,11 @@ Settings:
 - NUM_WORKERS: CPU threads for parallel bootstrap generation of the consensus tree.
 - NUM_TREES: How many bootstrap replicate iterations to average for the consensus guide tree (higher = more stable topology).
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
-- CALIBRATED_IMPUTATION: For a sparse network, whether the imputation is fitted with the network's Edge Pre-filtering calibration
-  sample (ON) or on the pairs above the prefilter cut only, giving every skipped pair the fit's lowest value (OFF). A network
-  without a sample is always filled the OFF way. Every sparse network averages replicate tree distances over all pairs.
+- CALIBRATED_IMPUTATION: For a sparse network, whether a sample of this run's missing pairs is aligned, with the network's own
+  scoring, at the start of the run (ON) and used to fit the imputation and to check it, or nothing is aligned and the fit takes
+  only the observed pairs, giving every missing pair below its range the fit's lowest value (OFF). It is not applied when fewer
+  than 10% of the run's pairs are missing, nor when the network does not record how its scores were made or a check on some of
+  its own edges does not reproduce them. Every sparse network averages replicate tree distances over all pairs.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 - DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
 - SHOW_REGRESSION_PLOT: For a sparse network, shows the isotonic regression fit over the observed pairs as a pop-up
@@ -101,9 +103,10 @@ from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import read_embedding_manifest
 from utilities.Guide_Tree_File import guide_tree_path_for_alignment, newick_label, nexus_string
 from utilities import Prefilter_Calibration
+from utilities import Align_Library
 from tools.tool_helpers import Tool_Charts
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ==========================================
@@ -126,7 +129,7 @@ BOOTSTRAP_TREE = True
 NUM_TREES = 100             
 NOISE_SCALE = 0.02          
 RANDOM_SEED = 42
-CALIBRATED_IMPUTATION = True  # fit a sparse network's imputation with its calibration sample (see fit_imputation)
+CALIBRATED_IMPUTATION = True  # align a sample of the run's missing pairs to fit the imputation (see calibrate_sparse_run)
 
 # --- DIRECTORY DEFAULTS ---
 from tools.tool_helpers.Tool_Pipeline import (
@@ -1449,11 +1452,12 @@ def program_version():
     return None
 
 
-def guide_tree_notes(network_type, imputed, imputation=None):
+def guide_tree_notes(network_type, imputed, imputation=None, calibration=None):
     """The settings a saved guide tree records, as (name, value) pairs.
 
     imputation, an ImputationSummary, adds to MISSING_PAIRS how well the
     imputed scores were checked and how many fell outside the fit's range.
+    calibration, a CalibrationOutcome, adds what the run did about the calibration sample.
     """
     version = program_version()
     notes = [
@@ -1472,8 +1476,10 @@ def guide_tree_notes(network_type, imputed, imputation=None):
     else:
         notes += [("ALIGNMENT_SCORE", ALIGNMENT_SCORE), ("NORMALIZATION_MODE", NORMALIZATION_MODE)]
     notes.append(("MISSING_PAIRS", missing_pairs_note(imputed, imputation)))
-    if imputed:
+    if imputed or calibration is not None:
         notes.append(("CALIBRATED_IMPUTATION", "true" if CALIBRATED_IMPUTATION else "false"))
+    if calibration is not None:
+        notes.append(("CALIBRATION", calibration_text(calibration)))
     notes += [
         ("TREE_METHOD", TREE_METHOD),
         ("BOOTSTRAP_TREE", "true" if BOOTSTRAP_TREE else "false"),
@@ -1710,11 +1716,10 @@ class ImputationFit:
 
     fit_x and fit_y are the observed pairs the fit took besides the
     calibration sample (all of them, or a random sample); calibration_x and
-    calibration_y are the calibration pairs found in the run, None without a
+    calibration_y are the calibration pairs of the run, None without a
     sample, and check tells how well a fit without half of them predicts that half.
     uniform is True when every missing pair below the fit's range gets the
-    fit's lowest value (a fit made without the sample); then uniform_check
-    scores that value on the calibration pairs found, which the fit left out.
+    fit's lowest value (a fit made without a sample).
     """
 
     iso: IsotonicRegression
@@ -1724,7 +1729,6 @@ class ImputationFit:
     calibration_y: np.ndarray = None
     check: CalibrationCheck = None
     uniform: bool = True
-    uniform_check: CalibrationCheck = None
 
 
 @dataclass
@@ -1735,8 +1739,9 @@ class ImputationSummary:
     outside: float
     check: CalibrationCheck = None
     calibration_pairs: int = 0
-    uniform_check: CalibrationCheck = None
     uniform_value: float = None
+    # Why no calibration sample was used ("" when one was): a short phrase for the notes and the log.
+    calibration: str = ""
 
 
 def held_out_check(predicted, actual):
@@ -1757,34 +1762,25 @@ def held_out_check(predicted, actual):
 
 
 def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
-                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42, use_sample=True):
+                   fit_pairs=IMPUTATION_FIT_PAIRS, seed=42):
     """Fit normalized scores y on similarity x over a sparse network's observed pairs.
 
     Without a calibration sample, or with fewer than MIN_CALIBRATION_PAIRS of
-    it, the fit takes every observed pair or a random fit_pairs of them, as
-    it always has; every missing pair below the lowest of them then gets the
-    fit's lowest value. With one, calibration_positions are the sample's edges
-    in sample order and calibration_weights how many skipped pairs each
-    stands for. The fit then takes the other observed pairs (or a random
-    fit_pairs of them, weighted up to their count) and every calibration pair,
-    weighted, so it spans the skipped pairs' range as a fit over all pairs
-    would. A first fit without every second calibration pair is scored on
-    those pairs (the check); the fit returned uses them all.
-
-    With use_sample False the fit takes only the other observed pairs, the
-    same random pick of them, unweighted, whatever the sample's size: the
-    calibration pairs found are left out, as a network made before the
-    sample existed lacked them, and every missing pair below the fit's range
-    gets its lowest value. The check of the fit with the sample is still
-    made (from MIN_CALIBRATION_PAIRS pairs on), and uniform_check scores the
-    uniform value on every calibration pair found.
+    it, the fit takes every observed pair or a random fit_pairs of them; every
+    missing pair below the lowest of them then gets the fit's lowest value.
+    With one, calibration_positions are the sample's edges in sample order and
+    calibration_weights how many missing pairs each stands for. The fit then
+    takes the other observed pairs (or a random fit_pairs of them, weighted up
+    to their count) and every calibration pair, weighted, so it spans the
+    missing pairs' range as a fit over all pairs would. A first fit without
+    every second calibration pair is scored on those pairs (the check); the
+    fit returned uses them all.
     """
     x = np.asarray(x)
     y = np.asarray(y)
     if calibration_positions is not None:
         calibration_positions = np.asarray(calibration_positions, dtype=np.int64)
-    sampled = calibration_positions is not None and calibration_positions.size >= MIN_CALIBRATION_PAIRS
-    if calibration_positions is None or calibration_positions.size == 0 or not (sampled or not use_sample):
+    if calibration_positions is None or calibration_positions.size < MIN_CALIBRATION_PAIRS:
         if len(x) > fit_pairs:
             np.random.seed(seed)
             pick = np.random.choice(len(x), size=fit_pairs, replace=False)
@@ -1805,36 +1801,27 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
     calibration_x = x[calibration_positions]
     calibration_y = y[calibration_positions]
 
-    check = fit_with_sample = None
-    if sampled:
-        weights = np.asarray(calibration_weights, dtype=np.float64)
-        other_weight = other_count / max(others.size, 1)
+    weights = np.asarray(calibration_weights, dtype=np.float64)
+    other_weight = other_count / max(others.size, 1)
 
-        def fit_with_sample(chosen):
-            # The chosen calibration pairs stand in for the whole sample's skipped pairs.
-            scale = len(weights) / len(chosen)
-            return IsotonicRegression(out_of_bounds="clip").fit(
-                np.concatenate([fit_x, calibration_x[chosen]]),
-                np.concatenate([fit_y, calibration_y[chosen]]),
-                sample_weight=np.concatenate(
-                    [np.full(fit_x.size, other_weight), weights[chosen] * scale]
-                ),
-            )
-
-        held = np.arange(1, calibration_x.size, 2)
-        check = held_out_check(
-            fit_with_sample(np.arange(0, calibration_x.size, 2)).predict(calibration_x[held]),
-            calibration_y[held],
+    def fit_with_sample(chosen):
+        # The chosen calibration pairs stand in for the whole sample's missing pairs.
+        scale = len(weights) / len(chosen)
+        return IsotonicRegression(out_of_bounds="clip").fit(
+            np.concatenate([fit_x, calibration_x[chosen]]),
+            np.concatenate([fit_y, calibration_y[chosen]]),
+            sample_weight=np.concatenate(
+                [np.full(fit_x.size, other_weight), weights[chosen] * scale]
+            ),
         )
-        if use_sample:
-            iso = fit_with_sample(np.arange(calibration_x.size))
-            return ImputationFit(iso, fit_x, fit_y, calibration_x, calibration_y, check, uniform=False)
 
-    iso = IsotonicRegression(out_of_bounds="clip").fit(fit_x, fit_y)
-    return ImputationFit(
-        iso, fit_x, fit_y, calibration_x, calibration_y, check,
-        uniform_check=held_out_check(iso.predict(calibration_x), calibration_y),
+    held = np.arange(1, calibration_x.size, 2)
+    check = held_out_check(
+        fit_with_sample(np.arange(0, calibration_x.size, 2)).predict(calibration_x[held]),
+        calibration_y[held],
     )
+    iso = fit_with_sample(np.arange(calibration_x.size))
+    return ImputationFit(iso, fit_x, fit_y, calibration_x, calibration_y, check, uniform=False)
 
 
 def uniform_fill_value(iso):
@@ -1869,32 +1856,20 @@ def missing_pairs_note(imputed, summary=None):
     text = "Regression-imputed from embedding distances"
     if summary is None:
         return text
-    if summary.uniform_check is not None:
-        uniform = summary.uniform_check
-        text += (
-            f"; uniform fill, calibration sample not used (every missing pair below the fit's range "
-            f"gets {summary.uniform_value:.4f}); on {uniform.pairs:,} calibration pairs: "
-            f"MAE {uniform.mae:.4f}, R^2 {uniform.r2:.4f}"
-        )
-        if summary.check is not None:
-            check = summary.check
-            text += (
-                f"; the calibrated fit's held-out check on {check.pairs:,} pairs: Spearman "
-                f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}"
-            )
-    elif summary.check is not None:
+    if summary.check is not None:
         check = summary.check
         text += (
             f"; checked on {check.pairs:,} held-out calibration pairs: Spearman "
             f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}"
         )
     else:
-        text += "; the network has no calibration pairs, so the estimates are unchecked"
+        reason = summary.calibration or "no calibration sample was used"
+        text += f"; {reason}, so the estimates are unchecked"
     return text + f"; {100.0 * summary.outside:.1f}% of missing pairs outside the fit's range"
 
 
 def report_imputation(fit, summary):
-    """Print the calibration check, or the warning a network without a sample gets.
+    """Print the calibration check, or the warning a run without a sample gets.
 
     Whenever the fit's lowest value fills the missing pairs below its range
     (fit.uniform), the value is printed as well.
@@ -1903,37 +1878,11 @@ def report_imputation(fit, summary):
         f"  > Missing pairs outside the fit's range: {100.0 * summary.outside:.1f}% of "
         f"{summary.missing:,} (they get the fit's value at the nearer end)"
     )
-    uniform = (
-        "Uniform fill: every missing pair below the fit's range gets the fit's lowest value, "
-        f"{uniform_fill_value(fit.iso):.4f}."
-    )
-    if fit.uniform and fit.uniform_check is not None:
-        # The switch is OFF: the sample was found but the fit did not use it.
-        calibrated, scored = fit.check, fit.uniform_check
-        print(f"Calibration check ({scored.pairs:,} directly computed pairs from below the prefilter cut):")
-        if calibrated is not None:
-            print(
-                f"  > The calibrated fit (switch ON) without every second one predicts those "
-                f"{calibrated.pairs:,}: Spearman rho {calibrated.spearman:.4f}, "
-                f"MAE {calibrated.mae:.4f}, R^2 {calibrated.r2:.4f}"
-            )
-        else:
-            print(
-                f"  > Only {scored.pairs:,} calibration pair(s) found in this run: too few "
-                f"for a check of the calibrated fit (it needs {MIN_CALIBRATION_PAIRS})."
-            )
-        print(
-            f"  > The uniform fill predicts all {scored.pairs:,}: Spearman rho n/a, "
-            f"MAE {scored.mae:.4f}, R^2 {scored.r2:.4f}"
-        )
-        print(outside)
-        print(uniform)
-        return
     if fit.check is not None:
         check = fit.check
         print(
             f"Calibration check ({summary.calibration_pairs:,} directly computed pairs "
-            "from below the prefilter cut):"
+            "from this run's missing pairs):"
         )
         print(
             f"  > A fit without every second one predicts those {check.pairs:,}: "
@@ -1942,13 +1891,251 @@ def report_imputation(fit, summary):
         print(outside)
         return
     print(outside)
-    print(uniform)
     print(
-        "⚠️ This network stores no calibration sample of its missing pairs, so their "
-        "imputed scores are unchecked. For a checked imputation, use a complete network, "
-        "or a network made by the current Align_Similarity_Matrix with Edge Pre-filtering, "
-        "which also aligns a sample of the pairs it skips."
+        "Uniform fill: every missing pair below the fit's range gets the fit's lowest value, "
+        f"{uniform_fill_value(fit.iso):.4f}."
     )
+    reason = summary.calibration or "no calibration sample was used"
+    print(f"⚠️ {reason[:1].upper()}{reason[1:]}, so the imputed scores are unchecked.")
+
+
+# ==========================================
+# CALIBRATION SAMPLE
+# ==========================================
+# A sparse network's imputation is fitted with, and checked on, a sample of this run's own missing
+# pairs, aligned at the start of the run with the scoring the network records (calibrate_sparse_run).
+# It is not applied when fewer than this share of the run's pairs are missing (the Tools window greys the switch then).
+CALIBRATION_MIN_MISSING_FRACTION = 0.10
+# Edges of the network itself that go through the same alignment call as the sample. Their four stored score
+# fields must come out as stored: that shows the embeddings, gap penalties and precision are the network's.
+# They are chosen with the sample's seed from CALIBRATION_CHECK_POOL random edges of the run, spread over the
+# range of their stored scores.
+CALIBRATION_CHECK_EDGES = 32
+CALIBRATION_CHECK_POOL = 4096
+# A reproduced score may differ from the stored one by this much (absolute) plus this share of it: the stored
+# scores may have been made on another device, and a different order of float32 additions differs in the last digits.
+CALIBRATION_CHECK_ABSOLUTE = 1e-4
+CALIBRATION_CHECK_RELATIVE = 1e-4
+CHECK_FIELDS = ("l_score", "l_len", "g_score", "g_len")
+
+
+@dataclass
+class CalibrationOutcome:
+    """What the run did about calibration, for its log and its guide tree.
+
+    status is "applied" (a sample of the missing pairs was aligned and used), "all_aligned" (every missing
+    pair was no more than the sample size, so all were aligned and nothing is imputed), "off" (the switch is
+    off), "not_applied" (fewer pairs missing than CALIBRATION_MIN_MISSING_FRACTION) or "unavailable" (the
+    network's scoring is not known here or was not reproduced). reason is a short phrase for the last three.
+    """
+
+    status: str
+    reason: str = ""
+    sample: int = 0
+    missing: int = 0
+    share: float = 0.0
+    device: str = ""
+    plan: str = ""
+    precision: str = ""
+    seconds: float = 0.0
+    check_edges: int = 0
+    check_difference: float = 0.0
+    notes: list = field(default_factory=list)
+
+
+@dataclass
+class CalibrationResult:
+    """The outcome and, when pairs were aligned, the sample (its pairs, weights) and their four score fields."""
+
+    outcome: CalibrationOutcome
+    sample: object = None
+    scores: dict = None
+
+
+@dataclass
+class CheckEdges:
+    """Edges of the network that must be reproduced: their run indices and their stored score fields."""
+
+    rows: np.ndarray
+    cols: np.ndarray
+    stored: dict
+
+
+def choose_check_edges(network, edge_i, edge_j, net_old_to_new, score_field,
+                       count=None, pool=None, seed=Prefilter_Calibration.SEED):
+    """About count of the network's own edges that lie within the run, spread over their stored scores; None if there are none.
+
+    network is the open network file, edge_i and edge_j its index arrays (the network's own indices),
+    net_old_to_new the map of those to the run's (-1 outside it), score_field the field the guide tree uses
+    ("g_score" or "l_score"). A random pool of the edges is drawn with seed, those in the run are sorted by
+    the stored score and count of them are taken at even steps of that order.
+    """
+    count = CALIBRATION_CHECK_EDGES if count is None else count
+    pool = CALIBRATION_CHECK_POOL if pool is None else pool
+    total = len(edge_i)
+    if total == 0:
+        return None
+    rng = np.random.default_rng(seed)
+    candidates = np.sort(rng.choice(total, size=min(total, pool), replace=False))
+    rows = map_network_indices(np.asarray(edge_i[candidates]), net_old_to_new)
+    cols = map_network_indices(np.asarray(edge_j[candidates]), net_old_to_new)
+    inside = (rows >= 0) & (cols >= 0) & (rows != cols)
+    candidates, rows, cols = candidates[inside], rows[inside], cols[inside]
+    if candidates.size == 0:
+        return None
+    stored = {name: np.asarray(network[name][candidates]) for name in CHECK_FIELDS}
+    order = np.argsort(stored[score_field], kind="stable")
+    steps = np.unique(np.round(np.linspace(0, order.size - 1, min(count, order.size))).astype(np.int64))
+    chosen = np.sort(order[steps])
+    return CheckEdges(
+        rows.astype(np.int64)[chosen], cols.astype(np.int64)[chosen],
+        {name: values[chosen] for name, values in stored.items()},
+    )
+
+
+def compare_with_stored(aligned, offset, stored):
+    """(reproduced, largest score difference, what differed) of aligned[offset:] against the stored fields.
+
+    The two score fields must be within CALIBRATION_CHECK_ABSOLUTE plus CALIBRATION_CHECK_RELATIVE of
+    the stored value, and the two lengths equal.
+    """
+    worst, problems = 0.0, []
+    for name in CHECK_FIELDS:
+        got = np.asarray(getattr(aligned, name)[offset:])
+        want = np.asarray(stored[name])
+        if name.endswith("_len"):
+            wrong = int(np.count_nonzero(got.astype(np.int64) != want.astype(np.int64)))
+            if wrong:
+                problems.append(f"{wrong} of {want.size} {name} values differ")
+            continue
+        difference = np.abs(got.astype(np.float64) - want.astype(np.float64))
+        worst = max(worst, float(difference.max()) if difference.size else 0.0)
+        allowed = CALIBRATION_CHECK_ABSOLUTE + CALIBRATION_CHECK_RELATIVE * np.abs(want.astype(np.float64))
+        wrong = int(np.count_nonzero(~(difference <= allowed)))
+        if wrong:
+            problems.append(f"{wrong} of {want.size} {name} values differ by more than the tolerance")
+    return not problems, worst, "; ".join(problems)
+
+
+def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision):
+    """Align pairs of the run's sequences with the network's scoring: Align_Similarity_Matrix's own path and planner.
+
+    pairs is an (k, 2) array of indices into names (the run's embedding dataset names), embeddings_path
+    the embeddings file that describes the network, gap_penalties the network's [local, global] and precision
+    its matmul precision. DEVICE_SELECTION decides the device: a named one is used without timing, with
+    "auto" the planner is timed on a few pairs. Returns Align_Similarity_Matrix.PairAlignment.
+    """
+    align = Align_Library.load()
+    return align.align_pairs_in_memory(
+        pairs, embeddings_path, names, gap_penalties, precision,
+        device_selection=DEVICE_SELECTION, workers=Numba_Threads.default_thread_count(),
+    )
+
+
+def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, precision, check_edges,
+                         embeddings_path, is_blast=False):
+    """Draw, align and check the calibration sample of a sparse run's missing pairs; return a CalibrationResult.
+
+    With CALIBRATED_IMPUTATION off nothing is drawn or aligned. With it on: first, fewer than
+    CALIBRATION_MIN_MISSING_FRACTION of the run's pairs missing means it is not applied; then
+    a network that does not record its gap penalties (or is a BLAST network) is unavailable; then the sample is the
+    run's missing pairs by Prefilter_Calibration.select_among (all of them when they are no more than the sample
+    size). The sample and the check edges go through one call of align_calibration_pairs; if the check edges are
+    not reproduced, or the alignment fails, calibration is unavailable and nothing is added.
+    similarity is the run's (n, n) adjusted similarity, edge_i and edge_j its observed pairs, names the dataset
+    names of its sequences, check_edges the CheckEdges of choose_check_edges (or None).
+    """
+    if not CALIBRATED_IMPUTATION:
+        return CalibrationResult(CalibrationOutcome("off", "the calibration switch is off"))
+    n = len(names)
+    total = n * (n - 1) // 2
+    present = Prefilter_Calibration.pair_presence(edge_i, edge_j, n)
+    missing = Prefilter_Calibration.missing_count(present)
+    share = missing / total if total else 0.0
+    if share < CALIBRATION_MIN_MISSING_FRACTION:
+        del present
+        return CalibrationResult(CalibrationOutcome(
+            "not_applied",
+            f"calibration not applied: {100.0 * share:.1f}% of pairs missing, below "
+            f"{100.0 * CALIBRATION_MIN_MISSING_FRACTION:g}%",
+            missing=missing, share=share,
+        ))
+    unavailable = None
+    if is_blast:
+        unavailable = "a BLAST network's scores were not made by this program's alignment"
+    elif gap_penalties is None:
+        unavailable = "the network does not record the gap penalties its scores were made with"
+    elif check_edges is None:
+        unavailable = "no edge of the network could be used to check the alignment"
+    if unavailable is not None:
+        del present
+        return CalibrationResult(CalibrationOutcome(
+            "unavailable", f"calibration unavailable: {unavailable}", missing=missing, share=share,
+        ))
+    values, rows, cols = Prefilter_Calibration.missing_pairs(similarity, present)
+    del present
+    sample = Prefilter_Calibration.select_among(values, rows, cols)
+    del values, rows, cols
+    pairs = np.concatenate([
+        np.column_stack([sample.rows, sample.cols]),
+        np.column_stack([check_edges.rows, check_edges.cols]),
+    ])
+    try:
+        aligned = align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision)
+    except Exception as error:
+        return CalibrationResult(CalibrationOutcome(
+            "unavailable", f"calibration unavailable: the sample could not be aligned ({type(error).__name__}: {error})",
+            missing=missing, share=share,
+        ))
+    reproduced, difference, problems = compare_with_stored(aligned, len(sample), check_edges.stored)
+    outcome = CalibrationOutcome(
+        "applied" if len(sample) < missing else "all_aligned",
+        sample=len(sample), missing=missing, share=share, device=aligned.device, plan=aligned.plan,
+        precision=aligned.precision, seconds=aligned.seconds, check_edges=len(check_edges.rows),
+        check_difference=difference, notes=list(aligned.notes),
+    )
+    if not reproduced:
+        outcome.status = "unavailable"
+        outcome.reason = (
+            "calibration unavailable: the network's own edges were not reproduced by this run's embeddings and "
+            f"the network's scoring ({problems})"
+        )
+        outcome.sample = 0
+        return CalibrationResult(outcome)
+    scores = {name: np.asarray(getattr(aligned, name))[:len(sample)] for name in CHECK_FIELDS}
+    return CalibrationResult(outcome, sample, scores)
+
+
+def calibration_text(outcome):
+    """The calibration lines of a run's log, and the value of its CALIBRATION note, as one sentence."""
+    if outcome.status == "off":
+        return "Calibration switched off: no sample is drawn or aligned, so the fit takes the observed pairs only"
+    if outcome.status in ("not_applied", "unavailable"):
+        text = outcome.reason[:1].upper() + outcome.reason[1:] + "; the missing pairs get the uniform fill"
+        for note in outcome.notes:
+            text += f". {note}"
+        return text
+    bounds = f"{Prefilter_Calibration.DRAW_MIN_PAIRS:,} to {Prefilter_Calibration.DRAW_MAX_PAIRS:,}"
+    if outcome.status == "all_aligned":
+        text = (
+            f"All {outcome.missing:,} missing pairs ({100.0 * outcome.share:.1f}% of the run's pairs) are no more "
+            f"than the sample size, so all were aligned; the network is complete now and nothing is imputed"
+        )
+    else:
+        text = (
+            f"Calibration sample of {outcome.sample:,} of the {outcome.missing:,} missing pairs "
+            f"({100.0 * outcome.share:.1f}% of the run's pairs; "
+            f"{100.0 * Prefilter_Calibration.FRACTION:g}% of them within {bounds}, "
+            f"{Prefilter_Calibration.BINS} similarity bands, seed {Prefilter_Calibration.SEED})"
+        )
+    text += (
+        f", aligned on {outcome.device} ({outcome.plan}, {outcome.precision}) in {outcome.seconds:.1f} s; "
+        f"self-check on {outcome.check_edges} of the network's own edges: reproduced "
+        f"(largest score difference {outcome.check_difference:.2g})"
+    )
+    for note in outcome.notes:
+        text += f". {note}"
+    return text
 
 
 # ==========================================
@@ -1969,51 +2156,28 @@ _FIT_WIDTH = 2.25
 _FIT_RING = 2.0
 
 
-def regression_statistics(rho, r2, pairs, above_cut=False):
+def regression_statistics(rho, r2, pairs):
     """One line on the fit: Spearman's rho, R² and how many observed pairs they were measured on.
 
     A Message: str() is the English line, and display() the chart's, in the
     Tools window's language. The numbers come formatted as the terminal's
     fit diagnostics print them, the count with thousands separators.
-    above_cut says the pairs are those above the prefilter cut, the ones a
-    fit made without the calibration sample took.
     """
     numbers = {"rho": f"{rho:.4f}", "r2": f"{r2:.4f}", "count": f"{pairs:,}"}
-    if above_cut:
-        if pairs == 1:
-            return Message("Spearman ρ {rho} · R² {r2} · {count} observed pair above the prefilter cut", **numbers)
-        return Message("Spearman ρ {rho} · R² {r2} · {count} observed pairs above the prefilter cut", **numbers)
     if pairs == 1:
         return Message("Spearman ρ {rho} · R² {r2} · {count} observed pair", **numbers)
     return Message("Spearman ρ {rho} · R² {r2} · {count} observed pairs", **numbers)
 
 
-def calibration_statistics(check, calibrated_fit=False):
-    """The chart's line on the held-out check: Spearman's rho, MAE and R² on the calibration pairs left out.
-
-    calibrated_fit says the line is of the fit with the calibration sample,
-    which the chart's own fit (the uniform one) did not use.
-    """
+def calibration_statistics(check):
+    """The chart's line on the held-out check: Spearman's rho, MAE and R² on the calibration pairs left out."""
     numbers = {
         "count": f"{check.pairs:,}", "rho": f"{check.spearman:.4f}", "mae": f"{check.mae:.4f}",
         "r2": f"{check.r2:.4f}",
     }
-    if calibrated_fit:
-        return Message(
-            "Calibrated fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
-            **numbers,
-        )
     return Message(
         "Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
         **numbers,
-    )
-
-
-def uniform_fill_statistics(check, value):
-    """The chart's line on the uniform fill: its value, and its MAE and R² on the calibration pairs."""
-    return Message(
-        "Uniform fill {value} on {count} calibration pairs · MAE {mae} · R² {r2}",
-        value=f"{value:.4f}", count=f"{check.pairs:,}", mae=f"{check.mae:.4f}", r2=f"{check.r2:.4f}",
     )
 
 
@@ -2118,8 +2282,8 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
 
         # Above the plot, bottom up: the legend, the statistics lines, the title.
         # The hexagons hold the observed pairs besides the calibration sample.
-        # A fit that used the sample counts it among the pairs; a uniform one counts only the others.
-        others = pairs - (calibration.calibration_x.size if sampled and not calibration.uniform else 0)
+        # The sample's pairs are among the pairs counted, but not in x and y.
+        others = pairs - (calibration.calibration_x.size if sampled else 0)
         if len(x) < others:
             observed = Message("Observed pairs (random sample of {count})", count=f"{len(x):,}")
         else:
@@ -2141,12 +2305,9 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
             borderaxespad=0.6, borderpad=0, handlelength=1.6, columnspacing=1.8,
             labelcolor=tokens["text_soft"],
         )
-        uniform_sampled = sampled and calibration.uniform
-        lines = [regression_statistics(rho, r2, pairs, above_cut=uniform_sampled)]
+        lines = [regression_statistics(rho, r2, pairs)]
         if sampled and calibration.check is not None:
-            lines.append(calibration_statistics(calibration.check, calibrated_fit=calibration.uniform))
-        if uniform_sampled and calibration.uniform_check is not None:
-            lines.append(uniform_fill_statistics(calibration.uniform_check, uniform_fill_value(iso_reg)))
+            lines.append(calibration_statistics(calibration.check))
         for row, line in enumerate(reversed(lines)):
             axes.annotate(
                 line.display(), (0, 1), xycoords="axes fraction",
@@ -2249,10 +2410,18 @@ def run_msa_builder():
     arr_j = f_net['j'][:]
     
     network_metadata = validate_network_schema(f_net)
-    # What an Edge Pre-filtering network records of its cut and calibration sample.
-    prefilter_record = None
+    # The pooling and length-ratio power the network's similarity was made with, when it records them (a network
+    # that stored a calibration sample in an earlier version records them the same way; the stored sample is not used).
+    similarity_settings = None
     if network_metadata.network_type != "blast":
-        prefilter_record = Prefilter_Calibration.read_record(f_net)
+        similarity_settings = Prefilter_Calibration.read_similarity_settings(f_net)
+    # How the network's scores were made, which the calibration sample is aligned with.
+    network_gap_penalties = f_net.attrs.get("gap_penalties")
+    network_precision = f_net.attrs.get("matmul_precision", "ieee_fp32")
+    if isinstance(network_precision, bytes):
+        network_precision = network_precision.decode("utf-8")
+    # The embeddings that describe the network: today the run's own embeddings.
+    network_embeddings = FULL_INPUT_EMBED
     if network_metadata.network_type == "blast":
         target_score = f_net['score'][:]
         target_len   = np.ones_like(target_score)
@@ -2344,6 +2513,14 @@ def run_msa_builder():
         if new_index is not None:
             net_old_to_new[i] = new_index
 
+    # A few of the network's own edges, to be reproduced by the calibration alignment (chosen before the
+    # index arrays are mapped and freed below).
+    check_edges = None
+    if CALIBRATED_IMPUTATION and network_metadata.network_type != "blast":
+        check_edges = choose_check_edges(
+            f_net, arr_i, arr_j, net_old_to_new, "g_score" if ALIGNMENT_SCORE == "global" else "l_score",
+        )
+
     # Filter with whole-array operations. A Python tuple per edge costs about
     # 130 bytes, so a complete 44k-sequence network (~974M edges) would need
     # ~125 GB. Each network index array is freed as soon as its int32 mapping
@@ -2396,6 +2573,66 @@ def run_msa_builder():
     
     mode_int = mode_map.get(NORMALIZATION_MODE, 0)
 
+    total_pairs = int(num_seqs * (num_seqs - 1) / 2)
+    is_sparse = num_edges < total_pairs
+    cos_sim_mat = None
+    calibration = None
+    sample = None
+    if is_sparse:
+        print(f"Network is sparse ({num_edges} / {total_pairs} edges). Activating hybrid cosine-alignment transformation...")
+
+        # The similarity the network was cut on, when it records one.
+        pooling, length_power = POOLING_METHOD, float(LENGTH_RATIO_POWER)
+        if similarity_settings is not None:
+            if tuple(similarity_settings) != (pooling, length_power):
+                print(
+                    f"⚠️ The network's similarity was made with {similarity_settings[0]} pooling and "
+                    f"length-ratio power {similarity_settings[1]:g}, but this run is set "
+                    f"to {pooling} and {length_power:g}. The imputation uses the network's."
+                )
+            pooling, length_power = similarity_settings
+
+        # Load embeddings for valid_headers and calculate their pooled vectors
+        safe_names = [h.replace("/", "_").replace("\\", "_") for h in valid_headers]
+        print(f"Computing pooled embeddings ({pooling} pooling) for all sequences...")
+        mean_embs = Prefilter_Calibration.pooled_vectors(
+            f_emb["embeddings"],
+            safe_names,
+            pooling,
+            progress=lambda names: tqdm(names, desc="Computing Pooled Embeddings"),
+        )
+
+        print("Calculating all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
+        cos_sim_mat = Prefilter_Calibration.length_adjusted_similarity(
+            mean_embs, seq_lens_array, length_power
+        )
+        del mean_embs
+
+        # The calibration sample: aligned now, so its pairs are observed pairs of the run from here on.
+        result = calibrate_sparse_run(
+            cos_sim_mat, edge_i, edge_j, safe_names, network_gap_penalties, network_precision,
+            check_edges, network_embeddings, is_blast=network_metadata.network_type == "blast",
+        )
+        calibration = result.outcome
+        print(calibration_text(calibration))
+        if result.sample is not None:
+            sample = result.sample
+            edge_i = np.concatenate([edge_i, sample.rows.astype(edge_i.dtype)])
+            edge_j = np.concatenate([edge_j, sample.cols.astype(edge_j.dtype)])
+            if ALIGNMENT_SCORE == "global":
+                sample_scores, sample_lens = result.scores["g_score"], result.scores["g_len"]
+            else:
+                sample_scores, sample_lens = result.scores["l_score"], result.scores["l_len"]
+            raw_scores = np.concatenate([raw_scores, sample_scores.astype(np.float32)])
+            align_lens = np.concatenate([align_lens, sample_lens.astype(np.float32)])
+            sample_start = num_edges
+            num_edges = len(edge_i)
+            del sample_scores, sample_lens
+            if calibration.status == "all_aligned":
+                is_sparse = False
+                cos_sim_mat = None  # nothing is imputed, so nothing reads it again
+        del result, check_edges
+
     # 7c. Execute C-Speed Kernel
     print("Executing Numba Math Kernel...")
     norm_scores, max_norm_score = calculate_normalized_scores_kernel(
@@ -2411,9 +2648,7 @@ def run_msa_builder():
 
     MAX_DISTANCE = max_norm_score + 0.1
 
-    is_sparse = num_edges < int(num_seqs * (num_seqs - 1) / 2)
     iso_reg = None
-    cos_sim_mat = None
     imputation_summary = None
 
     # Invert scores to distances
@@ -2430,85 +2665,37 @@ def run_msa_builder():
         np.maximum(0.0, edge_dists, out=edge_dists)
 
     if is_sparse:
-        print(f"Network is sparse ({num_edges} / {int(num_seqs * (num_seqs - 1) / 2)} edges). Activating hybrid cosine-alignment transformation...")
-
-        # The similarity the network's prefilter cut on, when it records one.
-        pooling, length_power = POOLING_METHOD, float(LENGTH_RATIO_POWER)
-        if prefilter_record is not None:
-            if (prefilter_record.pooling, prefilter_record.length_power) != (pooling, length_power):
-                print(
-                    f"⚠️ The network's prefilter used {prefilter_record.pooling} pooling and "
-                    f"length-ratio power {prefilter_record.length_power:g}, but this run is set "
-                    f"to {pooling} and {length_power:g}. The imputation uses the network's, so "
-                    "its similarity is the one the prefilter cut on."
-                )
-            pooling, length_power = prefilter_record.pooling, prefilter_record.length_power
-
-        # Load embeddings for valid_headers and calculate their pooled vectors
-        print(f"Computing pooled embeddings ({pooling} pooling) for all sequences...")
-        mean_embs = Prefilter_Calibration.pooled_vectors(
-            f_emb["embeddings"],
-            [h.replace("/", "_").replace("\\", "_") for h in valid_headers],
-            pooling,
-            progress=lambda names: tqdm(names, desc="Computing Pooled Embeddings"),
-        )
-
-        print("Calculating all-vs-all length-adjusted similarities (length ratio * cosine similarity)...")
-        cos_sim_mat = Prefilter_Calibration.length_adjusted_similarity(
-            mean_embs, seq_lens_array, length_power
-        )
-        del mean_embs
-
         # Extract overlapping pairs
         X_cos = cos_sim_mat[edge_i, edge_j]
         Y_align = norm_scores
 
+        # The calibration sample's pairs are the last of the observed pairs, in the sample's order.
         calibration_positions = calibration_weights = None
-        if prefilter_record is not None:
-            located = Prefilter_Calibration.locate_sample(
-                prefilter_record.sample, net_old_to_new, edge_i, edge_j, num_seqs
-            )
-            found = located >= 0
-            calibration_positions = located[found]
-            calibration_weights = prefilter_record.sample.weights[found]
-            print(
-                f"The network's prefilter aligned a calibration sample of {len(prefilter_record.sample):,} "
-                f"pairs below its cut; {calibration_positions.size:,} are among this run's sequences."
-            )
+        if sample is not None:
+            calibration_positions = np.arange(sample_start, num_edges)
+            calibration_weights = sample.weights
 
         print("Fitting Isotonic Regression (Adjusted Similarity -> Alignment Score)...")
-        imputation = fit_imputation(
-            X_cos, Y_align, calibration_positions, calibration_weights,
-            use_sample=bool(CALIBRATED_IMPUTATION),
-        )
+        imputation = fit_imputation(X_cos, Y_align, calibration_positions, calibration_weights)
         iso_reg = imputation.iso
 
-        # Evaluate fitness on the observed pairs the fit was made on: all of them, or
-        # without the calibration pairs when the fit left them out.
+        # Evaluate fitness on the observed pairs, the calibration sample's among them.
         fitted_x, fitted_y = X_cos, Y_align
-        left_out = imputation.uniform and imputation.calibration_x is not None
-        if left_out:
-            in_fit = np.ones(len(X_cos), dtype=bool)
-            in_fit[calibration_positions] = False
-            fitted_x, fitted_y = X_cos[in_fit], Y_align[in_fit]
-            del in_fit
         Y_pred = iso_reg.predict(fitted_x)
         rho, _ = spearmanr(fitted_x, fitted_y)
         r2 = r2_score(fitted_y, Y_pred)
 
         print(f"Isotonic Regression Fit Diagnostics:")
-        if left_out:
-            print(f"  > Measured over the {len(fitted_x):,} observed pairs above the prefilter cut that the fit used")
         print(f"  > Spearman Rank Correlation (rho): {rho:.4f}")
         print(f"  > Coefficient of Determination (R^2): {r2:.4f}")
-        missing_pairs = int(num_seqs * (num_seqs - 1) // 2) - num_edges
+        missing_pairs = total_pairs - num_edges
         imputation_summary = ImputationSummary(
             missing=missing_pairs,
             outside=outside_fit_fraction(cos_sim_mat, iso_reg, X_cos, missing_pairs),
             check=imputation.check,
             calibration_pairs=0 if imputation.calibration_x is None else imputation.calibration_x.size,
-            uniform_check=imputation.uniform_check,
             uniform_value=uniform_fill_value(iso_reg),
+            calibration="" if sample is not None or calibration is None else calibration.reason,
         )
         report_imputation(imputation, imputation_summary)
 
@@ -2525,7 +2712,8 @@ def run_msa_builder():
         # they read. The n x n arrays below are released the same way, each right
         # after its last use. Otherwise they all stay alive through the replicate
         # trees and the whole merge.
-        del fitted_x, fitted_y, Y_pred, X_cos, Y_align, norm_scores
+        del fitted_x, fitted_y, Y_pred, X_cos, Y_align, norm_scores, calibration_positions, calibration_weights
+        del imputation, sample
 
     # 8. BUILD CONSENSUS TREE
     tree_building_started = time.perf_counter()
@@ -2669,7 +2857,7 @@ def run_msa_builder():
         leaf_keys,
         replicate_keys,
         NUM_TREES if BOOTSTRAP_TREE else 0,
-        guide_tree_notes(network_metadata.network_type, is_sparse, imputation_summary),
+        guide_tree_notes(network_metadata.network_type, is_sparse, imputation_summary, calibration),
     )
     del leaf_keys, replicate_keys
 
