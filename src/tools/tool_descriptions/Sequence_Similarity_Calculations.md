@@ -15,7 +15,7 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 
 | Parameter | Description |
 | :--- | :--- |
-| Enable Edge Pre-filtering **`EDGE_PREFILTERING`** | Toggle to enable pre-filtering sequence pairs using global cosine similarity. If enabled, full residue-level alignments are skipped for pairs below the similarity cutoff, except for a calibration sample of them that Embedding MSA uses to fit its estimates of the rest unless its Calibrated Imputation setting is off, and to check them (see Algorithm Details). |
+| Enable Edge Pre-filtering **`EDGE_PREFILTERING`** | Toggle to enable pre-filtering sequence pairs using global cosine similarity. If enabled, full residue-level alignments are skipped for pairs below the similarity cutoff. Nothing of the skipped pairs is aligned or stored: Embedding MSA draws its own calibration sample of the missing pairs when it needs one. |
 | Pre-filtering Strength **`PREFILTER_STRENGTH`** | The percentage of sequence pairs with the lowest global cosine similarity scores to exclude from alignment calculations. Higher values increase speed but risk missing alignments between distantly related proteins. |
 | CPU Worker Threads **`WORKERS`** | The number of CPU processes/threads allocated for parallel alignment calculations. |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score applied for local alignments. More negative values penalize gaps more heavily, resulting in fewer gaps. |
@@ -40,7 +40,7 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
     - `/seq_lens`: Sanitized sequence lengths in header order.
     - `/headers`: Array of sequence headers.
     - Attributes `model_name`, `embedding_checksum`, and `gap_penalties` for validation and compatible incremental reuse.
-    - With Edge Pre-filtering, the cut and its calibration sample: attributes `prefilter_strength`, `prefilter_threshold`, `prefilter_pooling`, `prefilter_length_ratio_power`, `prefilter_kept_pairs`, `prefilter_skipped_pairs`, `calibration_bins` and `calibration_seed`, and datasets `/calibration_i` and `/calibration_j` (the sample's pairs, which are stored as edges too) and `/calibration_weight` (how many skipped pairs each one stands for).
+    - Nothing records the cut: Edge Pre-filtering stores only the pairs it kept. Networks made by builds from commit 89c914b until this change also hold the attributes `prefilter_*`, `calibration_bins` and `calibration_seed`, and the datasets `/calibration_i`, `/calibration_j` and `/calibration_weight`. They are still read, and Embedding MSA treats that sample's pairs as ordinary edges.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -48,7 +48,7 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 The alignment pipeline is executed in the following steps:
 
 1. **Global Embedding Pooling**:
-     For each protein sequence, its residue embeddings are pooled into one global representation vector. The current default is max pooling (`POOLING_METHOD="max"`; mean pooling remains supported internally):
+     For each protein sequence, its residue embeddings are pooled into one global representation vector. The current default is max pooling (a constant the tools share, not a setting):
      $$u_i = \max_{\text{residues}}(\text{emb}_i(\text{residue}))$$
 
 2. **Edge Pre-filtering (Optional)**:
@@ -60,7 +60,7 @@ The alignment pipeline is executed in the following steps:
      
      Pairs scoring in the bottom percentile corresponding to `PREFILTER_STRENGTH` are skipped.
 
-     A calibration sample of the skipped pairs is aligned all the same: 1% of them, at least 2,000 and at most 50,000 (all of them when fewer are skipped), the same number from each of 20 equal-count similarity bands of the skipped pairs, the lowest band included, drawn with seed 42. Their scores are stored with the other edges. Embedding MSA fits its imputation of the skipped pairs on them too, unless its Calibrated Imputation setting is off, and reports how well that imputation predicts their computed scores.
+     Nothing is aligned for the skipped pairs. This similarity is the one rule every tool shares (max pooling, $P = 2$, the matrix product on one BLAS thread), so Embedding MSA computes the same numbers when it fills the missing pairs.
 
 3. **Residue-Level Similarity Matrix Computation**:
      For each sequence pair $(i, j)$ passing the pre-filter, a pairwise Cosine distance matrix is computed. First, the residue embeddings are L2-normalized along the hidden dimension:

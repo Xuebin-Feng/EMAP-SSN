@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 be6ba67c917798e5a176c27fae42e5da3cafd35a4efe96ce48b6657308dfe6cf -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 2b36750c245b395eb4330cec6ebcaee63a354c378713e88a30e2cea39cfa829b -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -16,7 +16,7 @@
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 启用边预过滤 **`EDGE_PREFILTERING`** | 切换是否用全局余弦相似度（cosine similarity）对序列对进行预过滤。启用时，相似度低于阈值的序列对会跳过完整的残基级比对，但其中的一个校准样本除外，Embedding 多序列比对用它拟合对其余序列对的估计（其“校准插补”设置关闭时除外），并检验这些估计（见算法详情）。 |
+| 启用边预过滤 **`EDGE_PREFILTERING`** | 切换是否用全局余弦相似度（cosine similarity）对序列对进行预过滤。启用时，相似度低于阈值的序列对会跳过完整的残基级比对。被跳过的序列对既不比对也不存储：Embedding 多序列比对需要校准样本时，会自己从缺失序列对中抽取。 |
 | 预过滤强度 **`PREFILTER_STRENGTH`** | 全局余弦相似度得分最低、要从比对计算中排除的序列对所占的百分比。数值越高速度越快，但可能漏掉亲缘关系较远的蛋白质之间的比对。 |
 | CPU 工作线程数 **`WORKERS`** | 分配给并行比对计算的 CPU 进程/线程数。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）使用的空位罚分（gap penalty）值。数值越负，对空位（gap）的惩罚越重，产生的空位越少。 |
@@ -41,7 +41,7 @@
     - `/seq_lens`：按序列标题（FASTA header）顺序排列的已清理序列长度。
     - `/headers`：序列标题数组。
     - 属性 `model_name`、`embedding_checksum` 和 `gap_penalties`，用于校验以及兼容的增量复用。
-    - 启用边预过滤时，记录截断及其校准样本：属性 `prefilter_strength`、`prefilter_threshold`、`prefilter_pooling`、`prefilter_length_ratio_power`、`prefilter_kept_pairs`、`prefilter_skipped_pairs`、`calibration_bins` 和 `calibration_seed`，以及数据集 `/calibration_i` 和 `/calibration_j`（样本中的序列对，它们同样作为边存储）和 `/calibration_weight`（每个序列对所代表的被跳过序列对数量）。
+    - 没有任何内容记录截断：边预过滤只存储它保留的序列对。由 commit 89c914b 起至本次更改之前的版本生成的网络还包含属性 `prefilter_*`、`calibration_bins` 和 `calibration_seed`，以及数据集 `/calibration_i`、`/calibration_j` 和 `/calibration_weight`。它们仍会被读取，Embedding 多序列比对把该样本中的序列对当作普通的边。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>
@@ -49,7 +49,7 @@
 比对流程按以下步骤执行：
 
 1. **全局 embedding 池化**：
-     对每条蛋白质序列，将其残基 embedding 池化为一个全局表示向量。当前默认使用最大池化（`POOLING_METHOD="max"`；内部仍支持平均池化）：
+     对每条蛋白质序列，将其残基 embedding 池化为一个全局表示向量。当前默认使用最大池化（各工具共用的常量，不是设置）：
      $$u_i = \max_{\text{residues}}(\text{emb}_i(\text{residue}))$$
 
 2. **边预过滤（可选）**：
@@ -61,7 +61,7 @@
      
      得分处于 `PREFILTER_STRENGTH` 所对应最低百分位的序列对会被跳过。
 
-     被跳过的序列对中有一个校准样本仍会照常比对：占被跳过序列对的 1%，至少 2,000 个、至多 50,000 个（被跳过的不足此数时全部比对），从被跳过序列对按相似度划分的 20 个等数量区段中各取相同数量（包括最低区段），抽样种子为 42。它们的得分与其他边一同存储。Embedding 多序列比对也用它们拟合对被跳过序列对的插补（其“校准插补”设置关闭时除外），并报告该插补对其计算得分的预测效果。
+     被跳过的序列对不做任何比对。这个相似度是所有工具共用的同一条规则（最大池化、$P = 2$、在单个 BLAS 线程上做矩阵乘法），因此 Embedding 多序列比对填补缺失序列对时得到相同的数值。
 
 3. **残基级相似性矩阵计算**：
      对每个通过预过滤的序列对 $(i, j)$，计算一个两两余弦距离矩阵。首先，沿隐藏维度对残基 embedding 做 L2 归一化：
