@@ -1427,20 +1427,22 @@ def _oracle_merge(new_n, required, cached, new_headers, old_index, old_arrays,
     return final
 
 
-def _random_world(rng, kind):
+def _random_world(rng, kind, large=False):
     """An old network and a new sequence set that drops some old sequences and adds new ones.
 
     Vectors come from a tiny grid so that many cosines are exactly equal (ties).
-    kind: "dense", "sparse_record" or "sparse_plain".
+    kind: "dense", "sparse_record" or "sparse_plain". large: about 300 to 380 new
+    sequences, so that pair keys (min * N + max) pass 65,535 and wrap in a 16-bit
+    index array.
     """
-    pool = [f"s{k}" for k in range(int(rng.integers(12, 24)))]
+    pool = [f"s{k}" for k in range(int(rng.integers(380, 420) if large else rng.integers(12, 24)))]
     grid = np.array([[1, 0, 0], [0, 1, 0], [1, 1, 0], [1, -1, 0], [0, 0, 1], [1, 0, 1], [-1, 0, 1]], np.float32)
     vectors = {h: grid[int(rng.integers(len(grid)))] for h in pool}
-    old_n = int(rng.integers(3, 10))
+    old_n = int(rng.integers(300, 340) if large else rng.integers(3, 10))
     old_headers = [pool[k] for k in rng.permutation(len(pool))[:old_n]]
-    kept = [h for h in old_headers if rng.random() < 0.75]
+    kept = [h for h in old_headers if rng.random() < (0.92 if large else 0.75)]
     others = [h for h in pool if h not in old_headers]
-    added = others[: int(rng.integers(0, 7))]
+    added = others[: int(rng.integers(30, 41) if large else rng.integers(0, 7))]
     members = kept + added
     if len(members) < 2:
         members = old_headers[:2]
@@ -1472,12 +1474,14 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
         return old_i, old_j, old_to_new[old_i], old_to_new[old_j]
 
     def test_selection_helpers_equal_the_original_loops(self):
-        for seed in range(80):
+        for seed, large in [(s, False) for s in range(80)] + [(s, True) for s in range(300, 306)]:
             rng = np.random.default_rng(seed)
             kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
-            vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind)
+            vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
             cos_sim = _unit_cosines([vectors[h] for h in new_headers])
             new_n = len(new_headers)
+            if large:
+                self.assertGreater(new_n, 300)  # keys pass 65,535
             sparse = kind != "dense"
             old_i, old_j, edge_u, edge_v = self._glue(old_headers, edges, new_headers, rng)
             skip = np.zeros(len(edges), dtype=bool)
@@ -1487,7 +1491,7 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                 calibration, sparse,
             )
             block_cells = int(rng.choice([1, new_n, 2 * new_n + 1, 7, 10 ** 6]))
-            chunk = int(rng.choice([1, 2, 3, 1 << 22]))
+            chunk = int(rng.choice([977, 1 << 22] if large else [1, 2, 3, 1 << 22]))
             with self.subTest(seed=seed, kind=kind, block_cells=block_cells, chunk=chunk), \
                     mock.patch.object(network_injection, "_PAIR_BLOCK_CELLS", block_cells), \
                     mock.patch.object(network_injection, "_EDGE_CHUNK", chunk), \
@@ -1540,11 +1544,10 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     required, cached, np.array(sorted(computed), dtype=np.int64), new_n
                 )
                 self.assertEqual(keys.tolist(), pending)
-                counts = np.bincount(keys // new_n, minlength=new_n)
-                for row in range(new_n):
-                    self.assertEqual(
-                        counts[row], sum(1 for p in pending if p // new_n == row)
-                    )
+                np.testing.assert_array_equal(
+                    np.bincount(keys // new_n, minlength=new_n),
+                    np.bincount([p // new_n for p in pending], minlength=new_n),
+                )
 
     def test_lowest_cosine_is_the_first_edge_among_equal_values(self):
         cos_sim = np.array([[1.0, 0.5, 0.5, 0.9], [0.5, 1.0, 0.5, 0.5], [0.5, 0.5, 1.0, 0.7], [0.9, 0.5, 0.7, 1.0]], np.float32)
@@ -1587,9 +1590,57 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             [1, 2, 3, 6, 7],
         )
 
-    def _write_batch(self, results_dir, name, pairs, scores):
-        arr_i = np.array([p[0] for p in pairs], dtype=np.uint32)
-        arr_j = np.array([p[1] for p in pairs], dtype=np.uint32)
+    def test_pair_keys_stay_exact_far_beyond_32_bits(self):
+        # N = 100,000: keys reach 10 ** 10, past both 2 ** 31 and 2 ** 32.
+        n = 100_000
+        edge_u = np.array([99998, 5, 70000, -1, 3, 5], dtype=np.int64)
+        edge_v = np.array([99999, 99990, 3, 7, -1, 99990], dtype=np.int64)
+        cached = network_injection._cached_pair_keys(edge_u, edge_v, n)
+        expected_cached = sorted({99998 * n + 99999, 5 * n + 99990, 3 * n + 70000})
+        self.assertEqual(cached.dtype, np.int64)
+        self.assertEqual(cached.tolist(), expected_cached)
+        self.assertGreater(int(cached.max()), 2 ** 33)
+
+        extra = [10 * n + 11, 99990 * n + 99991, 40_000 * n + 80_000]
+        # A wrong-orientation key and one whose row is past the sequence count never queue.
+        invalid = [50 * n + 50, 70_000 * n + 60_000, n * n + 1]
+        required = network_injection._as_sorted_keys(set(expected_cached + extra + invalid))
+        self.assertEqual(required.tolist(), sorted(expected_cached + extra + invalid))
+        computed = network_injection._as_sorted_keys([extra[0], 123])
+        pending = network_injection._pending_keys(required, cached, computed, n)
+        self.assertEqual(pending.tolist(), sorted(extra[1:]))
+
+        position, found = network_injection._locate(required, np.array(extra + [7, 10 ** 10 + 5], dtype=np.int64))
+        self.assertEqual(found.tolist(), [True, True, True, False, False])
+        np.testing.assert_array_equal(required[position[:3]], extra)
+        self.assertEqual(
+            network_injection._members(cached, np.array(expected_cached[::-1] + [1], dtype=np.int64)).tolist(),
+            [True, True, True, False],
+        )
+
+        headers = [f"h{k}" for k in range(n)]
+        queued = list(network_injection._iter_pending_keys(headers, pending, n))
+        self.assertEqual(
+            queued,
+            [(k // n, k % n, headers[k // n], headers[k % n]) for k in sorted(extra[1:])],
+        )
+        self.assertEqual(
+            list(network_injection._iter_pending_pairs(headers, set(required.tolist()), set(cached.tolist()), set(computed.tolist()))),
+            queued,
+        )
+
+        # Flat condensed indices of an old network of 100,000 sequences pass 4.9 * 10 ** 9.
+        flat = np.array([5_000_000_000, 7, 4_999_000_000, 7], dtype=np.int64)
+        index = network_injection._OldEdgeIndex(flat)
+        self.assertEqual(
+            index[np.array([5_000_000_000, 7, 4_999_000_000, 8, 5_000_000_001])].tolist(),
+            [0, 3, 2, -1, -1],
+        )
+        self.assertEqual(network_injection._sorted_unique(np.array([10 ** 10, 3, 10 ** 10, 3], dtype=np.int64)).tolist(), [3, 10 ** 10])
+
+    def _write_batch(self, results_dir, name, pairs, scores, index_dtype=np.uint32):
+        arr_i = np.array([p[0] for p in pairs], dtype=index_dtype)
+        arr_j = np.array([p[1] for p in pairs], dtype=index_dtype)
         with h5py.File(os.path.join(results_dir, name), "w") as hf:
             hf.create_dataset("i", data=arr_i)
             hf.create_dataset("j", data=arr_j)
@@ -1599,11 +1650,13 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
             hf.create_dataset("g_len", data=np.array([s[3] for s in scores], np.uint16))
 
     def test_compile_equals_the_original_merge_on_random_inputs(self):
-        for seed in range(40):
+        # The large cases have keys past 65,535 and store the batch rows as uint16.
+        for seed, large in [(s, False) for s in range(40)] + [(s, True) for s in range(100, 104)]:
             rng = np.random.default_rng(1000 + seed)
             vectors, old_headers, new_headers, edges, _calibration = _random_world(
-                rng, ("dense", "sparse_plain")[seed % 2]
+                rng, ("dense", "sparse_plain")[seed % 2], large
             )
+            batch_index_dtype = np.uint16 if large else np.uint32
             new_n = len(new_headers)
             old_n = len(old_headers)
             old_i = np.array([e[0] for e in edges], dtype=np.int64)
@@ -1638,7 +1691,7 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                     pairs = [p[::-1] if rng.random() < 0.3 else p for p in pairs]
                     scores = [(float(100 * number + n + 0.5), n % 50 + 1, float(7 * number + n + 0.25), n % 40 + 2)
                               for n in range(len(pairs))]
-                    self._write_batch(results_dir, f"batch_{number:05d}.h5", pairs, scores)
+                    self._write_batch(results_dir, f"batch_{number:05d}.h5", pairs, scores, batch_index_dtype)
                     batches.append((
                         np.array([p[0] for p in pairs], dtype=np.int64),
                         np.array([p[1] for p in pairs], dtype=np.int64),
@@ -1681,9 +1734,13 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                                 np.testing.assert_array_equal(hf[name][:], expected[name], err_msg=name)
                                 self.assertEqual(hf[name].dtype, expected[name].dtype)
 
-    def _run_injection(self, temp_dir, rng, kind, batch_size):
-        """Run run_injection on a random world with stubbed alignment; return what it did."""
-        vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind)
+    def _run_injection(self, temp_dir, rng, kind, batch_size, large=False):
+        """Run run_injection on a random world with stubbed alignment; return what it did.
+
+        large: 300 to 380 sequences, so pair keys pass 65,535; the old network's
+        i/j are uint16 as always and the left-over batch stores its rows as uint16.
+        """
+        vectors, old_headers, new_headers, edges, calibration = _random_world(rng, kind, large)
         embed_dir = os.path.join(temp_dir, "embed")
         network_dir = os.path.join(temp_dir, "network")
         os.makedirs(embed_dir)
@@ -1756,7 +1813,9 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
                 rows.append((p // new_n, p % new_n))
                 scores.append((9999.5, 9, 9999.25, 9))
             computed_all = set(resumed) | set(extra)
-            self._write_batch(results_dir, "batch_00000.h5", rows, scores)
+            self._write_batch(
+                results_dir, "batch_00000.h5", rows, scores, np.uint16 if large else np.uint32
+            )
             with h5py.File(os.path.join(results_dir, "batch_00000.h5"), "a") as hf:
                 hf.attrs["embedding_checksum"] = network_injection.calculate_file_hash(embeddings)
                 hf.attrs["model_name"] = "esm2_t6_8m"
@@ -1792,11 +1851,13 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
         with h5py.File(os.path.join(network_dir, "newset_[esm2_t6_8m]_network.h5"), "r") as hf:
             actual = {name: hf[name][:] for name in ("i", "j", "l_score", "l_len", "g_score", "g_len")}
         expected_rows = []
+        old_position = {h: n for n, h in enumerate(old_headers)}
+        edge_row = {(min(e), max(e)): n for n, e in enumerate(edges)}
         for p in sorted(required):
             if p in cached:
-                u = old_headers.index(new_headers[p // new_n])
-                v = old_headers.index(new_headers[p % new_n])
-                k = [n for n in range(count) if {edges[n][0], edges[n][1]} == {u, v}][-1]
+                u = old_position[new_headers[p // new_n]]
+                v = old_position[new_headers[p % new_n]]
+                k = edge_row[(min(u, v), max(u, v))]
                 row = (k + 10.5, k + 1, k + 500.25, k + 2)
             elif p in resumed:
                 row = resumed[p]
@@ -1814,14 +1875,16 @@ class NetworkInjectionSelectionTests(unittest.TestCase):
 
     def test_run_injection_equals_the_original_selection_end_to_end(self):
         resumed_seen = 0
-        for seed in range(36):
+        for seed, large in [(s, False) for s in range(36)] + [(s, True) for s in range(200, 206)]:
             kind = ("dense", "sparse_record", "sparse_plain")[seed % 3]
             rng = np.random.default_rng(5000 + seed)
-            batch_size = int(rng.choice([1, 3, 7, 500000]))
-            with self.subTest(seed=seed, kind=kind, batch_size=batch_size), \
+            batch_size = int(rng.choice([997, 500000] if large else [1, 3, 7, 500000]))
+            with self.subTest(seed=seed, kind=kind, batch_size=batch_size, large=large), \
                     tempfile.TemporaryDirectory() as temp_dir:
-                result = self._run_injection(temp_dir, rng, kind, batch_size)
+                result = self._run_injection(temp_dir, rng, kind, batch_size, large)
                 new_n = result["new_n"]
+                if large:
+                    self.assertGreater(new_n, 300)  # keys pass 65,535
                 queue = result["queue"]
                 flat = [task for batch in result["tasks"] for task in batch]
                 self.assertEqual([(t[0], t[1]) for t in flat], [(p // new_n, p % new_n) for p in queue])
