@@ -1917,6 +1917,16 @@ CALIBRATION_CELLS_PER_WORKER = 8_000_000
 # scores may have been made on another device, and a different order of float32 additions differs in the last digits.
 CALIBRATION_CHECK_ABSOLUTE = 1e-4
 CALIBRATION_CHECK_RELATIVE = 1e-4
+# Pairs aligned in a precision other than the one the network records (a TF32 or BF16 network on a machine
+# that aligns in IEEE FP32) differ more. Measured on 32 check edges of a 200-sequence kringle network, GPU
+# and CPU runs (2026-11-21): TF32 network in IEEE FP32, largest relative difference 6.7e-5 (l_score) and
+# 1.9e-5 (g_score), largest absolute 2.3e-3; BF16 network in IEEE FP32, 6.3e-4 (l_score) and 1.7e-3 (g_score),
+# largest absolute 0.215; both lengths equal on every edge in both. The relative limits are 15 and 12 times
+# those, and wrong embeddings or gap penalties differ by far more.
+CALIBRATION_CHECK_MISMATCHED = {"tf32": 1e-3, "bf16": 2e-2}
+# In those mismatched cases this many check edges may end in a different length (a near tie can end
+# differently in another precision). The 2 is a margin, NOT a measurement: no edge differed in a length.
+CALIBRATION_CHECK_LENGTH_MARGIN = 2
 CHECK_FIELDS = ("l_score", "l_len", "g_score", "g_len")
 
 
@@ -1941,6 +1951,7 @@ class CalibrationOutcome:
     seconds: float = 0.0
     check_edges: int = 0
     check_difference: float = 0.0
+    tolerance: str = ""  # what the self-check allowed, when it was not the same-precision rule
     notes: list = field(default_factory=list)
 
 
@@ -1994,27 +2005,55 @@ def choose_check_edges(network, edge_i, edge_j, net_old_to_new, score_field,
     )
 
 
+def check_tolerance(aligned):
+    """(absolute, relative, check edges that may differ in a length, description) the self-check allows for this alignment.
+
+    The same precision as the network's, or one that is not recorded here: CALIBRATION_CHECK_ABSOLUTE and
+    CALIBRATION_CHECK_RELATIVE and every length equal (the description is empty). A TF32 or BF16 network aligned in
+    IEEE FP32, which PairAlignment says by precision against requested_precision: the wider relative limit of
+    CALIBRATION_CHECK_MISMATCHED and CALIBRATION_CHECK_LENGTH_MARGIN edges allowed a different length.
+    """
+    requested = getattr(aligned, "requested_precision", None)
+    used = getattr(aligned, "precision", None)
+    if used == "ieee_fp32" and requested in CALIBRATION_CHECK_MISMATCHED:
+        relative = CALIBRATION_CHECK_MISMATCHED[requested]
+        name = {"tf32": "TF32", "bf16": "BF16"}[requested]
+        return (CALIBRATION_CHECK_ABSOLUTE, relative, CALIBRATION_CHECK_LENGTH_MARGIN,
+                f"tolerance for a {name} network aligned in IEEE FP32: absolute {CALIBRATION_CHECK_ABSOLUTE:g} plus "
+                f"relative {relative:g}, up to {CALIBRATION_CHECK_LENGTH_MARGIN} check edges may differ in a length")
+    return CALIBRATION_CHECK_ABSOLUTE, CALIBRATION_CHECK_RELATIVE, 0, ""
+
+
 def compare_with_stored(aligned, offset, stored):
     """(reproduced, largest score difference, what differed) of aligned[offset:] against the stored fields.
 
-    The two score fields must be within CALIBRATION_CHECK_ABSOLUTE plus CALIBRATION_CHECK_RELATIVE of
-    the stored value, and the two lengths equal.
+    The two score fields must be within the absolute plus relative tolerance of check_tolerance(aligned)
+    of the stored value, and the two lengths equal on every check edge (all but the allowed few in a
+    precision mismatch).
     """
+    absolute, relative, length_margin, _ = check_tolerance(aligned)
     worst, problems = 0.0, []
+    length_wrong = None
     for name in CHECK_FIELDS:
         got = np.asarray(getattr(aligned, name)[offset:])
         want = np.asarray(stored[name])
         if name.endswith("_len"):
-            wrong = int(np.count_nonzero(got.astype(np.int64) != want.astype(np.int64)))
-            if wrong:
+            unequal = got.astype(np.int64) != want.astype(np.int64)
+            length_wrong = unequal if length_wrong is None else (length_wrong | unequal)
+            wrong = int(np.count_nonzero(unequal))
+            if wrong and not length_margin:
                 problems.append(f"{wrong} of {want.size} {name} values differ")
             continue
         difference = np.abs(got.astype(np.float64) - want.astype(np.float64))
         worst = max(worst, float(difference.max()) if difference.size else 0.0)
-        allowed = CALIBRATION_CHECK_ABSOLUTE + CALIBRATION_CHECK_RELATIVE * np.abs(want.astype(np.float64))
+        allowed = absolute + relative * np.abs(want.astype(np.float64))
         wrong = int(np.count_nonzero(~(difference <= allowed)))
         if wrong:
             problems.append(f"{wrong} of {want.size} {name} values differ by more than the tolerance")
+    if length_margin and length_wrong is not None:
+        edges = int(np.count_nonzero(length_wrong))
+        if edges > length_margin:
+            problems.append(f"{edges} of {length_wrong.size} check edges differ in a length (at most {length_margin} may)")
     return not problems, worst, "; ".join(problems)
 
 
@@ -2127,13 +2166,14 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
         "applied" if len(sample) < missing else "all_aligned",
         sample=len(sample), missing=missing, share=share, device=aligned.device, plan=aligned.plan,
         precision=aligned.precision, seconds=aligned.seconds, check_edges=len(check_edges.rows),
-        check_difference=difference, notes=list(aligned.notes),
+        check_difference=difference, notes=list(aligned.notes), tolerance=check_tolerance(aligned)[3],
     )
     if not reproduced:
         outcome.status = "unavailable"
         outcome.reason = (
             "calibration unavailable: the network's own edges were not reproduced by this run's embeddings and "
-            f"the network's scoring ({problems})"
+            f"the network's scoring ({problems}"
+            + (f"; {outcome.tolerance}" if outcome.tolerance else "") + ")"
         )
         outcome.sample = 0
         return CalibrationResult(outcome)
@@ -2166,7 +2206,8 @@ def calibration_text(outcome):
     text += (
         f", aligned on {outcome.device} ({outcome.plan}, {outcome.precision}) in {outcome.seconds:.1f} s; "
         f"self-check on {outcome.check_edges} of the network's own edges: reproduced "
-        f"(largest score difference {outcome.check_difference:.2g})"
+        f"(largest score difference {outcome.check_difference:.2g}"
+        + (f"; {outcome.tolerance}" if outcome.tolerance else "") + ")"
     )
     for note in outcome.notes:
         text += f". {note}"

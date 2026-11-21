@@ -458,5 +458,111 @@ class CheckEdgeTests(unittest.TestCase):
         self.assertIn("l_len", text)
 
 
+class PrecisionToleranceTests(unittest.TestCase):
+    """The self-check's tolerance depends on whether the pairs were aligned in the precision the network records."""
+
+    STORED_SCORES = np.array([100.0, 200.0, 50.0, 400.0], np.float32)
+
+    def stored(self):
+        return {"l_score": self.STORED_SCORES.copy(), "l_len": np.array([5, 6, 7, 8], np.uint16),
+                "g_score": self.STORED_SCORES * 2, "g_len": np.array([9, 10, 11, 12], np.uint16)}
+
+    def aligned(self, requested, used, relative=0.0, wrong_length_edges=0, both_lengths=False):
+        """An alignment of the stored scores, each off by `relative` of its size (plus half the absolute limit)."""
+        stored = self.stored()
+        fields = {name: np.concatenate([[0], values]).astype(np.float64) for name, values in stored.items()}
+        for name in ("l_score", "g_score"):
+            fields[name][1:] = fields[name][1:] * (1.0 + relative) + 5e-5
+        for edge in range(wrong_length_edges):
+            fields["l_len"][1 + edge] += 1
+            if both_lengths:
+                fields["g_len"][1 + edge] += 1
+        return SimpleNamespace(precision=used, requested_precision=requested, **fields), stored
+
+    def check(self, requested, used, **kwargs):
+        aligned, stored = self.aligned(requested, used, **kwargs)
+        return Embedding_MSA.compare_with_stored(aligned, 1, stored)[0]
+
+    def test_the_same_precision_keeps_the_tight_limit_and_every_length_equal(self):
+        for precision in ("ieee_fp32", "tf32", "bf16"):
+            with self.subTest(precision=precision):
+                self.assertTrue(self.check(precision, precision, relative=0.9e-4))
+                self.assertFalse(self.check(precision, precision, relative=1.2e-4))
+                self.assertFalse(self.check(precision, precision, wrong_length_edges=1))
+        # A precision this code does not know, or none recorded, is the same rule as well.
+        self.assertFalse(self.check("float64", "ieee_fp32", relative=5e-4))
+        self.assertFalse(self.check(None, "ieee_fp32", relative=5e-4))
+
+    def test_a_tf32_network_aligned_in_fp32_may_differ_by_a_relative_1e_3(self):
+        self.assertTrue(self.check("tf32", "ieee_fp32", relative=0.9e-3))
+        self.assertFalse(self.check("tf32", "ieee_fp32", relative=1.2e-3))
+        self.assertFalse(self.check("tf32", "ieee_fp32", relative=1.0e-2))
+
+    def test_a_bf16_network_aligned_in_fp32_may_differ_by_a_relative_2e_2(self):
+        self.assertTrue(self.check("bf16", "ieee_fp32", relative=1.9e-2))
+        self.assertFalse(self.check("bf16", "ieee_fp32", relative=2.3e-2))
+        self.assertFalse(self.check("bf16", "ieee_fp32", relative=0.2))
+
+    def test_two_check_edges_may_differ_in_a_length_in_a_mismatch_and_three_may_not(self):
+        for requested in ("tf32", "bf16"):
+            with self.subTest(requested=requested):
+                for wrong, expected in ((0, True), (2, True), (3, False)):
+                    self.assertEqual(self.check(requested, "ieee_fp32", wrong_length_edges=wrong), expected, wrong)
+                # An edge whose two lengths both differ counts once.
+                self.assertTrue(self.check(requested, "ieee_fp32", wrong_length_edges=2, both_lengths=True))
+                aligned, stored = self.aligned(requested, "ieee_fp32", wrong_length_edges=3)
+                self.assertIn("3 of 4 check edges differ in a length (at most 2 may)",
+                              Embedding_MSA.compare_with_stored(aligned, 1, stored)[2])
+
+    def test_wrong_embeddings_or_gap_penalties_still_fail_in_every_case(self):
+        # Scores a tenth off and many lengths different: nothing like a precision difference.
+        for requested, used in (("ieee_fp32", "ieee_fp32"), ("tf32", "ieee_fp32"), ("bf16", "ieee_fp32")):
+            with self.subTest(requested=requested, used=used):
+                self.assertFalse(self.check(requested, used, relative=0.1, wrong_length_edges=4, both_lengths=True))
+                self.assertFalse(self.check(requested, used, relative=0.1))
+                self.assertFalse(self.check(requested, used, wrong_length_edges=4))
+
+    def test_the_line_and_the_note_name_the_tolerance_only_when_it_is_not_the_same_precision_one(self):
+        same, _ = self.aligned("tf32", "tf32")
+        self.assertEqual(Embedding_MSA.check_tolerance(same)[3], "")
+        text = Embedding_MSA.check_tolerance(self.aligned("tf32", "ieee_fp32")[0])[3]
+        self.assertEqual(text, "tolerance for a TF32 network aligned in IEEE FP32: absolute 0.0001 plus relative 0.001, "
+                               "up to 2 check edges may differ in a length")
+        self.assertIn("relative 0.02", Embedding_MSA.check_tolerance(self.aligned("bf16", "ieee_fp32")[0])[3])
+        outcome = Embedding_MSA.CalibrationOutcome("applied", sample=5, missing=9, share=0.5, device="CPU", plan="scalar",
+                                                   precision="ieee_fp32", seconds=1.0, check_edges=32,
+                                                   check_difference=0.01, tolerance=text)
+        line = Embedding_MSA.calibration_text(outcome)
+        self.assertIn(f"largest score difference 0.01; {text})", line)
+        outcome.tolerance = ""
+        self.assertIn("largest score difference 0.01)", Embedding_MSA.calibration_text(outcome))
+
+
+class PrecisionRunTests(CalibrationRunTestCase):
+    def run_with_scores_off(self, requested):
+        def perturb(real):
+            def wrapper(pairs, *args, **kwargs):
+                result = real(pairs, *args, **kwargs)
+                result.requested_precision = requested
+                for name in ("l_score", "g_score"):
+                    setattr(result, name, getattr(result, name) * np.float32(1.0 + 5e-4))
+                return result
+            return wrapper
+
+        fixture = self.fixture(drop=60)
+        return self.run_builder(fixture, wrap_align=perturb), fixture
+
+    def test_a_tf32_network_aligned_in_fp32_is_accepted_with_its_tolerance_named(self):
+        (output, state, plot, _), fixture = self.run_with_scores_off("tf32")
+        self.assertIn("Calibration sample of 12 of the 60 missing pairs", output)
+        self.assertIn("tolerance for a TF32 network aligned in IEEE FP32", output)
+        self.assertIn("tolerance for a TF32 network", self.guide_tree_notes(fixture))
+
+    def test_the_same_scores_off_by_that_much_in_the_networks_own_precision_are_not_reproduced(self):
+        (output, state, plot, _), fixture = self.run_with_scores_off("ieee_fp32")
+        self.assertIn("Calibration unavailable: the network's own edges were not reproduced", output)
+        self.assertNotIn("tolerance for a", output)
+
+
 if __name__ == "__main__":
     unittest.main()
