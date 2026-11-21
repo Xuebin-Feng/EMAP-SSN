@@ -58,11 +58,19 @@ except ModuleNotFoundError:
     import _bootstrap
 from utilities import Tool_Supervisor
 Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# Embedding_MSA imports this module as a library to align pairs (align_pairs_in_memory):
+# the variable below, set by utilities.Align_Library, tells it not to change the importing
+# process's thread environment and not to read the saved Tools settings. A run of the tool
+# itself never has it.
+LIBRARY_VARIABLE = "SSN_ALIGN_AS_LIBRARY"
+_AS_LIBRARY = os.environ.get(LIBRARY_VARIABLE) == "1"
+THREAD_VARIABLES = (
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+if not _AS_LIBRARY:
+    for _name in THREAD_VARIABLES:
+        os.environ[_name] = "1"
 
 import pickle
 import numpy as np
@@ -78,7 +86,9 @@ import time
 from collections import deque
 from itertools import islice, chain
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from contextlib import nullcontext
+import multiprocessing
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Benchmark_Record
@@ -164,7 +174,7 @@ import os
 # (Tool scripts are located in the /tools/ folder)
 SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "tools_settings.json")
 
-if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and not _AS_LIBRARY and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -219,6 +229,9 @@ active_matmul_precision = "ieee_fp32"
 active_embedding_store = None
 active_sequence_lengths = None
 bf16_validated_plan_keys = set()
+# Set (and put back) by align_pairs_in_memory alone: how its CPU pool starts its children.
+_library_pool_context = None
+_library_worker_settings = None
 
 
 def _benchmark_half_sizes():
@@ -432,8 +445,23 @@ def compute_score_matrix_torch(emb_i, emb_j, device, precision="float32"):
 worker_hf = None
 worker_device = None
 
-def init_worker(h5_path):
-    global worker_hf, worker_device
+def init_worker(h5_path, library_settings=None):
+    """Open the embeddings in a pool child.
+
+    library_settings, given only by align_pairs_in_memory, is (gap penalties, True): the
+    child takes the network's gap penalties (a spawned child re-imports this module and
+    knows no run's values) and limits itself to one thread, because numpy and torch are
+    already loaded in it when this module's own thread settings would run.
+    """
+    global worker_hf, worker_device, LOCAL_GAP_P, GLOBAL_GAP_P
+    if library_settings is not None:
+        (LOCAL_GAP_P, GLOBAL_GAP_P), _single_thread = library_settings
+        torch.set_num_threads(1)
+        try:
+            from threadpoolctl import threadpool_limits
+            threadpool_limits(1)
+        except ImportError:
+            pass
     worker_hf = h5py.File(h5_path, "r", libver='latest', swmr=True)
     # This initializer is used only by the CPU-only fallback. Keeping the
     # device explicit prevents child processes from creating GPU contexts.
@@ -1064,10 +1092,13 @@ def process_cpu_tasks(
     """Process complete pairs in parallel when no accelerator is available."""
     batch_tasks = list(batch_tasks)
     results = []
-    with Pool(
+    # Only align_pairs_in_memory sets these; a run of the tool uses the plain Pool.
+    pool_factory = Pool if _library_pool_context is None else _library_pool_context.Pool
+    pool_arguments = (input_h5,) if _library_worker_settings is None else (input_h5, _library_worker_settings)
+    with pool_factory(
         processes=workers,
         initializer=init_worker,
-        initargs=(input_h5,),
+        initargs=pool_arguments,
     ) as pool:
         progress = tqdm(
             total=len(batch_tasks),
@@ -1533,8 +1564,14 @@ def _benchmark_processing_plans(
     embedding_store=None,
     sequence_lengths=None,
     matmul_precision=None,
+    result_sink=None,
 ):
-    """Compare the complete CPU path with every accelerator/lane plan."""
+    """Compare the complete CPU path with every accelerator/lane plan.
+
+    result_sink, when given (align_pairs_in_memory), is a dict that receives the results each
+    successful trial produced, under id(its BenchmarkResult), so a caller can keep the
+    winner's results instead of aligning those pairs again. A run of the tool passes none.
+    """
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
     candidates = Hardware_Utils.get_available_devices()
     if matmul_precision is None:
@@ -1751,7 +1788,7 @@ def _benchmark_processing_plans(
                     free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                     trial = BenchmarkTrial()
                     try:
-                        execute_plan(
+                        trial_results = execute_plan(
                             candidate,
                             "tiled",
                             adaptive.lanes,
@@ -1768,6 +1805,8 @@ def _benchmark_processing_plans(
                             execution_plan=adaptive,
                             peak_memory_bytes=memory_estimate.projected_peak_bytes,
                         )
+                        if result_sink is not None:
+                            result_sink[id(result)] = list(trial_results)
                         print(
                             f"{candidate.display_name[:30]:30}  "
                             f"{'tiled':8}  {adaptive.lanes:>5}   "
@@ -1832,7 +1871,7 @@ def _benchmark_processing_plans(
                 free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                 trial = BenchmarkTrial()
                 try:
-                    execute_plan(
+                    trial_results = execute_plan(
                         candidate,
                         variant,
                         lanes,
@@ -1846,6 +1885,8 @@ def _benchmark_processing_plans(
                         lanes=lanes,
                         variant=variant,
                     )
+                    if result_sink is not None:
+                        result_sink[id(result)] = list(trial_results)
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
                         f"{lanes:>5}   {vram_label:>14}   "
@@ -1908,11 +1949,15 @@ def _run_batch_with_ranked_plans(
     *process_args,
     **process_kwargs,
 ):
-    """Run one uncommitted batch, failing over only in automatic mode."""
+    """Run one uncommitted batch, failing over only in automatic mode.
+
+    A keyword ``runner`` (align_pairs_in_memory) replaces process_batch.
+    """
+    runner = process_kwargs.pop("runner", None) or process_batch
     while active_plan_index < len(ranked_plans):
         plan = ranked_plans[active_plan_index]
         try:
-            process_batch(
+            runner(
                 *process_args,
                 **process_kwargs,
                 device=plan.candidate.device,
@@ -2048,8 +2093,17 @@ def process_batch(
     embedding_store=None,
     sequence_lengths=None,
     memory_plan_override=None,
+    result_writer=None,
 ):
-    output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
+    """Align one batch and publish it as RESULTS_DIR/batch_NNNNN.h5.
+
+    result_writer, given only by align_pairs_in_memory, receives the results instead and
+    nothing is written: a callable with count, checkpoint and rollback like _PartialBatchWriter.
+    """
+    output_filename = (
+        None if result_writer is not None
+        else os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
+    )
     if device is None:
         device = Hardware_Utils.get_optimal_device()
     if matmul_precision is None:
@@ -2059,7 +2113,7 @@ def process_batch(
     if sequence_lengths is None:
         sequence_lengths = active_sequence_lengths
 
-    writer = _PartialBatchWriter(
+    writer = result_writer if result_writer is not None else _PartialBatchWriter(
         output_filename,
         embedding_checksum,
         model_name,
@@ -2096,9 +2150,11 @@ def process_batch(
                 f"Batch produced {writer.count} results for "
                 f"{len(batch_tasks)} requested pairs."
             )
-        writer.publish()
+        if result_writer is None:
+            writer.publish()
     finally:
-        writer.close()
+        if result_writer is None:
+            writer.close()
 
 def _decode_attr(val):
     if val is None:
@@ -2774,6 +2830,275 @@ def run_job_distributor():
         active_matmul_precision,
         prefilter_record=prefilter_record,
     )
+
+# %% =======================================
+# LIBRARY ENTRY: ALIGN A LIST OF PAIRS IN MEMORY
+# ==========================================
+class _InMemoryResults:
+    """A result_callback that keeps what it is given, with the checkpoint and rollback of _PartialBatchWriter."""
+
+    def __init__(self):
+        self.rows = []
+        self.count = 0
+
+    def checkpoint(self):
+        return self.count
+
+    def rollback(self, count):
+        del self.rows[int(count):]
+        self.count = int(count)
+
+    def __call__(self, results):
+        self.rows.extend(results)
+        self.count = len(self.rows)
+
+
+@dataclass
+class PairAlignment:
+    """What align_pairs_in_memory returns: the four score fields in the order of the pairs asked for.
+
+    precision is what the scores were made with ("ieee_fp32" or "tf32"); requested_precision
+    what the caller asked for. trial_pairs counts the pairs whose scores came from the
+    planner's trial. timed says whether the plans were timed. notes lists what differed
+    from the request, as sentences.
+    """
+
+    l_score: np.ndarray
+    l_len: np.ndarray
+    g_score: np.ndarray
+    g_len: np.ndarray
+    device: str
+    plan: str
+    precision: str
+    requested_precision: str
+    seconds: float
+    trial_pairs: int
+    timed: bool
+    notes: list
+
+
+# What align_pairs_in_memory sets while it runs and puts back afterwards.
+_LIBRARY_GLOBALS = (
+    "GLOBAL_GAP_P", "LOCAL_GAP_P", "DEVICE_SELECTION", "EXECUTION_MODE", "WORKERS",
+    "active_matmul_precision", "active_embedding_store", "active_sequence_lengths",
+    "bf16_validated_plan_keys", "_library_pool_context", "_library_worker_settings",
+)
+
+
+@contextmanager
+def _library_state(**values):
+    """Set module values (and the environment its pool's children inherit) for one call; put them back."""
+    saved = {name: globals()[name] for name in _LIBRARY_GLOBALS}
+    saved_env = {name: os.environ.get(name) for name in (*THREAD_VARIABLES, LIBRARY_VARIABLE)}
+    try:
+        globals().update(values)
+        # Spawned children read these as they start, before they import numpy or torch.
+        for name in THREAD_VARIABLES:
+            os.environ[name] = "1"
+        os.environ[LIBRARY_VARIABLE] = "1"
+        yield
+    finally:
+        globals().update(saved)
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _trial_sample(tasks, lengths, workers, fraction):
+    """The pairs the planner is timed on: a fraction of them, but never fewer than its warm-up
+    needs, spread evenly over the cost (length product) order; all of them when that is as many."""
+    count = len(tasks)
+    wanted = min(
+        count,
+        max(int(math.ceil(float(fraction) * count)), BenchmarkTrial.warmup_count(tasks, workers, 16)),
+    )
+    if wanted >= count:
+        return list(tasks)
+    order = sorted(range(count), key=lambda k: (lengths[tasks[k][0]] * lengths[tasks[k][1]], k))
+    chosen = {order[int(round(position))] for position in np.linspace(0, count - 1, wanted)}
+    return [tasks[k] for k in sorted(chosen)]
+
+
+def _first_listed_plan(candidate, tasks, store, lengths, workers, precision):
+    """The plan _benchmark_processing_plans lists first for one device, without timing anything.
+
+    The CPU: the process pool. An accelerator: the scalar plan with the first lane count it
+    would try (one lane); where the scalar plan does not fit the device's memory, the first
+    tile plan that does.
+    """
+    if candidate.is_cpu:
+        return Hardware_Utils.BenchmarkResult(candidate, 0.0, variant="scalar")
+    lanes = _accelerator_lane_candidates(candidate.device, workers)[0]
+    plan = Hardware_Utils.BenchmarkResult(candidate, 0.0, lanes=lanes, variant="scalar")
+    if store is not None and candidate.backend in {"cuda", "xpu", "mps"}:
+        try:
+            element_bytes = precision_element_bytes(precision)
+            memory = cuda_memory_plan(candidate.device, lanes=1, compute_element_bytes=element_bytes)
+            estimate = estimate_cuda_working_set(
+                tasks, store=store, lengths=lengths, device=candidate.device, lanes=lanes,
+                variant="scalar", memory_info=(memory.free_bytes, memory.total_bytes),
+            )
+            if not estimate.feasible and tiled_accelerator_support(candidate.device, require_memory=True)[0]:
+                adaptive = build_adaptive_tile_plans(
+                    tasks, store=store, lengths=lengths, device=candidate.device,
+                    lane_candidates=_accelerator_lane_candidates(candidate.device, workers),
+                    memory_info=(memory.free_bytes, memory.total_bytes), compute_element_bytes=element_bytes,
+                )
+                if adaptive:
+                    plan = Hardware_Utils.BenchmarkResult(
+                        candidate, 0.0, lanes=adaptive[0].lanes, variant="tiled", execution_plan=adaptive[0],
+                    )
+        except Exception as error:  # a plan that cannot be sized stays the scalar one; a real failure shows in the run
+            print(f"[Hardware] Could not size the scalar plan on {candidate.display_name}: {error}")
+    return plan
+
+
+def align_pairs_in_memory(
+    pairs,
+    embeddings_path,
+    names,
+    gap_penalties,
+    precision,
+    device_selection="auto",
+    workers=1,
+    trial_fraction=0.05,
+    host_cache_gb=0,
+):
+    """Align the given pairs of embeddings with this tool's own path and planner; keep the scores in memory.
+
+    pairs is a (k, 2) array of indices into names, the dataset names of the sequences in the
+    embeddings file at embeddings_path. gap_penalties is [local, global] as a network records
+    them; precision the network's matmul_precision. Everything the path needs comes through the
+    arguments: the module's values (gap penalties, device selection, execution mode, workers,
+    precision, the pool's start) are set for the call and put back afterwards, also after an error.
+
+    Devices: device_selection names one, or "auto". With one usable device, or a named one,
+    nothing is timed and the plan is the first one the planner would list for it (see
+    _first_listed_plan). Otherwise the planner times its plans on trial_fraction of the pairs
+    (at least what its warm-up needs) and the winning plan's trial results are kept: those
+    pairs are not aligned again. The precision is the network's where a usable device can do it
+    (TF32 needs an NVIDIA CUDA device; then only such devices are candidates); otherwise
+    IEEE FP32, which a note says. BF16 is always aligned in IEEE FP32, with a note.
+
+    Returns a PairAlignment.
+    """
+    started = time.perf_counter()
+    pairs = np.asarray(pairs, dtype=np.int64).reshape(-1, 2)
+    if len(pairs) == 0:
+        raise ValueError("There are no pairs to align.")
+    if gap_penalties is None or len(gap_penalties) != 2:
+        raise ValueError("The gap penalties must be [local, global].")
+    local_gap, global_gap = float(gap_penalties[0]), float(gap_penalties[1])
+    workers = max(1, int(workers))
+
+    ids = np.unique(pairs)
+    position = {int(index): k for k, index in enumerate(ids)}
+    local_names = [names[int(index)] for index in ids]
+    with h5py.File(embeddings_path, "r") as hf:
+        group = hf["embeddings"]
+        local_lengths = [int(group[name].shape[0]) for name in local_names]
+    tasks = [
+        (position[int(i)], position[int(j)], names[int(i)], names[int(j)])
+        for i, j in pairs.tolist()
+    ]
+
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(device_selection, candidates)
+    usable = [manual] if manual is not None else list(candidates)
+    requested = _canonical_result_precision(precision)
+    used = "ieee_fp32"
+    notes = []
+    if requested == "tf32":
+        eligible = [c for c in usable if c.backend == "cuda" and is_nvidia_cuda(c.device)]
+        if eligible:
+            used, usable = "tf32", eligible
+        else:
+            notes.append(
+                "The network was scored with TF32, which no usable NVIDIA CUDA device here can do, "
+                "so the pairs were aligned in IEEE FP32."
+            )
+    elif requested == "bf16":
+        notes.append("The network was scored in BF16, which is not reproduced here, so the pairs were aligned in IEEE FP32.")
+    elif requested != "ieee_fp32":
+        notes.append(f"The network records the matmul precision '{requested}', so the pairs were aligned in IEEE FP32.")
+
+    store = None
+    if any(not candidate.is_cpu for candidate in usable):
+        store = EmbeddingTileStore(embeddings_path, local_names, host_cache_gb)
+
+    sink = {}
+    kept = {}
+    timed = False
+    holder = []
+
+    def runner(*args, **kwargs):
+        collector = _InMemoryResults()
+        process_batch(*args, result_writer=collector, **kwargs)
+        holder[:] = [collector]  # only a finished attempt counts
+
+    values = dict(
+        GLOBAL_GAP_P=global_gap, LOCAL_GAP_P=local_gap, DEVICE_SELECTION=device_selection,
+        EXECUTION_MODE="auto", WORKERS=workers, active_matmul_precision=used,
+        active_embedding_store=store, active_sequence_lengths=local_lengths,
+        bf16_validated_plan_keys=set(),
+        _library_pool_context=multiprocessing.get_context("spawn"),
+        _library_worker_settings=((local_gap, global_gap), True),
+    )
+    with _library_state(**values):
+        if len(usable) == 1:
+            reason = (
+                f"{usable[0].display_name} was selected" if manual is not None
+                else f"only {usable[0].display_name} is usable"
+            )
+            print(f"[Hardware] Aligning {len(tasks):,} pairs without timing: {reason}.")
+            ranked = [_first_listed_plan(usable[0], tasks, store, local_lengths, workers, used)]
+        else:
+            sample = _trial_sample(tasks, local_lengths, workers, trial_fraction)
+            print(f"[Hardware] Timing the plans on {len(sample):,} of the {len(tasks):,} pairs.")
+            ranked = _benchmark_processing_plans(
+                sample, workers, embeddings_path, 0,
+                embedding_store=store, sequence_lengths=local_lengths,
+                matmul_precision=used, result_sink=sink,
+            )
+            timed = True
+            for row in sink.get(id(ranked[0]), []):
+                kept[(int(row[0]), int(row[1]))] = row
+        pending = [task for task in tasks if (task[0], task[1]) not in kept]
+        plan_index = 0
+        if pending:
+            plan_index = _run_batch_with_ranked_plans(
+                ranked, 0, pending, 0, workers, embeddings_path, None, None, None,
+                [local_gap, global_gap],
+                runner=runner, matmul_precision=used,
+                embedding_store=store, sequence_lengths=local_lengths,
+            )
+    rows = dict(kept)
+    if holder:
+        for row in holder[0].rows:
+            rows[(int(row[0]), int(row[1]))] = row
+    missing = [(task[0], task[1]) for task in tasks if (task[0], task[1]) not in rows]
+    if missing:
+        raise RuntimeError(f"{len(missing)} of {len(tasks)} pairs were not aligned.")
+    ordered = [rows[(task[0], task[1])] for task in tasks]
+    plan = ranked[min(plan_index, len(ranked) - 1)]
+    lanes = "" if plan.candidate.is_cpu else f" / {plan.lanes} lane(s)"
+    return PairAlignment(
+        l_score=np.array([row[2] for row in ordered], dtype=np.float32),
+        l_len=np.array([row[3] for row in ordered], dtype=np.uint16),
+        g_score=np.array([row[4] for row in ordered], dtype=np.float32),
+        g_len=np.array([row[5] for row in ordered], dtype=np.uint16),
+        device=plan.candidate.display_name,
+        plan=f"{plan.variant}{lanes}",
+        precision=used,
+        requested_precision=requested,
+        seconds=time.perf_counter() - started,
+        trial_pairs=len(kept),
+        timed=timed,
+        notes=notes,
+    )
+
 
 def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
