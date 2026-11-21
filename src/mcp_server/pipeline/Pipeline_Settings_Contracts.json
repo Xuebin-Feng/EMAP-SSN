@@ -181,7 +181,7 @@
       "EDGE_PREFILTERING": {
         "type": "boolean",
         "default": false,
-        "description": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.\nA calibration sample of the skipped pairs (1%, from 2,000 to 50,000 pairs) is still aligned, so Embedding MSA can fit and check its estimates of the skipped pairs."
+        "description": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.\nOnly the kept pairs are aligned and stored; the network records nothing of the cut."
       },
       "PREFILTER_STRENGTH": {
         "type": "integer",
@@ -408,12 +408,12 @@
           "null"
         ],
         "default": null,
-        "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression.\nWhen the network's Edge Pre-filtering stored a calibration sample, the fit covers the missing pairs and reports how well it predicts their computed scores."
+        "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression.\nWith Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores."
       },
       "INPUT_NETWORK_EMBED": {
         "type": "string",
         "default": "",
-        "description": "Network Embedding Set (.h5): Optional embeddings the network's scores were made from, used for the similarity of the fill and the calibration alignment when INPUT_EMBED is of another model.\nOnly for a sparse network with Calibrated Imputation on; it must record the network's model and hold every sequence of the run. Empty: INPUT_EMBED serves."
+        "description": "Network Embeddings (.h5): The embeddings the network was made from. Needed only when INPUT_EMBED is of another model than the network's.\nCalibrated Imputation aligns a sample of the missing pairs with the network's own scoring, and that needs the embeddings the network was made from. They must be of the network's model and hold every sequence of the run.\nLeave it empty to use INPUT_EMBED for this; that is right when INPUT_EMBED is of the network's model."
       },
       "TREE_METHOD": {
         "type": "string",
@@ -453,7 +453,7 @@
       "SHOW_REGRESSION_PLOT": {
         "type": "boolean",
         "default": false,
-        "description": "Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.\nShows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the network's calibration pairs and their held-out check when it stores them."
+        "description": "Show Isotonic Regression Plot: Displays a diagnostic chart of the imputation fit for sparse networks.\nShows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the calibration pairs and their held-out check when Calibrated Imputation is on."
       },
       "NORMALIZATION_MODE": {
         "type": "string",
@@ -469,7 +469,7 @@
       "CALIBRATED_IMPUTATION": {
         "type": "boolean",
         "default": true,
-        "description": "Calibrated Imputation: Fills a sparse network's missing pairs with a fit that uses the network's calibration sample.\nON fits the imputation on the pairs above the prefilter cut and on the calibration sample, weighted, so the fit covers the skipped pairs. OFF fits it on the pairs above the cut only, and every skipped pair gets the fit's lowest value. The calibration check is reported either way. A network without a calibration sample is always filled the OFF way."
+        "description": "Calibrated Imputation: Fills a sparse network's missing pairs with a fit that uses a sample of them, aligned at the start of the run.\nON draws a sample of this run's missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network's own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit's lowest value.\nUsed only for a sparse network made by this program that records its gap penalties and lacks at least 10% of its pairs; the run counts the sequences it uses and has the last word."
       },
       "GAP_OPEN": {
         "type": "number",

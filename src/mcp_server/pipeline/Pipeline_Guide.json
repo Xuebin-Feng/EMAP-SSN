@@ -62,7 +62,7 @@
       "requirements": "A GPU, when available, computes each pair's residue score matrix; the dynamic-programming alignment itself always runs on CPU workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
       "notes": [
         "Layouts of this network choose ALIGNMENT_SCORE (global or local) and NORM_MODE; scores are normalized alignment scores, not identities.",
-        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. It still aligns a 1% calibration sample of the skipped pairs, which embedding_msa uses to fit and check its imputation of the rest.",
+        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. Only the kept pairs are aligned and stored; embedding_msa draws and aligns its own calibration sample of the missing pairs when it needs one.",
         "The log states Total Required pairs and, during the benchmark, each plan's throughput in pairs/s; divide to estimate the run time before committing to a large job."
       ]
     },
@@ -212,7 +212,7 @@
         "An MSA is optional for viewing a network and required for residue-level analysis in the Viewer.",
         "GAP_OPEN and GAP_EXTEND score the profile alignment only; they are independent of the gap penalties stored in the network.",
         "ALIGNMENT_SCORE and NORMALIZATION_MODE choose which network scores build the guide tree, like the layout's ALIGNMENT_SCORE and NORM_MODE.",
-        "A sparse network's missing pairs are imputed by an isotonic fit. CALIBRATED_IMPUTATION (default true) lets the fit use the network's calibration sample, which Edge Pre-filtering stored; false, or a network without a sample, fits on the pairs above the prefilter cut and gives every skipped pair the fit's lowest value. The job log prints that value and the calibration check. Every sparse network uses the full all-pairs consensus.",
+        "A sparse network's missing pairs are imputed by an isotonic fit. CALIBRATED_IMPUTATION (default true) draws a sample of the run's own missing pairs (1% of them, 5,000 to 100,000 pairs), aligns it at the start with the network's own scoring and fits on it; it needs a network that records its gap penalties, at least 10% of the run's pairs missing, and embeddings of the network's model. If the embeddings of INPUT_EMBED are of another model, give the network's own in INPUT_NETWORK_EMBED. False, or when calibration is unavailable, fits on the pairs the network has and gives every missing pair the fit's lowest value. The job log prints the calibration line, that value and the check. Every sparse network uses the full all-pairs consensus.",
         "With TREE_METHOD Neighbor-joining (Slow) a job builds one guide tree: validation overrides BOOTSTRAP_TREE to false, as the Tools window does, because every perturbed replicate would be another full neighbor-joining tree."
       ]
     },
