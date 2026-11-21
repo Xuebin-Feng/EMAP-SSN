@@ -1912,6 +1912,9 @@ CALIBRATION_MIN_MISSING_FRACTION = 0.10
 # range of their stored scores.
 CALIBRATION_CHECK_EDGES = 32
 CALIBRATION_CHECK_POOL = 4096
+# The CPU pool of the calibration alignment gets one child per this many score-matrix cells (length_i x length_j
+# summed over the pairs): about 1.5 s of alignment each, which a child's start-up (a few seconds) should not dwarf.
+CALIBRATION_CELLS_PER_WORKER = 8_000_000
 # A reproduced score may differ from the stored one by this much (absolute) plus this share of it: the stored
 # scores may have been made on another device, and a different order of float32 additions differs in the last digits.
 CALIBRATION_CHECK_ABSOLUTE = 1e-4
@@ -2017,23 +2020,37 @@ def compare_with_stored(aligned, offset, stored):
     return not problems, worst, "; ".join(problems)
 
 
-def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision):
+def calibration_workers(pairs, lengths):
+    """How many CPU pool children the calibration alignment gets: one per CALIBRATION_CELLS_PER_WORKER cells of work.
+
+    cells is the sum over the pairs of length_i x length_j; the count is at least 1 and at most the default
+    thread count ("all but two CPUs"), so a small sample does not pay for starting a child per CPU.
+    """
+    pairs = np.asarray(pairs, dtype=np.int64).reshape(-1, 2)
+    lengths = np.asarray(lengths, dtype=np.int64)
+    cells = int(np.sum(lengths[pairs[:, 0]] * lengths[pairs[:, 1]]))
+    wanted = max(1, -(-cells // CALIBRATION_CELLS_PER_WORKER))
+    return min(Numba_Threads.default_thread_count(), wanted)
+
+
+def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision, lengths):
     """Align pairs of the run's sequences with the network's scoring: Align_Similarity_Matrix's own path and planner.
 
     pairs is an (k, 2) array of indices into names (the run's embedding dataset names), embeddings_path
-    the embeddings file that describes the network, gap_penalties the network's [local, global] and precision
-    its matmul precision. DEVICE_SELECTION decides the device: a named one is used without timing, with
+    the embeddings file that describes the network, gap_penalties the network's [local, global], precision
+    its matmul precision and lengths the run's sequence lengths (they size the CPU pool, see
+    calibration_workers). DEVICE_SELECTION decides the device: a named one is used without timing, with
     "auto" the planner is timed on a few pairs. Returns Align_Similarity_Matrix.PairAlignment.
     """
     align = Align_Library.load()
     return align.align_pairs_in_memory(
         pairs, embeddings_path, names, gap_penalties, precision,
-        device_selection=DEVICE_SELECTION, workers=Numba_Threads.default_thread_count(),
+        device_selection=DEVICE_SELECTION, workers=calibration_workers(pairs, lengths),
     )
 
 
 def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, precision, check_edges,
-                         embeddings_path, is_blast=False):
+                         embeddings_path, is_blast=False, lengths=None):
     """Draw, align and check the calibration sample of a sparse run's missing pairs; return a CalibrationResult.
 
     With CALIBRATED_IMPUTATION off nothing is drawn or aligned. With it on: first, fewer than
@@ -2081,7 +2098,7 @@ def calibrate_sparse_run(similarity, edge_i, edge_j, names, gap_penalties, preci
         np.column_stack([check_edges.rows, check_edges.cols]),
     ])
     try:
-        aligned = align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision)
+        aligned = align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precision, lengths)
     except Exception as error:
         return CalibrationResult(CalibrationOutcome(
             "unavailable", f"calibration unavailable: the sample could not be aligned ({type(error).__name__}: {error})",
@@ -2612,6 +2629,7 @@ def run_msa_builder():
         result = calibrate_sparse_run(
             cos_sim_mat, edge_i, edge_j, safe_names, network_gap_penalties, network_precision,
             check_edges, network_embeddings, is_blast=network_metadata.network_type == "blast",
+            lengths=seq_lens_array,
         )
         calibration = result.outcome
         print(calibration_text(calibration))

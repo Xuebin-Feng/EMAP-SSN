@@ -257,13 +257,28 @@ class AlignmentCallTests(unittest.TestCase):
         with mock.patch.object(Embedding_MSA.Align_Library, "load", return_value=FakeAlign()), mock.patch.object(
             Embedding_MSA, "DEVICE_SELECTION", "cuda:1"
         ), mock.patch.object(Embedding_MSA.Numba_Threads, "default_thread_count", return_value=5):
-            result = Embedding_MSA.align_calibration_pairs(pairs, "embeddings.h5", names, [-3.0, -0.5], "tf32")
+            # Two pairs of 3,000 x 3,000 cells: 18 million cells, three workers of 8 million.
+            result = Embedding_MSA.align_calibration_pairs(
+                pairs, "embeddings.h5", names, [-3.0, -0.5], "tf32", np.array([3000, 3000, 3000]))
         self.assertEqual(result, "aligned")
         given = seen["args"]
         self.assertIs(given[0], pairs)
         # The embeddings path, the dataset names, then the gap penalties as [local, global] and the precision.
         self.assertEqual(list(given[1:]), ["embeddings.h5", names, [-3.0, -0.5], "tf32"])
-        self.assertEqual(seen["kwargs"], {"device_selection": "cuda:1", "workers": 5})
+        self.assertEqual(seen["kwargs"], {"device_selection": "cuda:1", "workers": 3})
+
+    def test_the_pool_has_one_child_per_eight_million_cells_up_to_the_default_count(self):
+        lengths = np.full(2000, 1000)
+        pairs = lambda count: np.column_stack([np.zeros(count, dtype=int), np.ones(count, dtype=int)])  # 1,000,000 cells each
+        with mock.patch.object(Embedding_MSA.Numba_Threads, "default_thread_count", return_value=18):
+            workers = lambda count: Embedding_MSA.calibration_workers(pairs(count), lengths)
+            self.assertEqual(workers(1), 1)       # a few cells: one child
+            self.assertEqual(workers(8), 1)       # exactly 8 million cells: one
+            self.assertEqual(workers(9), 2)       # one cell more than 8 million: two
+            self.assertEqual(workers(30), 4)      # kringle's 5,000 pairs are about 30 million cells: four
+            self.assertEqual(workers(10_000), 18)  # a large sample: the default count
+        with mock.patch.object(Embedding_MSA.Numba_Threads, "default_thread_count", return_value=2):
+            self.assertEqual(Embedding_MSA.calibration_workers(pairs(10_000), lengths), 2)
 
 
 class CheckEdgeTests(unittest.TestCase):

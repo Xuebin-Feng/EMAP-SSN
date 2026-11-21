@@ -229,7 +229,7 @@ def fake_calibration_alignment(reproduce=True):
         state.check = real_choose(*args, **kwargs)
         return state.check
 
-    def align(pairs, embeddings_path, names, gap_penalties, precision):
+    def align(pairs, embeddings_path, names, gap_penalties, precision, lengths=None):
         pairs = np.asarray(pairs)
         state.calls.append(pairs)
         state.arguments.append((list(gap_penalties), precision))
