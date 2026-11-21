@@ -141,6 +141,20 @@ class EntryTests(LibraryTestCase):
                 children["omp"] = pool.apply(os.getenv, ("OMP_NUM_THREADS",))
         self.assertEqual(children, {"torch": 1, "omp": "1"})
 
+    def test_the_initializer_limits_a_child_to_one_thread_even_when_torch_is_already_running_more(self):
+        # A child that has already loaded torch with several threads (the environment came too late) must still end with one.
+        saved = {name: getattr(align, name) for name in ("LOCAL_GAP_P", "GLOBAL_GAP_P", "worker_hf", "worker_device")}
+        before = torch.get_num_threads()
+        self.addCleanup(torch.set_num_threads, before)
+        for name, value in saved.items():
+            self.addCleanup(setattr, align, name, value)
+        torch.set_num_threads(max(2, before))
+        self.assertGreater(torch.get_num_threads(), 1)
+        align.init_worker(self.embeddings, ((LOCAL_GAP, GLOBAL_GAP), True))
+        self.addCleanup(align.worker_hf.close)
+        self.assertEqual(torch.get_num_threads(), 1)
+        self.assertEqual((align.LOCAL_GAP_P, align.GLOBAL_GAP_P), (LOCAL_GAP, GLOBAL_GAP))
+
 
 class FakeAcceleratorTests(LibraryTestCase):
     """The planner's options, with the planner and the batch runner replaced by recorders."""
