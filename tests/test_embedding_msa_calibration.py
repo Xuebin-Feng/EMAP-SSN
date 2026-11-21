@@ -346,6 +346,48 @@ class AlignmentCallTests(unittest.TestCase):
         self.assertEqual(list(given[1:]), ["embeddings.h5", names, [-3.0, -0.5], "tf32"])
         self.assertEqual(seen["kwargs"], {"device_selection": "cuda:1", "workers": 3})
 
+    def call_with(self, selection, cells_pairs, default=5):
+        """What align_pairs_in_memory is handed, and what was printed, for a selection and a number of 1,000,000-cell pairs."""
+        seen = {}
+
+        class FakeAlign:
+            def align_pairs_in_memory(self, *args, **kwargs):
+                seen["kwargs"] = kwargs
+                return "aligned"
+
+        lengths = np.full(2, 1000)
+        pairs = np.zeros((cells_pairs, 2), dtype=int)
+        pairs[:, 1] = 1
+        printed = io.StringIO()
+        with mock.patch.object(Embedding_MSA.Align_Library, "load", return_value=FakeAlign()), mock.patch.object(
+            Embedding_MSA, "DEVICE_SELECTION", selection
+        ), mock.patch.object(
+            Embedding_MSA.Numba_Threads, "default_thread_count", return_value=default
+        ), contextlib.redirect_stdout(printed):
+            Embedding_MSA.align_calibration_pairs(pairs, "e.h5", ["a", "b"], [-3.0, -0.5], "ieee_fp32", lengths)
+        return seen["kwargs"], printed.getvalue()
+
+    def test_auto_uses_the_cpu_without_timing_while_the_sample_needs_fewer_workers_than_the_default(self):
+        # 32 pairs of 1,000,000 cells: 32 million cells, four workers of 8 million, fewer than the default five.
+        kwargs, text = self.call_with("auto", 32)
+        self.assertEqual(kwargs, {"device_selection": "cpu", "workers": 4})
+        self.assertIn("on the CPU, without timing the devices", text)
+        self.assertIn("needs 4 CPU worker(s), fewer than the 5", text)
+
+    def test_auto_times_the_devices_once_the_sample_needs_every_default_worker(self):
+        # 33 pairs: 33 million cells, five workers: the default count, so the planner decides.
+        kwargs, text = self.call_with("auto", 33)
+        self.assertEqual(kwargs, {"device_selection": "auto", "workers": 5})
+        self.assertIn("large enough for all 5 CPU workers, so the devices are timed", text)
+        kwargs, _ = self.call_with("auto", 5000)
+        self.assertEqual(kwargs, {"device_selection": "auto", "workers": 5})
+
+    def test_a_named_device_is_used_as_named_for_a_small_sample_too(self):
+        for selection in ("cuda:0", "cpu"):
+            kwargs, text = self.call_with(selection, 4)
+            self.assertEqual(kwargs, {"device_selection": selection, "workers": 1})
+            self.assertEqual(text, "")
+
     def test_the_pool_has_one_child_per_eight_million_cells_up_to_the_default_count(self):
         lengths = np.full(2000, 1000)
         pairs = lambda count: np.column_stack([np.zeros(count, dtype=int), np.ones(count, dtype=int)])  # 1,000,000 cells each

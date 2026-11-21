@@ -2038,12 +2038,31 @@ def align_calibration_pairs(pairs, embeddings_path, names, gap_penalties, precis
     the embeddings file that describes the network, gap_penalties the network's [local, global], precision
     its matmul precision and lengths the run's sequence lengths (they size the CPU pool, see
     calibration_workers). DEVICE_SELECTION decides the device: a named one is used without timing, with
-    "auto" the planner is timed on a few pairs. Returns Align_Similarity_Matrix.PairAlignment.
+    "auto" the planner is timed on a few pairs, but only when the sample is large enough for every default CPU
+    worker: a smaller one goes to the CPU pool without timing, because timing the devices would cost about what
+    the pool needs (the line printed says which). Returns Align_Similarity_Matrix.PairAlignment.
     """
     align = Align_Library.load()
+    workers = calibration_workers(pairs, lengths)
+    device_selection = DEVICE_SELECTION
+    if Hardware_Utils.normalize_device_selection(device_selection) == Hardware_Utils.AUTO_DEVICE:
+        default = Numba_Threads.default_thread_count()
+        count = len(np.asarray(pairs).reshape(-1, 2))
+        if workers < default:
+            device_selection = "cpu"
+            print(
+                f"[Hardware] Calibration alignment of {count:,} pairs on the CPU, without timing the devices: the sample "
+                f"needs {workers} CPU worker(s), fewer than the {default} the CPU pool may use, so the pool finishes it "
+                "sooner than timing the devices would."
+            )
+        else:
+            print(
+                f"[Hardware] Calibration alignment of {count:,} pairs: the sample is large enough for all {default} "
+                "CPU workers, so the devices are timed on a small share of it and the fastest plan is used."
+            )
     return align.align_pairs_in_memory(
         pairs, embeddings_path, names, gap_penalties, precision,
-        device_selection=DEVICE_SELECTION, workers=calibration_workers(pairs, lengths),
+        device_selection=device_selection, workers=workers,
     )
 
 
