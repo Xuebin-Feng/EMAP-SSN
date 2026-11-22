@@ -169,6 +169,44 @@ class TorchFallbackTests(unittest.TestCase):
         np.testing.assert_allclose(got, numpy_springs(pos, active, edges, 5.0),
                                    rtol=1e-9, atol=1e-9)
 
+    def test_springs_handle_empty_self_loops_duplicates_hubs_and_chunking(self):
+        rng = np.random.default_rng(7)
+        pos = rng.normal(0.0, 5.0, (40, 3)).astype(np.float32)
+        active = np.ones(40, dtype=bool)
+        active[[5, 19]] = False
+
+        # Empty springs leave an existing accumulator untouched.
+        empty = kernels_module.TorchSprings(
+            np.zeros((0, 2), dtype=np.int64), active, torch.device("cpu")
+        )
+        base_acc = torch.full((40, 3), 2.5, dtype=torch.float64)
+        np.testing.assert_array_equal(
+            empty.add(torch.tensor(pos, dtype=torch.float64), base_acc.clone(), 5.0).numpy(),
+            base_acc.numpy(),
+        )
+
+        # Hub (node 0 connected to 35 nodes), self-loops, duplicate edges, and isolated nodes.
+        hub_edges = [(0, i) for i in range(1, 36)]
+        extra = [(0, 1), (1, 0), (2, 2), (3, 4), (3, 4), (6, 7), (7, 8), (8, 9)]
+        edges = np.array(hub_edges + extra, dtype=np.int64)
+        expected = base_acc.numpy() + numpy_springs(pos, active, edges, 5.0)
+        pos64 = torch.tensor(pos, dtype=torch.float64)
+
+        whole = kernels_module.TorchSprings(edges, active, torch.device("cpu"))
+        self.assertGreater(len(whole._buckets), 2)
+        total_padded = sum(partners.numel() for _, partners in whole._buckets)
+        active_edges = len(kernels_module._active_springs(edges, active))
+        self.assertLess(total_padded, 4 * active_edges)
+
+        # Chunk sizes smaller than bucket rows AND smaller than hub width must all agree.
+        for chunk_entries in (None, 64, 7, 1):
+            with self.subTest(chunk_entries=chunk_entries):
+                springs = kernels_module.TorchSprings(
+                    edges, active, torch.device("cpu"), chunk_entries=chunk_entries
+                )
+                got = springs.add(pos64, base_acc.clone(), 5.0).numpy()
+                np.testing.assert_allclose(got, expected, rtol=1e-11, atol=1e-11)
+
     def test_cpu_simulation_uses_the_fallback(self):
         pos, comp, active, edges = make_problem(4, 2, components=((10, 2.0, (0.0,)),))
         simulation = ssn_engine.SSNSimulationGPU(pos, edges, comp, 100.0, FORCE_PARAMS, active)
@@ -478,6 +516,22 @@ class KernelSimulationTests(unittest.TestCase):
         self.assertTrue(first.uses_kernels)
         np.testing.assert_array_equal(first_pos, second_pos)
         self.assertEqual(first_rmsd, second_rmsd)
+
+    def test_fallback_steps_are_bitwise_reproducible_and_deterministic_under_torch(self):
+        previous = torch.are_deterministic_algorithms_enabled()
+        try:
+            torch.use_deterministic_algorithms(True)
+            with mock.patch.dict(os.environ, {kernels_module.DISABLE_ENVIRONMENT_VARIABLE: "0"}):
+                for dims in (2, 3):
+                    with self.subTest(dims=dims):
+                        pos, comp, active, edges = make_problem(41 + dims, dims)
+                        first, first_pos, first_rmsd = self.simulate(pos, comp, active, edges, 15)
+                        _, second_pos, second_rmsd = self.simulate(pos, comp, active, edges, 15)
+                        self.assertFalse(first.uses_kernels)
+                        np.testing.assert_array_equal(first_pos, second_pos)
+                        self.assertEqual(first_rmsd, second_rmsd)
+        finally:
+            torch.use_deterministic_algorithms(previous)
 
     def test_kernels_and_fallback_take_the_same_steps(self):
         for dims in (2, 3):

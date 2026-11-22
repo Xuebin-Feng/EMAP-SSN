@@ -626,9 +626,9 @@ written to separate `_3D`-suffixed folders and record `physics_3d`, `umap_3d` or
 their layout mode; the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
 non-negative integer (default `42`) or `null` for an unseeded run. With a fixed seed,
 UMAP layouts and CPU physics layouts reproduce exactly, and so do GPU physics layouts
-on the same GPU model while its compiled layout kernels are in use. The PyTorch
-fallback (Intel and Apple GPUs, or a GPU whose kernels are unavailable) can differ
-slightly between runs, and CPU and GPU layouts differ slightly from each other.
+on the same GPU model (both with compiled layout kernels and with the PyTorch fallback
+on Intel, Apple, or fallback CUDA/ROCm GPUs). CPU and GPU layouts, and different GPU
+models, can still differ slightly from each other.
 Layout documents exported before these keys existed load with the defaults. In the
 individual-parameter form, pass either key through `parameters`.
 

@@ -50,6 +50,8 @@ _OFF_VALUES = {"0", "off", "false", "no"}
 TILE = 128
 # Pairs evaluated at once by the PyTorch fallback (about 0.75 GiB of temporaries).
 CHUNK_PAIRS = 1 << 24
+# Half-edge entries evaluated at once by TorchSprings (about 150 MiB of temporaries).
+CHUNK_SPRING_ENTRIES = 1 << 22
 # Below this many active nodes, sorting nodes into tiles costs more than the
 # tiles it lets the repulsion kernel skip.
 SKIP_MIN_NODES = 16384
@@ -301,21 +303,89 @@ class TorchRepulsion:
 
 
 class TorchSprings:
-    """Fallback springs: SSNSimulationGPU's original per-edge formulas."""
+    """Fallback springs: deterministic per-node gather-reduce in degree buckets.
 
-    def __init__(self, edges, active, device):
-        pairs = _active_springs(edges, active)
-        self.a = torch.as_tensor(pairs[:, 0], device=device)
-        self.b = torch.as_tensor(pairs[:, 1], device=device)
+    Active springs are expanded into symmetric half-edges and grouped by node
+    into power-of-two degree buckets, so total padded entries stay below 4 * E
+    even on hub-heavy graphs. Trailing slots are padded with each node itself
+    (contributing exact zero force), and every bucket holds strictly unique node
+    indices so results are written back with ``index_copy_`` instead of
+    non-deterministic GPU ``index_add_`` atomics. Only universal dense PyTorch
+    ops are used, keeping CUDA, ROCm, XPU, MPS and CPU supported and bitwise
+    reproducible on the same device.
+    """
+
+    def __init__(self, edges, active, device, *, chunk_entries=None):
+        self._chunk_entries = (
+            None if chunk_entries is None else max(1, int(chunk_entries))
+        )
+        pairs = _active_springs(edges, np.asarray(active, dtype=bool))
+        self._buckets = []
+        if not len(pairs):
+            return
+        rows = np.concatenate((pairs[:, 0], pairs[:, 1]))
+        cols = np.concatenate((pairs[:, 1], pairs[:, 0]))
+        order = np.argsort(rows, kind="mergesort")
+        rows = rows[order]
+        cols = cols[order]
+        unique_nodes, starts, counts = np.unique(
+            rows, return_index=True, return_counts=True
+        )
+        _, exponents = np.frexp(counts - 1)
+        widths = np.int64(1) << exponents
+        for width in np.unique(widths):
+            selected = widths == width
+            bucket_nodes = unique_nodes[selected]
+            bucket_starts = starts[selected]
+            bucket_counts = counts[selected]
+            partners = np.repeat(bucket_nodes[:, None], int(width), axis=1)
+            total = int(bucket_counts.sum())
+            row_index = np.repeat(
+                np.arange(len(bucket_nodes), dtype=np.int64), bucket_counts
+            )
+            group_offsets = np.cumsum(bucket_counts) - bucket_counts
+            col_index = np.arange(total, dtype=np.int64) - np.repeat(
+                group_offsets, bucket_counts
+            )
+            source_index = np.repeat(bucket_starts, bucket_counts) + col_index
+            partners[row_index, col_index] = cols[source_index]
+            self._buckets.append((
+                torch.as_tensor(bucket_nodes, dtype=torch.long, device=device),
+                torch.as_tensor(partners, dtype=torch.long, device=device),
+            ))
 
     def add(self, pos, acc, spring_k):
-        if not len(self.a):
+        if not self._buckets:
             return acc
-        pa, pb = pos[self.a], pos[self.b]
-        length = (pa - pb).norm(dim=1) + 1e-9
-        force = (-spring_k * length).unsqueeze(1) * ((pa - pb) / length.unsqueeze(1))
-        acc.index_add_(0, self.a, force)
-        acc.index_add_(0, self.b, -force)
+        dims = pos.shape[1]
+        chunk_entries = (
+            CHUNK_SPRING_ENTRIES
+            if self._chunk_entries is None
+            else self._chunk_entries
+        )
+        for nodes, partners in self._buckets:
+            node_count, width = partners.shape
+            rows_per_chunk = max(1, chunk_entries // width)
+            cols_per_chunk = min(width, chunk_entries)
+            for first_row in range(0, node_count, rows_per_chunk):
+                last_row = min(node_count, first_row + rows_per_chunk)
+                chunk_nodes = nodes[first_row:last_row]
+                chunk_partners = partners[first_row:last_row]
+                mine = pos.index_select(0, chunk_nodes).unsqueeze(1)
+                total = None
+                for first_col in range(0, width, cols_per_chunk):
+                    last_col = min(width, first_col + cols_per_chunk)
+                    slice_partners = chunk_partners[:, first_col:last_col]
+                    other = pos.index_select(
+                        0, slice_partners.reshape(-1)
+                    ).view(last_row - first_row, last_col - first_col, dims)
+                    delta = mine - other
+                    length = delta.norm(dim=2, keepdim=True) + 1e-9
+                    partial = ((-spring_k * length) * (delta / length)).sum(dim=1)
+                    total = partial if total is None else total + partial
+                acc.index_copy_(
+                    0, chunk_nodes, acc.index_select(0, chunk_nodes) + total
+                )
         return acc
 
 
@@ -1029,6 +1099,7 @@ def describe(device, dims):
 __all__ = [
     "CACHE_ENVIRONMENT_VARIABLE",
     "CHUNK_PAIRS",
+    "CHUNK_SPRING_ENTRIES",
     "DISABLE_ENVIRONMENT_VARIABLE",
     "KERNEL_SOURCE",
     "LayoutKernels",
