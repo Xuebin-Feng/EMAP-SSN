@@ -697,6 +697,17 @@ still change before version 1.0.0.
   files and the FASTA backup of an interrupted run, is now used. A folder with a
   manifest or any other file is still left alone. Config and VR Config look for a saved
   cache by the same rule.
+- **A seeded GPU layout now reproduces on the PyTorch fallback too.** The fallback is the
+  physics a GPU runs when the compiled layout kernels are not in use: always on Intel and
+  Apple GPUs, and on an NVIDIA or AMD GPU whose kernels fail to compile, load or pass
+  their self-check, or are switched off with `SSN_LAYOUT_GPU_KERNELS=0`. Its springs
+  added each edge's force to its two nodes with `index_add_`, which a GPU carries out in
+  no fixed order, so two runs with the same seed could differ slightly. Each node's
+  spring forces are now gathered and summed in a fixed order, so a seeded layout is the
+  same bit for bit from run to run on the same device. The fallback now keeps fewer than
+  four index entries per spring on the device, where it kept two, and works through them
+  in blocks of about 150 MiB. CPU and GPU layouts, and layouts on different GPU models,
+  can still differ slightly from each other. `docs/mcp_settings.md` says so.
 - **A ready program starts without uv.** The check at every start used uv for one step,
   so a missing uv sent the launch to the setup console, which downloaded uv before it
   looked at anything. The check now runs without uv and says that the package
@@ -933,6 +944,17 @@ still change before version 1.0.0.
   such as `x/../../name` went into the file paths as given. A name that is not a plain
   file name is now refused before any work starts, and MCP's `validate_settings` reports
   it as an error on `OUTPUT_NAME`.
+- **A seeded physics layout could come out differently from one run to the next** when
+  the network had a small part of interchangeable nodes, such as five sequences with
+  equal scores to one another, or a star. The spectral start asks SciPy's ARPACK for
+  every part of fewer than 2,000 nodes, and for a larger part when LOBPCG's result is
+  rejected. On such a symmetric part ARPACK runs out of directions and draws a new random
+  vector, and it drew that vector from the operating system's randomness, which the
+  layout seed never reached. The draw now comes from a generator seeded from the part's
+  own start vector, so a seeded layout repeats exactly, on the CPU and on a GPU. A part
+  where ARPACK never needed a new vector starts bit for bit as it did before, and a
+  symmetric part does not change the parts after it. v0.5.0 fixed the same draw for UMAP
+  layouts; this is the physics layout's own spectral start.
 - **UMAP and PaCMAP layouts could put unconnected nodes far outside the layout.** Nodes
   with no edge were placed before the layout was centred and scaled. A UMAP layout then
   moved them away from the middle, and a PaCMAP layout of exactly two connected nodes put
