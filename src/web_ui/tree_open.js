@@ -195,6 +195,7 @@ window.TreeView = window.TreeView || {};
             return;
         }
         $("details").classList.remove("shown");
+        $("image-card").classList.remove("shown");
         TV.openCard("mismatch-card", opener);
         loadMismatch();
     };

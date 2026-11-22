@@ -670,10 +670,24 @@ window.TreeView = window.TreeView || {};
         return Object.assign({}, state, { selection, box: boxRect(boxDrag) });
     }
 
+    // Where the scale bar begins, in canvas pixels: beside the overview map while the map is shown. The map's right
+    // edge is measured the first time it is needed and again after the page changes size (TV.placeScaleBar).
+    let mapRight = null;
+    TV.placeScaleBar = function () {
+        mapRight = null;
+    };
+    function scaleBarX() {
+        const map = document.getElementById("minimap");
+        if (!map || map.hidden) return 20;
+        if (mapRight === null) mapRight = map.offsetLeft + map.offsetWidth;
+        return mapRight + 20;
+    }
+
     TV.drawNow = function () {
         drawQueued = false;
         if (!TV.canvas) return null;
         if (!state.palette) state.palette = TV.readPalette();
+        state.scaleBarX = scaleBarX();
         TV.lastStats = TV.drawTree(TV.canvas, sceneNow());
         if (TV.drawMinimap) TV.drawMinimap();
         return TV.lastStats;

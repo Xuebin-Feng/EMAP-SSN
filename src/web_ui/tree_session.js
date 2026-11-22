@@ -101,7 +101,7 @@ window.TreeView = window.TreeView || {};
         $("loading").classList.toggle("shown", which === "loading");
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
-        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn"]) setDisabled(id, !hasTree);
+        for (const id of ["search-input", "fit-btn", "image-btn", "details-btn", "layout-select", "overview-btn"]) setDisabled(id, !hasTree);
         showSupportControl(hasTree);
         $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
@@ -110,6 +110,7 @@ window.TreeView = window.TreeView || {};
             setDisabled("unmatched-btn", true);
             $("search-count").textContent = "";
             $("details").classList.remove("shown");
+            $("image-card").classList.remove("shown");
             if ($("mismatch-card").classList.contains("shown")) reopenMismatch = true;
             TV.showMismatch(false);
             $("banner").classList.remove("shown");
@@ -823,13 +824,13 @@ window.TreeView = window.TreeView || {};
 
     // ---- The cards ---------------------------------------------------------------------------------------------
 
-    // The two cards over the drawing (Details, and the leaves and nodes the warnings count), each opened by a button of
-    // the page; at most one is open. A card opened by its button takes the focus (the card itself,
+    // The cards over the drawing (Details, the leaves and nodes the warnings count, and Save an image), each opened by a
+    // button of the page; at most one is open. A card opened by its button takes the focus (the card itself,
     // which says its name: the lists inside are filled in again as the Viewer answers), and closing it with its Close button,
     // its button or Esc gives the focus back to what opened it, else to the drawing. A card the page opens or closes of
     // itself (a tree that was loaded, another card taking its place) moves no focus.
-    const CARDS = ["details", "mismatch-card"];
-    const CARD_BUTTONS = { "details": "details-btn", "mismatch-card": "mismatch-btn" };
+    const CARDS = ["details", "mismatch-card", "image-card"];
+    const CARD_BUTTONS = { "details": "details-btn", "mismatch-card": "mismatch-btn", "image-card": "image-btn" };
     const openers = {};
 
     // Each button says whether its card is open, whoever opened or closed the card.
@@ -853,7 +854,17 @@ window.TreeView = window.TreeView || {};
     // when the page opens it of itself, after a tree is opened from a file (it says how the leaves matched).
     TV.openDetails = function (opener) {
         TV.closeCard("mismatch-card");
+        TV.closeCard("image-card");
         TV.openCard("details", opener);
+    };
+
+    // Open the Save an image card in place of the others, its choices fitted to the tree and the view in hand
+    // (tree_image.js). opener: the button that asked, which takes the focus into it.
+    TV.openImageCard = function (opener) {
+        TV.closeCard("details");
+        TV.closeCard("mismatch-card");
+        TV.prepareImageCard();
+        TV.openCard("image-card", opener);
     };
 
     // Take the card `id` away. restoreFocus: the user closed it, so the focus goes back (unless it is already elsewhere on
@@ -863,8 +874,8 @@ window.TreeView = window.TreeView || {};
         if (!panel.classList.contains("shown")) return;
         const active = document.activeElement;
         const held = !active || active === document.body || panel.contains(active);
-        if (id === "details") panel.classList.remove("shown");
-        else TV.showMismatch(false);
+        if (id === "mismatch-card") TV.showMismatch(false);
+        else panel.classList.remove("shown");
         syncCardButtons();
         const opener = openers[id];
         openers[id] = null;
@@ -1176,8 +1187,13 @@ window.TreeView = window.TreeView || {};
         try { localStorage.setItem("ssn_theme", next); } catch (error) {}
     }
 
+    // The theme the page was last drawn in: Save an image reads the light theme's colours by switching the theme for an
+    // instant and back (tree_image.js), which changes nothing to draw again.
+    let drawnTheme = null;
     function showThemeButton() {
         const dark = document.documentElement.getAttribute("data-theme") === "dark";
+        if (dark === drawnTheme) return;
+        drawnTheme = dark;
         $("theme-toggle-label").textContent = dark ? t("Light Mode") : t("Dark Mode");
         const themeIcon = $("theme-toggle-icon");
         setIcon(themeIcon, dark ? "sun" : "moon");
@@ -1326,6 +1342,13 @@ window.TreeView = window.TreeView || {};
             }
             TV.openDetails($("details-btn"));
         });
+        $("image-btn").addEventListener("click", () => {
+            if ($("image-card").classList.contains("shown")) {
+                TV.closeCard("image-card", true);
+                return;
+            }
+            TV.openImageCard($("image-btn"));
+        });
         for (const id of CARDS) new MutationObserver(syncCardButtons).observe($(id), { attributes: true, attributeFilter: ["class"] });
         attachBanner();
         $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown"), $("mismatch-btn")));
@@ -1406,6 +1429,7 @@ window.TreeView = window.TreeView || {};
         });
 
         new ResizeObserver(() => {
+            TV.placeScaleBar();
             if (!state.layout) return;
             if (state.fitted) TV.fitView(); else TV.requestDraw();
         }).observe($("stage"));

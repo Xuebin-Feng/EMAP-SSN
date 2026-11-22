@@ -50,6 +50,19 @@ window.TreeView = window.TreeView || {};
     TV.IDLE_MS = 160;
     // The widest stroke, in device pixels, that strokeLines draws as hairlines.
     const HAIR_MAX_DEVICE_PX = 3.5;
+    // The scale bar is a round length that comes out at most this many pixels long.
+    TV.SCALE_BAR_PX = 120;
+
+    // The frame being drawn: the device pixel ratio its lines are snapped to and made of, and whether it is pixels at
+    // all (an SVG has none to snap to, and draws each line once, where it is). TV.drawScene sets both for the frame it
+    // draws; between frames they are the window's.
+    let frameRatio = null;
+    let framePixels = true;
+    const ratioNow = () => frameRatio || window.devicePixelRatio || 1;
+
+    // A path to add lines to: a Path2D for a canvas, or the context's own kind where it makes paths of its own (the
+    // SVG writer of tree_image.js, which must read them back).
+    TV.newPath = (ctx) => (ctx && ctx.newPath ? ctx.newPath() : new Path2D());
 
     // Stroke `path` in the context's line width. Skia draws a stroke of one device pixel or less on the GPU as an
     // anti-aliased hairline, and a wider one through its general path renderer, which for a big path falls back to the
@@ -58,9 +71,9 @@ window.TreeView = window.TreeView || {};
     // right, up and down (and once not moved for the widest), so that its width comes out the same whatever its direction.
     function strokeLines(ctx, path) {
         const width = ctx.lineWidth;
-        const ratio = window.devicePixelRatio || 1;
+        const ratio = ratioNow();
         const device = width * ratio;
-        if (device <= 1.05 || device > HAIR_MAX_DEVICE_PX) {
+        if (!framePixels || device <= 1.05 || device > HAIR_MAX_DEVICE_PX) {
             ctx.stroke(path);
             return;
         }
@@ -242,8 +255,8 @@ window.TreeView = window.TreeView || {};
     // coordinates are put on the middle of the device pixel they fall in. Every line of the page goes through the
     // same function, so those that meet still meet. The other layouts have lines at every angle, which cannot be.
     TV.snapFor = function (layout) {
-        if (layout.kind !== "rectangular") return null;
-        const ratio = window.devicePixelRatio || 1;
+        if (layout.kind !== "rectangular" || !framePixels) return null;
+        const ratio = ratioNow();
         return (value) => (Math.floor(value * ratio) + 0.5) / ratio;
     };
 
@@ -308,11 +321,11 @@ window.TreeView = window.TreeView || {};
 
     // The bar that shows what colours a folded clade holds: along the far edge of its wedge, one piece for each of
     // its colours, as long as the share of the clade's leaves that have it. `paths` holds a path for each colour.
-    function addMixBar(paths, out, view, mix) {
+    function addMixBar(ctx, paths, out, view, mix) {
         let at = 0;
         for (const [cls, share] of mix.parts) {
             let path = paths.get(cls);
-            if (!path) paths.set(cls, path = new Path2D());
+            if (!path) paths.set(cls, path = TV.newPath(ctx));
             const from = at;
             const to = Math.min(1, at + share);
             at = to;
@@ -368,9 +381,9 @@ window.TreeView = window.TreeView || {};
         const chosen = scene.selection && scene.selection.leaves.length ? scene.selection.leaves : null;
         const neighbours = scene.selection && scene.selection.connected && scene.selection.connected.length ? scene.selection.connected : null;
         const focused = scene.selection && scene.selection.focus >= 0 ? Int32Array.of(scene.selection.focus) : null;
-        const chosenPath = new Path2D();
-        const neighbourPath = new Path2D();
-        const focusPath = new Path2D();
+        const chosenPath = TV.newPath(ctx);
+        const neighbourPath = TV.newPath(ctx);
+        const focusPath = TV.newPath(ctx);
         let chosenUsed = false;
         let neighbourUsed = false;
         let focusUsed = false;
@@ -383,7 +396,7 @@ window.TreeView = window.TreeView || {};
         const shownBelow = layout.shown;
         // The dots that show how stable a split is, a path for each of the palette's steps.
         const support = scene.showSupport && !mini ? model.support : null;
-        const supportDots = support ? palette.support.map(() => new Path2D()) : null;
+        const supportDots = support ? palette.support.map(() => TV.newPath(ctx)) : null;
         drawW = width;
         drawH = height;
         // The colours of the network, when they are for this tree: a node's class says what it is drawn in (NO_CLASS
@@ -392,10 +405,10 @@ window.TreeView = window.TreeView || {};
         const nodeClass = colors ? colors.nodeClass : null;
         const NO = TV.NO_CLASS;
 
-        const branches = new Path2D();
-        const faded = new Path2D();
-        const wedges = new Path2D();
-        const matched = new Path2D();
+        const branches = TV.newPath(ctx);
+        const faded = TV.newPath(ctx);
+        const wedges = TV.newPath(ctx);
+        const matched = TV.newPath(ctx);
         const handles = [];
         const leaves = [];
         const out = new Float64Array(8);
@@ -406,7 +419,7 @@ window.TreeView = window.TreeView || {};
         const inkOf = (cls) => {
             if (cls === NO) return branches;
             let path = inks.get(cls);
-            if (!path) inks.set(cls, path = new Path2D());
+            if (!path) inks.set(cls, path = TV.newPath(ctx));
             return path;
         };
         const ink = (cls) => TV.inkOf(colors, palette, cls);
@@ -422,20 +435,20 @@ window.TreeView = window.TreeView || {};
             addWedge(wedges, out, view);
             const cls = nodeClass ? nodeClass[i] : NO;
             let fill = wedgeFills.get(cls);
-            if (!fill) wedgeFills.set(cls, fill = new Path2D());
+            if (!fill) wedgeFills.set(cls, fill = TV.newPath(ctx));
             addWedge(fill, out, view);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addWedge(matched, out, view);
             if (chosen && TV.matchesIn(chosen, firstLeaf[i], lastLeaf[i])) { addWedge(chosenPath, out, view); chosenUsed = true; }
             if (neighbours && TV.matchesIn(neighbours, firstLeaf[i], lastLeaf[i])) { addWedge(neighbourPath, out, view); neighbourUsed = true; }
             if (focused && TV.matchesIn(focused, firstLeaf[i], lastLeaf[i])) { addWedge(focusPath, out, view); focusUsed = true; }
-            if (colors) addMixBar(mixBars, out, view, TV.cladeMix(colors, model, i));
+            if (colors) addMixBar(ctx, mixBars, out, view, TV.cladeMix(colors, model, i));
         };
         const markOf = (i) => {
             const width = Math.min(3, Math.max(1, Math.round(layout.thickness(i, sx, sy) * 2) / 2));
             const cls = colors ? TV.cladeTop(colors, model, i) : NO;
             const key = width * 2 * 65536 + cls;
             let entry = marks.get(key);
-            if (!entry) marks.set(key, entry = { path: new Path2D(), width, cls });
+            if (!entry) marks.set(key, entry = { path: TV.newPath(ctx), width, cls });
             layout.mark(i, out);
             addStem(entry.path, out, view, snap);
             if (matches && matches.length && TV.matchesIn(matches, firstLeaf[i], lastLeaf[i])) addStem(matched, out, view, snap);
@@ -553,8 +566,8 @@ window.TreeView = window.TreeView || {};
         // The leaves drawn on their own: a dot where there is room, a name where there is more.
         const detail = TV.leafDetail(layout, view, leaves.length);
         const dotRadius = Math.min(3.2, Math.max(1.1, detail.size * 0.25));
-        const dots = new Path2D();
-        const fadedDots = new Path2D();
+        const dots = TV.newPath(ctx);
+        const fadedDots = TV.newPath(ctx);
         const dotsBy = new Map();
         const names = [];
         for (const i of leaves) {
@@ -566,7 +579,7 @@ window.TreeView = window.TreeView || {};
                 let path = inNetwork ? dots : fadedDots;
                 if (inNetwork && nodeClass && nodeClass[i] !== NO) {
                     path = dotsBy.get(nodeClass[i]);
-                    if (!path) dotsBy.set(nodeClass[i], path = new Path2D());
+                    if (!path) dotsBy.set(nodeClass[i], path = TV.newPath(ctx));
                 }
                 path.moveTo(x + dotRadius, y);
                 path.arc(x, y, dotRadius, 0, 2 * Math.PI);
@@ -658,26 +671,48 @@ window.TreeView = window.TreeView || {};
             ctx.fill();
             return;
         }
-        const path = new Path2D();
+        const path = TV.newPath(ctx);
         layout.wedge(node, scratch);
         addWedge(path, scratch, view);
         ctx.fill(path);
     }
 
     // Draw the scene on the canvas: the background, the highlights, the tree, then the hovered branch, the search's
-    // matches, and for a rectangular tree the ruler. Returns what was drawn, for the tests and the status line.
+    // matches, for a rectangular tree the ruler, and the scale bar. Returns what was drawn, for the tests and the status line.
     TV.drawTree = function (canvas, scene) {
         const { width, height, ratio } = TV.sizeCanvas(canvas);
-        const ctx = canvas.getContext("2d");
+        return TV.drawScene(canvas.getContext("2d"), scene, width, height, ratio, null);
+    };
+
+    // Draw the scene on ctx, `width` x `height` CSS pixels at `ratio` device pixels each. figure: a saved image
+    // ({ transparent, vector }) rather than the page: no highlight, hovered branch, ruler, box or scale bar (the image
+    // puts its own under the tree); the background left out when transparent; and for vector output (an SVG) each line
+    // drawn once where it is, not snapped to device pixels or made of hairlines.
+    TV.drawScene = function (ctx, scene, width, height, ratio, figure) {
+        const before = [frameRatio, framePixels];
+        frameRatio = ratio;
+        framePixels = !(figure && figure.vector);
+        try {
+            return drawFrame(ctx, scene, width, height, ratio, figure);
+        } finally {
+            [frameRatio, framePixels] = before;
+        }
+    };
+
+    function drawFrame(ctx, scene, width, height, ratio, figure) {
         const palette = scene.palette;
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        ctx.fillStyle = palette.background;
-        ctx.fillRect(0, 0, width, height);
+        if (!(figure && figure.transparent)) {
+            ctx.fillStyle = palette.background;
+            ctx.fillRect(0, 0, width, height);
+        }
         const { model, layout, view } = scene;
         if (!model || !layout) return { visited: 0, bars: 0, collapsed: 0, labels: 0, dots: 0, handles: 0, width, height };
 
-        for (const [node, fill] of [[scene.pinned, palette.selection], [scene.hover, palette.selection]]) {
-            if (node !== undefined && node >= 0) drawHighlight(ctx, scene, node, fill);
+        if (!figure) {
+            for (const [node, fill] of [[scene.pinned, palette.selection], [scene.hover, palette.selection]]) {
+                if (node !== undefined && node >= 0) drawHighlight(ctx, scene, node, fill);
+            }
         }
         const stats = TV.paintTree(ctx, scene, width, height, false);
         stats.width = width;
@@ -686,10 +721,10 @@ window.TreeView = window.TreeView || {};
         stats.cut = TV.drawCutLine(ctx, scene, width, height);
 
         // The hovered branch, and the search's matches, over the lines.
-        if (scene.hover !== undefined && scene.hover >= 0 && !TV.foldedNow(layout, scene.collapsed, scene.hover)) {
+        if (!figure && scene.hover !== undefined && scene.hover >= 0 && !TV.foldedNow(layout, scene.collapsed, scene.hover)) {
             ctx.strokeStyle = palette.accent;
             ctx.lineWidth = 2;
-            const path = new Path2D();
+            const path = TV.newPath(ctx);
             const snap = TV.snapFor(layout);
             layout.stem(scene.hover, scratch);
             addStem(path, scratch, view, snap);
@@ -704,9 +739,60 @@ window.TreeView = window.TreeView || {};
         }
         TV.drawMatches(ctx, scene, width, height);
         stats.selected = TV.drawSelection(ctx, scene, width, height);
+        if (figure) return stats;
         if (layout.kind === "rectangular") TV.drawRuler(ctx, scene, width, height);
+        // The scale bar at the foot of the drawing, scene.scaleBarX pixels from its left edge (beside the overview map).
+        const bar = TV.scaleBar(scene);
+        if (bar) TV.drawScaleBar(ctx, bar, palette, scene.scaleBarX || 20, height - 20, true);
+        stats.scale = bar;
         if (scene.box) drawBox(ctx, scene.box, palette.accent, ratio);
         return stats;
+    }
+
+    // The scale bar for the view: a round length in the tree's own units (1, 2 or 5 times a power of ten) that comes
+    // out at most TV.SCALE_BAR_PX pixels long, as { length, px, text }. None where the branches are not drawn as long
+    // as they are (a cladogram, or a tree without lengths). A rectangular tree's width is its lengths' scale (view.sx);
+    // the other layouts have one scale.
+    TV.scaleBar = function (scene) {
+        const { model, layout, view } = scene;
+        if (!model || !layout || !view || layout.mode !== "lengths" || !model.hasLengths) return null;
+        const sx = view.sx;
+        if (!(sx > 0) || !Number.isFinite(sx)) return null;
+        const most = TV.SCALE_BAR_PX / sx;
+        const power = Math.pow(10, Math.floor(Math.log10(most)));
+        const lead = most / power;
+        const length = Number(((lead >= 5 ? 5 : lead >= 2 ? 2 : 1) * power).toPrecision(1));
+        if (!(length > 0) || !Number.isFinite(length)) return null;
+        return { length, px: length * sx, text: String(length) };
+    };
+
+    // Draw `bar` (TV.scaleBar) with its left end at (x, y), its length above it. plate: on a pale ground first, so that
+    // the branches under it on the page do not hide it.
+    TV.drawScaleBar = function (ctx, bar, palette, x, y, plate) {
+        ctx.save();
+        if (plate) {
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = palette.background;
+            ctx.fillRect(x - 8, y - 24, bar.px + 16, 32);
+            ctx.globalAlpha = 1;
+        }
+        ctx.strokeStyle = palette.label;
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = "butt";
+        const path = TV.newPath(ctx);
+        path.moveTo(x, y);
+        path.lineTo(x + bar.px, y);
+        path.moveTo(x, y - 4);
+        path.lineTo(x, y + 4);
+        path.moveTo(x + bar.px, y - 4);
+        path.lineTo(x + bar.px, y + 4);
+        ctx.stroke(path);
+        ctx.fillStyle = palette.label;
+        ctx.font = "12px " + palette.font;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(bar.text, x + bar.px / 2, y - 7);
+        ctx.restore();
     };
 
     // The box being drawn with the right button (scene.box: left, top, right, bottom, in CSS pixels): a one-pixel
@@ -736,7 +822,7 @@ window.TreeView = window.TreeView || {};
         if (layout.kind !== "rectangular" && layout.kind !== "circular") return null;
         const distance = cut - model.threshold.root_score;
         if (!(distance >= 0)) return null;
-        let path = new Path2D();
+        let path = TV.newPath(ctx);
         let result;
         let labelX;
         let labelY;
@@ -779,8 +865,8 @@ window.TreeView = window.TreeView || {};
         const root = model.root;
         const out = new Float64Array(8);
         const live = layout.live;
-        const gap = new Path2D();
-        const ticks = new Path2D();
+        const gap = TV.newPath(ctx);
+        const ticks = TV.newPath(ctx);
         let drawn = 0;
         for (let k = model.childStart[root]; k < model.childStart[root + 1]; k++) {
             const child = model.childList[k];
@@ -879,7 +965,7 @@ window.TreeView = window.TreeView || {};
         const thin = rectangular ? view.sy < 6 : leaves.length > 1500;
         const size = rectangular ? view.sy : TV.leafDetail(layout, view, 1).size;
         const radius = Math.min(8, Math.max(3.5, size * 0.45));
-        const path = new Path2D();
+        const path = TV.newPath(ctx);
         const centres = [];
         // Thin marks that would land on the same pixel are drawn once: 44,000 selected leaves cost a screenful.
         const seen = new Set();
@@ -919,7 +1005,19 @@ window.TreeView = window.TreeView || {};
     // edges of neighbouring passes meet; one and a half passes for each overlap enough to look like the real stroke
     // (6 passes at a ratio of 2, about 3 ms for 1500 rings more than 4).
     function strokeRings(ctx, centres, radius, thickness, color) {
-        const ratio = window.devicePixelRatio || 1;
+        if (!framePixels) {
+            // Lines, not pixels: one ring of the full thickness each.
+            ctx.strokeStyle = color;
+            ctx.lineWidth = thickness;
+            const path = TV.newPath(ctx);
+            for (let i = 0; i < centres.length; i += 2) {
+                path.moveTo(centres[i] + radius, centres[i + 1]);
+                path.arc(centres[i], centres[i + 1], radius, 0, 2 * Math.PI);
+            }
+            ctx.stroke(path);
+            return;
+        }
+        const ratio = ratioNow();
         const device = Math.max(1, Math.round(thickness * ratio));
         const passes = device < 2 ? 1 : Math.min(8, Math.ceil(device * 1.5));
         // The passes are spaced evenly so that the outer edges of the first and the last lie `device` pixels apart.
@@ -928,7 +1026,7 @@ window.TreeView = window.TreeView || {};
         ctx.lineWidth = 1 / ratio;
         for (let k = 0; k < passes; k++) {
             const r = radius + (k - (passes - 1) / 2) * step;
-            const path = new Path2D();
+            const path = TV.newPath(ctx);
             for (let i = 0; i < centres.length; i += 2) {
                 path.moveTo(centres[i] + r, centres[i + 1]);
                 path.arc(centres[i], centres[i + 1], r, 0, 2 * Math.PI);
@@ -959,7 +1057,7 @@ window.TreeView = window.TreeView || {};
             const bottom = Math.min(height + 40, box.bottom + 2);
             if (right > left && bottom > top) ctx.strokeRect(left, top, right - left, bottom - top);
         } else {
-            const path = new Path2D();
+            const path = TV.newPath(ctx);
             layout.wedge(shown, scratch);
             addWedge(path, scratch, view);
             ctx.stroke(path);

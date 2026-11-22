@@ -177,10 +177,11 @@ modules = [
 ]
 
 [sections.tree_open]
-description = "Tree View page: opening a tree file, its report, the banner"
+description = "Tree View page: opening a tree file, its report, the banner; the scale bar and Save an image"
 seconds = 71
 modules = [
     "test_tree_open_page",
+    "test_tree_image_page",
 ]
 
 # The Fold View page tests (tests/esmfold_page_harness.py) open esmfold.html in Qt WebEngine over the real

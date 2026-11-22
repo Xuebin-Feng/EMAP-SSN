@@ -27,7 +27,7 @@ from tests.tree_page_harness import TreePageMixin  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
 PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_select.js",
-              "tree_minimap.js", "tree_legend.js", "tree_session.js"]
+              "tree_minimap.js", "tree_legend.js", "tree_image.js", "tree_session.js"]
 
 # The legend's sentence about the split stability, the one place the page uses the word.
 LEGEND_NOT_BOOTSTRAP = "Stability under distance noise, not bootstrap support."

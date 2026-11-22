@@ -19,6 +19,7 @@ WEB_PLUGIN = {
                 "files": [
                     "web_ui/tree.html", "web_ui/tree_session.js", "web_ui/tree_nav.js", "web_ui/tree_open.js",
                     "web_ui/tree_read.js", "web_ui/tree_read_xml.js", "web_ui/tree_read_json.js", "web_ui/tree_legend.js",
+                    "web_ui/tree_image.js",
                 ],
             },
         },

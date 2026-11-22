@@ -1369,11 +1369,13 @@ class StrokeAndGestureTests(LayoutCase):
         self.script("TreeView.focusLeaf(5); TreeView.drawNow(); return 1")
         self.assertGreater(self.names(), 0)
 
+    # The texts a frame draws, but the scale bar's length, which is no name.
     FILLTEXT = """(() => {
-        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText;
-        let count = 0;
-        proto.fillText = function () { count++; return original.apply(this, arguments); };
-        try { TreeView.drawNow(); } finally { proto.fillText = original; }
+        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText, bar = TreeView.drawScaleBar;
+        let count = 0, inBar = false;
+        TreeView.drawScaleBar = function () { inBar = true; try { return bar.apply(this, arguments); } finally { inBar = false; } };
+        proto.fillText = function () { if (!inBar) count++; return original.apply(this, arguments); };
+        try { TreeView.drawNow(); } finally { proto.fillText = original; TreeView.drawScaleBar = bar; }
         return count;
     })()"""
 
@@ -1544,9 +1546,13 @@ class FitNamesTests(LayoutCase):
         self.open_page()
 
     # Every name a frame draws: its box in canvas pixels (the corners of its text rectangle under the transform in use).
+    # The scale bar's length is no name.
     NAME_BOXES = """(() => {
-        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText, boxes = [];
+        const proto = CanvasRenderingContext2D.prototype, original = proto.fillText, boxes = [], bar = TreeView.drawScaleBar;
+        let inBar = false;
+        TreeView.drawScaleBar = function () { inBar = true; try { return bar.apply(this, arguments); } finally { inBar = false; } };
         proto.fillText = function (text, x, y) {
+            if (inBar) return original.apply(this, arguments);
             const m = this.getTransform(), width = this.measureText(text).width;
             const size = parseFloat(this.font), left = this.textAlign === 'right' ? x - width : x;
             const ratio = TreeView.canvas.width / TreeView.canvas.clientWidth;
@@ -1556,7 +1562,7 @@ class FitNamesTests(LayoutCase):
                         y0: Math.min(...corners.map(c => c[1])), y1: Math.max(...corners.map(c => c[1]))});
             return original.apply(this, arguments);
         };
-        try { TreeView.drawNow(); } finally { proto.fillText = original; }
+        try { TreeView.drawNow(); } finally { proto.fillText = original; TreeView.drawScaleBar = bar; }
         const canvas = TreeView.canvas;
         return {boxes, width: canvas.clientWidth, height: canvas.clientHeight, ruler: TreeView.RULER_WIDTH,
                 fitted: TreeView.state.fitted, sy: TreeView.state.view.sy, sx: TreeView.state.view.sx};

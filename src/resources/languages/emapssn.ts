@@ -9774,6 +9774,34 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>TreePage</name>
     <message>
+        <source>Unlabelled colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved {file}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The image could not be made. A smaller size may work.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lines and text, at any size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{width} × {height} px</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Support legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Split stability legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{low} to {high}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9795,10 +9823,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Mark these leaves</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Unlabelled colours</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -11022,6 +11046,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Save the tree as it is in view as a PNG or SVG image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save an image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>How this tree was made, and how it fits the alignment and the network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11079,6 +11111,38 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The tree as it is in view, in light colours, without the overview map, the strip at the right edge or the pointer&apos;s highlight.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The size of the image, as a percentage of the drawing on the screen</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Transparent background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scale bar</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Colour legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save image</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
