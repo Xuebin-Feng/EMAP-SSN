@@ -133,10 +133,13 @@ still change before version 1.0.0.
       Jplace edge numbers), NEXUS (with TRANSLATE tables and BEAST, MrBayes or FigTree
       annotations), PhyloXML, NeXML and JSON (Auspice, nested, Jplace) are read. A leaf
       belongs to a node when its name is the node's full header, or becomes it under the
-      Viewer's header rules; there is no matching by accession or case. A report counts
-      the matches and lists the leaves that are not in the network, which are drawn faded,
-      and when no leaf matches it shows the tree's names beside the network's headers. Two
-      leaves with one name refuse the tree. The tree is kept until the Viewer closes, and
+      Viewer's header rules; there is no matching by accession or case. The Details panel,
+      which opens after a tree is opened, counts the matches and lists the leaves that are
+      not in the network. Those leaves are drawn faded, or left out of the tree as hidden
+      nodes are when the Unmatched leaves button beside Overview is off; the search box
+      narrows so that the toolbar keeps one row at 1,300 px. When no leaf matches, the page
+      shows the tree's names beside the network's headers. Two leaves with one name refuse
+      the tree. The tree is kept until the Viewer closes, and
       is never written to disk.
   - **Three layouts:** rectangular, circular and unrooted, each drawn with branch lengths
     (phylogram) or without (cladogram). A rooted tree opens rectangular and an unrooted tree
@@ -151,13 +154,17 @@ still change before version 1.0.0.
     map in the corner shows the whole tree and where the view is. Clades too small to see are
     drawn as one line, and names appear only where they fit. On high-DPI screens the lines
     are drawn as one-pixel passes, which the browser draws on the GPU, and names are left out
-    while the view moves, so the circular and unrooted layouts stay smooth. Opening the page
+    while the view moves, so the circular and unrooted layouts stay smooth. A page in a tab
+    that is not shown draws nothing, also when the Viewer sends a tree or new colours, and
+    draws once when it is seen again. Opening the page
     no longer makes the Viewer build and send its whole state (about 9 MB at 44,000
     sequences), which the page does not read; a page's manifest says so with
     `initial_state: False`.
   - **In the network's colours:** each leaf is drawn in its node's colour, and a clade in the
     colour that nine in ten of its shown leaves share, so clusters that form clades stand out
-    even in the overview. Nodes nobody has coloured keep the Viewer's node colour. A legend
+    even in the overview. A clade too small to see is one line in the colour most of its
+    shown leaves have, so that grey stays for leaves that are not in the network. Nodes
+    nobody has coloured keep the Viewer's node colour. A legend
     names the colours (by cluster where one matches) and marks a colour's leaves, in the
     theme colour, when clicked. Hidden nodes are left out, and the tree closes up around the
     rest with its branch lengths kept. A branch point left with one shown branch is then no
@@ -180,7 +187,8 @@ still change before version 1.0.0.
     off again, as one in the network does.
   - **Split stability:** with noise-perturbed trees on, a switch shades each clade, once
     zoomed in, by the percentage of replicates that contain its split. It measures stability
-    under distance noise, not bootstrap support.
+    under distance noise, not bootstrap support. Its button stays at the foot of the drawing
+    and the legend opens above it, so opening and closing it are two clicks in one place.
   - **The Details panel** names the file, says how the tree was built, and counts how its
     leaves match the network and the alignment. A tree saved for another alignment, an
     alignment older than its tree (an unfinished run), and leaves missing from the network
