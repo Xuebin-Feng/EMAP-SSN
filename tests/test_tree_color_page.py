@@ -125,6 +125,21 @@ class ColorModelTests(ColorCase):
         self.assertEqual(found["leafClass"][7], NO_CLASS)
         self.assertEqual((found["present"][12], found["nodeClass"][12]), (1, 3))
 
+    def test_a_clade_too_small_to_draw_takes_the_colour_most_of_its_shown_leaves_have(self):
+        tops = """(() => { const c = TreeView.state.colors, m = TreeView.state.model;
+            return Array.from({length: m.nodeCount}, (_, i) => TreeView.cladeTop(c, m, i)); })()"""
+        self.open_colored()
+        # (efgh) is half blue, a quarter green and a quarter plain: blue, though no colour has more than half of it; the
+        # root, half red, is red. (gh), one green leaf and one plain, is a tie: the lower class, plain, as cladeMix has it.
+        self.assertEqual(self.state(tops), [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 0, 0, 2, 1])
+        # Counted once and kept: the same again.
+        self.assertEqual(self.state(tops), [1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 0, 0, 2, 1])
+        # A clade none of whose leaves is a node of the network has no colour; the leaves that are not do not count.
+        self.open_colored({0: RED, 1: RED, 2: RED, 3: RED, 4: BLUE, 5: BLUE}, network=list("abcdef"))
+        found = self.state(tops)
+        self.assertEqual(found[10:13], [NO_CLASS, NO_CLASS, NO_CLASS])
+        self.assertEqual((found[13], found[14]), (2, 1))
+
     def test_colours_are_compared_in_classes_of_sixteen_levels_so_that_a_gradient_forms_clades(self):
         self.open_colored({0: "#fa0000", 1: "#ff0000", 2: "#e60000", 3: "#f10000"})
         found = self.info()
@@ -527,29 +542,42 @@ class ColorDrawingTests(ColorCase):
                 self.assertEqual(found["efgh"], [found["branch"]])
                 self.assertEqual(found["gh"], [found["branch"]])
 
-    def test_a_clade_too_small_to_draw_is_one_line_in_its_colour_or_in_the_neutral_one(self):
+    # The tree at a size that makes (abcd) and (efgh) under three pixels, and the colours of their lines.
+    SMALL_TREE = """
+        const s = TreeView.state, v = s.view, L = s.layout, start = {...v};
+        // Smaller by tenths until (abcd) is under three pixels: (efgh) is its twin, the root is twice as big.
+        let k = 1;
+        while (k > 1e-4 && !L.tiny(6, v.sx, v.sy, 3)) {
+            k *= 0.9;
+            v.sx = start.sx * k; v.sy = start.sy * k; v.ox = 650 + (start.ox - 650) * k; v.oy = 330 + (start.oy - 330) * k;
+        }
+        TreeView.drawNow();
+        const o = new Float64Array(8), line = (i) => { L.mark(i, o); return stylesOf(
+            v.ox + o[0] * v.sx, v.oy + o[1] * v.sy, v.ox + o[2] * v.sx, v.oy + o[3] * v.sy); };
+        return {bars: TreeView.lastStats.bars, rootTiny: L.tiny(14, v.sx, v.sy, 3), abcd: line(6), efgh: line(13),
+                mark: TreeView.rgbOf(s.palette.mark), branch: TreeView.rgbOf(s.palette.branch)};"""
+
+    def test_a_clade_too_small_to_draw_is_one_line_in_the_colour_most_of_its_leaves_have(self):
         self.open_colored()
         for kind in ("rectangular", "circular", "unrooted"):
             with self.subTest(kind=kind):
                 self.choose(kind)
-                # The tree at a size that makes every clade under three pixels.
-                found = self.spied("""
-                    const s = TreeView.state, v = s.view, L = s.layout, start = {...v};
-                    // Smaller by tenths until (abcd) is under three pixels: (efgh) is its twin, the root is twice as big.
-                    let k = 1;
-                    while (k > 1e-4 && !L.tiny(6, v.sx, v.sy, 3)) {
-                        k *= 0.9;
-                        v.sx = start.sx * k; v.sy = start.sy * k; v.ox = 650 + (start.ox - 650) * k; v.oy = 330 + (start.oy - 330) * k;
-                    }
-                    TreeView.drawNow();
-                    const o = new Float64Array(8), line = (i) => { L.mark(i, o); return stylesOf(
-                        v.ox + o[0] * v.sx, v.oy + o[1] * v.sy, v.ox + o[2] * v.sx, v.oy + o[3] * v.sy); };
-                    return {bars: TreeView.lastStats.bars, rootTiny: L.tiny(14, v.sx, v.sy, 3), abcd: line(6), efgh: line(13),
-                            mark: TreeView.rgbOf(s.palette.mark), branch: TreeView.rgbOf(s.palette.branch)};""")
+                found = self.spied(self.SMALL_TREE)
                 self.assertGreater(found["bars"], 0)
                 self.assertFalse(found["rootTiny"])
                 # (The clade's stem and its line are a pixel apart at this size, so each is found; both are in its colour.)
                 self.assertEqual({tuple(style) for style in found["abcd"]}, {(255, 0, 0)})
+                # (efgh) is half blue, a quarter green and a quarter plain: its line is blue, its stem the branch colour,
+                # and nothing of it the grey that marks a leaf that is not in the network.
+                self.assertIn([0, 0, 255], found["efgh"])
+                self.assertEqual({tuple(style) for style in found["efgh"]} - {(0, 0, 255), tuple(found["branch"])}, set())
+
+    def test_a_clade_too_small_to_draw_with_no_leaf_in_the_network_is_grey(self):
+        self.open_colored({0: RED, 1: RED, 2: RED, 3: RED}, network=list("abcd"))
+        for kind in ("rectangular", "circular", "unrooted"):
+            with self.subTest(kind=kind):
+                self.choose(kind)
+                found = self.spied(self.SMALL_TREE)
                 self.assertIn(found["mark"], found["efgh"])
                 self.assertEqual({tuple(style) for style in found["efgh"]} - {tuple(found["mark"]), tuple(found["branch"])}, set())
 
@@ -728,6 +756,84 @@ class ColorFollowTests(ColorCase):
         self.pump(0.5)
         self.assertEqual(self.fetches(), fetched)
         self.assertEqual(self.console_errors(), [])
+
+
+class UnmatchedLeavesTests(ColorCase):
+    """The Unmatched leaves button: the leaves that are not nodes of the network drawn faded, or left out as hidden nodes are."""
+
+    # g and h (leaves 6 and 7) are not nodes of this network.
+    SIX = {0: RED, 1: RED, 2: RED, 3: RED, 4: BLUE, 5: BLUE}
+
+    def button(self):
+        return self.state("""(() => { const b = document.getElementById('unmatched-btn');
+            return {hidden: b.hidden, disabled: b.disabled, pressed: b.getAttribute('aria-pressed'), text: b.textContent.trim()}; })()""")
+
+    def press(self):
+        self.script("document.getElementById('unmatched-btn').click(); return 1")
+
+    def seen(self):
+        """What the page shows of the leaves: which are laid out, what the warning line and the status line say."""
+        return self.state("""(() => { const s = TreeView.state, m = s.model, live = s.layout.live;
+            return {laidOut: Array.from({length: m.leafCount}, (_, k) => !live || !!live[m.leafNode[k]]),
+                    out: s.unmatchedOut, banner: [...document.querySelectorAll('#warning-list li')].map(li => li.textContent).join(' | '),
+                    summary: document.getElementById('summary').textContent}; })()""")
+
+    def test_the_button_is_there_only_for_a_tree_with_leaves_in_the_network_and_leaves_outside_it(self):
+        self.open_colored()
+        self.assertTrue(self.button()["hidden"])
+        self.open_colored(self.SIX, network=list("abcdef"))
+        self.assertEqual(self.button(), {"hidden": False, "disabled": False, "pressed": "true", "text": "Unmatched leaves"})
+        # Beside Overview, after it.
+        self.assertEqual(self.state("document.getElementById('overview-btn').nextElementSibling.id"), "unmatched-btn")
+
+    def test_pressing_it_leaves_them_out_and_pressing_again_draws_them_faded(self):
+        self.open_colored(self.SIX, network=list("abcdef"))
+        found = self.seen()
+        self.assertEqual(found["laidOut"], [True] * 8)
+        self.assertIn("They are drawn faded.", found["banner"])
+        self.press()
+        found = self.seen()
+        self.assertEqual(self.button()["pressed"], "false")
+        self.assertEqual(found["laidOut"], [True] * 6 + [False, False])
+        self.assertTrue(found["out"])
+        self.assertIn("Leaves that are not nodes of this network: 2. They are left out.", found["banner"])
+        self.assertIn("2 not in this network, left out", found["summary"])
+        # The whole of what is left is in view, as for hidden nodes.
+        self.assertTrue(self.state("TreeView.state.fitted"))
+        self.press()
+        found = self.seen()
+        self.assertEqual(self.button()["pressed"], "true")
+        self.assertEqual(found["laidOut"], [True] * 8)
+        self.assertFalse(found["out"])
+        self.assertIn("They are drawn faded.", found["banner"])
+        self.assertNotIn("not in this network, left out", found["summary"])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_hidden_nodes_and_unmatched_leaves_are_left_out_together_and_told_apart(self):
+        self.open_colored(self.SIX, network=list("abcdef"), hidden=[2])
+        self.assertEqual(self.seen()["laidOut"], [True, True, False, True, True, True, True, True])
+        self.press()
+        self.assertEqual(self.seen()["laidOut"], [True, True, False, True, True, True, False, False])
+        # The Viewer's colours change: both stay out.
+        self.assertTrue(self.script("return await TreeView.loadColors()"))
+        self.assertEqual(self.seen()["laidOut"], [True, True, False, True, True, True, False, False])
+        lines = self.state("TreeView.describeNode(TreeView.state.model.root).lines")
+        self.assertIn("Leaves in this clade: 5", lines)
+        self.assertIn("Of them in this network: 5", lines)
+        self.assertIn("Hidden in the network: 1", lines)
+        self.assertIn("Not in this network, left out: 2", lines)
+        summary = self.seen()["summary"]
+        self.assertIn("1 hidden in the network, left out", summary)
+        self.assertIn("2 not in this network, left out", summary)
+
+    def test_the_choice_holds_when_the_tree_is_read_again(self):
+        self.open_colored(self.SIX, network=list("abcdef"))
+        self.press()
+        self.assertTrue(self.script("return await TreeView.loadTree()"))
+        self.wait_for("TreeView.state.colors !== null")
+        self.assertEqual(self.button()["pressed"], "false")
+        self.assertEqual(self.seen()["laidOut"], [True] * 6 + [False, False])
+        self.assertIn("They are left out.", self.seen()["banner"])
 
 
 class LegendTests(ColorCase):

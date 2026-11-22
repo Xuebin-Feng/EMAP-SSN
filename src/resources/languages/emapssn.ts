@@ -9850,6 +9850,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Not in this network, left out: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Support: {percent}%</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10026,34 +10030,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>How the tree matched the network</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>{matched} of the {leaves} leaves of {file} are nodes of this network.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Matched by the exact full name: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Matched by the name after the Viewer&apos;s header rules: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Leaves that are not in the network: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Nodes of the network that are not in the tree: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Leaves whose name reaches a node that another leaf has too, left unmatched: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Leaves that are not in the network</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10066,7 +10042,19 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Leaves that are not in the network: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nodes of the network that are not in the tree: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Leaves whose sequence is not in the loaded alignment: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaves whose name reaches a node that another leaf has too, left unmatched: {count}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10542,6 +10530,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Leaves that are not nodes of this network: {count}. They are left out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Leaves that are not nodes of this network: {count}. They are drawn faded.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10603,6 +10595,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>{count} hidden in the network, left out</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} not in this network, left out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10774,6 +10770,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Left unmatched because another leaf reaches the same node</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The leaves are matched to the nodes of the network by full sequence name. This tree is kept in the Viewer until it is closed, and is written nowhere.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10914,14 +10914,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>How the leaves of the opened tree matched the nodes of the network</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Match</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Connecting...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11014,6 +11006,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Show the leaves that are not nodes of this network, faded, or leave them out of the tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unmatched leaves</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Show the whole tree (Home)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11079,10 +11079,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Stability under distance noise, not bootstrap support. The dots show where the tree is zoomed in.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>How the opened tree matched the network</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

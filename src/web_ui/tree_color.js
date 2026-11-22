@@ -12,7 +12,9 @@
  * class like the others and the tree is drawn in it, but it is the network's default, not a choice, so the legend
  * leaves it out. What a colour means is not guessed from the colour: the Viewer's colour key (payload.key) says which
  * layer painted a node and which of its categories or what value the node has, and the legend lists the leaves by
- * that; only the leaves the key does not cover are listed by colour. A clade that is neither plain nor one colour has no class and is drawn in the page's branch colour.
+ * that; only the leaves the key does not cover are listed by colour. A clade that is neither plain nor one colour has no class and is drawn in the page's branch colour,
+ * but one too small to draw is a line in the colour most of its shown leaves have (cladeTop): grey is what a leaf
+ * that is not in the network is drawn in, so a line of it would read as a clade of such leaves.
  *
  * A node of the network that the Viewer has hidden has no place in the tree at all: `removed` marks its leaf, and
  * the layout gives it no room.
@@ -34,6 +36,8 @@ window.TreeView = window.TreeView || {};
     TV.PURE_SHARE = 0.9;
     // The most colours a folded clade's bar shows.
     TV.MIX_PARTS = 4;
+    // What colors.top holds for a clade cladeTop has not counted yet (a class is at most 4,096: four bits a channel).
+    const UNCOUNTED = 0xFFFE;
 
     function classKey(r, g, b) {
         return ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
@@ -274,7 +278,10 @@ window.TreeView = window.TreeView || {};
                 if (share >= TV.PURE_SHARE) nodeClass[i] = voted;
             }
         }
-        Object.assign(colors, { nodeClass, dominant, purity, present });
+        Object.assign(colors, {
+            nodeClass, dominant, purity, present,
+            top: new Uint16Array(nodeCount).fill(UNCOUNTED), classTally: new Int32Array(classCount),
+        });
 
         // The legend: what the colour key says (its layers, newest first), then the colours of the leaves it does not
         // cover, other than plain, most leaves first, all of them.
@@ -371,6 +378,30 @@ window.TreeView = window.TreeView || {};
     // The leaf numbers (sorted) that have class `cls`.
     TV.leavesOfClass = function (colors, cls) {
         return colors.positions.slice(colors.starts[cls], colors.starts[cls + 1]);
+    };
+
+    // The class that most of clade i's shown leaves have, or NO_CLASS when none is shown: what a clade too small to draw
+    // is drawn in. On a tie, the lower class, as cladeMix puts it first. A colour that more than half of them have is
+    // the vote's (dominant); any other clade is counted once, over its leaves, and kept for the colours in hand.
+    TV.cladeTop = function (colors, model, i) {
+        if (colors.present[i] === 0) return TV.NO_CLASS;
+        if (colors.purity[i] > 0.5) return colors.dominant[i];
+        const known = colors.top[i];
+        if (known !== UNCOUNTED) return known;
+        const { leafClass, classTally } = colors;
+        const first = model.firstLeaf[i];
+        const last = model.lastLeaf[i];
+        let best = TV.NO_CLASS;
+        let most = 0;
+        for (let k = first; k <= last; k++) {
+            const cls = leafClass[k];
+            if (cls === TV.NO_CLASS) continue;
+            const count = ++classTally[cls];
+            if (count > most || (count === most && cls < best)) { most = count; best = cls; }
+        }
+        for (let k = first; k <= last; k++) if (leafClass[k] !== TV.NO_CLASS) classTally[leafClass[k]] = 0;
+        colors.top[i] = best;
+        return best;
     };
 
     // What the colours of a folded clade are, for the bar along its far edge: { shown, parts: [[class, share], ...]

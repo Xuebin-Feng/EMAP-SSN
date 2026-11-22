@@ -229,11 +229,13 @@
             border-bottom: 1px solid var(--border-color);
             flex-shrink: 0;
         }
-        .search { position: relative; display: inline-flex; align-items: center; }
+        /* The search box is 300 px wide while the row has room, and gives up to 100 px of it before the toolbar takes a second
+           row (as when the Unmatched leaves button shows): it takes the row's free space before the spacer does. */
+        .search { position: relative; display: inline-flex; align-items: center; flex: 1000 1 200px; max-width: 300px; }
         .search .icon { position: absolute; left: 9px; color: var(--text-subtle); }
         .search input {
             min-height: 30px;
-            width: 300px;
+            width: 100%;
             padding: 0 30px 0 30px;
             font-family: var(--font-family);
             font-size: 13px;
@@ -404,13 +406,16 @@
         .legend-row:hover .name, .legend-row:focus-visible .name { white-space: normal; overflow-wrap: anywhere; }
         .legend-row .count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
 
-        /* The legend of the split stability dots, at the foot of the drawing */
+        /* The legend of the split stability dots, at the foot of the drawing. Its button stays at the foot and the legend
+           opens above it, so that the button does not move from under the pointer that opens and closes it. */
         .support-legend {
             position: absolute;
             z-index: 4;
             bottom: 12px;
             right: 28px;
             width: 230px;
+            display: flex;
+            flex-direction: column-reverse;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-card);
             background-color: var(--bg-card);
@@ -444,7 +449,7 @@
         }
         .support-legend .head[aria-pressed="true"]::before { background: var(--accent); border-color: var(--accent); }
         .support-legend .head:hover { color: var(--text-primary); }
-        .support-legend .body { padding: 0 10px 8px; }
+        .support-legend .body { padding: 8px 10px 0; }
         .support-legend .ramp { display: flex; height: 8px; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden; }
         .support-legend .ramp span { flex: 1; }
         .support-legend .ends { display: flex; justify-content: space-between; margin: 2px 0 6px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
@@ -570,7 +575,7 @@
             pointer-events: none;
         }
 
-        /* The card of the trees a file holds, and of how an opened tree matched the network */
+        /* The card of the trees a file holds, the card of the leaves and nodes the warnings count, and the lists to copy */
         .empty-card select#empty-choice {
             width: 100%;
             margin: 0 0 12px;
@@ -591,12 +596,11 @@
         /* A card takes the focus when it opens (and gives it back when it closes): its ring shows for the keyboard only. */
         .details:focus { outline: 2px solid transparent; }
         .details:focus-visible { box-shadow: var(--shadow-dialog), 0 0 0 2px var(--accent); }
-        .report .step-list { margin: 0 0 6px; padding: 0; list-style: none; font-size: 12px; color: var(--text-soft); }
         .report-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; font-size: 12px; }
         .report-lists h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
         .report-lists ul { margin: 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-soft); overflow-wrap: anywhere; }
         .report-lists li { padding: 1px 0; }
-        .report textarea, .empty-card textarea {
+        .details textarea, .empty-card textarea {
             width: 100%;
             box-sizing: border-box;
             height: 110px;
@@ -667,8 +671,6 @@
             </label>
             <button class="btn" id="open-tree-btn"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a tree file</span></button>
             <input type="file" id="file-input" hidden aria-label="Open a tree file">
-            <!-- In the header, beside the Tree list, so that the toolbar keeps one row. -->
-            <button class="btn" id="report-btn" title="How the leaves of the opened tree matched the nodes of the network" aria-expanded="false" aria-controls="match-report" hidden disabled><span data-i18n>Match</span></button>
             <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
@@ -698,6 +700,8 @@
         <span class="divider"></span>
         <button class="btn" id="unfold-btn" title="Open every clade that is folded up" disabled><span data-i18n>Open all</span></button>
         <button class="btn" id="overview-btn" aria-pressed="true" title="Show or hide the overview map" disabled><span data-i18n>Overview</span></button>
+        <!-- Only for a tree with leaves that are not nodes of the network (tree_session.js showUnmatchedControl). -->
+        <button class="btn" id="unmatched-btn" aria-pressed="true" title="Show the leaves that are not nodes of this network, faded, or leave them out of the tree" hidden disabled><span data-i18n>Unmatched leaves</span></button>
         <button class="btn" id="fit-btn" title="Show the whole tree (Home)" disabled><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg><span data-i18n>Fit</span></button>
         <button class="btn" id="details-btn" title="How this tree was made, and how it fits the alignment and the network" aria-expanded="false" aria-controls="details" disabled><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Details</span></button>
     </div>
@@ -730,7 +734,6 @@
         </aside>
         <div class="tooltip" id="tooltip" role="tooltip"></div>
         <div class="details" id="details" tabindex="-1" role="region" aria-labelledby="details-title"></div>
-        <div class="details report" id="match-report" tabindex="-1" role="region" aria-label="How the opened tree matched the network"></div>
         <div class="details report" id="mismatch-card" tabindex="-1" role="region" aria-label="The leaves and nodes the warnings count"></div>
         <div class="loading" id="loading"><span data-i18n>Loading the tree...</span></div>
         <div class="empty" id="empty">

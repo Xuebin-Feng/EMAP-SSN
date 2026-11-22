@@ -6,9 +6,9 @@
  * has the focus. The page reads the text with the reader copied from Cladewise (tree_read.js and its two companions: Newick,
  * NEXUS, PhyloXML, NeXML and JSON), asks which tree when a file holds several, and sends the tree to the Viewer
  * (/api/tree/upload, the tree_upload action), which checks everything, matches the leaves to the network's nodes by full
- * sequence name, and keeps the tree for the session. What it answers is drawn as any other tree, and the card of how the
- * leaves matched is shown. A tree none of whose leaves is a node of the network is not drawn: the card shows a few names of
- * the tree beside a few headers of the network instead.
+ * sequence name, and keeps the tree for the session. What it answers is drawn as any other tree, and the Details panel,
+ * which says how the leaves matched, is shown. A tree none of whose leaves is a node of the network is not drawn: a card
+ * shows a few names of the tree beside a few headers of the network instead.
  *
  * The Viewer sends facts, never sentences: a note on a refusal, counts on a match. Every word shown is written here, through
  * t(). A name, a header or the file's own words are shown as text, never as markup.
@@ -82,7 +82,7 @@ window.TreeView = window.TreeView || {};
         });
     }
 
-    // ---- The report of the match ------------------------------------------------------------------------------
+    // ---- The leaves that matched no node ----------------------------------------------------------------------
 
     // The names of the leaves that are no node of the network, in the tree's order.
     function unmatchedNames(model) {
@@ -102,71 +102,11 @@ window.TreeView = window.TreeView || {};
         return list;
     }
 
-    function countLine(text) {
-        const item = document.createElement("li");
-        item.textContent = text;
-        return item;
-    }
-
-    // The card of how the leaves of the opened tree matched the nodes of the network: the counts, which step matched how
-    // many, the network's nodes the tree has no leaf for, and the leaves that matched no node, as a list to copy.
-    function fillReport(panel, model) {
-        const match = model.match;
-        panel.replaceChildren();
-        panel.appendChild(TV.cardHead("match-report", t("How the tree matched the network")));
-
-        const summary = document.createElement("p");
-        summary.className = "note";
-        summary.textContent = t("{matched} of the {leaves} leaves of {file} are nodes of this network.", {
-            matched: match.matched.toLocaleString(), leaves: match.leaves.toLocaleString(), file: model.uploaded.file,
-        });
-        panel.appendChild(summary);
-        const steps = document.createElement("ul");
-        steps.className = "step-list";
-        steps.append(
-            countLine(t("Matched by the exact full name: {count}", { count: match.exact.toLocaleString() })),
-            countLine(t("Matched by the name after the Viewer's header rules: {count}", { count: match.sanitized.toLocaleString() })),
-            countLine(t("Leaves that are not in the network: {count}", { count: match.unmatched.toLocaleString() })),
-            countLine(t("Nodes of the network that are not in the tree: {count}", { count: match.network_nodes_not_in_tree.toLocaleString() })),
-        );
-        if (match.ambiguous) {
-            steps.appendChild(countLine(t("Leaves whose name reaches a node that another leaf has too, left unmatched: {count}", { count: match.ambiguous.toLocaleString() })));
-        }
-        panel.appendChild(steps);
-
-        if (match.unmatched) {
-            const names = unmatchedNames(model);
-            const subtitle = document.createElement("div");
-            subtitle.className = "group-title";
-            subtitle.textContent = t("Leaves that are not in the network");
-            const box = document.createElement("textarea");
-            box.readOnly = true;
-            box.setAttribute("aria-label", t("Leaves that are not in the network"));
-            box.value = names.slice(0, LISTED).join("\n") + (names.length > LISTED ? "\n" + t("... and {count} more", { count: (names.length - LISTED).toLocaleString() }) : "");
-            const copy = document.createElement("button");
-            copy.type = "button";
-            copy.className = "btn";
-            copy.id = "report-copy";
-            copy.appendChild(TV.icon("copy"));
-            const label = document.createElement("span");
-            label.textContent = t("Copy the list");
-            copy.appendChild(label);
-            copy.addEventListener("click", () => TV.copyText(names.join("\n"), copy));
-            panel.append(subtitle, box, copy);
-        }
-    }
-
-    // Show the card of the match, or take it away. opener: the button that asked, which takes the focus into the card.
-    TV.showReport = function (on, opener) {
-        const panel = $("match-report");
-        if (!on || !state.model || !state.model.match || !state.model.uploaded) {
-            panel.classList.remove("shown");
-            return;
-        }
-        $("details").classList.remove("shown");
-        TV.showMismatch(false);
-        fillReport(panel, state.model);
-        TV.openCard("match-report", opener);
+    // The leaves of an opened tree that matched no node of the network, as a list to copy, at the end of what the Details
+    // panel says of how the tree fits (nothing when every leaf matched).
+    TV.addUnmatchedList = function (panel, model) {
+        const names = unmatchedNames(model);
+        if (names.length) mismatchList(panel, t("Leaves that are not in the network"), names);
     };
 
     // ---- The leaves and nodes the banner's warnings count ----------------------------------------------------------
@@ -255,7 +195,6 @@ window.TreeView = window.TreeView || {};
             return;
         }
         $("details").classList.remove("shown");
-        $("match-report").classList.remove("shown");
         TV.openCard("mismatch-card", opener);
         loadMismatch();
     };
@@ -368,7 +307,8 @@ window.TreeView = window.TreeView || {};
             return false;
         }
         const shown = TV.applyPayload(result.state);
-        if (shown) TV.showReport(true);
+        // The Details panel says how the leaves matched: it opens after an opening, not at every load.
+        if (shown) TV.openDetails();
         TV.lastOpening = { read: read - started, answered: answered - read, drawn: performance.now() - answered };
         return shown;
     };

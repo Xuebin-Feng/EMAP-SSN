@@ -769,6 +769,27 @@ class TooltipAndPinTests(TreeCase):
             return {whileHidden, afterShown, again: frames};""")
         self.assertEqual((found["whileHidden"], found["afterShown"], found["again"]), (0, 1, 1))
 
+    def test_what_the_viewer_sends_while_the_page_is_hidden_is_drawn_once_when_it_is_seen_again(self):
+        # The colours and the tree can come at any time: a page behind others draws them when it is seen, not when they come.
+        found = self.script("""
+            let hidden = true;
+            Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
+            const real = TreeView.drawNow; let frames = 0;
+            TreeView.drawNow = function () { frames++; return real.apply(this, arguments); };
+            // The tree is drawn, then its colours, each followed by the legend: the second legend is the colours applied.
+            const legend = TreeView.showLegend; let legends = 0;
+            TreeView.showLegend = function () { legends++; return legend.apply(this, arguments); };
+            const shown = await TreeView.loadTree();
+            for (let wait = 0; wait < 250 && legends < 2; wait++) await new Promise((resolve) => setTimeout(resolve, 20));
+            const coloured = legends >= 2;
+            const whileHidden = frames;
+            hidden = false;
+            document.dispatchEvent(new Event('visibilitychange'));
+            const afterShown = frames;
+            TreeView.drawNow = real; TreeView.showLegend = legend; delete document.hidden;
+            return {shown, coloured, whileHidden, afterShown};""")
+        self.assertEqual(found, {"shown": True, "coloured": True, "whileHidden": 0, "afterShown": 1})
+
     @staticmethod
     def below(tree, node):
         """A boolean array over nodes: which are in the subtree of ``node`` (post-order: its block of nodes)."""

@@ -412,8 +412,8 @@ window.TreeView = window.TreeView || {};
         const ink = (cls) => TV.inkOf(colors, palette, cls);
         // A leaf is drawn as part of the network when it is a node of it and, with colours, is not hidden.
         const shownLeaf = (k) => viewerNode[k] >= 0 && (!colors || colors.leafClass[k] !== NO);
-        // A tiny clade is a line, in the bucket of its thickness (to the half pixel, one to three) and its colour: one
-        // stroke for each.
+        // A tiny clade is a line, in the bucket of its thickness (to the half pixel, one to three) and the colour most of
+        // its shown leaves have (TV.cladeTop): one stroke for each. It is grey only without colours, or with no leaf shown.
         const marks = new Map();
         const snap = TV.snapFor(layout);
 
@@ -432,7 +432,7 @@ window.TreeView = window.TreeView || {};
         };
         const markOf = (i) => {
             const width = Math.min(3, Math.max(1, Math.round(layout.thickness(i, sx, sy) * 2) / 2));
-            const cls = nodeClass ? nodeClass[i] : NO;
+            const cls = colors ? TV.cladeTop(colors, model, i) : NO;
             const key = width * 2 * 65536 + cls;
             let entry = marks.get(key);
             if (!entry) marks.set(key, entry = { path: new Path2D(), width, cls });

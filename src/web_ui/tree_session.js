@@ -101,16 +101,15 @@ window.TreeView = window.TreeView || {};
         $("loading").classList.toggle("shown", which === "loading");
         $("empty").classList.toggle("shown", which === "empty");
         const hasTree = which === "tree";
-        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn", "report-btn"]) setDisabled(id, !hasTree);
+        for (const id of ["search-input", "fit-btn", "details-btn", "layout-select", "overview-btn"]) setDisabled(id, !hasTree);
         showSupportControl(hasTree);
         $("minimap").hidden = !hasTree || !overviewOn;
         if (!hasTree) {
             for (const id of ["search-prev", "search-next", "phylogram-btn", "cladogram-btn", "unfold-btn"]) setDisabled(id, true);
-            // Nothing is drawn, so nothing is matched: the button of the match's card waits for a tree the user opened.
-            $("report-btn").hidden = true;
+            $("unmatched-btn").hidden = true;
+            setDisabled("unmatched-btn", true);
             $("search-count").textContent = "";
             $("details").classList.remove("shown");
-            $("match-report").classList.remove("shown");
             if ($("mismatch-card").classList.contains("shown")) reopenMismatch = true;
             TV.showMismatch(false);
             $("banner").classList.remove("shown");
@@ -162,7 +161,7 @@ window.TreeView = window.TreeView || {};
         $("empty-open-label").textContent = spec.open || "";
         $("empty-retry").querySelector("span").textContent = spec.retry || retryLabel;
         show("empty");
-        TV.drawNow();
+        TV.drawIfSeen();
         if (spec.choices) choice.focus();
     }
     TV.showCard = showEmpty;
@@ -326,16 +325,66 @@ window.TreeView = window.TreeView || {};
             state.current = -1;
         }
         // What the search found is found again among the leaves that are left.
-        if (TV.applyRemoved(TV.removedLeaves(colors))) {
+        const unmatchedBefore = state.unmatchedOut;
+        if (TV.applyRemoved(leftOutLeaves())) {
             if (state.query) showSearch(TV.runSearch(state.query));
             showLayoutControls();
         }
+        if (state.unmatchedOut !== unmatchedBefore) showBanner();
         TV.showLegend();
         if (state.pinned < 0) showPinned(-1);
         TV.minimapChanged();
-        TV.drawNow();
+        TV.drawIfSeen();
         // The neighbours of the selection depend on what the Viewer outlines, which a change of its colours can alter.
         if (marksBefore !== "null" && marksBefore !== JSON.stringify(state.marks)) TV.loadSelection();
+    }
+
+    // How many leaves of a tree are not nodes of the network.
+    function unmatchedIn(model) {
+        return model.leafCount - model.shownBefore[model.leafCount];
+    }
+
+    // The leaves the layout leaves out (1 for each), or null for none: those whose nodes the Viewer has hidden and, while
+    // the Unmatched leaves button is off, those that are not nodes of the network. Were no leaf left, only the hidden ones
+    // are left out, as TV.removedLeaves has them. Sets state.unmatchedOut to whether the leaves that are not nodes of the
+    // network are left out.
+    function leftOutLeaves() {
+        const model = state.model;
+        const hidden = TV.removedLeaves(state.colors);
+        state.unmatchedOut = false;
+        if (!model || state.showUnmatched || !unmatchedIn(model)) return hidden;
+        const removed = hidden ? hidden.slice() : new Uint8Array(model.leafCount);
+        let left = 0;
+        for (let k = 0; k < model.leafCount; k++) {
+            if (model.viewerNode[k] < 0) removed[k] = 1;
+            else if (!removed[k]) left++;
+        }
+        if (!left) return hidden;
+        state.unmatchedOut = true;
+        return removed;
+    }
+
+    // The button that shows the leaves that are not nodes of the network, faded, or leaves them out (pressed while they
+    // are shown, as Overview is while the map is): only for a tree that has some, and leaves of the network besides.
+    function showUnmatchedControl() {
+        const model = state.model;
+        const count = model ? unmatchedIn(model) : 0;
+        const button = $("unmatched-btn");
+        button.hidden = !(count > 0 && count < model.leafCount);
+        button.setAttribute("aria-pressed", String(state.showUnmatched));
+        setDisabled(button, button.hidden);
+    }
+
+    // Lay the tree out again without the leaves that are left out now, and say so where the page counts them.
+    function applyLeftOut() {
+        if (TV.applyRemoved(leftOutLeaves())) {
+            if (state.query) showSearch(TV.runSearch(state.query));
+            showLayoutControls();
+        }
+        showBanner();
+        if (state.pinned < 0) showPinned(-1);
+        TV.minimapChanged();
+        TV.drawNow();
     }
 
     // Ask the Viewer for the colours of the network. A change that comes while one is asked for is asked for after.
@@ -405,7 +454,9 @@ window.TreeView = window.TreeView || {};
             case "alignment_older":
                 return t("The loaded alignment is older than this tree, so the alignment step of the run that made the tree may not have finished.");
             case "leaves_not_in_network":
-                return t("Leaves that are not nodes of this network: {count}. They are drawn faded.", { count: Number(warning.count).toLocaleString() });
+                return state.unmatchedOut
+                    ? t("Leaves that are not nodes of this network: {count}. They are left out.", { count: Number(warning.count).toLocaleString() })
+                    : t("Leaves that are not nodes of this network: {count}. They are drawn faded.", { count: Number(warning.count).toLocaleString() });
             case "network_nodes_not_in_tree":
                 return t("Nodes of this network that are not leaves of the tree: {count}.", { count: Number(warning.count).toLocaleString() });
             case "leaves_not_in_alignment":
@@ -611,7 +662,9 @@ window.TreeView = window.TreeView || {};
             shown: model.counts.leaves_in_network.toLocaleString(),
         });
         const hidden = state.colors ? state.colors.removedCount : 0;
-        const shown = hidden ? counts + " · " + t("{count} hidden in the network, left out", { count: hidden.toLocaleString() }) : counts;
+        const unmatched = state.unmatchedOut ? unmatchedIn(model) : 0;
+        let shown = hidden ? counts + " · " + t("{count} hidden in the network, left out", { count: hidden.toLocaleString() }) : counts;
+        if (unmatched) shown += " · " + t("{count} not in this network, left out", { count: unmatched.toLocaleString() });
         const selection = state.selection;
         if (!selection.count) return shown;
         const chosen = selection.leaves.length;
@@ -770,13 +823,13 @@ window.TreeView = window.TreeView || {};
 
     // ---- The cards ---------------------------------------------------------------------------------------------
 
-    // The three cards over the drawing (Details, the match of an opened tree, the leaves and nodes the warnings count), each
-    // opened by a button of the page; at most one is open. A card opened by its button takes the focus (the card itself,
+    // The two cards over the drawing (Details, and the leaves and nodes the warnings count), each opened by a button of
+    // the page; at most one is open. A card opened by its button takes the focus (the card itself,
     // which says its name: the lists inside are filled in again as the Viewer answers), and closing it with its Close button,
     // its button or Esc gives the focus back to what opened it, else to the drawing. A card the page opens or closes of
     // itself (a tree that was loaded, another card taking its place) moves no focus.
-    const CARDS = ["details", "match-report", "mismatch-card"];
-    const CARD_BUTTONS = { "details": "details-btn", "match-report": "report-btn", "mismatch-card": "mismatch-btn" };
+    const CARDS = ["details", "mismatch-card"];
+    const CARD_BUTTONS = { "details": "details-btn", "mismatch-card": "mismatch-btn" };
     const openers = {};
 
     // Each button says whether its card is open, whoever opened or closed the card.
@@ -796,6 +849,13 @@ window.TreeView = window.TreeView || {};
         if (opener) panel.focus({ preventScroll: true });
     };
 
+    // Open the Details panel in place of the other card. opener: the button that asked, which takes the focus into it; none
+    // when the page opens it of itself, after a tree is opened from a file (it says how the leaves matched).
+    TV.openDetails = function (opener) {
+        TV.closeCard("mismatch-card");
+        TV.openCard("details", opener);
+    };
+
     // Take the card `id` away. restoreFocus: the user closed it, so the focus goes back (unless it is already elsewhere on
     // the page, as when Esc is pressed on the drawing).
     TV.closeCard = function (id, restoreFocus) {
@@ -804,7 +864,6 @@ window.TreeView = window.TreeView || {};
         const active = document.activeElement;
         const held = !active || active === document.body || panel.contains(active);
         if (id === "details") panel.classList.remove("shown");
-        else if (id === "match-report") TV.showReport(false);
         else TV.showMismatch(false);
         syncCardButtons();
         const opener = openers[id];
@@ -938,8 +997,10 @@ window.TreeView = window.TreeView || {};
             [t("Matched by the exact name"), match.exact.toLocaleString()],
             [t("Matched by the name after the Viewer's header rules"), match.sanitized.toLocaleString()],
             [t("Leaves not in this network"), match.unmatched.toLocaleString()],
+            [t("Left unmatched because another leaf reaches the same node"), match.ambiguous ? match.ambiguous.toLocaleString() : undefined],
             [t("Network nodes not in the tree"), match.network_nodes_not_in_tree.toLocaleString()],
         ]);
+        TV.addUnmatchedList(panel, model);
         addTitle(t("About this tree"));
         const paragraph = document.createElement("p");
         paragraph.className = "note";
@@ -1026,9 +1087,11 @@ window.TreeView = window.TreeView || {};
         state.legendMark = null;
         state.legendRange = null;
         TV.resetFolds();
-        // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted.
+        // A rooted tree opens rectangular; an unrooted tree, or one that does not say, opens unrooted. The leaves that are
+        // not nodes of the network are left out from the start while the Unmatched leaves button is off.
         state.kind = TV.defaultLayoutKind(model);
-        state.layout = TV.layoutTree(model, state.kind, "lengths");
+        state.removed = leftOutLeaves();
+        state.layout = TV.layoutTree(model, state.kind, "lengths", state.removed);
         state.mode = state.layout.mode;
         TV.minimapChanged();
         state.hover = state.pinned = -1;
@@ -1039,19 +1102,17 @@ window.TreeView = window.TreeView || {};
         $("search-input").value = "";
         $("search-box").classList.remove("has-text");
         show("tree");
+        showUnmatchedControl();
         TV.fitView();
         showLayoutControls();
         showDetails(payload, model);
         showBanner();
         showPinned(-1);
         TV.showLegend();
-        // A tree the user opened has the report of its match; the card shows after an opening (tree_open.js), not at every load.
-        $("report-btn").hidden = !model.uploaded;
-        $("match-report").classList.remove("shown");
         // A card of the leaves and nodes the warnings count that is open follows the tree and the source now shown.
         if (reopenMismatch || $("mismatch-card").classList.contains("shown")) TV.showMismatch(true);
         reopenMismatch = false;
-        TV.drawNow();
+        TV.drawIfSeen();
         TV.loadColors();
         TV.loadSelection();
         return true;
@@ -1252,19 +1313,22 @@ window.TreeView = window.TreeView || {};
             $("minimap").hidden = !overviewOn;
             if (overviewOn) TV.requestDraw();
         });
+        // The choice holds for every tree the page shows until it closes.
+        $("unmatched-btn").addEventListener("click", () => {
+            state.showUnmatched = !state.showUnmatched;
+            $("unmatched-btn").setAttribute("aria-pressed", String(state.showUnmatched));
+            applyLeftOut();
+        });
         $("details-btn").addEventListener("click", () => {
             if ($("details").classList.contains("shown")) {
                 TV.closeCard("details", true);
                 return;
             }
-            TV.closeCard("match-report");
-            TV.closeCard("mismatch-card");
-            TV.openCard("details", $("details-btn"));
+            TV.openDetails($("details-btn"));
         });
         for (const id of CARDS) new MutationObserver(syncCardButtons).observe($(id), { attributes: true, attributeFilter: ["class"] });
         attachBanner();
         $("mismatch-btn").addEventListener("click", () => TV.showMismatch(!$("mismatch-card").classList.contains("shown"), $("mismatch-btn")));
-        $("report-btn").addEventListener("click", () => TV.showReport(!$("match-report").classList.contains("shown"), $("report-btn")));
         $("open-tree-btn").addEventListener("click", () => TV.chooseFile());
         $("legend-toggle").addEventListener("click", () => TV.toggleLegend());
         $("empty-retry").addEventListener("click", () => TV.loadTree());

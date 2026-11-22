@@ -51,8 +51,12 @@ window.TreeView = window.TreeView || {};
         // The colours the Viewer outlines its selected nodes and their neighbours in, as CSS colours, once it has said
         // ({ selected, connected }); null before.
         marks: null,
-        // The leaves (1 for each) the layout leaves out because the Viewer has hidden their nodes, or null for none.
+        // The leaves (1 for each) the layout leaves out, or null for none: those whose nodes the Viewer has hidden and, while
+        // the Unmatched leaves button is off (showUnmatched false), those that are not nodes of the network, which
+        // unmatchedOut says are among them.
         removed: null,
+        showUnmatched: true,
+        unmatchedOut: false,
         // Which tree is shown ("threshold", "guide" or "uploaded"), the trees the chooser offers, and the score the Viewer's threshold
         // slider is at (null for none): the cut line of a tree built from the network's scores is drawn there.
         source: "guide",
@@ -679,8 +683,16 @@ window.TreeView = window.TreeView || {};
     TV.requestDraw = function () {
         if (drawQueued) return;
         drawQueued = true;
-        requestAnimationFrame(() => { if (drawQueued) TV.drawNow(); });
+        requestAnimationFrame(() => { if (drawQueued && !document.hidden) TV.drawNow(); });
         setTimeout(() => { if (drawQueued && !document.hidden) TV.drawNow(); }, 100);
+    };
+
+    // Draw now, unless the page is behind others: then what changed is drawn once when it is seen again. For what the
+    // Viewer sends (a tree, its colours, the card that says why there is no tree), which can come at any time.
+    TV.drawIfSeen = function () {
+        if (!document.hidden) return TV.drawNow();
+        drawQueued = true;
+        return null;
     };
 
     // A page behind others draws nothing; what changed meanwhile is drawn once when it is seen again.
@@ -903,17 +915,20 @@ window.TreeView = window.TreeView || {};
                 lines.push(t("Cluster: {id}", { id: clusters[model.viewerNode[leaf]] }));
             }
         } else {
-            // While the Viewer hides nodes, a clade is the leaves that are shown, and the hidden ones are told apart.
+            // While leaves are left out, a clade is the leaves that are shown, and those left out are told apart: hidden in
+            // the network, or (while the Unmatched leaves button is off) not nodes of it.
             const layout = state.layout;
             const all = TV.leavesUnder(model, i);
             const count = layout && layout.shown ? layout.shown[i] : all;
-            const hidden = all - count;
+            const unmatched = state.unmatchedOut ? all - TV.shownUnder(model, i) : 0;
+            const hidden = all - count - unmatched;
             title = i === model.root ? t("The root of the tree") : t("A clade");
             // The number is the node's, which a command names: select #clade:N#.
             lines.push(t("Clade {number}", { number: i }));
             lines.push(t("Leaves in this clade: {count}", { count: count.toLocaleString() }));
             lines.push(t("Of them in this network: {count}", { count: (TV.shownUnder(model, i) - hidden).toLocaleString() }));
             if (hidden > 0) lines.push(t("Hidden in the network: {count}", { count: hidden.toLocaleString() }));
+            if (unmatched > 0) lines.push(t("Not in this network, left out: {count}", { count: unmatched.toLocaleString() }));
             if (model.support[i] >= 0) {
                 // A tree opened from a file has the support the file gives; the guide tree's is how stable the split is.
                 lines.push(model.source === "uploaded"

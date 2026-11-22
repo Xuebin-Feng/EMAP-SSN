@@ -1645,6 +1645,23 @@ class StabilityOfTheSplitsTests(TreePageMixin, unittest.TestCase):
         self.js("document.getElementById('support-btn').click(); 1")
         self.assertEqual(self.state("TreeView.drawNow().supports"), 0)
 
+    def test_the_button_stays_under_the_pointer_and_the_legend_opens_above_it(self):
+        # Opening and closing is one click after another at the same place: the button does not move.
+        self.start()
+        where = """(() => { const b = document.getElementById('support-btn').getBoundingClientRect(),
+            body = document.getElementById('support-body').getBoundingClientRect();
+            return {button: [b.left, b.top, b.width, b.height], bodyBottom: body.bottom, bodyHeight: body.height}; })()"""
+        closed = self.state(where)
+        self.js("document.getElementById('support-btn').click(); 1")
+        opened = self.state(where)
+        self.js("document.getElementById('support-btn').click(); 1")
+        again = self.state(where)
+        self.assertGreater(opened["bodyHeight"], 20)
+        for before, after in ((closed, opened), (opened, again)):
+            for a, b in zip(before["button"], after["button"]):
+                self.assertAlmostEqual(a, b, places=3)
+        self.assertLessEqual(opened["bodyBottom"], opened["button"][1] + 0.5)
+
     def test_a_dot_is_drawn_on_each_clade_that_has_room_and_a_value_and_nowhere_else(self):
         self.start()
         self.js("TreeView.state.showSupport = true; 1")

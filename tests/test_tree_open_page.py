@@ -274,9 +274,8 @@ class OpeningTests(OpenCase):
         self.assertEqual(self.state("TreeView.state.source"), "uploaded")
         after = self.opened()
         self.assertEqual((after["file"], after["labels"], after["matched"]), ("kept.nwk", before["labels"], before["matched"]))
-        # The page does not show the card of the match again: that is for an opening.
-        self.assertFalse(self.state("document.getElementById('match-report').classList.contains('shown')"))
-        self.assertFalse(self.state("document.getElementById('report-btn').hidden"))
+        # The page does not open the Details panel again: that is for an opening.
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
         self.assertEqual(self.state("document.getElementById('source-select').value"), "uploaded")
 
     def test_opening_another_tree_replaces_the_first_and_all_three_sources_can_be_switched_between(self):
@@ -321,17 +320,24 @@ class OpeningTests(OpenCase):
         self.assertFalse(hasattr(self.viewer, "_tree_upload"))
 
     def test_what_is_hidden_is_not_drawn(self):
-        # The button of the match's card is for a tree that was opened; a card with no path to copy has no box for one.
+        # The Unmatched leaves button is for a tree with leaves that are not nodes of the network; a card with no path to
+        # copy has no box for one.
         self.start()
         shown = "(el) => getComputedStyle(document.getElementById(el)).display"
-        self.assertEqual(self.state(f"({shown})('report-btn')"), "none")
+        self.assertEqual(self.state(f"({shown})('unmatched-btn')"), "none")
         self.script("return await TreeView.loadTree('uploaded')")
         self.wait_for("document.body.dataset.view === 'empty'")
         self.assertEqual(self.state(f"({shown})('empty-path')"), "none")
-        self.assertEqual(self.state(f"({shown})('report-btn')"), "none")
+        self.assertEqual(self.state(f"({shown})('unmatched-btn')"), "none")
         self.open_text(text_of("primates.nwk"), "shown.nwk")
         self.wait_uploaded()
-        self.assertNotEqual(self.state(f"({shown})('report-btn')"), "none")
+        self.assertEqual(self.state(f"({shown})('unmatched-btn')"), "none")
+        self.open_text("((Alpha:1,Beta:1):1,(Gamma:1,Nobody_here:1):1);", "partly.nwk")
+        self.wait_for("TreeView.state.source === 'uploaded' && TreeView.state.model.uploaded.file === 'partly.nwk'")
+        self.assertNotEqual(self.state(f"({shown})('unmatched-btn')"), "none")
+        # The Match button is gone: Details says how the leaves matched.
+        self.assertIsNone(self.state("document.getElementById('report-btn')"))
+        self.assertIsNone(self.state("document.getElementById('match-report')"))
 
     def test_the_tree_view_with_no_tree_opened_offers_to_open_one(self):
         self.start()
@@ -379,28 +385,37 @@ class MultipleTreesTests(OpenCase):
 
 
 class ReportTests(OpenCase):
-    def test_the_card_of_the_match_follows_an_opening_and_counts_what_matched_how(self):
+    # What the Details panel says of how an opened tree fits: its rows, as "name: value", and the list of leaves to copy.
+    FITS = """(() => { const panel = document.getElementById('details');
+        const rows = [...panel.querySelectorAll('dt')].map(dt => dt.textContent + ': ' + dt.nextElementSibling.textContent);
+        const box = panel.querySelector('textarea');
+        const copy = panel.querySelector('button.mismatch-copy');
+        return {shown: panel.classList.contains('shown'), rows, box: box ? box.value : null, copy: copy ? copy.textContent.trim() : null,
+                titles: [...panel.querySelectorAll('.group-title')].map(e => e.textContent)}; })()"""
+
+    def test_details_opens_after_an_opening_and_counts_what_matched_how(self):
         headers = list(NETWORK)
         self.start(headers=headers)
         # Homo sapiens by the rules, the others exactly, one leaf the network does not have.
         text = "(('Homo sapiens':1,Pan_troglodytes:1):1,(Mus_musculus:1,Nobody_here:1):1,Bos_taurus:2);"
         self.open_text(text, "report.nwk")
         self.wait_uploaded()
-        self.wait_for("document.getElementById('match-report').classList.contains('shown')")
-        found = self.state("""({text: document.getElementById('match-report').textContent,
-            box: document.querySelector('#match-report textarea').value, copy: !!document.getElementById('report-copy'),
-            button: !document.getElementById('report-btn').hidden && !document.getElementById('report-btn').disabled})""")
-        for words in ("4 of the 5 leaves of report.nwk are nodes of this network.", "Matched by the exact full name: 3",
-                      "Matched by the name after the Viewer's header rules: 1", "Leaves that are not in the network: 1",
-                      f"Nodes of the network that are not in the tree: {len(headers) - 4}"):
-            self.assertIn(words, found["text"])
-        self.assertEqual(found["box"], "Nobody_here")
-        self.assertTrue(found["copy"] and found["button"])
-        # The card closes, and the Match button brings it back.
-        self.script("document.querySelector('#match-report .head button').click(); return 1")
-        self.assertFalse(self.state("document.getElementById('match-report').classList.contains('shown')"))
-        self.script("document.getElementById('report-btn').click(); return 1")
-        self.assertTrue(self.state("document.getElementById('match-report').classList.contains('shown')"))
+        self.wait_for("document.getElementById('details').classList.contains('shown')")
+        found = self.state(self.FITS)
+        for row in ("File: report.nwk", "Leaves: 5", "Leaves in this network: 4", "Matched by the exact name: 3",
+                    "Matched by the name after the Viewer's header rules: 1", "Leaves not in this network: 1",
+                    f"Network nodes not in the tree: {len(headers) - 4}"):
+            self.assertIn(row, found["rows"])
+        # No leaf shares a node here, so there is no row for that.
+        self.assertFalse(any(row.startswith("Left unmatched") for row in found["rows"]))
+        self.assertIn("Leaves that are not in the network", found["titles"])
+        self.assertEqual((found["box"], found["copy"]), ("Nobody_here", "Copy the list"))
+        # Opened by the page of itself, it leaves the focus where it was; it closes, and Details brings it back.
+        self.assertNotEqual(self.state("document.activeElement && document.activeElement.id"), "details")
+        self.script("document.querySelector('#details .head button').click(); return 1")
+        self.assertFalse(self.state(self.FITS)["shown"])
+        self.script("document.getElementById('details-btn').click(); return 1")
+        self.assertTrue(self.state(self.FITS)["shown"])
         self.assertEqual(self.console_errors(), [])
         self.shot("report-card.png")
 
@@ -411,10 +426,14 @@ class ReportTests(OpenCase):
             const header = document.querySelector('header').getBoundingClientRect().height;
             return {tops: Array.from(tops), width: window.innerWidth, header}; })()"""
         self.assertEqual(self.state("window.innerWidth"), 1300)
+        partly = "((Alpha:1,Beta:1):1,(Gamma:1,Nobody_here:1):1);"
         for label, action in (
             ("guide", lambda: None),
             ("threshold", lambda: self.script("await TreeView.loadTree('threshold'); return 1")),
             ("uploaded", lambda: (self.open_text(text_of("primates.nwk"), "p.nwk"), self.wait_uploaded())),
+            # The Unmatched leaves button shows: the search box gives up some of its width.
+            ("unmatched leaves", lambda: (self.open_text(partly, "partly.nwk"),
+                                          self.wait_for("TreeView.state.model && TreeView.state.model.uploaded && TreeView.state.model.uploaded.file === 'partly.nwk'"))),
             ("empty", lambda: (self.open_text(">x\nAC", "x.fa"), self.wait_for("document.body.dataset.view === 'empty'"))),
         ):
             with self.subTest(label):
@@ -422,8 +441,12 @@ class ReportTests(OpenCase):
                 self.pump(0.3)
                 found = self.state(rows)
                 self.assertEqual(len(found["tops"]), 1, found)
-        # With a tree open the Match button is in the header, beside the Tree list.
-        self.assertEqual(self.state("document.getElementById('report-btn').closest('header') !== null"), True)
+                if label == "unmatched leaves":
+                    self.assertFalse(self.state("document.getElementById('unmatched-btn').hidden"))
+                    self.assertLess(self.state("document.getElementById('search-box').getBoundingClientRect().width"), 300)
+                elif label != "empty":
+                    # With room to spare, the search box is as wide as it was.
+                    self.assertEqual(self.state("Math.round(document.getElementById('search-box').getBoundingClientRect().width)"), 300)
 
     def test_the_list_of_leaves_that_are_not_in_the_network_is_copyable_whole(self):
         self.start()
@@ -431,14 +454,15 @@ class ReportTests(OpenCase):
         newick = "(" + ",".join(f"{name}:1" for name in names) + ",Alpha:1,Beta:1);"
         self.open_text(newick, "many.nwk")
         self.wait_uploaded()
-        self.wait_for("document.getElementById('match-report').classList.contains('shown')")
+        self.wait_for("document.getElementById('details').classList.contains('shown')")
         found = self.script("""
             let copied = null;
             Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: (text) => { copied = text; return Promise.resolve(); }}});
-            const box = document.querySelector('#match-report textarea').value.split('\\n');
-            document.getElementById('report-copy').click();
+            const box = document.querySelector('#details textarea').value.split('\\n');
+            const copy = document.querySelector('#details button.mismatch-copy');
+            copy.click();
             await new Promise((resolve) => setTimeout(resolve, 100));
-            return {lines: box.length, last: box[box.length - 1], copied: copied.split('\\n').length, button: document.getElementById('report-copy').textContent.trim()};""")
+            return {lines: box.length, last: box[box.length - 1], copied: copied.split('\\n').length, button: copy.textContent.trim()};""")
         self.assertEqual(found["copied"], len(names))
         self.assertEqual(found["button"], "Copied")
         # The box lists 5,000 and says how many more; the copy has every one.
@@ -448,9 +472,11 @@ class ReportTests(OpenCase):
         self.start()
         self.open_text(text_of("primates.nwk"), "all.nwk")
         self.wait_uploaded()
-        self.wait_for("document.getElementById('match-report').classList.contains('shown')")
-        self.assertEqual(self.state("document.querySelector('#match-report textarea')"), None)
-        self.assertIn("5 of the 5 leaves", self.state("document.getElementById('match-report').textContent"))
+        self.wait_for("document.getElementById('details').classList.contains('shown')")
+        found = self.state(self.FITS)
+        self.assertIsNone(found["box"])
+        self.assertIn("Leaves in this network: 5", found["rows"])
+        self.assertIn("Leaves not in this network: 0", found["rows"])
 
     def test_two_names_that_reach_one_node_are_left_unmatched_and_counted(self):
         self.start()
@@ -461,6 +487,9 @@ class ReportTests(OpenCase):
         self.assertEqual(found["unmatched"], 1)
         self.assertIn("ambiguous_names", found["warnings"])
         self.assertIn("left unmatched: 1", self.state("document.getElementById('banner').textContent"))
+        # Details counts them on a row of their own.
+        self.wait_for("document.getElementById('details').classList.contains('shown')")
+        self.assertIn("Left unmatched because another leaf reaches the same node: 1", self.state(self.FITS)["rows"])
 
     def test_with_no_match_at_all_the_tree_is_not_shown_and_names_stand_beside_headers(self):
         self.start()
@@ -895,7 +924,7 @@ class AnnouncementTests(BannerCase):
             const box = line.getBoundingClientRect();
             return {role: line.getAttribute('role'), live: line.getAttribute('aria-live'), small: box.width <= 1 && box.height <= 1,
                 banner: document.getElementById('banner').getAttribute('role'),
-                cards: ['match-report', 'mismatch-card'].map(id => document.getElementById(id).getAttribute('role')),
+                cards: ['details', 'mismatch-card'].map(id => document.getElementById(id).getAttribute('role')),
                 regions: document.querySelectorAll('[role=status]').length};""")
         self.assertEqual((found["role"], found["live"], found["small"], found["banner"], found["regions"]), ("status", "polite", True, None, 1))
         self.assertNotIn("status", found["cards"])
@@ -1069,10 +1098,9 @@ class ShowDetailsTests(BannerCase):
 
     def test_a_card_takes_the_focus_when_its_button_opens_it_and_gives_it_back_when_it_closes(self):
         self.guide()
-        # The three buttons say which card they open and whether it is open.
+        # The two buttons say which card they open and whether it is open.
         self.assertEqual(self.state("""['details-btn', 'mismatch-btn'].map(id => { const b = document.getElementById(id);
             return [b.getAttribute('aria-controls'), b.getAttribute('aria-expanded')]; })"""), [["details", "false"], ["mismatch-card", "false"]])
-        self.assertEqual(self.state("document.getElementById('report-btn').getAttribute('aria-controls')"), "match-report")
         # The card of the warnings: the focus goes into it, its x gives it back to the button.
         self.script("document.getElementById('mismatch-btn').focus(); document.getElementById('mismatch-btn').click(); return 1")
         self.wait_card(2)
@@ -1122,16 +1150,16 @@ class ShowDetailsTests(BannerCase):
         self.assertTrue(self.state("document.getElementById('details').classList.contains('shown')"))
         self.assertEqual(self.active(), "tree-canvas")
 
-    def test_the_card_closes_the_card_of_the_match_and_the_match_closes_it(self):
+    def test_the_card_closes_the_details_an_opening_showed_and_details_closes_it(self):
         self.start()
         self.open_text("((Alpha:1,Beta:1):1,(Gamma:1,Nope:1):1,Nope2:1);", "odd.nwk")
         self.wait_uploaded()
-        self.wait_for("document.getElementById('match-report').classList.contains('shown')")
+        self.wait_for("document.getElementById('details').classList.contains('shown')")
         self.press()
         self.wait_for("document.getElementById('mismatch-card').classList.contains('shown')")
-        self.assertFalse(self.state("document.getElementById('match-report').classList.contains('shown')"))
-        self.script("document.getElementById('report-btn').click(); return 1")
-        self.assertTrue(self.state("document.getElementById('match-report').classList.contains('shown')"))
+        self.assertFalse(self.state("document.getElementById('details').classList.contains('shown')"))
+        self.script("document.getElementById('details-btn').click(); return 1")
+        self.assertTrue(self.state("document.getElementById('details').classList.contains('shown')"))
         self.assertFalse(self.card()["shown"])
         self.assertEqual(self.card()["expanded"], "false")
 
