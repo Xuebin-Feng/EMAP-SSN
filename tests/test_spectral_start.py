@@ -269,6 +269,55 @@ class DeterminismTests(unittest.TestCase):
         np.testing.assert_array_equal(eigsh.call_args.kwargs["v0"],
                                       rng.standard_normal(GRAPH[2]))
 
+    def test_arpack_restarts_on_symmetric_components_are_reproducible(self):
+        # Equal-weight cliques and stars exhaust ARPACK's Krylov space (ido == 4)
+        # and request a random restart vector. Seeding eigsh's rng from v0 keeps
+        # repeated runs bit-identical without advancing the caller's stream.
+        clique_5 = np.array([(a, b) for a in range(5) for b in range(a + 1, 5)], dtype=np.int32)
+        clique_6 = np.array([(a, b) for a in range(6) for b in range(a + 1, 6)], dtype=np.int32)
+        star_5 = np.array([(0, leaf) for leaf in range(1, 5)], dtype=np.int32)
+
+        # v0 = ones(6) is the exact trivial eigenvector of a regular 6-clique,
+        # forcing an ARPACK restart on every call.
+        ones_runs = [
+            Spectral_Start.spectral_axes(clique_6, np.ones(len(clique_6)), 6, 2, draw=np.ones)
+            for _ in range(5)
+        ]
+        for later in ones_runs[1:]:
+            np.testing.assert_array_equal(later, ones_runs[0])
+
+        for edges, nodes, dimensions in ((clique_5, 5, 2), (clique_5, 5, 3), (star_5, 5, 2)):
+            scores = np.ones(len(edges), dtype=np.float64)
+            for seed in range(20):
+                with self.subTest(nodes=nodes, edges=len(edges), dimensions=dimensions, seed=seed):
+                    rng_a = np.random.default_rng([seed, 0])
+                    rng_b = np.random.default_rng([seed, 0])
+                    first = Spectral_Start.spectral_axes(
+                        edges, scores, nodes, dimensions, draw=rng_a.standard_normal
+                    )
+                    second = Spectral_Start.spectral_axes(
+                        edges, scores, nodes, dimensions, draw=rng_b.standard_normal
+                    )
+                    np.testing.assert_array_equal(first, second)
+                    # Only v0 was drawn from the caller's Generator.
+                    reference = np.random.default_rng([seed, 0])
+                    reference.standard_normal(nodes)
+                    self.assertEqual(rng_a.standard_normal(), reference.standard_normal())
+
+    def test_arpack_omits_rng_when_eigsh_has_no_rng_parameter(self):
+        real_eigsh = scipy.sparse.linalg.eigsh
+        seen_kwargs = []
+
+        def legacy_eigsh(matrix, k=6, which="LM", tol=0, v0=None):
+            seen_kwargs.append({"k": k, "which": which, "tol": tol, "v0": v0})
+            return real_eigsh(matrix, k=k, which=which, tol=tol, v0=v0)
+
+        with mock.patch.object(scipy.sparse.linalg, "eigsh", legacy_eigsh):
+            axes, _ = solve(2, seed=7)
+        self.assertEqual(len(seen_kwargs), 1)
+        self.assertIsNotNone(seen_kwargs[0]["v0"])
+        self.assertEqual(axes.shape, (GRAPH[2], 2))
+
 
 class AggregationTests(unittest.TestCase):
     """The multigrid hierarchy: greedy aggregation, prolongators, coarse levels."""

@@ -24,6 +24,8 @@ squeeze the rest of a component into a dot.
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import os
 import sys
 from typing import Callable, Optional
@@ -402,11 +404,38 @@ def _lobpcg_axes(csr, root_degree, dimensions, start, amg=False):
     return vectors, None
 
 
+def _eigsh_accepts_rng(eigsh):
+    """Whether ``eigsh`` accepts SciPy 1.18's ``rng`` keyword (including wrapping mocks)."""
+    target = getattr(eigsh, "_mock_wraps", None) or eigsh
+    try:
+        return "rng" in inspect.signature(target).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _arpack_rng(v0):
+    """Generator for ARPACK restarts, derived from ``v0`` without advancing the caller's stream.
+
+    SciPy 1.18's ARPACK draws a fresh restart vector from ``rng`` whenever its Krylov
+    space runs out (``ido == 4``), as happens on small symmetric components such as
+    equal-weight cliques and stars. Leaving ``rng`` unset draws from OS entropy, making
+    seeded SSN layouts differ between runs. Seeding from ``v0`` leaves the job's own
+    stream untouched (so ordinary components stay bit-identical and a symmetric
+    component never shifts the components after it) while giving each component its own
+    reproducible restart stream.
+    """
+    digest = hashlib.sha256(np.ascontiguousarray(v0, dtype=np.float64).tobytes()).digest()
+    return np.random.default_rng(int.from_bytes(digest, "little"))
+
+
 def _arpack_axes(matrix, root_degree, dimensions, draw):
     from scipy.sparse.linalg import eigsh
 
     v0 = None if draw is None else draw(matrix.shape[0])
-    values, vectors = eigsh(matrix, k=dimensions + 1, which="SM", tol=1e-3, v0=v0)
+    kwargs = {"k": dimensions + 1, "which": "SM", "tol": 1e-3, "v0": v0}
+    if v0 is not None and _eigsh_accepts_rng(eigsh):
+        kwargs["rng"] = _arpack_rng(v0)
+    values, vectors = eigsh(matrix, **kwargs)
     return intended_axes(values, vectors, root_degree, dimensions)
 
 

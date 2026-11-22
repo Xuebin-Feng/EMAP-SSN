@@ -653,6 +653,36 @@ class DeterministicLayoutTests(unittest.TestCase):
         self.assertEqual(first.shape, (self.NODES, 3))
         np.testing.assert_array_equal(first, second)
 
+    def test_fixed_seed_is_reproducible_on_equal_score_cliques(self):
+        edges = []
+        node = 0
+        for _ in range(20):
+            for a in range(node, node + 5):
+                for b in range(a + 1, node + 5):
+                    edges.append((a, b, 100.0))
+            node += 5
+        connectivity = np.array(edges, dtype=np.float64)
+        devices = ["cpu"] + (["cuda:0"] if CUDA_AVAILABLE else [])
+        for device in devices:
+            for dimensions in (2, 3):
+                with self.subTest(device=device, dimensions=dimensions):
+                    params = {
+                        **BASE_LAYOUT_PARAMS,
+                        "MAX_STEPS": 25,
+                        "LAYOUT_DEVICE_SELECTION": device,
+                        "LAYOUT_SEED": 42,
+                        "LAYOUT_DIMENSIONS": dimensions,
+                    }
+                    runs = []
+                    for _ in range(3):
+                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                            positions, _ = ssn_engine.calculate_layout(
+                                connectivity, node, params
+                            )
+                        runs.append(np.asarray(positions))
+                    for later in runs[1:]:
+                        np.testing.assert_array_equal(later, runs[0])
+
     def test_3d_layouts_pack_into_voxels_with_the_chosen_geometry(self):
         for geometry in ("Square", "Circle"):
             with mock.patch.object(
