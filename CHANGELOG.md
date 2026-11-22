@@ -195,6 +195,18 @@ still change before version 1.0.0.
     or the alignment are shown as warnings. The warnings share one line under the controls,
     which rolls to show the rest while the pointer is over it, and Show Details at its end
     lists the leaves and nodes they count by full name, with a button that copies each list.
+    Details, Fit and Save an image are icon buttons at the right end of the toolbar.
+  - **A scale bar and Save an image:** a phylogram shows a scale bar at the foot of the
+    drawing, beside the overview map: a round length in the tree's own units (1, 2 or 5
+    times a power of ten, at most 120 px) that changes with the zoom. The camera button
+    between Fit and Details opens a card that saves the tree as it is in view as a PNG or an
+    SVG. The image is the page's own drawing in the light theme's colours, whatever the page
+    shows, without the overview map, the strip at the right edge or the pointer's highlight,
+    and with a transparent background if chosen. A band under the tree can hold the scale
+    bar, the colours of the leaves in view and the legend of the support dots. A PNG's size
+    is a percentage of the drawing's pixels on the screen, up to what a browser canvas can
+    hold; an SVG is lines and text that drawing programs can edit, with its colours written
+    as #rrggbb and an opacity. The file goes to the browser's downloads.
   - **With nothing to show** (no alignment, an alignment the Embedding MSA tool did not
     name, or no tree file), the page opens on a card that says why, and the command's
     result names the file it looked for.
