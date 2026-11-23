@@ -316,7 +316,7 @@ class FocusTests(ResidueTestCase):
         self.pin()
         self.settle(1800)
         # The autosave that follows holds the scene, not the pin.
-        self.script("document.querySelector('#color-body [data-coloring=\"builtin:structure\"]').click(); await structureQueue; return 1")
+        self.choose("builtin:structure")
         self.settle(1800)
         self.assertTrue(self.saved)
         for session in self.saved:

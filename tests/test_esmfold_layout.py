@@ -681,7 +681,8 @@ class ChipLayoutTests(LongNameTestCase):
                 self.assertGreater(bars.pop(), 0)
                 # The user's two layers share a row beside the canvas and in the drawer (as they did when no bar was there).
                 tops = {name: top for name, _, top, _, _ in first}
-                self.assertEqual(tops["builtin:structure"], tops["plddt"])
+                # (Structure color is under More colorings, in a row of its own, below pLDDT's.)
+                self.assertGreater(tops["builtin:structure"], tops["plddt"])
                 self.assertEqual(tops["information_content"], tops["same_residue_pct"], (width, tops))
 
     def test_the_same_in_simplified_chinese(self):

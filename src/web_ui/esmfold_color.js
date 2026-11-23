@@ -606,8 +606,7 @@ function renderColorBody(model) {
 
     const modelLabel = groupLabel(t("Model"));
     const modelChips = make('div', 'seg');
-    modelChips.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model, '', MODEL_CHIPS),
-                      colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS));
+    modelChips.append(colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS));
     const layersLabel = groupLabel(t("Layers"));
     const choices = layerChoices(model);
     if (filter) replaceAround(group, filter, [modelLabel, modelChips, layersLabel], choices ? [choices] : []);
@@ -644,7 +643,8 @@ function renderColorBody(model) {
         const more = make('div', 'seg more-colorings');
         more.setAttribute('role', 'radiogroup');
         more.setAttribute('aria-label', t("More colorings"));
-        more.append(colorChip(SECONDARY_COLORING, coloringLabel(SECONDARY_COLORING), model, '', MORE_CHIPS),
+        more.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model, '', MORE_CHIPS),
+                    colorChip(SECONDARY_COLORING, coloringLabel(SECONDARY_COLORING), model, '', MORE_CHIPS),
                     colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model, '', MORE_CHIPS));
         nodes.push(more);
     }

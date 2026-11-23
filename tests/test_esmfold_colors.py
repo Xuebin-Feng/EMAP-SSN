@@ -64,12 +64,20 @@ class ColorTestCase(StructuresTestCase):
         self.settle(200)
 
     def choose(self, coloring):
-        """Click the card's button for `coloring`, let the scene follow, and return the card."""
+        """Click the card's button for `coloring`, let the scene follow, and return the card.
+
+        The colorings under "More colorings" (Structure color, Secondary structure, Residue position) are
+        behind a button: it is opened first when their chip is not in the card.
+        """
         return self.script("""
+            if (!document.querySelector('#color-body [data-coloring="%s"]')) {
+                document.querySelector('#color-body .more-toggle').click();
+                await cardNow();
+            }
             document.querySelector('#color-body [data-coloring="%s"]').click();
             await structureQueue;
             return await cardNow();
-            """ % coloring)
+            """ % (coloring, coloring))
 
     def shown(self):
         """What each structure shows: its coloring id, its first theme's name and colour parameter, its row's chips."""
@@ -92,7 +100,7 @@ class SceneColoringTests(ColorTestCase):
         self.open_scene(A, B, C)
         card = self.script("return await cardNow()")
         self.assertEqual(card["chips"], [
-            ["builtin:structure", "Structure color", ""], ["plddt", "pLDDT", ""],
+            ["plddt", "pLDDT", ""],
             ["information_content", "Information Content", "2 of 3"], ["hydro", "Hydrophobicity", "1 of 3"]])
         self.assertEqual(card["selected"], "plddt")
         # The structure with no residue data says why, in the Viewer's words.
@@ -208,11 +216,10 @@ class SceneColoringTests(ColorTestCase):
         self.assertNotEqual(shown[0]["value"], shown[1]["value"])
         self.assertEqual(card["selected"], "builtin:structure")
         self.assertEqual(card["compact"]["shown"], "0")
-        # The others are behind "More colorings".
-        self.assertEqual([chip[0] for chip in card["chips"] if chip[0] in ("builtin:secondary-structure", "builtin:residue-position")], [])
-        self.script("document.querySelector('#color-body .more-toggle').click(); return 1")
+        # (Structure color is behind "More colorings", with the other two, which the card shows in this order.)
         opened = self.script("return await cardNow()")
-        self.assertEqual([chip[0] for chip in opened["chips"]][-2:], ["builtin:secondary-structure", "builtin:residue-position"])
+        self.assertEqual([chip[0] for chip in opened["chips"]][-3:],
+                         ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"])
         secondary = self.choose("builtin:secondary-structure")
         self.assertEqual([item["theme"] for item in self.shown()], ["secondary-structure"] * 2)
         self.assertEqual(secondary["legendTitle"], "Secondary structure")
@@ -256,6 +263,8 @@ class SceneColoringTests(ColorTestCase):
         self.settle(300)
         after = self.shown()
         self.assertEqual([item["value"] for item in after], before)
+        # (Its chip is under "More colorings", which a page that has just opened keeps closed: see the test on that below.)
+        self.script("document.querySelector('#color-body .more-toggle').click(); return await cardNow()")
         self.assertEqual(self.script("return card().selected"), "builtin:structure")
         self.assertEqual(["#%06x" % item["value"] for item in after], [item["swatch"] for item in after])
 
@@ -315,7 +324,7 @@ class CardTests(ColorTestCase):
             return {filter: !!body.querySelector('.filter'), scroll: !!body.querySelector('.seg.scroll'),
                     chips: body.querySelectorAll('.seg-btn').length};
             """)
-        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 12})
+        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 11})
         # Typing narrows the buttons, and the filter keeps the focus.
         self.script("""
             const filter = document.querySelector('#color-body .filter');
@@ -347,7 +356,7 @@ class CardTests(ColorTestCase):
                     notes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent)};
             """)
         self.assertFalse(none["filter"])
-        self.assertEqual(none["chips"], ["builtin:structure", "plddt"])
+        self.assertEqual(none["chips"], ["plddt"])
         self.assertEqual(none["notes"][0], "Layers such as conservation need an alignment: fold with one loaded in the Viewer.")
 
     def test_the_layer_filter_stays_the_same_field_and_waits_for_an_ime_to_finish_its_word(self):
@@ -412,13 +421,13 @@ class CardTests(ColorTestCase):
             """)
         self.assertEqual(group, {
             "groups": ["Color by", "More colorings"],
-            "names": {"coloring": ["builtin:structure", "plddt", "information_content", "same_residue_pct"],
-                      "coloring-more": ["builtin:secondary-structure", "builtin:residue-position"]},
+            "names": {"coloring": ["plddt", "information_content", "same_residue_pct"],
+                      "coloring-more": ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"]},
             "checked": ["plddt"], "roles": 0, "labelled": True})
         # The browser's own keys: Right and Left move along the group (round its ends) and choose, as radio buttons do.
         widget = self.view.focusProxy() or self.view
         self.script("document.querySelector('#color-body [data-coloring=\"plddt\"] input').focus(); return 1")
-        for key, expected in ((Qt.Key_Right, "information_content"), (Qt.Key_Right, "same_residue_pct"), (Qt.Key_Right, "builtin:structure"),
+        for key, expected in ((Qt.Key_Right, "information_content"), (Qt.Key_Right, "same_residue_pct"), (Qt.Key_Right, "plddt"),
                               (Qt.Key_Left, "same_residue_pct")):
             QTest.keyClick(widget, key)
             self.pump(0.3)
@@ -427,6 +436,49 @@ class CardTests(ColorTestCase):
             state = self.script("""return {selected: card().selected, focus: document.activeElement.closest('.seg-btn')?.dataset.coloring,
                                            coloring: coloringOf(loadedStructures()[0])}""")
             self.assertEqual(state, {"selected": expected, "focus": expected, "coloring": expected}, key)
+
+    def test_structure_color_is_the_first_of_the_more_colorings_and_the_model_group_holds_only_plddt(self):
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        closed = self.script("""
+            const body = document.getElementById('color-body');
+            return {chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), more: body.querySelector('.more-toggle').getAttribute('aria-expanded')};
+            """)
+        self.assertEqual(closed, {"chips": ["plddt", "information_content"], "more": "false"})
+        self.script("document.querySelector('#color-body .more-toggle').click(); return await cardNow()")
+        opened = self.script("""
+            const body = document.getElementById('color-body');
+            const radio = id => body.querySelector('[data-coloring="' + id + '"] input');
+            const more = body.querySelector('.more-colorings');
+            radio('plddt').focus();
+            return {model: [...body.querySelector('.seg').querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
+                    more: [...more.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), moreName: more.getAttribute('aria-label'),
+                    names: ['builtin:structure', 'builtin:secondary-structure', 'builtin:residue-position'].map(id => radio(id).name),
+                    reachable: document.activeElement === radio('plddt'), group: radio('plddt').closest('[role=radiogroup]').getAttribute('aria-label'),
+                    label: radio('builtin:structure').labels[0].textContent.trim()};
+            """)
+        self.assertEqual(opened["model"], ["plddt"])
+        self.assertEqual(opened["more"], ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"])
+        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 3, "Color by"))
+        self.assertTrue(opened["reachable"])
+        self.assertIn("Structure color", opened["label"])
+
+    def test_a_coloring_under_a_closed_more_colorings_leaves_it_closed_and_no_chip_is_checked(self):
+        # The rule, as it was for Secondary structure: nothing opens "More colorings" for a coloring that sits under it (a restored
+        # session, a row's choice); the legend still says what is drawn, and the section opens as the person asks.
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        for coloring in ("builtin:secondary-structure", "builtin:structure"):
+            with self.subTest(coloring=coloring):
+                self.script("await setColorMode(%s); await structureQueue; return await cardNow()" % json.dumps(coloring))
+                state = self.script("""
+                    const body = document.getElementById('color-body');
+                    return {open: body.querySelector('.more-toggle').getAttribute('aria-expanded'), selected: card().selected,
+                            more: !!body.querySelector('.more-colorings')};
+                    """)
+                self.assertEqual(state, {"open": "false", "selected": None, "more": False})
+        self.script("document.querySelector('#color-body .more-toggle').click(); await cardNow(); return 1")
+        self.assertEqual(self.script("return card().selected"), "builtin:structure")
 
     def test_the_compact_legend_on_the_canvas_follows_the_choice(self):
         self.write_with(A, "information_content")

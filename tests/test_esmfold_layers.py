@@ -751,9 +751,9 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         plddt = fixtures.plddt_values(33)
         for number in range(1, 34):
             self.assertEqual(start["colors"][str(number)], self.band(plddt[number - 1]), number)
-        # The card offers pLDDT, the structure's own color and each property of the file, with a legend for the chosen one.
+        # The card offers pLDDT and each property (the structure's own color is under More colorings) of the file, with a legend for the chosen one.
         self.assertEqual(start["card"]["chips"], [
-            ["builtin:structure", "Structure color", ""], ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
             ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual(start["card"]["selected"], "plddt")
         self.assertEqual(start["card"]["title"], "Color by")
@@ -838,7 +838,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             return out;
             """)
         self.assertEqual(result["options"], [
-            ["builtin:structure", "Structure color", ""], ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
             ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
         for layer_id, label, rows_expected, swatches in (
