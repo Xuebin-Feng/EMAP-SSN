@@ -312,14 +312,15 @@ def _benchmark_embedding_devices(
 ):
     samples = _representative_sequences(pending)
     supports_batch = callable(getattr(plugin, "get_embeddings_batch", None)) and len(pending) >= 4
-    bench_items = _stratified_benchmark_items(pending, max_items=16) if supports_batch else []
+    gpu_bench_items = _stratified_benchmark_items(pending, max_items=8) if supports_batch else []
+    cpu_bench_items = _stratified_benchmark_items(pending, max_items=min(len(samples), 3)) if supports_batch else []
     saving_mode_label = "float16" if target_dtype == np.dtype(np.float16) else "float32"
     results = []
     print(
         "[Hardware] Benchmarking local embedding inference on "
         f"{len(candidates)} available device(s) using lengths "
         f"{[len(sequence) for sequence in samples]}"
-        + (f" (batched sample of {len(bench_items)})" if supports_batch else "")
+        + (f" (batched sample of {len(gpu_bench_items)})" if supports_batch else "")
         + "..."
     )
     print("Device/backend                 Move (s)   Predicted job (s)   Status")
@@ -341,50 +342,115 @@ def _benchmark_embedding_devices(
                 current_device_spec = candidate.spec
 
             if supports_batch:
-                # Warm up with a representative multi-sequence batch containing the longest
-                # sample so cuBLAS/SDPA/JIT kernels compile before timing begins.
-                warmup_seqs = [samples[-1], samples[0]] if len(samples) > 1 else [samples[-1]]
-                plugin.get_embeddings_batch(
-                    warmup_seqs, model_obj, candidate.device, target_dtype
-                )
-                Hardware_Utils.synchronize_device(candidate)
-
-                batches = pack_length_sorted_batches(
-                    bench_items,
-                    device=candidate.device,
-                    model_obj=model_obj,
-                )
-                pass_times = []
-                validated_once = False
-                for _attempt in range(2):
-                    Hardware_Utils.synchronize_device(candidate)
-                    started = time.perf_counter()
-                    for batch in batches:
-                        b_seqs = [seq for _, seq in batch]
-                        embs = plugin.get_embeddings_batch(
-                            b_seqs, model_obj, candidate.device, target_dtype
+                if candidate.is_cpu:
+                    # On CPU, large pLMs (e.g. ESMC 600M / ProtT5) can take ~0.7-2.0 s per
+                    # sequence. Time a lightweight single-sequence probe first so slow CPU
+                    # models finish benchmarking in ~1-2 s instead of ~13 s, while fast CPU
+                    # models still measure a representative multi-sequence batch.
+                    probe_seq = samples[len(samples) // 2]
+                    probe_started = time.perf_counter()
+                    probe_emb = plugin.get_embeddings_batch(
+                        [probe_seq], model_obj, candidate.device, target_dtype
+                    )
+                    probe_elapsed = max(time.perf_counter() - probe_started, 1e-9)
+                    validate_embedding_array(
+                        probe_emb[0],
+                        probe_seq,
+                        saving_mode_label,
+                        feature_dimension=feature_dimension,
+                        require_finite=True,
+                        header="hardware benchmark",
+                    )
+                    if probe_elapsed >= 0.25:
+                        # One slow sequence is already noise-free; run at most one longer
+                        # sample (when fast enough) to capture length scaling without burning CPU.
+                        timed_residues = len(probe_seq)
+                        timed_seconds = probe_elapsed
+                        if probe_elapsed < 1.0 and samples[-1] != probe_seq:
+                            t2 = time.perf_counter()
+                            e2 = plugin.get_embeddings_batch(
+                                [samples[-1]], model_obj, candidate.device, target_dtype
+                            )
+                            dt2 = max(time.perf_counter() - t2, 1e-9)
+                            validate_embedding_array(
+                                e2[0],
+                                samples[-1],
+                                saving_mode_label,
+                                feature_dimension=feature_dimension,
+                                require_finite=True,
+                                header="hardware benchmark",
+                            )
+                            timed_residues += len(samples[-1])
+                            timed_seconds += dt2
+                        total_residues = max(1, sum(len(seq) for _, seq in pending))
+                        predicted = float(move_seconds) + timed_seconds * (total_residues / max(1, timed_residues))
+                    else:
+                        batches = pack_length_sorted_batches(
+                            cpu_bench_items,
+                            device=candidate.device,
+                            model_obj=model_obj,
                         )
-                        if not validated_once:
-                            for (hdr, seq), emb in zip(batch, embs):
-                                validate_embedding_array(
-                                    emb,
-                                    seq,
-                                    saving_mode_label,
-                                    feature_dimension=feature_dimension,
-                                    require_finite=True,
-                                    header="hardware benchmark",
+                        pass_times = []
+                        for _attempt in range(2):
+                            started = time.perf_counter()
+                            for batch in batches:
+                                b_seqs = [seq for _, seq in batch]
+                                plugin.get_embeddings_batch(
+                                    b_seqs, model_obj, candidate.device, target_dtype
                                 )
+                            elapsed = max(time.perf_counter() - started, 1e-9)
+                            pass_times.append(elapsed)
+                            if elapsed >= 0.25:
+                                break
+                        best_sample_time = min(pass_times)
+                        sample_residues = max(1, sum(len(seq) for _, seq in cpu_bench_items))
+                        total_residues = max(1, sum(len(seq) for _, seq in pending))
+                        predicted = float(move_seconds) + best_sample_time * (total_residues / sample_residues)
+                else:
+                    # Warm up with a representative multi-sequence batch containing the longest
+                    # sample so cuBLAS/SDPA/JIT kernels compile before timing begins.
+                    warmup_seqs = [samples[-1], samples[0]] if len(samples) > 1 else [samples[-1]]
+                    plugin.get_embeddings_batch(
+                        warmup_seqs, model_obj, candidate.device, target_dtype
+                    )
                     Hardware_Utils.synchronize_device(candidate)
-                    elapsed = max(time.perf_counter() - started, 1e-9)
-                    pass_times.append(elapsed)
-                    validated_once = True
-                    # If the first pass already took >= 0.5 s, one pass is stable enough.
-                    if elapsed >= 0.5:
-                        break
-                best_sample_time = min(pass_times)
-                sample_residues = max(1, sum(len(seq) for _, seq in bench_items))
-                total_residues = max(1, sum(len(seq) for _, seq in pending))
-                predicted = float(move_seconds) + best_sample_time * (total_residues / sample_residues)
+
+                    batches = pack_length_sorted_batches(
+                        gpu_bench_items,
+                        device=candidate.device,
+                        model_obj=model_obj,
+                    )
+                    pass_times = []
+                    validated_once = False
+                    for _attempt in range(2):
+                        Hardware_Utils.synchronize_device(candidate)
+                        started = time.perf_counter()
+                        for batch in batches:
+                            b_seqs = [seq for _, seq in batch]
+                            embs = plugin.get_embeddings_batch(
+                                b_seqs, model_obj, candidate.device, target_dtype
+                            )
+                            if not validated_once:
+                                for (hdr, seq), emb in zip(batch, embs):
+                                    validate_embedding_array(
+                                        emb,
+                                        seq,
+                                        saving_mode_label,
+                                        feature_dimension=feature_dimension,
+                                        require_finite=True,
+                                        header="hardware benchmark",
+                                    )
+                        Hardware_Utils.synchronize_device(candidate)
+                        elapsed = max(time.perf_counter() - started, 1e-9)
+                        pass_times.append(elapsed)
+                        validated_once = True
+                        # If the first pass already took >= 0.25 s, one pass is stable enough.
+                        if elapsed >= 0.25:
+                            break
+                    best_sample_time = min(pass_times)
+                    sample_residues = max(1, sum(len(seq) for _, seq in gpu_bench_items))
+                    total_residues = max(1, sum(len(seq) for _, seq in pending))
+                    predicted = float(move_seconds) + best_sample_time * (total_residues / sample_residues)
             else:
                 # Warm up on the longest representative sample so cold-shape kernel JIT does
                 # not distort single-sequence timing.

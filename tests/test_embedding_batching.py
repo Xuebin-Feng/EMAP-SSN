@@ -5,9 +5,12 @@
 """Unit tests for dynamic length-sorted pLM batching, OOM halving, and injection fast-copy."""
 
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import h5py
 import numpy as np
@@ -157,6 +160,34 @@ class EmbeddingBatchingTests(unittest.TestCase):
                 np.testing.assert_allclose(hf["embeddings"]["s1"][:], 2.0)
                 np.testing.assert_allclose(hf["embeddings"]["s2"][:], 3.0)
                 np.testing.assert_allclose(hf["embeddings"]["s3"][:], 3.0)
+
+    def test_cpu_benchmark_avoids_full_16_seq_sweep_on_slow_models(self):
+        pending = [(f"s{i}", "ACDEFGHIKL" * (10 + i)) for i in range(40)]
+        calls = []
+
+        class SlowCpuPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                calls.append(len(seqs))
+                return [np.ones((len(s), 8), dtype=target_dtype) for s in seqs]
+
+        # Simulate a slow CPU model (>= 0.25 s per sequence) via perf_counter mock.
+        ticks = iter([0.0, 0.5, 1.0, 1.6, 2.0, 2.6])
+        cpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu", 0, False
+        )
+        with mock.patch.object(gen_tool.time, "perf_counter", side_effect=lambda: next(ticks)):
+            _model_obj, ranked = gen_tool._benchmark_embedding_devices(
+                SlowCpuPlugin(),
+                "fake_slow_model",
+                None,
+                pending,
+                np.dtype(np.float16),
+                8,
+                [cpu_cand],
+            )
+        self.assertEqual(ranked[0].candidate.spec, "cpu")
+        # Must probe at most 2 single sequences instead of running 18+ sequences on CPU.
+        self.assertLessEqual(sum(calls), 2)
 
 
 if __name__ == "__main__":

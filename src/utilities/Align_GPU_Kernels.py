@@ -1414,8 +1414,16 @@ def _pack_residue_blocks(indices, lengths, block_res):
     return blocks
 
 
+_UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024  # Bound host & GPU staging to <= 32 MiB per chunk
+
+
 def _upload_and_normalize_indices(indices, lengths, feature_dim, store, group, device, compute_dtype):
-    """Upload embeddings for `indices` into one contiguous L2-normalized GPU buffer."""
+    """Upload embeddings for `indices` into one contiguous L2-normalized GPU buffer.
+
+    Streams in small pinned chunks directly into the pre-allocated destination tensor
+    so FP16/BF16 -> FP32 conversion never holds both a full raw copy and a full FP32
+    copy on GPU (or a multi-hundred-MiB pinned buffer on host) simultaneously.
+    """
     starts = {}
     total_rows = 0
     for idx in indices:
@@ -1424,8 +1432,8 @@ def _upload_and_normalize_indices(indices, lengths, feature_dim, store, group, d
     if total_rows == 0:
         return torch.empty((0, feature_dim), dtype=compute_dtype, device=device), starts
 
-    # Pack into one contiguous pinned host buffer directly -> zero extra host copy, 1 H2D DMA, 1 GPU normalize.
-    # Reading through store.get preserves store-level read hooks and zero-copy RAM cache views.
+    gpu_out = torch.empty((total_rows, feature_dim), dtype=compute_dtype, device=device)
+    eps = torch.finfo(torch.float32).tiny
     common_dtype = store.dtypes[indices[0]] if hasattr(store, "dtypes") and store.dtypes else None
     same_dtype = (
         common_dtype is not None
@@ -1436,32 +1444,99 @@ def _upload_and_normalize_indices(indices, lengths, feature_dim, store, group, d
         np.dtype(np.float32): torch.float32,
         np.dtype(np.float64): torch.float64,
     }
+
+    def _normalize_chunk_into(host_slice, dst_start, n_rows, non_blocking):
+        dst_slice = gpu_out[dst_start:dst_start + n_rows]
+        if compute_dtype == torch.float32:
+            if host_slice.dtype == torch.float32:
+                dst_slice.copy_(host_slice, non_blocking=non_blocking)
+            else:
+                dev_raw = host_slice.to(device=device, non_blocking=non_blocking)
+                dst_slice.copy_(dev_raw)
+                del dev_raw
+            norms = torch.linalg.vector_norm(dst_slice, ord=2, dim=-1, keepdim=True)
+            dst_slice.div_(norms.clamp_min_(eps))
+            del norms
+        else:
+            dev_raw = host_slice.to(device=device, non_blocking=non_blocking)
+            dev_f32 = dev_raw if dev_raw.dtype == torch.float32 else dev_raw.float()
+            if dev_raw is not dev_f32:
+                del dev_raw
+            norms = torch.linalg.vector_norm(dev_f32, ord=2, dim=-1, keepdim=True)
+            dev_f32.div_(norms.clamp_min_(eps))
+            dst_slice.copy_(dev_f32)
+            del dev_f32, norms
+
     if same_dtype and np.dtype(common_dtype) in torch_dtypes:
         t_dtype = torch_dtypes[np.dtype(common_dtype)]
+        src_itemsize = max(1, np.dtype(common_dtype).itemsize)
+        # Keep each staging buffer <= 16 MiB (2 buffers = <= 32 MiB host RAM total).
+        per_buf_bytes = max(1, _UPLOAD_CHUNK_BYTES // 2)
+        chunk_rows = max(1, min(total_rows, per_buf_bytes // max(1, feature_dim * max(src_itemsize, 4))))
         non_blocking = False
         try:
-            host_t = torch.empty((total_rows, feature_dim), dtype=t_dtype, pin_memory=True)
+            host_bufs = [
+                torch.empty((chunk_rows, feature_dim), dtype=t_dtype, pin_memory=True)
+                for _ in range(2)
+            ]
             non_blocking = True
         except RuntimeError:
-            host_t = torch.empty((total_rows, feature_dim), dtype=t_dtype)
-        host_buf = host_t.numpy()
+            host_bufs = [
+                torch.empty((chunk_rows, feature_dim), dtype=t_dtype)
+                for _ in range(2)
+            ]
+        host_nps = [b.numpy() for b in host_bufs]
+        buf_events = [None, None]
+        cur_buf = 0
+        fill = 0
+        dst_cursor = 0
+
+        def _flush_buf():
+            nonlocal cur_buf, fill, dst_cursor
+            if fill == 0:
+                return
+            _normalize_chunk_into(host_bufs[cur_buf][:fill], dst_cursor, fill, non_blocking)
+            if non_blocking:
+                ev = torch.cuda.Event()
+                ev.record()
+                buf_events[cur_buf] = ev
+            dst_cursor += fill
+            fill = 0
+            cur_buf ^= 1
+            if buf_events[cur_buf] is not None:
+                buf_events[cur_buf].synchronize()
+                buf_events[cur_buf] = None
+
         for idx in indices:
-            s = starts[idx]
+            arr = store.get(idx, group)
             L = int(lengths[idx])
-            host_buf[s:s + L] = store.get(idx, group)
-        gpu_raw = host_t.to(device=device, dtype=torch.float32, non_blocking=non_blocking)
+            pos = 0
+            while pos < L:
+                space = chunk_rows - fill
+                take = min(space, L - pos)
+                host_nps[cur_buf][fill:fill + take] = arr[pos:pos + take]
+                fill += take
+                pos += take
+                if fill >= chunk_rows:
+                    _flush_buf()
+        _flush_buf()
+        for ev in buf_events:
+            if ev is not None:
+                ev.synchronize()
     else:
         host_embs = store.load_indices(indices, group)
-        parts = [np.ascontiguousarray(host_embs[idx], dtype=np.float32) for idx in indices]
-        gpu_raw = torch.from_numpy(np.concatenate(parts, axis=0)).to(device=device, dtype=torch.float32)
-
-    norms = torch.linalg.vector_norm(gpu_raw, ord=2, dim=-1, keepdim=True)
-    gpu_raw.div_(norms.clamp_min_(torch.finfo(torch.float32).tiny))
-    if compute_dtype != torch.float32:
-        gpu_norm = gpu_raw.to(compute_dtype)
-        del gpu_raw
-        return gpu_norm, starts
-    return gpu_raw, starts
+        chunk_rows = max(1, min(total_rows, _UPLOAD_CHUNK_BYTES // max(1, feature_dim * 4)))
+        dst_cursor = 0
+        for idx in indices:
+            arr = np.ascontiguousarray(host_embs[idx], dtype=np.float32)
+            L = int(arr.shape[0])
+            pos = 0
+            while pos < L:
+                take = min(chunk_rows, L - pos)
+                _normalize_chunk_into(torch.from_numpy(arr[pos:pos + take]), dst_cursor, take, False)
+                dst_cursor += take
+                pos += take
+    return gpu_out, starts
 
 
 def run_fused_gpu_alignment_pipeline(
@@ -1503,9 +1578,21 @@ def run_fused_gpu_alignment_pipeline(
         device, lanes=lanes, compute_element_bytes=element_bytes
     )
     n_streams = max(1, min(2, int(lanes)))
-    per_block = max(1, plan.tile_cache_bytes // 2)
-    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     feature_dim = int(store.feature_dimension)
+    tile_cache_budget = int(plan.tile_cache_bytes)
+    is_oom_retry = (
+        matrix_budget_override is not None
+        and int(matrix_budget_override) > 0
+        and int(plan.matrix_bytes) > 0
+        and int(matrix_budget_override) < int(plan.matrix_bytes)
+    )
+    if is_oom_retry:
+        ratio = float(matrix_budget_override) / float(plan.matrix_bytes)
+        max_task_len = max(max(int(lengths[int(t[0])]), int(lengths[int(t[1])])) for t in tasks)
+        min_tile_bytes = max(1, max_task_len * 2 * feature_dim * element_bytes)
+        tile_cache_budget = max(min_tile_bytes, min(tile_cache_budget, int(tile_cache_budget * ratio)))
+    per_block = max(1, tile_cache_budget // 2)
+    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     exact_bound = float32_exact_local_bound(global_gap, local_gap)
     use_f64_always = exact_bound is None
     bound_val = float(exact_bound) if exact_bound is not None else 0.0
@@ -1614,6 +1701,10 @@ def run_fused_gpu_alignment_pipeline(
                     packed, starts = _upload_and_normalize_indices(
                         tile_indices, lengths, feature_dim, store, group, device, compute_dtype
                     )
+                    upload_ev = torch.cuda.Event()
+                    upload_ev.record()
+                    for st in streams:
+                        st.wait_event(upload_ev)
                     # Partition tile_indices into residue blocks of size <= block_res
                     rblocks = _pack_residue_blocks(tile_indices, lengths, block_res)
                     seq_to_blk = {}
@@ -1629,6 +1720,8 @@ def run_fused_gpu_alignment_pipeline(
                         b1 = starts[b_seqs[-1]] + int(lengths[b_seqs[-1]])
                         blk_slices.append((packed[b0:b1], b0, b1 - b0))
                         blk_maxlen.append(max(int(lengths[s]) for s in b_seqs))
+                    max_blk_rows = max((s[2] for s in blk_slices), default=1)
+                    tile_max_mat_elems = min(max_mat_elems, max_blk_rows * max_blk_rows)
 
                     # Group tasks by canonical (row_blk, col_blk) where row_blk has >= max sequence
                     # length so:
@@ -1704,7 +1797,7 @@ def run_fused_gpu_alignment_pipeline(
                         max_r = int(r_len.max())
 
                         with torch.cuda.stream(st):
-                            ensure_ws(ws, M, N, num_p, tot_r, tot_c, max_r, max_mat_elems)
+                            ensure_ws(ws, M, N, num_p, tot_r, tot_c, max_r, tile_max_mat_elems)
                             h_meta = ws["h_meta"][:, :num_p]
                             h_meta_np = h_meta.numpy()
                             h_meta_np[0] = r_off
@@ -1753,35 +1846,57 @@ def run_fused_gpu_alignment_pipeline(
                             ev.record(st)
                         inflight.append((ev, sid, pair_ids, num_p))
 
-                    for (bi, bj), pair_quads in blk_pairs.items():
-                        if active_trial is not None and not active_trial.can_submit():
-                            break
-                        A_ten, a_base, M = blk_slices[bi]
-                        B_ten, b_base, N = blk_slices[bj]
-                        r_len = np.array([lengths[ri] for _, _, ri, _ in pair_quads], dtype=np.int32)
-                        c_len = np.array([lengths[cj] for _, _, _, cj in pair_quads], dtype=np.int32)
-                        active_cells = int(np.sum(r_len.astype(np.int64) * c_len.astype(np.int64)))
-                        density = active_cells / max(1, M * N)
+                    A_ten = B_ten = row_t = t_cat = None
+                    try:
+                        for (bi, bj), pair_quads in blk_pairs.items():
+                            if active_trial is not None and not active_trial.can_submit():
+                                break
+                            A_ten, a_base, M = blk_slices[bi]
+                            B_ten, b_base, N = blk_slices[bj]
+                            r_len = np.array([lengths[ri] for _, _, ri, _ in pair_quads], dtype=np.int32)
+                            c_len = np.array([lengths[cj] for _, _, _, cj in pair_quads], dtype=np.int32)
+                            active_cells = int(np.sum(r_len.astype(np.int64) * c_len.astype(np.int64)))
+                            density = active_cells / max(1, M * N)
 
-                        if density >= DENSE_BLOCK_DENSITY_THRESHOLD:
-                            pair_ids = [(si, sj) for si, sj, _, _ in pair_quads]
-                            r_off = np.array([starts[ri] - a_base for _, _, ri, _ in pair_quads], dtype=np.int32)
-                            c_off = np.array([starts[cj] - b_base for _, _, _, cj in pair_quads], dtype=np.int32)
-                            submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len)
-                        else:
-                            by_row = OrderedDict()
-                            for si, sj, ri, cj in pair_quads:
-                                by_row.setdefault(ri, []).append((si, sj, cj))
-                            for ri, targets in by_row.items():
-                                if active_trial is not None and not active_trial.can_submit():
-                                    break
-                                row_L = int(lengths[ri])
-                                row_t = packed[starts[ri]:starts[ri] + row_L]
-                                max_cols = max(max_tile_len, (block_res * block_res) // max(1, row_L))
-                                chunk_targets, chunk_cols = [], 0
-                                for si, sj, cj in targets:
-                                    L_j = int(lengths[cj])
-                                    if chunk_targets and chunk_cols + L_j > max_cols:
+                            if density >= DENSE_BLOCK_DENSITY_THRESHOLD:
+                                pair_ids = [(si, sj) for si, sj, _, _ in pair_quads]
+                                r_off = np.array([starts[ri] - a_base for _, _, ri, _ in pair_quads], dtype=np.int32)
+                                c_off = np.array([starts[cj] - b_base for _, _, _, cj in pair_quads], dtype=np.int32)
+                                submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len)
+                            else:
+                                by_row = OrderedDict()
+                                for si, sj, ri, cj in pair_quads:
+                                    by_row.setdefault(ri, []).append((si, sj, cj))
+                                max_cols_emb = (64 * 1024 * 1024) // max(1, feature_dim * element_bytes)
+                                for ri, targets in by_row.items():
+                                    if active_trial is not None and not active_trial.can_submit():
+                                        break
+                                    row_L = int(lengths[ri])
+                                    row_t = packed[starts[ri]:starts[ri] + row_L]
+                                    max_cols_mat = (block_res * block_res) // max(1, row_L)
+                                    max_cols = max(max_tile_len, min(max_cols_mat, max_cols_emb))
+                                    chunk_targets, chunk_cols = [], 0
+                                    for si, sj, cj in targets:
+                                        L_j = int(lengths[cj])
+                                        if chunk_targets and chunk_cols + L_j > max_cols:
+                                            t_cat = torch.cat(
+                                                [packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])] for x in chunk_targets],
+                                                dim=0,
+                                            )
+                                            cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
+                                            co = np.zeros(len(chunk_targets), dtype=np.int32)
+                                            if len(chunk_targets) > 1:
+                                                co[1:] = np.cumsum(cl[:-1], dtype=np.int32)
+                                            ro = np.zeros(len(chunk_targets), dtype=np.int32)
+                                            rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
+                                            submit_gpu_job(
+                                                row_t, t_cat, [(x[0], x[1]) for x in chunk_targets], ro, rl, co, cl
+                                            )
+                                            t_cat = None
+                                            chunk_targets, chunk_cols = [], 0
+                                        chunk_targets.append((si, sj, cj))
+                                        chunk_cols += L_j
+                                    if chunk_targets:
                                         t_cat = torch.cat(
                                             [packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])] for x in chunk_targets],
                                             dim=0,
@@ -1795,31 +1910,24 @@ def run_fused_gpu_alignment_pipeline(
                                         submit_gpu_job(
                                             row_t, t_cat, [(x[0], x[1]) for x in chunk_targets], ro, rl, co, cl
                                         )
-                                        chunk_targets, chunk_cols = [], 0
-                                    chunk_targets.append((si, sj, cj))
-                                    chunk_cols += L_j
-                                if chunk_targets:
-                                    t_cat = torch.cat(
-                                        [packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])] for x in chunk_targets],
-                                        dim=0,
-                                    )
-                                    cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
-                                    co = np.zeros(len(chunk_targets), dtype=np.int32)
-                                    if len(chunk_targets) > 1:
-                                        co[1:] = np.cumsum(cl[:-1], dtype=np.int32)
-                                    ro = np.zeros(len(chunk_targets), dtype=np.int32)
-                                    rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
-                                    submit_gpu_job(
-                                        row_t, t_cat, [(x[0], x[1]) for x in chunk_targets], ro, rl, co, cl
-                                    )
+                                        t_cat = None
+                                    row_t = None
 
-                    while inflight:
-                        drain_one()
-                    if int(d_nf.item()) != 0:
-                        raise FloatingPointError(
-                            "Fused GPU alignment scoring produced non-finite values."
-                        )
-                    del packed
+                        while inflight:
+                            drain_one()
+                        if int(d_nf.item()) != 0:
+                            raise FloatingPointError(
+                                "Fused GPU alignment scoring produced non-finite values."
+                            )
+                    finally:
+                        # Drop EVERY tensor view referencing `packed` before the next tile
+                        # uploads so two tiles never coexist on GPU simultaneously.
+                        blk_slices.clear()
+                        A_ten = B_ten = row_t = t_cat = packed = None
+                        if is_oom_retry and len(phase_tiles) > 1:
+                            for ws in ws_list:
+                                ws.clear()
+                            torch.cuda.empty_cache()
 
             if benchmark_trial is not None:
                 warmup_n = benchmark_trial.warmup_count(tasks, 1, n_streams)

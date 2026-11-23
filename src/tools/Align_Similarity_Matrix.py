@@ -1002,6 +1002,7 @@ def process_accelerated_tasks(
             if memory_plan_override is not None
             else None
         )
+        retry_plan = memory_plan_override
         last_oom = None
         try:
             for attempt in range(4):
@@ -1025,7 +1026,7 @@ def process_accelerated_tasks(
                         progress=progress,
                         matrix_budget_override=matrix_budget,
                         result_callback=result_callback,
-                        memory_plan_override=memory_plan_override,
+                        memory_plan_override=retry_plan,
                         gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
                     )
                 except Exception as error:
@@ -1047,6 +1048,12 @@ def process_accelerated_tasks(
                         16 * 1024 * 1024,
                         int(matrix_budget or default_budget) // 2,
                     )
+                    if retry_plan is not None and hasattr(retry_plan, "allocator_cap_bytes"):
+                        from dataclasses import replace as _replace_plan
+                        try:
+                            retry_plan = _replace_plan(retry_plan, allocator_cap_bytes=0)
+                        except (TypeError, ValueError):
+                            pass
                     print(
                         f"  > {backend_label} memory pressure; retrying batch with "
                         f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
@@ -2013,8 +2020,11 @@ def _run_batch_with_ranked_plans(
                     "Every benchmarked alignment processing plan failed."
                 ) from error
             fallback = ranked_plans[active_plan_index]
+            cause = error.__cause__ if error.__cause__ is not None else error
+            detail = str(cause).strip().splitlines()[0][:200] if str(cause).strip() else ""
+            detail_suffix = f" ({detail})" if detail else ""
             print(
-                f"[Hardware] {type(error).__name__}; retrying batch on "
+                f"[Hardware] {type(error).__name__}{detail_suffix}; retrying batch on "
                 f"{fallback.candidate.display_name}, lanes={fallback.lanes}."
             )
     raise RuntimeError("No alignment processing plan is available.")

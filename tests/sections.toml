@@ -280,6 +280,7 @@ modules = [
     "test_layout_engine_ssn",
     "test_layout_engine_umap",
     "test_layout_gpu_kernels",
+    "test_layout_optimizations",
     "test_layout_packing",
     "test_layout_time_step_guard",
     "test_pacmap_pairs",
@@ -303,6 +304,7 @@ modules = [
 description = "Similarity and substitution matrix tools, SSEARCH, PWA, injection, BLAST"
 seconds = 30
 modules = [
+    "test_align_gpu_kernels",
     "test_align_library",
     "test_align_similarity_matrix_pipeline",
     "test_align_substitution_matrix_pipeline",
@@ -331,6 +333,7 @@ description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
 seconds = 25
 modules = [
     "test_chain_fill",
+    "test_embedding_batching",
     "test_embedding_hdf5_metadata",
     "test_remote_requests",
     "test_embedding_import",
@@ -340,6 +343,7 @@ modules = [
     "test_embedding_msa_gui_logic",
     "test_embedding_msa_memory",
     "test_embedding_msa_merge",
+    "test_embedding_msa_optimizations",
     "test_embedding_msa_regression_chart",
     "test_embedding_msa_tree",
     "test_fasta_sanitization",

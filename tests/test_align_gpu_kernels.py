@@ -191,6 +191,61 @@ class AlignGPUKernelsTests(unittest.TestCase):
                         1e-4,
                     )
 
+    def test_fused_multitile_fp16_releases_prior_tile_under_tight_cap(self):
+        from dataclasses import replace
+
+        lengths = [160] * 12
+        dim = 256
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _path, headers, store = self._make_store(
+                temp_dir, lengths, dim=dim, dtype=np.float16, host_cache="auto"
+            )
+            tasks = [
+                (i, j, headers[i], headers[j])
+                for i in range(len(lengths))
+                for j in range(i + 1, len(lengths))
+            ]
+            # Force 3 blocks (per_block = 4 seqs -> 6 tiles across (0,0)..(2,2)) so multiple
+            # tile transitions execute in one phase under a tight allocator cap.
+            seq_f32_bytes = lengths[0] * dim * 4
+            tile_cache_bytes = seq_f32_bytes * 8
+            dev = torch.device("cuda:0")
+            base_plan = engine.accelerator_memory_plan(dev, lanes=2, compute_element_bytes=4)
+            tight_plan = replace(
+                base_plan,
+                tile_cache_bytes=tile_cache_bytes,
+                allocator_cap_bytes=tile_cache_bytes + 512 * 1024 * 1024,
+            )
+            fused = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=2,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                memory_plan_override=tight_plan,
+                gpu_dp_gaps=(0.0, -2.0),
+            )
+            ref = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=1,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                gpu_dp_gaps=None,
+            )
+            ok, reason = engine.compare_precision_results(
+                ref, fused, per_residue_tolerance=1e-4, candidate_label="fused_multitile_fp16"
+            )
+            self.assertTrue(ok, reason)
+
 
 if __name__ == "__main__":
     unittest.main()

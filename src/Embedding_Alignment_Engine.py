@@ -1781,13 +1781,21 @@ def build_adaptive_tile_plans(
                         tile_bytes = max(tile_bytes, resident)
                         reload_bytes += resident
                         max_len = max(max_len, max(int(lengths[i]) for i in tile_indices))
+                # The planner inspects only the first pending batch, where a cross-block tile
+                # may touch only a partial slice of block 0. Later batches can load two full
+                # blocks, so size the peak/cap for the worst-case tile across all batches.
+                if len(set(block_ids.tolist())) > 1:
+                    tile_bytes = max(
+                        tile_bytes,
+                        min(int(sum(resident_bytes)), int(plan.tile_cache_bytes)),
+                    )
                 n_streams = max(1, min(2, int(lanes)))
                 blk_side = Align_GPU_Kernels._choose_block_residues(
                     plan.usable_bytes, n_streams, max_len
                 )
                 # Per stream: blk_side^2 float32 cosine mat + stats/DP scratch (~128 MiB)
-                # plus cuBLAS workspace and normalization staging slack so the allocator cap
-                # never causes false OOM retries.
+                # plus cuBLAS workspace and chunked-upload staging (~64 MiB) slack so the
+                # allocator cap never causes false OOM retries across batches.
                 per_slot = int(blk_side) * int(blk_side) * 4 + 128 * 1024 * 1024
                 transient_bytes = per_slot * n_streams + 256 * 1024 * 1024
                 additional = tile_bytes + transient_bytes

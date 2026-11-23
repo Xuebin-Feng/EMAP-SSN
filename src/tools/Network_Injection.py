@@ -2109,8 +2109,11 @@ def run_injection():
                     active_plan_index += 1
                     if active_plan_index < len(ranked_plans):
                         fallback = ranked_plans[active_plan_index]
+                        cause = error.__cause__ if error.__cause__ is not None else error
+                        detail = str(cause).strip().splitlines()[0][:200] if str(cause).strip() else ""
+                        detail_suffix = f" ({detail})" if detail else ""
                         print(
-                            f"[Hardware] {type(error).__name__}; retrying "
+                            f"[Hardware] {type(error).__name__}{detail_suffix}; retrying "
                             f"uncommitted batch with {fallback.candidate.display_name}, "
                             f"{fallback.variant}, lanes={fallback.lanes}."
                         )
