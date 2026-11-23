@@ -908,6 +908,32 @@ class LegendEndTests(ColorTestCase):
                 self.assertGreaterEqual(high_left - low_right, self.GAP - 0.01, found)
                 self.assertGreaterEqual(found["low"][1], found["box"]["x"])
                 self.assertLessEqual(found["high"][1], found["box"]["x"] + found["box"]["width"])
+        # Labels that need more than the least width (150 px of bar) make the box wider, and ones that need more than the most (200 px)
+        # are cut, each with an ellipsis, with the gap kept.
+        for low, high, cut in (("Rather long low", "Rather long high", False),
+                               ("A far too long label for the low end", "And another far too long one for the high end", True)):
+            with self.subTest(low=low):
+                found = self.script("""
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 600; canvas.height = 400;
+                    const context = canvas.getContext('2d');
+                    const calls = [];
+                    const original = context.fillText.bind(context);
+                    context.fillText = (text, x, y) => { calls.push([text, x, context.textAlign]); return original(text, x, y); };
+                    const model = await colorModel();
+                    model.legend = {heading: 'Wide', unit: '', kind: 'scale', colors: ['#ffffff', '#000000'], low: %s, high: %s};
+                    const box = drawLegend(context, 600, 400, 1, model);
+                    context.font = '11px ' + getComputedStyle(document.body).fontFamily;
+                    const high = calls.findIndex(call => call[2] === 'right');
+                    return {box, low: calls[high - 1], high: calls[high], lowWidth: context.measureText(calls[high - 1][0]).width,
+                            highWidth: context.measureText(calls[high][0]).width};""" % (json.dumps(low), json.dumps(high)))
+                self.assertGreaterEqual(found["high"][1] - found["highWidth"] - (found["low"][1] + found["lowWidth"]), self.GAP - 0.01, found)
+                if cut:
+                    self.assertEqual(found["box"]["width"], 220)
+                    self.assertTrue(found["low"][0].endswith("…") and found["high"][0].endswith("…"), found)
+                else:
+                    self.assertGreater(found["box"]["width"], 170)
+                    self.assertEqual((found["low"][0], found["high"][0]), (low, high))
 
 
 class PanelTabTests(ColorTestCase):
