@@ -1369,11 +1369,12 @@ still change before version 1.0.0.
   with no out-of-memory error before it. A second crash is reported with what to do
   next. A failed plan test also shows the free GPU memory read just before it. On
   Linux and macOS, a tool ended by a crash signal now reports exit code 128 plus the
-  signal's number (134 for an abort). `SSN_TOOL_SUPERVISOR=0` in the environment runs
-  a tool in one process, as before. Tested with stand-in programs on Windows and
-  Debian. Seen once on a real GPU: the job that had crashed twice restarted, planned
-  with half of the free memory and finished (3,479 sequences, 2,560-wide embeddings,
-  12 GB of GPU memory).
+  signal's number (134 for an abort). An MCP job reads the signal from that code and
+  still names it, as in "was ended by signal 6 (SIGABRT)". `SSN_TOOL_SUPERVISOR=0`
+  in the environment runs a tool in one process, as before. Tested with stand-in
+  programs on Windows and Debian. Seen once on a real GPU: the job that had crashed
+  twice restarted, planned with half of the free memory and finished (3,479 sequences,
+  2,560-wide embeddings, 12 GB of GPU memory).
 
 ## [0.5.0] - 2026-10-30
 
