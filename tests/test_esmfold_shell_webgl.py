@@ -168,6 +168,24 @@ class ShellWebglTests(unittest.TestCase):
         for buffer, client in zip(pointer["buffer"], pointer["client"]):
             self.assertLessEqual(abs(buffer - client * pointer["ratio"]), 1, pointer)
 
+    def test_a_direct_pick_at_the_spot_finds_the_structure_so_that_the_canvas_and_mol_star_s_drawing_are_in_step(self):
+        # Two faults look alike from the test's side (no hover with its tip): a hover that Mol* answered with "nothing" once, which the
+        # next move of the pointer cures (see the test of the moves), and a canvas that cannot be picked at all at the spot, which no move
+        # cures. A pick made directly at the spot tells them apart; this is the second one.
+        pointer = self.found["pointer"]
+        self.assertIsNotNone(
+            self.found["pickAtSpot"],
+            f"the canvas cannot be picked at all at the spot {pointer['spot']} (page pixels; canvas {pointer['rect']}, buffer {pointer['buffer']}, "
+            f"page size {pointer['client']}): Mol*'s drawing and its canvas are out of step, which is not a hover that was answered late "
+            "and no further move of the pointer cures it")
+
+    def test_the_first_move_of_the_pointer_may_be_missed_by_a_busy_machine_but_not_more_than_three_times(self):
+        # Mol* answers a hover from a pick it reads back a few frames later; on a busy machine the first answer can be "nothing" and the
+        # next move gets it. One to four moves (away and back between) are a person's hand; the number is kept so that a report can say
+        # when the first one was missed.
+        moves = self.found["hoverMoves"]
+        self.assertTrue(1 <= moves <= 4, f"the hover needed {moves} moves of the pointer; one to four are allowed")
+
     def test_a_real_pointer_over_the_canvas_shows_the_tip_pins_a_residue_and_escape_lets_go(self):
         found = self.found
         self.assertIsNotNone(found["hover"])

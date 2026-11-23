@@ -179,12 +179,43 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
                   f"the canvas is {facts['rect']} in page pixels, the element under the pointer is {facts['under']}, "
                   f"the pixel ratio is {facts['ratio']} (buffer {facts['buffer']}, page size {facts['client']}).")
 
+    PICK_AT_SPOT = """
+        const canvas = document.querySelector('#viewer canvas'), rect = canvas.getBoundingClientRect();
+        const x = (%d - rect.left) * canvas.width / rect.width, y = (%d - rect.top) * canvas.height / rect.height;
+        const id = plugin.canvas3d.identify(molstar.lib.math.LinearAlgebra.Vec2.create(x, y));
+        return id && id.id ? [id.id.objectId, id.id.instanceId, id.id.groupId] : null;"""
+
     def hover_over(self, spot):
-        """Move the real pointer to `spot` and wait until Mol* hovers a residue and the tip is shown with its text."""
+        """Move the real pointer to `spot` and wait until Mol* hovers a residue and the tip is shown with its text.
+
+        Mol* answers a hover from a pick that it reads back from the graphics card a few frames later, and on a busy machine the
+        first answer can be "nothing" although a pick at the spot finds the structure (measured: the page's thread busy for 40 ms of
+        every 50, on this branch and on main alike); the next move of the pointer gets the answer. A person's hand moves on, so the
+        pointer is moved away and back, at most 4 times in all, about 2 s each, and FACTS says how many moves it took. Before the first,
+        a direct pick at the spot says whether the canvas can be picked there at all: when it cannot, Mol*'s drawing and its canvas are
+        out of step, which is another fault and no move helps."""
         widget = self.view.focusProxy() or self.view
-        QTest.mouseMove(widget, spot)
-        self.wait_for("hoveredResidue && document.getElementById('tip').classList.contains('show') && document.getElementById('tip').textContent.trim()",
-                      "a residue under the pointer being hovered with its tip shown", spot)
+        first = "hoverMoves" not in FACTS
+        if first:
+            FACTS["pickAtSpot"] = self.script(self.PICK_AT_SPOT % (spot.x(), spot.y()))
+        condition = "hoveredResidue && document.getElementById('tip').classList.contains('show') && document.getElementById('tip').textContent.trim()"
+        what = "a residue under the pointer being hovered with its tip shown"
+        limit = 4
+        for move in range(1, limit + 1):
+            if move > 1:
+                QTest.mouseMove(widget, QPoint(spot.x() + 70, spot.y() + 70))
+                self.pump(0.4)
+            QTest.mouseMove(widget, spot)
+            try:
+                self.wait_for(condition, what, spot, seconds=2.0)
+            except AssertionError as error:
+                if move < limit:
+                    continue
+                raise AssertionError(f"{error} The pointer was moved to the spot {move} times in all (away and back between, about 2 s each); "
+                                     f"a pick at the spot {'found the structure' if FACTS.get('pickAtSpot') else 'found NOTHING'} before the first move.") from None
+            if first:
+                FACTS["hoverMoves"] = move
+            return
 
     def pin_at(self, spot):
         """Click the real pointer at `spot` and wait until the residue is pinned, marked, and its card is filled."""
