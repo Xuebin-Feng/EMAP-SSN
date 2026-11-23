@@ -500,6 +500,10 @@ still change before version 1.0.0.
     goes to the CPU without timing the devices; only a sample too large for that has the
     devices timed on a share of it. On the HomFam kringle and DEATH families (829 and 881
     sequences, 5,000 sampled pairs) the step took 4 to 9 s on the CPU.
+    On a 12,927-sequence set (100,000 sampled pairs) the step took 220 s: timing the
+    devices took about half of that, the CPU measured faster than the GPU (an RTX 4070),
+    and 18 CPU workers aligned the sample. While aligning, the workers held 11.2 GiB
+    together, beside 6.0 GiB in the main process.
   - **Edge Pre-filtering itself aligns and stores only the pairs it keeps.** A network
     file records nothing of the cut. The similarity it cuts on (max-pooled embeddings,
     cosine × (shorter/longer)²) is now one shared function for Align Similarity Matrix,
