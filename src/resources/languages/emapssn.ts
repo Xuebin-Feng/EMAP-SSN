@@ -2214,14 +2214,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Zoom to</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Clear</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>{letter}, {name} {number}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2658,22 +2650,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Scene</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Back to simple view</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>View tools</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2706,7 +2682,31 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Sequence</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Advanced: Mol*&apos;s own panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scene</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Back to simple view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structure and chain of the sequence</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2782,14 +2782,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Structure and chain of the sequence</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Resize the panel</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2811,6 +2803,10 @@ Command-line usage:
     </message>
     <message>
         <source>Residue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
