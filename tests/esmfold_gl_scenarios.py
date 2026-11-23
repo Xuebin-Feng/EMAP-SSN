@@ -24,6 +24,7 @@ import base64
 import json
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -119,7 +120,11 @@ window.spotOf = function (index, number) {
     const rect = document.querySelector('#viewer canvas').getBoundingClientRect();
     const projected = molstar.lib.math.LinearAlgebra.Vec4();
     plugin.canvas3d.camera.project(projected, trace.coords[k]);
-    return [rect.left + projected[0], rect.top + projected[1]];
+    // project() answers in the camera's viewport, which is the canvas's own pixel buffer (device pixels: twice the page's at a ratio of
+    // 2). Scale by the buffer's actual size over its page size, per axis, not by devicePixelRatio: at a fractional ratio the buffer is
+    // rounded to whole pixels, and this is the scale the canvas really has.
+    const viewport = plugin.canvas3d.camera.viewport;
+    return [rect.left + projected[0] * rect.width / viewport.width, rect.top + projected[1] * rect.height / viewport.height];
 };
 window.boxIn = function (selector) {
     const stage = document.getElementById('stage').getBoundingClientRect();
@@ -145,6 +150,50 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
             self.view.grab().save(str(Path(self.folder) / f"{name}.png"))
 
     folder = None
+
+    def spot(self, number):
+        """Where residue `number` of the first structure is, as a point in page pixels (what the real pointer is moved to)."""
+        return QPoint(*[round(value) for value in self.script(f"return spotOf(0, {number})")])
+
+    def canvas_facts(self, spot):
+        """The pixel ratio, the canvas's buffer and page sizes and rectangle, and what is on the page under `spot`."""
+        return self.script("""
+            const canvas = document.querySelector('#viewer canvas');
+            const rect = canvas.getBoundingClientRect();
+            const under = document.elementFromPoint(%d, %d);
+            return {ratio: window.devicePixelRatio, buffer: [canvas.width, canvas.height], client: [canvas.clientWidth, canvas.clientHeight],
+                    rect: [rect.left, rect.top, rect.right, rect.bottom], under: under ? under.tagName + '#' + under.id : null};""" % (spot.x(), spot.y()))
+
+    def wait_for(self, condition, what, spot, seconds=10.0):
+        """Wait until the page's JavaScript `condition` is true; fail, saying what did not happen and where the pointer was."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self.script("return !!(" + condition + ")"):
+                return
+            self.pump(0.1)
+        facts = self.canvas_facts(spot)
+        left, top, right, bottom = facts["rect"]
+        outside = "" if left <= spot.x() <= right and top <= spot.y() <= bottom else (
+            "The spot is OUTSIDE the canvas (device pixels taken for page pixels?). ")
+        self.fail(f"{outside}{what} did not happen within {seconds:g} s: the pointer was at page pixel ({spot.x()}, {spot.y()}), "
+                  f"the canvas is {facts['rect']} in page pixels, the element under the pointer is {facts['under']}, "
+                  f"the pixel ratio is {facts['ratio']} (buffer {facts['buffer']}, page size {facts['client']}).")
+
+    def hover_over(self, spot):
+        """Move the real pointer to `spot` and wait until Mol* hovers a residue and the tip is shown with its text."""
+        widget = self.view.focusProxy() or self.view
+        QTest.mouseMove(widget, spot)
+        self.wait_for("hoveredResidue && document.getElementById('tip').classList.contains('show') && document.getElementById('tip').textContent.trim()",
+                      "a residue under the pointer being hovered with its tip shown", spot)
+
+    def pin_at(self, spot):
+        """Click the real pointer at `spot` and wait until the residue is pinned, marked, and its card is filled."""
+        widget = self.view.focusProxy() or self.view
+        QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, spot)
+        self.wait_for("pinnedResidue && plugin.managers.structure.selection.stats.elementCount > 0 && "
+                      "document.querySelector('#residue-body .res-head div') && focusNodes().length > 0",
+                      "a click pinning the residue and filling the Residue card", spot)
+        self.pump(0.3)
 
     def scene(self):
         """The scene's state and its picture, as an array of pixels, from the camera's reset position."""
@@ -268,13 +317,12 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
                 str(Path(self.folder) / "saved-image.png"))
         # A real pointer over the real canvas: hover shows the tip, a click pins, Escape lets go.
         widget = self.view.focusProxy() or self.view
-        spot = QPoint(*[round(value) for value in self.script("return spotOf(0, 6)")])
-        QTest.mouseMove(widget, spot)
-        self.pump(1.0)
+        spot = self.spot(6)
+        FACTS["pointer"] = {"spot": [spot.x(), spot.y()], **self.canvas_facts(spot)}
+        self.hover_over(spot)
         FACTS["hover"] = self.script("return hoveredResidue ? [hoveredResidue.number, hoveredResidue.chain] : null")
         FACTS["tip"] = self.script("const tip = document.getElementById('tip'); return {shown: tip.classList.contains('show'), text: tip.textContent, box: boxIn('#tip')}")
-        QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, spot)
-        self.pump(1.0)
+        self.pin_at(spot)
         FACTS["pinned"] = self.script("return pinnedResidue ? pinnedResidue.number : null")
         FACTS["marked"] = self.script("return plugin.managers.structure.selection.stats.elementCount")
         FACTS["residueCard"] = self.script(
@@ -298,11 +346,10 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["afterPin"] = self.difference(before, pixels)
         FACTS["errorsReady"] = self.console_errors()
         # A session saved with a pin in it, as an earlier page saved them, comes back without it.
-        spot = QPoint(*[round(value) for value in self.script("return spotOf(0, 6)")])
-        QTest.mouseMove(widget, spot)
+        spot = self.spot(6)
+        self.hover_over(spot)
+        self.pin_at(spot)
         self.pump(1.0)
-        QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, spot)
-        self.pump(1.5)
         FACTS["pinnedAgain"] = self.script("return {nodes: focusNodes().length, pinned: pinnedResidue ? pinnedResidue.number : null}")
         pinned_session = self.script("return plugin.state.getSnapshot({camera: true})")
         QTest.keyClick(widget, Qt.Key_Escape)

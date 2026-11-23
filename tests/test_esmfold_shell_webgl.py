@@ -154,6 +154,20 @@ class ShellWebglTests(unittest.TestCase):
             self.assertLess(differing, 4 * noise + 150, (name, differing, noise))
         self.assertIsNone(found["restoredPinned"])
 
+    def test_the_spot_the_real_pointer_is_moved_to_lies_inside_the_canvas_in_page_pixels_at_any_pixel_ratio(self):
+        # The spot is worked out from the camera, which answers in the canvas's own pixels (twice the page's at a ratio of 2); a spot
+        # that adds those to the canvas's page position lands outside the canvas, on whatever is below it.
+        pointer = self.found["pointer"]
+        left, top, right, bottom = pointer["rect"]
+        message = (f"the pointer spot {pointer['spot']} is not inside the canvas {pointer['rect']} (page pixels) at a pixel ratio of "
+                   f"{pointer['ratio']}, canvas buffer {pointer['buffer']}, page size {pointer['client']}: device pixels were taken for page pixels "
+                   f"(the element under it is {pointer['under']})")
+        self.assertTrue(left <= pointer["spot"][0] <= right and top <= pointer["spot"][1] <= bottom, message)
+        self.assertTrue(pointer["under"].startswith("CANVAS"), message)
+        # The canvas's buffer is its page size times the pixel ratio, to a pixel.
+        for buffer, client in zip(pointer["buffer"], pointer["client"]):
+            self.assertLessEqual(abs(buffer - client * pointer["ratio"]), 1, pointer)
+
     def test_a_real_pointer_over_the_canvas_shows_the_tip_pins_a_residue_and_escape_lets_go(self):
         found = self.found
         self.assertIsNotNone(found["hover"])
