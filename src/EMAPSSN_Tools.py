@@ -1444,11 +1444,11 @@ class DynamicComboBox(SteadyPopupComboBox):
         self.ext = ext
         self.include_ext = include_ext
         self.exclude_str = exclude_str
-        # An optional chooser lists "(none)" first; choosing it means no file, saved as an empty value.
+        # An optional chooser lists a blank entry first; choosing it means no file, saved as an empty value.
         self.optional = optional
 
     def chosen(self):
-        """The file the chooser stands for, "" for the optional chooser's "(none)"."""
+        """The file the chooser stands for, "" for the optional chooser's blank entry."""
         if self.optional and self.currentIndex() == 0 and self.currentData() == "":
             return ""
         return self.currentData() or self.currentText()
@@ -1466,7 +1466,7 @@ class DynamicComboBox(SteadyPopupComboBox):
             self.clear()
             options = []
             if self.optional:
-                self.addItem(translate("Tools", "(none)"), "")
+                self.addItem("", "")  # Blank: no file, as Config's file choosers do.
             if os.path.exists(self.folder):
                 for f in os.listdir(self.folder):
                     if f.endswith(self.ext):
@@ -2064,7 +2064,7 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "The embeddings the network was made from. Needed only when the Embedding Set is of another model than the network's."),
                     details=(
                         translate("Tools", "Calibrated Imputation aligns a sample of the missing pairs with the network's own scoring, and that needs the embeddings the network was made from. They must be of the network's model and hold every sequence of the run."),
-                        translate("Tools", "Leave it as (none) to use the Embedding Set for this; that is right when the Embedding Set is of the network's model."),
+                        translate("Tools", "Leave it blank to use the Embedding Set for this; that is right when the Embedding Set is of the network's model."),
                     ),
                 ),
                 "SHOW_REGRESSION_PLOT": Tip(

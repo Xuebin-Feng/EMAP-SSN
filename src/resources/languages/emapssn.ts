@@ -7976,10 +7976,6 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>(none)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Unavailable saved file [{file}]</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8376,7 +8372,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Leave it as (none) to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
+        <source>Leave it blank to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -13079,12 +13079,11 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">校准插补用网络自己的打分方式比对缺失序列对的一个样本，这需要生成网络所用的 embedding。它们必须与网络属于同一模型，并包含本次运行的每条序列。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Leave it as (none) to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
-        <translation type="unfinished">保持为（无）则由 Embedding 数据库负责；当 Embedding 数据库与网络属于同一模型时，这样即可。</translation>
+        <translation type="obsolete">保持为（无）则由 Embedding 数据库负责；当 Embedding 数据库与网络属于同一模型时，这样即可。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Shows the isotonic fit of normalized network scores on length-adjusted pooled-embedding similarity, with the calibration pairs and their held-out check when Calibrated Imputation is on.</source>
         <translation type="unfinished">展示归一化网络得分对经长度校正的池化 embedding 相似度的保序拟合；开启校准插补时，还会显示校准序列对及其留出检验结果。</translation>
     </message>
@@ -13267,7 +13266,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST-EFI]_EValue.h5`。</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+44"/>
+        <source>Leave it blank to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
+        <translation type="unfinished">留空则由 Embedding 数据库负责；当 Embedding 数据库与网络属于同一模型时，这样即可。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Displays a diagnostic chart of the imputation fit for sparse networks.</source>
         <translation type="unfinished">为稀疏网络显示插补拟合的诊断图。</translation>
     </message>
@@ -14540,12 +14544,11 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="-2332"/>
         <source>(none)</source>
-        <translation type="unfinished">（无）</translation>
+        <translation type="obsolete">（无）</translation>
     </message>
     <message>
-        <location line="+4452"/>
+        <location line="+2120"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

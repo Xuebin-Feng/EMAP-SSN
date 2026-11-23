@@ -347,13 +347,34 @@ class NetworkEmbeddingsFieldTests(unittest.TestCase):
 
     def test_the_field_lists_the_embeddings_with_an_empty_choice_first_and_collects_it(self):
         items = [self.second.itemText(i) for i in range(self.second.count())]
-        self.assertEqual(items[0], "(none)")
+        self.assertEqual(items[0], "")
+        self.assertEqual(self.second.itemData(0), "")
+        for label in items:
+            self.assertNotIn(label.strip().lower(), ("(none)", "none"))
         self.assertEqual(sorted(items[1:]), ["match.h5", "none.h5", "other.h5", "own.h5"])
         self.assertEqual(self.window._collect_tool_settings(self.path)["INPUT_NETWORK_EMBED"], "")
         self.choose(self.second, "match.h5")
         self.assertEqual(self.window._collect_tool_settings(self.path)["INPUT_NETWORK_EMBED"], "match.h5")
         self.choose_none()
         self.assertEqual(self.window._collect_tool_settings(self.path)["INPUT_NETWORK_EMBED"], "")
+
+    def test_a_blank_choice_stays_selected_when_the_dropdown_refills_itself_and_does_not_jump_to_a_file(self):
+        self.choose_none()
+        self.second.populate()
+        self.assertEqual(self.second.currentIndex(), 0)
+        self.assertEqual(self.second.currentText(), "")
+        self.assertEqual(self.second.chosen(), "")
+        self.choose(self.second, "match.h5")
+        self.second.populate()
+        self.assertEqual(self.second.currentText(), "match.h5")
+
+    def test_a_saved_empty_value_loads_as_the_blank_entry_and_a_saved_file_loads_as_that_file(self):
+        self.assertEqual(self.second.currentIndex(), 0)
+        self.assertEqual(self.second.currentText(), "")
+        self.assertEqual(self.window._collect_tool_settings(self.path)["INPUT_NETWORK_EMBED"], "")
+        self.second.select_file("match.h5")
+        self.assertEqual(self.second.currentText(), "match.h5")
+        self.assertEqual(self.second.findText(""), 0)
 
     def test_the_field_is_usable_only_while_the_switch_is_enabled_and_on(self):
         self.switch.setChecked(True)
