@@ -1939,7 +1939,7 @@ def missing_pairs_note(imputed, summary=None):
             "Imputed from embedding similarity and chains of computed pairs (calibrated); "
             f"checked on {check.pairs:,} held-out calibration pairs: Spearman "
             f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}; "
-            f"{covered}% of missing pairs had a chain; coefficients (constant, similarity fit, chain, no chain) "
+            f"{covered}% of missing pairs had a chain; coefficients (constant, isotonic fit, chain, no chain) "
             f"{c[0]:.4f}, {c[1]:.4f}, {c[2]:.4f}, {c[3]:.4f}; "
             f"{100.0 * summary.outside:.1f}% of missing pairs outside the fit's range"
         )
@@ -3056,14 +3056,11 @@ def run_msa_builder():
         print(f"  > Missing pairs with a chain: {100.0 * share:.1f}% of {missing:,}")
     elif is_sparse and iso_reg is not None and cos_sim_mat is not None:
         print("Applying hybrid adjusted similarity-alignment imputation for final master tree...")
-        dense_scores = iso_reg.predict(cos_sim_mat.ravel()).reshape(num_seqs, num_seqs)
+        # The isotonic-only mode of the row-block writer (the chain fill's other mode): the same bits as the
+        # dense matrix this replaced, in one block's buffers.
+        D_final_cond = np.empty(condensed_size, dtype=np.float32)
+        Chain_Fill.fill_isotonic(D_final_cond, cos_sim_mat, iso_reg, max_norm_score)
         del cos_sim_mat
-        dense_dists = np.maximum(0.0, max_norm_score - dense_scores).astype(np.float32)
-        del dense_scores
-        np.fill_diagonal(dense_dists, 0.0)
-        dense_dists = 0.5 * (dense_dists + dense_dists.T)
-        D_final_cond = squareform(dense_dists)
-        del dense_dists
     else:
         D_final_cond = np.full(condensed_size, MAX_DISTANCE, dtype=np.float32)
 

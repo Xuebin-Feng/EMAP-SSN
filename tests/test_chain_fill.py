@@ -446,15 +446,73 @@ class MemoryEstimateTests(unittest.TestCase):
         need = Chain_Fill.estimate_bytes(1000, 50_000)
         with mock.patch.object(Chain_Fill, "available_memory_bytes", return_value=(64 * GIB, 40 * GIB)):
             verdict = Chain_Fill.memory_verdict(1000, 50_000)
-        self.assertEqual(verdict.reserve, 16 * GIB)  # a quarter of the total, above the 8 GiB floor
-        self.assertEqual(verdict.usable, 24 * GIB)
+        self.assertEqual(verdict.reserve, int(64 * GIB * 0.10))  # a tenth of the total, above the 2 GiB floor
+        self.assertEqual(verdict.usable, 40 * GIB - int(64 * GIB * 0.10))
         self.assertEqual(verdict.need, need)
         self.assertTrue(verdict.fits)
+        # A 16 GiB computer with 8 GiB free uses the chain for a 1,000-sequence network.
         with mock.patch.object(Chain_Fill, "available_memory_bytes", return_value=(16 * GIB, 8 * GIB)):
             verdict = Chain_Fill.memory_verdict(1000, 50_000)
-        self.assertEqual((verdict.reserve, verdict.usable, verdict.fits), (8 * GIB, 0, False))
+        self.assertEqual((verdict.reserve, verdict.usable, verdict.fits), (2 * GIB, 6 * GIB, True))
+        # A reading that really is too small does not.
+        with mock.patch.object(Chain_Fill, "available_memory_bytes", return_value=(4 * GIB, 1 * GIB)):
+            verdict = Chain_Fill.memory_verdict(1000, 50_000)
+        self.assertEqual((verdict.reserve, verdict.usable, verdict.fits), (2 * GIB, 0, False))
+        with mock.patch.object(Chain_Fill, "available_memory_bytes", return_value=(8 * GIB, 3 * GIB)):
+            self.assertFalse(Chain_Fill.memory_verdict(30_000, 10**8).fits)
         with mock.patch.object(Chain_Fill, "available_memory_bytes", return_value=(0, 0)):
             self.assertFalse(Chain_Fill.memory_verdict(10, 5).fits)
+
+
+class IsotonicModeTests(unittest.TestCase):
+    """The row-block writer's isotonic-only mode gives the bits of the dense formula it replaced."""
+
+    @staticmethod
+    def old_dense_baseline(case, iso):
+        """The removed code of run_msa_builder, as it was: predict over the raveled matrix, invert, symmetrise,
+        squareform, the observed edges over it (the last listing wins), the clip."""
+        n, max_norm = case["n"], case["max_norm"]
+        dense_scores = iso.predict(case["similarity"].ravel()).reshape(n, n)
+        dense_dists = np.maximum(0.0, max_norm - dense_scores).astype(np.float32)
+        del dense_scores
+        np.fill_diagonal(dense_dists, 0.0)
+        dense_dists = 0.5 * (dense_dists + dense_dists.T)
+        baseline = squareform(dense_dists)
+        edge_dists = np.maximum(0.0, max_norm - case["y"]).astype(np.float32)
+        Embedding_MSA.populate_condensed_matrix(baseline, n, case["edge_i"], case["edge_j"], edge_dists)
+        np.clip(baseline, 0.0, max_norm + 0.1, out=baseline)
+        return baseline
+
+    @staticmethod
+    def new_baseline(case, iso, block_pairs):
+        n, max_norm = case["n"], case["max_norm"]
+        baseline = np.empty(n * (n - 1) // 2, dtype=np.float32)
+        Chain_Fill.fill_isotonic(baseline, case["similarity"], iso, max_norm, block_pairs=block_pairs)
+        edge_dists = np.maximum(0.0, max_norm - case["y"]).astype(np.float32)
+        Embedding_MSA.populate_condensed_matrix(baseline, n, case["edge_i"], case["edge_j"], edge_dists)
+        np.clip(baseline, 0.0, max_norm + 0.1, out=baseline)
+        return baseline
+
+    def test_every_fit_and_similarity_matrix_and_block_size_gives_the_old_dense_baseline_bit_for_bit(self):
+        for asymmetric in (False, True):
+            case = hand_network(3, n=40, observed=300, calibration=60, asymmetric=asymmetric)
+            uniform = Embedding_MSA.fit_imputation(case["x"], case["y"])
+            self.assertTrue(uniform.uniform)
+            fits = {"uniform fit": uniform.iso, "calibrated fit": case["imputation"].iso}
+            for name, iso in fits.items():
+                expected = self.old_dense_baseline(case, iso)
+                for block_pairs in (1, 50, 777, Chain_Fill.BLOCK_PAIRS):
+                    with self.subTest(asymmetric=asymmetric, fit=name, block_pairs=block_pairs):
+                        self.assertEqual(Chain_Fill.is_symmetric(case["similarity"]), not asymmetric)
+                        self.assertTrue(np.array_equal(
+                            bits(self.new_baseline(case, iso, block_pairs)), bits(expected)))
+
+    def test_the_mode_holds_no_score_matrix_and_needs_no_plan(self):
+        case = hand_network(1)
+        n = case["n"]
+        condensed = np.empty(n * (n - 1) // 2, dtype=np.float32)
+        Chain_Fill.fill_isotonic(condensed, case["similarity"], case["imputation"].iso, case["max_norm"])
+        self.assertTrue(np.all(np.isfinite(condensed)))
 
 
 class RunPathTests(unittest.TestCase):
@@ -617,19 +675,19 @@ class RunPathTests(unittest.TestCase):
             note,
             rf"^Imputed from embedding similarity and chains of computed pairs \(calibrated\); checked on 6 held-out "
             rf"calibration pairs: Spearman {number}, MAE {number}, R\^2 {number}; \d+\.\d% of missing pairs had a "
-            rf"chain; coefficients \(constant, similarity fit, chain, no chain\) {number}, {number}, {number}, "
+            rf"chain; coefficients \(constant, isotonic fit, chain, no chain\) {number}, {number}, {number}, "
             rf"{number}; \d+\.\d% of missing pairs outside the fit's range$",
         )
 
     def test_a_run_too_short_of_memory_falls_back_to_todays_isotonic_fill_and_says_why(self):
-        seen = self.run_builder(self.fixture(), memory=(16 * GIB, 8 * GIB))
+        seen = self.run_builder(self.fixture(), memory=(4 * GIB, 1 * GIB))
         expected = self.baseline_from(seen, self.old_estimate(seen))
         self.assertTrue(np.array_equal(seen["baseline"], expected.astype(np.float64)))
         output = seen["output"]
         self.assertRegex(
             output,
             r"⚠️ Chain fill not used: it needs about [\d.]+ MB and 0\.0 MB of memory is free beyond a reserve of "
-            r"8\.0 GB\n  > The missing pairs are filled from the calibrated isotonic fit alone\.",
+            r"2\.0 GB\n  > The missing pairs are filled from the calibrated isotonic fit alone\.",
         )
         self.assertIn("Applying hybrid adjusted similarity-alignment imputation for final master tree...", output)
         self.assertNotIn("Applying chain + calibration imputation", output)
@@ -657,26 +715,8 @@ class RunPathTests(unittest.TestCase):
                 expected = self.baseline_from(seen, self.old_estimate(seen))
                 self.assertTrue(np.array_equal(seen["baseline"], expected.astype(np.float64)))
 
-    # Made by Embedding_MSA at fcc6c6f (before the chain fill) on this fixture: 27 sequences, seed 4, 60% of the
-    # pairs listed, a sample of 12 calibration pairs; TREE lines of the guide tree files.
-    TREE_BEFORE_SWITCH_OFF = (
-        "(((seq0011:146.688,seq0020:146.688):43.121,((seq0014:178.697,seq0023:178.697):10.048,"
-        "(seq0013:179.681,seq0022:179.681):9.06408):1.06394):1.23969,((seq0001:189.232,(seq0015:188.89,"
-        "(((seq0003:151.278,seq0012:151.278):33.3894,(seq0009:175.924,(seq0021:0,seq0026:0):175.924):8.743):3.30151,"
-        "(seq0024:184.693,(seq0000:178.35,seq0002:178.35):6.34296):3.27588):0.920948):0.342204):0.930033,"
-        "((seq0018:187.874,((seq0006:182.586,(seq0016:165.628,seq0019:165.628):16.9576):4.53639,"
-        "(seq0004:183.102,(seq0008:174.856,seq0010:174.856):8.24553):4.02075):0.751809):2.005,"
-        "(seq0007:187.874,seq0025:187.874):2.00468):0.282845):0.886822);"
-    )
-    TREE_BEFORE_SWITCH_ON = (
-        "(((seq0011:146.688,seq0020:146.688):43.3922,((seq0014:178.697,seq0023:178.697):10.048,"
-        "(seq0013:179.681,seq0022:179.681):9.06408):1.33507):1.23219,((seq0007:187.874,seq0025:187.874):2.79614,"
-        "(((seq0024:184.965,(seq0000:178.35,seq0002:178.35):6.61467):3.32962,((seq0003:151.278,seq0012:151.278):33.7509,"
-        "(seq0009:175.924,(seq0021:0,seq0026:0):175.924):9.10452):3.26544):2.12165,((seq0004:183.188,"
-        "seq0015:183.188):6.15303,((seq0018:185.552,(seq0008:174.856,seq0010:174.856):10.6959):3.23841,"
-        "(seq0001:187.876,(seq0006:182.586,(seq0016:165.628,seq0019:165.628):16.9576):5.29037):0.914092):0.550872):"
-        "1.07461):0.254712):0.641842);"
-    )
+    # The notes of a switch-off run on this fixture (27 sequences, seed 4, 60% of the pairs listed), as
+    # Embedding_MSA wrote them at fcc6c6f before the chain fill.
     NOTES_BEFORE_SWITCH_OFF = {
         "MISSING_PAIRS": "Regression-imputed from embedding distances; the calibration switch is off, so the "
                          "estimates are unchecked; 2.4% of missing pairs outside the fit's range",
@@ -684,23 +724,17 @@ class RunPathTests(unittest.TestCase):
         "CALIBRATION": "Calibration switched off: no sample is drawn or aligned, so the fit takes the observed pairs only",
     }
 
-    @staticmethod
-    def tree_line(text):
-        return re.search(r"^    TREE guide_tree = \[&R\] (.*)$", text, re.MULTILINE).group(1)
-
-    def test_the_guide_tree_of_a_run_with_the_switch_off_is_what_it_was_before_the_chain_fill(self):
+    def test_a_run_with_the_switch_off_keeps_its_notes_and_the_old_dense_formulas_baseline(self):
         seen = self.run_builder(self.fixture(), CALIBRATED_IMPUTATION=False)
-        self.assertEqual(self.tree_line(seen["file"]), self.TREE_BEFORE_SWITCH_OFF)
         for name, value in self.NOTES_BEFORE_SWITCH_OFF.items():
             self.assertEqual(seen["notes"][name], value, name)
+        expected = self.baseline_from(seen, self.old_estimate(seen))
+        self.assertTrue(np.array_equal(seen["baseline"], expected.astype(np.float64)))
 
-    def test_the_guide_tree_of_the_memory_fall_back_is_what_a_calibrated_run_gave_before_the_chain_fill(self):
-        seen = self.run_builder(self.fixture(), memory=(16 * GIB, 8 * GIB))
-        self.assertEqual(self.tree_line(seen["file"]), self.TREE_BEFORE_SWITCH_ON)
-
-    def test_the_chain_fill_gives_another_tree_than_the_isotonic_fill_on_the_same_run(self):
+    def test_the_chain_fill_gives_another_baseline_than_the_isotonic_fill_on_the_same_run(self):
         seen = self.run_builder(self.fixture())
-        self.assertNotEqual(self.tree_line(seen["file"]), self.TREE_BEFORE_SWITCH_ON)
+        isotonic = self.baseline_from(seen, self.old_estimate(seen)).astype(np.float64)
+        self.assertFalse(np.array_equal(seen["baseline"], isotonic))
 
     def test_a_complete_network_imputes_nothing_and_prints_no_chain_line(self):
         seen = self.run_builder(self.fixture(complete=True, duplicates=0, out_of_range=False))

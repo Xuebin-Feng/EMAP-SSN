@@ -56,11 +56,12 @@ BLOCK_PAIRS = 2_000_000
 # that is not symmetric) and about three float64 temporaries of the isotonic prediction (24).
 BLOCK_BYTES_PER_PAIR = 56
 
-# What the step may not take from the memory the machine has free: the rule the alignment engine's host cache
-# follows (Embedding_Alignment_Engine.resolve_host_cache_bytes): at least 8 GiB, or a quarter of the total.
+# What the step leaves free for the rest of the system (the desktop, other programs) while it runs: at least
+# 2 GiB, or a tenth of the total memory. The step's arrays are freed again before the replicate trees start,
+# so the reserve only has to cover the step itself.
 GIB = 1024 ** 3
-MIN_HOST_RESERVE = 8 * GIB
-HOST_RESERVE_FRACTION = 0.25
+MIN_HOST_RESERVE = 2 * GIB
+HOST_RESERVE_FRACTION = 0.10
 
 
 # ----------------------------------------------------------------------------------------------- kernels
@@ -212,6 +213,19 @@ def _symmetry_flags(x, flags):
 
 
 @njit(parallel=True, cache=True)
+def _isotonic_block(base, base_mirror, max_norm, out):
+    """out[p] = 0.5 * (d(base[p]) + d(base_mirror[p])) in float32, d = float32(max(0, max_norm - prediction))."""
+    for p in prange(out.size):
+        d_ab = max_norm - base[p]
+        if d_ab < 0.0:
+            d_ab = 0.0
+        d_ba = max_norm - base_mirror[p]
+        if d_ba < 0.0:
+            d_ba = 0.0
+        out[p] = np.float32(0.5) * (np.float32(d_ab) + np.float32(d_ba))
+
+
+@njit(parallel=True, cache=True)
 def _fill_block(square, start, idx, val, bits, r0, r1, offsets, base, base_mirror, c0, c1, c2, c3, max_norm,
                 out, covered_rows, missing_rows):
     """Distances of the pairs of rows r0..r1 - 1 into out (condensed order; computed pairs get 0.0, to be overwritten).
@@ -327,6 +341,8 @@ def estimate_bytes(n, edges, block_pairs=BLOCK_PAIRS):
     directions of a pair: 16 per pair) with their offsets (8 (n + 1)), the bit rows (8 n ceil(n / 64)), one
     row block of the fill (BLOCK_BYTES_PER_PAIR per pair of the block) and the condensed float32 distances the
     fill writes (4 per pair of sequences). The similarity matrix the tool already holds is not included.
+    The fall-back mode (fill_isotonic) needs only the condensed output and one block's buffers, so whatever
+    fits this estimate fits it.
     """
     n = int(n)
     pairs = n * (n - 1) // 2
@@ -476,6 +492,41 @@ def _row_blocks(n, block_pairs):
     return blocks
 
 
+@dataclass
+class _Block:
+    """One row block of the fill: rows r0..r1 - 1, their pairs in condensed order from index `first`, and the
+    isotonic predictions at x[a, b] (base) and at x[b, a] (base_mirror; the same array for a symmetric matrix)."""
+
+    r0: int
+    r1: int
+    offsets: np.ndarray
+    first: int
+    pairs: int
+    base: np.ndarray
+    base_mirror: np.ndarray
+
+
+def _blocks(similarity, iso, n, block_pairs):
+    symmetric = is_symmetric(similarity)
+    for r0, r1 in _row_blocks(n, block_pairs):
+        rows = np.arange(r0, r1, dtype=np.int64)
+        sizes = n - 1 - rows
+        offsets = np.zeros(rows.size, dtype=np.int64)
+        np.cumsum(sizes[:-1], out=offsets[1:])
+        pairs = int(sizes.sum())
+        similarities = np.empty(pairs, dtype=np.float64)
+        with _threads():
+            _gather_upper(similarity, r0, r1, offsets, similarities)
+            base = np.asarray(iso.predict(similarities), dtype=np.float64)
+            if symmetric:
+                base_mirror = base
+            else:
+                _gather_lower(similarity, r0, r1, offsets, similarities)
+                base_mirror = np.asarray(iso.predict(similarities), dtype=np.float64)
+        del similarities
+        yield _Block(r0, r1, offsets, n * r0 - r0 * (r0 + 1) // 2, pairs, base, base_mirror)
+
+
 def fill_distances(plan, condensed, similarity, iso, max_norm_score, block_pairs=BLOCK_PAIRS):
     """Write the distance max(0, max_norm_score - fill) of every missing pair into `condensed` (float32).
 
@@ -489,30 +540,32 @@ def fill_distances(plan, condensed, similarity, iso, max_norm_score, block_pairs
     max_norm = float(max_norm_score)
     covered_total = 0
     missing_total = 0
-    symmetric = is_symmetric(similarity)
-    for r0, r1 in _row_blocks(n, block_pairs):
-        rows = np.arange(r0, r1, dtype=np.int64)
-        sizes = n - 1 - rows
-        offsets = np.zeros(rows.size, dtype=np.int64)
-        np.cumsum(sizes[:-1], out=offsets[1:])
-        pairs = int(sizes.sum())
-        first = n * r0 - r0 * (r0 + 1) // 2  # the condensed index of the block's first pair
-        similarities = np.empty(pairs, dtype=np.float64)
-        covered_rows = np.empty(rows.size, dtype=np.int64)
-        missing_rows = np.empty(rows.size, dtype=np.int64)
+    for block in _blocks(similarity, iso, n, block_pairs):
+        covered_rows = np.empty(block.r1 - block.r0, dtype=np.int64)
+        missing_rows = np.empty(block.r1 - block.r0, dtype=np.int64)
         with _threads():
-            _gather_upper(similarity, r0, r1, offsets, similarities)
-            base = np.asarray(iso.predict(similarities), dtype=np.float64)
-            if symmetric:
-                base_mirror = base
-            else:
-                _gather_lower(similarity, r0, r1, offsets, similarities)
-                base_mirror = np.asarray(iso.predict(similarities), dtype=np.float64)
-            del similarities
             _fill_block(
-                plan.square, index.start, index.idx, index.val, index.bits, r0, r1, offsets, base, base_mirror,
-                c0, c1, c2, c3, max_norm, condensed[first:first + pairs], covered_rows, missing_rows,
+                plan.square, index.start, index.idx, index.val, index.bits, block.r0, block.r1, block.offsets,
+                block.base, block.base_mirror, c0, c1, c2, c3, max_norm,
+                condensed[block.first:block.first + block.pairs], covered_rows, missing_rows,
             )
         covered_total += int(covered_rows.sum())
         missing_total += int(missing_rows.sum())
     return covered_total, missing_total
+
+
+def fill_isotonic(condensed, similarity, iso, max_norm_score, block_pairs=BLOCK_PAIRS):
+    """The second mode of the row-block writer: the isotonic-only distance of every pair, into `condensed` (float32).
+
+    Each pair gets 0.5 * (d_ab + d_ba) in float32, with d = float32(max(0, max_norm_score - base)) and base the
+    isotonic prediction at x[a, b] (d_ab) and at x[b, a] (d_ba); these are the bits of the dense matrix this
+    replaces (predict over the whole raveled matrix, invert, 0.5 * (D + D.T), squareform). It serves the uniform
+    fill, a calibrated fit without a chain and the memory fall-back. No score matrix, lists or bit rows are
+    needed, so it holds one block's buffers only: never more than the chain fill's own arrays. Every pair is
+    written, the computed ones too; the caller overwrites those with their own distances.
+    """
+    n = similarity.shape[0]
+    max_norm = float(max_norm_score)
+    for block in _blocks(similarity, iso, n, block_pairs):
+        with _threads():
+            _isotonic_block(block.base, block.base_mirror, max_norm, condensed[block.first:block.first + block.pairs])
