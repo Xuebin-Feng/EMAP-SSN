@@ -96,11 +96,22 @@ import scipy.cluster.hierarchy as sch
 from scipy.spatial.distance import squareform
 import multiprocessing as mp
 from functools import partial
-from numba import jit, prange
 from tqdm import tqdm
 import sys
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities import Numba_Threads
+from utilities.MSA_Kernels import (
+    _accumulate_cophenetic_batch_kernel,
+    _accumulate_path_lengths_batch_kernel,
+    _nj_dense_row_minima,
+    _prep_tree_euler,
+    _prep_tree_euler_nj,
+    calculate_normalized_scores_kernel,
+    linkage_split_keys,
+    neighbor_joining_compact_kernel,
+    populate_condensed_matrix,
+    run_global_traceback,
+)
 from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
@@ -551,32 +562,38 @@ def validate_sequence_embedding_match(seq_dict, valid_headers, emb_seq_dict, emb
 # ALIGNMENT KERNELS
 # ==========================================
 def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
+    with torch.inference_mode():
+        t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
+        t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
 
-    # Profile-vector magnitude is meaningful: it decreases when a column has
-    # gaps or contains disagreeing residue directions. Preserve that signal
-    # before normalizing directions for the reciprocal similarity score.
-    confidence_i = torch.linalg.vector_norm(t_i, dim=-1, keepdim=True).clamp(max=1.0)
-    confidence_j = torch.linalg.vector_norm(t_j, dim=-1, keepdim=True).clamp(max=1.0)
-    t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
-    t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
-    dist_mat = 1.0 - cos_sim
-    sim_mat = torch.exp(-dist_mat)
-    
-    epsilon = 1e-8
-    row_mean = sim_mat.mean(dim=1, keepdim=True)
-    row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
-    col_mean = sim_mat.mean(dim=0, keepdim=True)
-    col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
-    
-    z_r = (sim_mat - row_mean) / (row_std + epsilon)
-    z_c = (sim_mat - col_mean) / (col_std + epsilon)
-    profile_confidence = confidence_i * confidence_j.T
-    final_score = ((z_r + z_c) / 2.0) * profile_confidence
-    
-    return final_score.to(dtype=torch.float32, device="cpu").numpy()
+        # Profile-vector magnitude is meaningful: it decreases when a column has
+        # gaps or contains disagreeing residue directions. Compute L2 norms once
+        # and reuse them for both confidence scaling and unit-vector normalization.
+        norm_i = torch.linalg.vector_norm(t_i, dim=-1, keepdim=True)
+        norm_j = torch.linalg.vector_norm(t_j, dim=-1, keepdim=True)
+        confidence_i = norm_i.clamp(max=1.0)
+        confidence_j = norm_j.clamp(max=1.0)
+        t_i_norm = t_i / norm_i.clamp(min=1e-12)
+        t_j_norm = t_j / norm_j.clamp(min=1e-12)
+        cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp_(-1.0, 1.0)
+        sim_mat = torch.exp(-(1.0 - cos_sim))
+
+        epsilon = 1e-8
+        try:
+            row_std, row_mean = torch.std_mean(sim_mat, dim=1, keepdim=True, correction=0)
+            col_std, col_mean = torch.std_mean(sim_mat, dim=0, keepdim=True, correction=0)
+        except (RuntimeError, NotImplementedError):
+            row_mean = sim_mat.mean(dim=1, keepdim=True)
+            row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
+            col_mean = sim_mat.mean(dim=0, keepdim=True)
+            col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
+
+        z_r = (sim_mat - row_mean) / (row_std + epsilon)
+        z_c = (sim_mat - col_mean) / (col_std + epsilon)
+        profile_confidence = confidence_i * confidence_j.T
+        final_score = ((z_r + z_c) * 0.5) * profile_confidence
+
+        return final_score.to(dtype=torch.float32, device="cpu").numpy()
 
 
 def representative_leaf_merge_pairs(
@@ -706,11 +723,13 @@ def benchmark_msa_devices(
         failure_status, failure_details = None, []
         free_memory = Hardware_Utils.begin_gpu_trial(candidate)
         try:
-            first_left = samples[0][4]
-            first_right = samples[0][5]
+            # Warm up on the largest representative pair so cold-shape kernel
+            # selection/JIT never inflates the timed trials.
+            warm_left = samples[-1][4]
+            warm_right = samples[-1][5]
             compute_score_matrix_torch(
-                first_left[:64],
-                first_right[:64],
+                warm_left,
+                warm_right,
                 candidate.device,
             )
             Hardware_Utils.synchronize_device(candidate)
@@ -853,144 +872,78 @@ def map_network_indices(indices, net_old_to_new):
     mapped[in_range] = net_old_to_new[indices[in_range]]
     return mapped
 
-@jit(nopython=True, fastmath=True)
-def populate_condensed_matrix(D_condensed, num_seqs, edge_i, edge_j, edge_dists):
-    """Blazing fast population of the 1D condensed array from sparse data."""
-    for k in range(len(edge_i)):
-        i = edge_i[k]
-        j = edge_j[k]
-        if i > j: 
-            temp = i
-            i = j
-            j = temp
-        idx = int(num_seqs*i - i*(i+1)/2 + j - i - 1)
-        D_condensed[idx] = edge_dists[k]
 
-@jit(nopython=True, fastmath=True)
 def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator):
-    """Add float32 cophenetic distances for every condensed pair in place.
-
-    Adding into the caller's condensed accumulator avoids allocating a
-    condensed-size array for every bootstrap tree.
-    """
+    """Add float32 cophenetic distances for every condensed pair in place."""
     if num_seqs <= 1:
         return
-
-    total_nodes = 2 * num_seqs - 1
-    head = np.full(total_nodes, -1, dtype=np.int32)
-    tail = np.full(total_nodes, -1, dtype=np.int32)
-    next_leaf = np.full(num_seqs, -1, dtype=np.int32)
-
-    for leaf in range(num_seqs):
-        head[leaf] = leaf
-        tail[leaf] = leaf
-
-    # At each linkage merge, every cross-child leaf pair meets for the first
-    # time at this node. Across the complete tree, each pair is updated once.
-    for step in range(num_seqs - 1):
-        child_a = int(Z[step, 0])
-        child_b = int(Z[step, 1])
-        parent = num_seqs + step
-        merge_height = np.float32(Z[step, 2])
-
-        leaf_a = head[child_a]
-        while leaf_a != -1:
-            leaf_b = head[child_b]
-            while leaf_b != -1:
-                i = leaf_a
-                j = leaf_b
-                if i > j:
-                    temp = i
-                    i = j
-                    j = temp
-                condensed_idx = (
-                    num_seqs * i - i * (i + 1) // 2 + j - i - 1
-                )
-                coph_accumulator[condensed_idx] += merge_height
-                leaf_b = next_leaf[leaf_b]
-            leaf_a = next_leaf[leaf_a]
-
-        head[parent] = head[child_a]
-        tail[parent] = tail[child_b]
-        next_leaf[tail[child_a]] = head[child_b]
+    par, sib, ml, mh, ss, se, leaves = _prep_tree_euler(Z, num_seqs)
+    _accumulate_cophenetic_batch_kernel(
+        par[None, :], sib[None, :], ml[None, :], mh[None, :],
+        ss[None, :], se[None, :], leaves[None, :], num_seqs, coph_accumulator,
+    )
 
 
-@jit(nopython=True, fastmath=True)
 def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator):
-    """Add float32 leaf-to-leaf path lengths for every condensed pair in place.
-
-    The merge loop of accumulate_full_cophenetic, keeping each leaf's
-    distance to the root of its current cluster. A pair first meets at a
-    merge, and its path climbs both children's branches to it. node_length
-    holds each node's branch to its parent. Only per-node arrays are made.
-    """
+    """Add float32 leaf-to-leaf path lengths for every condensed pair in place."""
     if num_seqs <= 1:
         return
-
-    total_nodes = 2 * num_seqs - 1
-    head = np.full(total_nodes, -1, dtype=np.int32)
-    tail = np.full(total_nodes, -1, dtype=np.int32)
-    next_leaf = np.full(num_seqs, -1, dtype=np.int32)
-    to_cluster_root = np.zeros(num_seqs, dtype=np.float64)
-
-    for leaf in range(num_seqs):
-        head[leaf] = leaf
-        tail[leaf] = leaf
-
-    for step in range(num_seqs - 1):
-        child_a = int(Z[step, 0])
-        child_b = int(Z[step, 1])
-        parent = num_seqs + step
-
-        # Child b's leaves climb to the new cluster root first, so every
-        # pair below reads their finished distances.
-        length_b = node_length[child_b]
-        leaf_b = head[child_b]
-        while leaf_b != -1:
-            to_cluster_root[leaf_b] += length_b
-            leaf_b = next_leaf[leaf_b]
-
-        length_a = node_length[child_a]
-        leaf_a = head[child_a]
-        while leaf_a != -1:
-            reach_a = to_cluster_root[leaf_a] + length_a
-            leaf_b = head[child_b]
-            while leaf_b != -1:
-                i = leaf_a
-                j = leaf_b
-                if i > j:
-                    temp = i
-                    i = j
-                    j = temp
-                condensed_idx = (
-                    num_seqs * i - i * (i + 1) // 2 + j - i - 1
-                )
-                path_accumulator[condensed_idx] += np.float32(
-                    reach_a + to_cluster_root[leaf_b]
-                )
-                leaf_b = next_leaf[leaf_b]
-            to_cluster_root[leaf_a] = reach_a
-            leaf_a = next_leaf[leaf_a]
-
-        head[parent] = head[child_a]
-        tail[parent] = tail[child_b]
-        next_leaf[tail[child_a]] = head[child_b]
+    par, sib, ml, rd, ss, se, leaves = _prep_tree_euler_nj(Z, num_seqs, node_length)
+    _accumulate_path_lengths_batch_kernel(
+        par[None, :], sib[None, :], ml[None, :], rd[None, :],
+        ss[None, :], se[None, :], leaves[None, :], num_seqs, path_accumulator,
+    )
 
 
 def add_replicate_to_consensus(Z, nj_branch_lengths, num_seqs, accumulator):
-    """Add one replicate tree's distance for every pair to the consensus, in place.
-
-    UPGMA replicates add their cophenetic merge heights. A neighbor-joining
-    height only keeps the linkage format monotone, so those replicates add
-    path lengths instead, over branches clamped as the guide tree export
-    clamps them.
-    """
+    """Add one replicate tree's distance for every pair to the consensus, in place."""
     if nj_branch_lengths is None:
         accumulate_full_cophenetic(Z, num_seqs, accumulator)
         return
 
     _, node_length = guide_tree_branches(Z, num_seqs, nj_branch_lengths)
     accumulate_full_path_lengths(Z, num_seqs, node_length, accumulator)
+
+
+def add_replicates_batch_to_consensus(replicates, num_seqs, accumulator):
+    """Add a batch of replicate trees in exact order using one sequential DRAM pass.
+
+    Bit-for-bit identical to calling ``add_replicate_to_consensus`` on each tree
+    in order, while reducing DRAM traffic by ``len(replicates)``x and exploiting
+    all CPU cores with L1-resident row accumulation.
+    """
+    if num_seqs <= 1 or not replicates:
+        return
+    is_nj = replicates[0][1] is not None
+    if not is_nj:
+        prepped = [_prep_tree_euler(Z, num_seqs) for Z, _ in replicates]
+        _accumulate_cophenetic_batch_kernel(
+            np.stack([p[0] for p in prepped]),
+            np.stack([p[1] for p in prepped]),
+            np.stack([p[2] for p in prepped]),
+            np.stack([p[3] for p in prepped]),
+            np.stack([p[4] for p in prepped]),
+            np.stack([p[5] for p in prepped]),
+            np.stack([p[6] for p in prepped]),
+            num_seqs,
+            accumulator,
+        )
+    else:
+        prepped = []
+        for Z, bl in replicates:
+            _, node_length = guide_tree_branches(Z, num_seqs, bl)
+            prepped.append(_prep_tree_euler_nj(Z, num_seqs, node_length))
+        _accumulate_path_lengths_batch_kernel(
+            np.stack([p[0] for p in prepped]),
+            np.stack([p[1] for p in prepped]),
+            np.stack([p[2] for p in prepped]),
+            np.stack([p[3] for p in prepped]),
+            np.stack([p[4] for p in prepped]),
+            np.stack([p[5] for p in prepped]),
+            np.stack([p[6] for p in prepped]),
+            num_seqs,
+            accumulator,
+        )
 
 
 def finalize_cophenetic_consensus(distance_matrix, num_trees):
@@ -1000,161 +953,23 @@ def finalize_cophenetic_consensus(distance_matrix, num_trees):
     distance_matrix /= num_trees
     return distance_matrix
 
-@jit(nopython=True, fastmath=True, parallel=True)
-def neighbor_joining_row_minima(D, active_list, r_list, k, row_min, row_arg):
-    """Store each active row's first minimum Q over the pairs j > i.
 
-    Rows are independent, so threads never share a write. Row i has
-    k - 1 - i pairs; pairing row t with row k - 1 - t gives every parallel
-    iteration about k cells.
-    """
-    for t in prange((k + 1) // 2):
-        # The prange index is unsigned; mixing it with signed k would
-        # promote the row index to float64.
-        first = np.int64(t)
-        for side in range(2):
-            i = first if side == 0 else k - 1 - first
-            if side == 1 and i == first:
-                break
-            u = active_list[i]
-            r_u = r_list[i]
-            best_q = 1e15
-            best_j = -1
-            for j in range(i + 1, k):
-                v = active_list[j]
-                q = D[u, v] - (r_u + r_list[j])
-                if q < best_q:
-                    best_q = q
-                    best_j = j
-            row_min[i] = best_q
-            row_arg[i] = best_j
-
-
-@jit(nopython=True, fastmath=True)
 def neighbor_joining_kernel(D, N):
-    """Return the linkage matrix and each join's two branch lengths.
+    """Compatibility entry point delegating to the compact (N, N) NJ kernel."""
+    D_sub = np.ascontiguousarray(D[:N, :N], dtype=np.float64)
+    return neighbor_joining_compact_kernel(D_sub)
 
-    Z's height column only keeps merge heights monotone for the linkage
-    format; branch_lengths[step] holds the Saitou-Nei lengths to Z[step, 0]
-    and Z[step, 1]. The last join splits its edge evenly, and lengths are
-    raw estimates that may be negative.
-    """
-    Z = np.zeros((N - 1, 4), dtype=np.float64)
-    branch_lengths = np.zeros((N - 1, 2), dtype=np.float64)
-
-    # Track active node indices contiguous in memory (sorted)
-    active_list = np.arange(N, dtype=np.int32)
-    k = N
-    
-    # Pre-calculate initial row sums for the first N nodes
-    R = np.zeros(2 * N - 1, dtype=np.float64)
-    for i in range(N):
-        s = 0.0
-        for j in range(N):
-            s += D[i, j]
-        R[i] = s
-        
-    node_height = np.zeros(2 * N - 1, dtype=np.float64)
-    num_leaves = np.ones(2 * N - 1, dtype=np.float64)
-    
-    # Pre-allocate r_list array for reuse
-    r_list = np.zeros(2 * N - 1, dtype=np.float64)
-    row_min = np.empty(N, dtype=np.float64)
-    row_arg = np.empty(N, dtype=np.int64)
-
-    for step in range(N - 1):
-        if k > 2:
-            inv_k_minus_2 = 1.0 / (k - 2)
-            min_Q = 1e15
-            idx_u = -1
-            idx_v = -1
-
-            # Precompute normalized divergence values for active nodes
-            for i in range(k):
-                r_list[i] = R[active_list[i]] * inv_k_minus_2
-
-            # Taking rows in order with a strict < keeps the serial scan's
-            # choice: the first minimum in row-major order.
-            neighbor_joining_row_minima(D, active_list, r_list, k, row_min, row_arg)
-            for i in range(k):
-                if row_min[i] < min_Q:
-                    min_Q = row_min[i]
-                    idx_u = i
-                    idx_v = row_arg[i]
-        else:
-            idx_u = 0
-            idx_v = 1
-            
-        u = active_list[idx_u]
-        v = active_list[idx_v]
-        
-        # New parent node
-        w = N + step
-        
-        dist_uv = D[u, v]
-        child_max = max(node_height[u], node_height[v])
-        node_height[w] = max(dist_uv, child_max)
-
-        # r_list still holds this step's R / (k - 2) by active position.
-        if k > 2:
-            length_u = 0.5 * (dist_uv + r_list[idx_u] - r_list[idx_v])
-        else:
-            length_u = 0.5 * dist_uv
-        length_v = dist_uv - length_u
-        
-        # Update distances from w to other active nodes and calculate R[w]
-        sum_d_wm = 0.0
-        for p in range(k):
-            if p != idx_u and p != idx_v:
-                m = active_list[p]
-                d_wm = 0.5 * (D[u, m] + D[v, m] - dist_uv)
-                D[w, m] = d_wm
-                D[m, w] = d_wm
-                sum_d_wm += d_wm
-                # Update R[m]
-                R[m] = R[m] - D[u, m] - D[v, m] + d_wm
-                
-        R[w] = sum_d_wm
-        
-        # Record merge in Z
-        c1 = min(u, v)
-        c2 = max(u, v)
-        Z[step, 0] = float(c1)
-        Z[step, 1] = float(c2)
-        Z[step, 2] = node_height[w]
-        Z[step, 3] = num_leaves[u] + num_leaves[v]
-        if u < v:
-            branch_lengths[step, 0] = length_u
-            branch_lengths[step, 1] = length_v
-        else:
-            branch_lengths[step, 0] = length_v
-            branch_lengths[step, 1] = length_u
-
-        num_leaves[w] = num_leaves[u] + num_leaves[v]
-        
-        # Update active list keeping it sorted:
-        write_idx = 0
-        for p in range(k):
-            if p != idx_u and p != idx_v:
-                active_list[write_idx] = active_list[p]
-                write_idx += 1
-        active_list[write_idx] = w
-        k -= 1
-
-    return Z, branch_lengths
 
 def neighbor_joining_condensed(
     D_condensed, num_seqs, threads=None, return_branch_lengths=False
 ):
     """Return the neighbor-joining linkage matrix, and its branch lengths
     when ``return_branch_lengths`` is set."""
-    D_square = squareform(D_condensed)
-    D_allocated = np.zeros((2 * num_seqs - 1, 2 * num_seqs - 1), dtype=np.float64)
-    D_allocated[:num_seqs, :num_seqs] = D_square
+    D_square = np.ascontiguousarray(squareform(D_condensed), dtype=np.float64)
     if threads is None:
         threads = Numba_Threads.default_thread_count()
     with Numba_Threads.limited_threads(threads):
-        Z, branch_lengths = neighbor_joining_kernel(D_allocated, num_seqs)
+        Z, branch_lengths = neighbor_joining_compact_kernel(D_square)
     if return_branch_lengths:
         return Z, branch_lengths
     return Z
@@ -1166,31 +981,6 @@ def guide_tree_leaf_keys(num_seqs, seed):
     """Return one random 64-bit key per leaf for naming splits."""
     rng = np.random.default_rng(seed)
     return rng.integers(0, np.iinfo(np.uint64).max, size=num_seqs, dtype=np.uint64, endpoint=True)
-
-
-@jit(nopython=True)
-def linkage_split_keys(Z, num_seqs, leaf_keys):
-    """Return a 64-bit key for each non-trivial split of a linkage tree.
-
-    A clade's key XORs its leaves' keys, so a clade and its complement differ
-    by the key of all leaves. The smaller of the two names the split wherever
-    the tree's root sits. Clades of all leaves but one split off one leaf and
-    are skipped. The root's two children name the same split twice.
-    """
-    total = np.uint64(0)
-    for leaf in range(num_seqs):
-        total ^= leaf_keys[leaf]
-    node_keys = np.zeros(2 * num_seqs - 1, dtype=np.uint64)
-    node_keys[:num_seqs] = leaf_keys
-    keys = np.empty(max(num_seqs - 1, 0), dtype=np.uint64)
-    count = 0
-    for step in range(num_seqs - 1):
-        key = node_keys[int(Z[step, 0])] ^ node_keys[int(Z[step, 1])]
-        node_keys[num_seqs + step] = key
-        if Z[step, 3] < num_seqs - 1:
-            keys[count] = min(key, key ^ total)
-            count += 1
-    return keys[:count]
 
 
 def replicate_split_keys(Z, num_seqs, leaf_keys):
@@ -1510,150 +1300,56 @@ def guide_tree_notes(network_type, imputed, imputation=None, calibration=None):
         ]
     return notes
 
-@jit(nopython=True, fastmath=True)
-def calculate_normalized_scores_kernel(edge_i, edge_j, raw_scores, align_lens, seq_lens, is_evalue, mode_int):
-    """C-speed kernel for processing hundreds of millions of edge normalizations."""
-    num_edges = len(edge_i)
-    norm_scores = np.zeros(num_edges, dtype=np.float32)
-    max_norm_score = 0.0
-    
-    for k in range(num_edges):
-        if is_evalue:
-            norm_score = raw_scores[k]
-        else:
-            if mode_int == 0:  # alignment_length
-                denom = max(align_lens[k], 1.0)
-            else:
-                len_src = seq_lens[edge_i[k]]
-                len_dst = seq_lens[edge_j[k]]
-                
-                if mode_int == 1:  # shorter_sequence
-                    denom = min(len_src, len_dst)
-                elif mode_int == 2:  # longer_sequence
-                    denom = max(len_src, len_dst)
-                elif mode_int == 3:  # average_sequence
-                    denom = (len_src + len_dst) / 2.0
-                else:
-                    denom = 1.0 
-                    
-            denom = max(denom, 1e-6)
-            norm_score = raw_scores[k] / denom
-            
-        norm_scores[k] = norm_score
-        if norm_score > max_norm_score:
-            max_norm_score = norm_score
-            
-    return norm_scores, max_norm_score
 
-@jit(nopython=True, fastmath=True)
-def run_global_traceback(score_matrix, gap_open, gap_extend):
-    N, M = score_matrix.shape
-    NEG_INF = -1e9
-    
-    # 3-State Affine DP Matrices (Match, Delete, Insert)
-    dp_M = np.full((N + 1, M + 1), NEG_INF, dtype=np.float32)
-    dp_D = np.full((N + 1, M + 1), NEG_INF, dtype=np.float32)
-    dp_I = np.full((N + 1, M + 1), NEG_INF, dtype=np.float32)
-    
-    # Pointers to track which matrix the current cell came from
-    ptr_M = np.zeros((N + 1, M + 1), dtype=np.int8)
-    ptr_D = np.zeros((N + 1, M + 1), dtype=np.int8)
-    ptr_I = np.zeros((N + 1, M + 1), dtype=np.int8)
-    
-    dp_M[0, 0] = 0.0
-    
-    # Initialize edges
-    dp_D[1, 0] = gap_open
-    ptr_D[1, 0] = 1 # 1 = came from M(0,0)
-    for i in range(2, N + 1):
-        dp_D[i, 0] = dp_D[i-1, 0] + gap_extend
-        ptr_D[i, 0] = 2 # 2 = came from D
-        
-    dp_I[0, 1] = gap_open
-    ptr_I[0, 1] = 1 # 1 = came from M(0,0)
-    for j in range(2, M + 1):
-        dp_I[0, j] = dp_I[0, j-1] + gap_extend
-        ptr_I[0, j] = 3 # 3 = came from I
+def merge_profiles_lazy(width_a, count_a, width_b, count_b, path, emb_a, emb_b):
+    """Merge only the float16 profiles and return ``(merged_profile, moves_int8)``.
 
-    for i in range(1, N + 1):
-        for j in range(1, M + 1):
-            # 1. Update dp_D (Delete / Gap in sequence 2 / move down)
-            d_from_m = dp_M[i-1, j] + gap_open
-            d_from_d = dp_D[i-1, j] + gap_extend
-            if d_from_m >= d_from_d:
-                dp_D[i, j] = d_from_m
-                ptr_D[i, j] = 1 
-            else:
-                dp_D[i, j] = d_from_d
-                ptr_D[i, j] = 2 
-                
-            # 2. Update dp_I (Insert / Gap in sequence 1 / move right)
-            i_from_m = dp_M[i, j-1] + gap_open
-            i_from_i = dp_I[i, j-1] + gap_extend
-            if i_from_m >= i_from_i:
-                dp_I[i, j] = i_from_m
-                ptr_I[i, j] = 1 
-            else:
-                dp_I[i, j] = i_from_i
-                ptr_I[i, j] = 3 
-                
-            # 3. Update dp_M (Match/Mismatch / diagonal)
-            score = score_matrix[i-1, j-1]
-            m_from_m = dp_M[i-1, j-1] + score
-            m_from_d = dp_D[i-1, j-1] + score
-            m_from_i = dp_I[i-1, j-1] + score
-            
-            best_m = m_from_m
-            best_ptr = 1
-            if m_from_d > best_m:
-                best_m = m_from_d
-                best_ptr = 2
-            if m_from_i > best_m:
-                best_m = m_from_i
-                best_ptr = 3
-                
-            dp_M[i, j] = best_m
-            ptr_M[i, j] = best_ptr
+    Avoids O(N^2 W) intermediate dense alignment copies during progressive merging;
+    the exact final alignment is materialized once via top-down tree replay.
+    """
+    moves = np.ascontiguousarray(path[::-1], dtype=np.int8)
+    take_a = (moves == 1) | (moves == 2)
+    take_b = (moves == 1) | (moves == 3)
+    used_a = int(take_a.sum())
+    used_b = int(take_b.sum())
+    if not (used_a == width_a == emb_a.shape[0] and used_b == width_b == emb_b.shape[0]):
+        raise ValueError(
+            "Alignment path does not place every column: cluster A has "
+            f"{width_a} columns and {emb_a.shape[0]} profile "
+            f"rows, the path takes {used_a}; cluster B has "
+            f"{width_b} columns and {emb_b.shape[0]} profile "
+            f"rows, the path takes {used_b}."
+        )
+    width = moves.shape[0]
+    w_a = float(count_a)
+    w_b = float(count_b)
+    total_w = w_a + w_b
+    merged = np.full((width, emb_a.shape[1]), -0.0, dtype=np.float32)
+    merged[take_a] = emb_a.astype(np.float32) * w_a
+    merged[take_b] += emb_b.astype(np.float32) * w_b
+    merged /= total_w
+    return merged.astype(np.float16), moves
 
-    # Traceback
-    path_buffer = np.zeros(N + M, dtype=np.int8)
-    k = 0
-    i, j = N, M
-    
-    # Find the optimal final state to trace backward from
-    best_final = dp_M[N, M]
-    state = 1
-    if dp_D[N, M] > best_final:
-        best_final = dp_D[N, M]
-        state = 2
-    if dp_I[N, M] > best_final:
-        best_final = dp_I[N, M]
-        state = 3
-        
-    while i > 0 or j > 0:
-        if state == 1:
-            path_buffer[k] = 1
-            k += 1
-            next_state = ptr_M[i, j]
-            i -= 1
-            j -= 1
-            state = next_state
-        elif state == 2:
-            path_buffer[k] = 2
-            k += 1
-            next_state = ptr_D[i, j]
-            i -= 1
-            state = next_state
-        elif state == 3:
-            path_buffer[k] = 3
-            k += 1
-            next_state = ptr_I[i, j]
-            j -= 1
-            state = next_state
-        else:
-            break
-            
-    return path_buffer[:k]
+
+def write_lazy_alignment_fasta(
+    output_path, root_node, num_seqs, merge_children, merge_moves, leaf_alignments, valid_headers, final_width
+):
+    """Stream the exact progressive alignment to FASTA in O(N * W_final) via top-down tree replay."""
+    row_buf = np.empty(final_width, dtype=np.uint8)
+    stack = [(root_node, np.arange(final_width, dtype=np.int32))]
+    with open(output_path, "w", encoding="utf-8", newline="\n") as f:
+        while stack:
+            node, col_map = stack.pop()
+            if node < num_seqs:
+                row_buf.fill(GAP_CODE)
+                row_buf[col_map] = leaf_alignments[node][:, 0]
+                f.write(f">{valid_headers[node]}\n{row_buf.tobytes().decode('ascii')}\n")
+            else:
+                child_a, child_b = merge_children[node - num_seqs]
+                moves = merge_moves[node - num_seqs]
+                # Push B first so A is popped and written first (preserves exact ids_a + ids_b order!)
+                stack.append((child_b, col_map[(moves == 1) | (moves == 3)]))
+                stack.append((child_a, col_map[(moves == 1) | (moves == 2)]))
 
 def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
     # The traceback lists moves from the last column to the first. Match (1)
@@ -3134,6 +2830,10 @@ def run_msa_builder():
                               kernel_threads=worker_threads)
         
         split_keys = []
+        # Batch replicate trees (in exact seed order) so L1-resident row accumulation
+        # cuts DRAM traffic by ~25x while keeping bit-identical float32 consensus sums.
+        consensus_batch = []
+        consensus_batch_size = 25
         with mp.Pool(processes=WORKERS) as pool:
             # In seed order, so the float32 sums of the consensus do not depend on which
             # worker finishes first and the guide tree is the same for any WORKERS.
@@ -3142,7 +2842,13 @@ def run_msa_builder():
                 iterator, total=NUM_TREES, desc="Bootstrapping Trees"
             ):
                 split_keys.append(replicate_split_keys(Z, num_seqs, leaf_keys))
-                add_replicate_to_consensus(Z, replicate_lengths, num_seqs, D_final_cond)
+                consensus_batch.append((Z, replicate_lengths))
+                if len(consensus_batch) >= consensus_batch_size:
+                    add_replicates_batch_to_consensus(consensus_batch, num_seqs, D_final_cond)
+                    consensus_batch.clear()
+        if consensus_batch:
+            add_replicates_batch_to_consensus(consensus_batch, num_seqs, D_final_cond)
+            consensus_batch.clear()
         replicate_keys = np.sort(np.concatenate(split_keys))
         del split_keys
 
@@ -3204,34 +2910,47 @@ def run_msa_builder():
         DEVICE_SELECTION,
     )
 
-    # 9. INITIALIZE CLUSTERS (No embeddings loaded here!)
+    # 9. INITIALIZE CLUSTERS (Deferred lazy tree-replay: zero intermediate alignment copies!)
     print("Initializing clusters...")
-    clusters = {}
+    # Keep leaf_alignments fitted lazily as leaves are first touched; store only
+    # (profile_embedding, width, leaf_count) during progressive merging.
+    active_profiles = {}
+    active_widths = {}
+    active_counts = {}
     for i in range(num_seqs):
-        # Initialize leaves purely with alignment/ID metadata
-        c = MSACluster(idx=i, aligned=leaf_alignments[i], ids=[i], embedding=None)
-        clusters[i] = c
+        active_profiles[i] = None
+        active_widths[i] = leaf_alignments[i].shape[0]
+        active_counts[i] = 1
+    merge_children = []
+    merge_moves = []
 
     # 10. PROGRESSIVE ALIGNMENT
     print(f"Aligning {num_seqs} sequences...")
     cluster_merging_started = time.perf_counter()
     embeddings_group = f_emb["embeddings"]
+
+    def _get_node_profile(node_idx):
+        prof = active_profiles.pop(node_idx)
+        if prof is not None:
+            return prof
+        header = valid_headers[node_idx]
+        safe_h = header.replace("/", "_").replace("\\", "_")
+        raw = embeddings_group[safe_h][:]
+        prof = _normalize_residue_embeddings(raw)
+        leaf_alignments[node_idx] = fit_leaf_to_embedding(leaf_alignments[node_idx], prof.shape[0])
+        active_widths[node_idx] = leaf_alignments[node_idx].shape[0]
+        return prof
+
     for iteration, link in enumerate(tqdm(linkage_matrix, desc="Merging Clusters")):
         idx_a = int(link[0])
         idx_b = int(link[1])
 
-        cluster_a = clusters.pop(idx_a)
-        cluster_b = clusters.pop(idx_b)
-
-        # --- LAZY LOAD: Fetch embeddings from disk (or RAM if already merged) ---
-        emb_a = cluster_a.get_embedding(embeddings_group, valid_headers)
-        emb_b = cluster_b.get_embedding(embeddings_group, valid_headers)
-
-        # Handle sequence padding for raw leaf nodes just before alignment
-        if cluster_a.is_leaf:
-            cluster_a.aligned = fit_leaf_to_embedding(cluster_a.aligned, emb_a.shape[0])
-        if cluster_b.is_leaf:
-            cluster_b.aligned = fit_leaf_to_embedding(cluster_b.aligned, emb_b.shape[0])
+        emb_a = _get_node_profile(idx_a)
+        emb_b = _get_node_profile(idx_b)
+        width_a = active_widths.pop(idx_a)
+        width_b = active_widths.pop(idx_b)
+        count_a = active_counts.pop(idx_a)
+        count_b = active_counts.pop(idx_b)
 
         # --- ALIGNMENT ---
         score_mat = compute_score_matrix_with_fallback(
@@ -3242,30 +2961,35 @@ def run_msa_builder():
         )
         path = run_global_traceback(score_mat, GAP_OPEN, GAP_EXTEND)
 
-        # You will need to pass emb_a and emb_b into your merge_clusters function now,
-        # since they are no longer stored inside the cluster objects by default.
-        new_cluster = merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b)
+        merged_profile, moves = merge_profiles_lazy(
+            width_a, count_a, width_b, count_b, path, emb_a, emb_b
+        )
         new_idx = num_seqs + iteration
-        new_cluster.idx = new_idx
-        clusters[new_idx] = new_cluster
-        
-        # --- GARBAGE COLLECTION: Drop old arrays immediately ---
+        active_profiles[new_idx] = merged_profile
+        active_widths[new_idx] = moves.shape[0]
+        active_counts[new_idx] = count_a + count_b
+        merge_children.append((idx_a, idx_b))
+        merge_moves.append(moves)
+
         del emb_a
         del emb_b
-        del cluster_a
-        del cluster_b
     cluster_merging_seconds = time.perf_counter() - cluster_merging_started
 
-    # 11. SAVE
-    final_cluster = clusters[num_seqs + len(linkage_matrix) - 1]
+    # 11. SAVE (O(N * W_final) top-down tree replay directly to FASTA)
+    root_idx = num_seqs + len(linkage_matrix) - 1
+    final_width = active_widths[root_idx]
+    active_profiles.clear()
     print(f"Saving Consensus MSA to {OUTPUT_FASTA}...")
-    # One transpose gives each aligned sequence as a contiguous row.
-    aligned_rows = np.ascontiguousarray(final_cluster.aligned.T)
-    with open(OUTPUT_FASTA, "w", encoding="utf-8", newline="\n") as f:
-        for i, row in enumerate(aligned_rows):
-            original_idx = final_cluster.ids[i]
-            header = valid_headers[original_idx]
-            f.write(f">{header}\n{row.tobytes().decode('ascii')}\n")
+    write_lazy_alignment_fasta(
+        OUTPUT_FASTA,
+        root_idx,
+        num_seqs,
+        merge_children,
+        merge_moves,
+        leaf_alignments,
+        valid_headers,
+        final_width,
+    )
     print("Done!")
     total_processing_seconds = time.perf_counter() - total_processing_started
     report_processing_times(
