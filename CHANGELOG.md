@@ -844,7 +844,9 @@ still change before version 1.0.0.
     the card. A residue's band is in the hover box and the Residue card, as before.
 - **Structure color is under More colorings** in the Fold View's Color by card, with
   Residue position, and the Model group holds pLDDT alone. A structure's own row still
-  offers it.
+  offers it. More colorings is open when the page starts, where it started closed, and
+  it opens by itself when the scene's coloring becomes one inside it, as when a saved
+  session is restored. Closed by hand, it stays closed while that coloring is drawn.
 - **The Fold View's hover box follows the color mode:** light in the light theme and dark
   in the dark one, where it was dark in both. Its color square has a thin edge, so that a
   white one shows on a light box. The status line keeps its dark look.
