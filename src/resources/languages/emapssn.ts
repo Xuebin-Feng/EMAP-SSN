@@ -2130,19 +2130,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color by</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Model</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Properties</source>
+        <source>Colors</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Properties</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2151,6 +2147,34 @@ Command-line usage:
     </message>
     <message>
         <source>More colorings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The chain as a ribbon: helices as coils, strands as arrows.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Every atom as a ball and every bond as a stick.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Every atom as a sphere of its own size.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A smooth surface around all the atoms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The backbone alone, as a thin tube from residue to residue.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Representation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The structures are drawn in different ways. Choose one here for all of them, or set each in its row.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2474,6 +2498,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Changing the representation...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{name} is the pivot now, but {others} could not be aligned to it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2487,10 +2515,6 @@ Command-line usage:
     </message>
     <message>
         <source>Could not do that: {reason}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Representation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2863,6 +2887,10 @@ Command-line usage:
     </message>
     <message>
         <source>Residue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Colors and representation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
