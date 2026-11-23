@@ -40,6 +40,9 @@ still change before version 1.0.0.
   sparse network that records its gap penalties is calibrated, also one made by an earlier
   version. A sparse network therefore gets a different guide tree and alignment than
   before. Turn Calibrated Imputation off to align nothing extra.
+- A sparse network with more than 100,000 pairs is now fitted on up to 500,000 of them
+  (see Changed). Its imputed values differ a little from before, and its uniform fill
+  value, used when Calibrated Imputation is off or not available, can differ clearly.
 - An Embedding MSA whose embeddings are of another model than its sparse network's needs
   the network's own embeddings for that calibration: choose them in Network Embeddings
   (see Changed). Without them the missing pairs get the uniform fill, and the log says
@@ -558,6 +561,20 @@ still change before version 1.0.0.
     sequences, Ankh base, 75% of pairs kept, on the CPU): with the uniform fill, the
     guide tree had the same clades and replicate percentages as the earlier version's
     with the old setting on.
+- **Embedding MSA's imputation fit takes up to 500,000 of a sparse network's pairs** (was
+  100,000). The fit is learned from the pairs the network has; above the limit a seeded
+  random pick of them stands in. With Calibrated Imputation off, every missing pair gets
+  one value, the fit's lowest, which rests on the few lowest pairs of the pick and so
+  moved with the pick. On the HomFam kringle family (829 sequences, 75% of pairs kept,
+  257,404 pairs) it was 3.70 with the pick of 100,000 and between 3.15 and 4.74 over 20
+  other picks; the fit now takes every pair there and gives 4.40. A larger pick does not
+  steady the value on a large network: on a 12,927-sequence network (62.7 million pairs)
+  it ranges from 0.85 to 2.03 over 20 picks of 500,000 (0.83 to 2.06 with 100,000),
+  because the fit's lowest step rests on a few pairs there whatever is picked. With
+  Calibrated Imputation on, the fitted curve moves by at most 0.011 on that network, and
+  the held-out check is the same to three decimals. The larger pick costs no measurable
+  time or memory: choosing the pairs takes the time, about 6 s on that network at either
+  size, not fitting them.
 - **Network Injection chooses a sparse network's pairs by Edge Pre-filtering's similarity
   and keeps the network's share of pairs.** It used to cut on another similarity (the
   cosine of mean-pooled embeddings, without the length ratio), at the lowest value among
@@ -789,14 +806,13 @@ still change before version 1.0.0.
 ### Fixed
 
 - **Embedding MSA's imputation fit no longer depends on the order of the edges in the
-  network file.** For a sparse network with more than 100,000 pairs the fit takes a
-  random 100,000 of them, with a fixed seed. The pick followed the order of the edges in
-  the file, so two files with the same edges in another order gave different fits and
-  guide trees. Before the pick, the pairs are now put in an order that depends only on
-  which two sequences a pair joins. The pick is therefore another random 100,000 than
-  before, and results change: on the HomFam kringle family (829 sequences, 75% of pairs
-  kept) a calibrated run shares 822 of 828 clades with its tree before this change. A
-  network with 100,000 pairs or fewer is not affected.
+  network file.** For a sparse network with more pairs than the fit takes (500,000, see
+  Changed), the fit takes a random pick of them, with a fixed seed. The pick followed
+  the order of the edges in the file, so two files with the same edges in another order
+  gave different fits and guide trees. Before the pick, the pairs are now put in an order
+  that depends only on which two sequences a pair joins. The pick is therefore another
+  one than before, and the results of such a network change. A network with no more
+  pairs than the fit takes is not affected.
 - **Embedding MSA's guide tree no longer depends on the number of workers or on timing.**
   The consensus adds up every replicate tree's distances as 32-bit numbers, and the
   replicates were added in the order their workers finished. With more than one worker
