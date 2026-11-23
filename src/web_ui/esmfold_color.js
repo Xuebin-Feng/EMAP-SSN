@@ -413,6 +413,9 @@ function legendBar(legend, compact) {
     const ends = make('div', 'ticks');
     const lowEnd = make('span', undefined, ramp.low);
     const highEnd = make('span', undefined, ramp.high);
+    // A label cut with an ellipsis (esmfold.html) has all of its text on hover.
+    lowEnd.title = ramp.low;
+    highEnd.title = ramp.high;
     // The marks are above the bar, each centred on its place, and take no room in the row of the ends.
     const marks = (ramp.marks ?? []).map(([at, text]) => {
         const mark = make('span', 'tick-mark', text);

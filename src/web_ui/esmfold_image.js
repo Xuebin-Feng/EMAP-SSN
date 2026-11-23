@@ -69,9 +69,15 @@ function drawLegend(context, width, height, k, model) {
         keys.push([intToHex(noDataColor), t("No data")]);
     }
     // pLDDT's band limits are named above its bar, as the legend over the canvas names them.
-    const marks = legend.kind === 'table' ? [] : legendRamp(legend).marks ?? [];
+    const ramp = legend.kind === 'table' ? null : legendRamp(legend);
+    const marks = ramp?.marks ?? [];
     context.font = `${small}px ${family}`;
     for (const [, label] of keys) textWidth = Math.max(textWidth, context.measureText(label).width + 20 * k);
+    // The two end labels of the bar are never closer than 12 px (as the legend over the canvas keeps them): the box is as wide as they
+    // need, within its maximum below.
+    const between = 12 * k;
+    const lowWidth = ramp ? context.measureText(ramp.low).width : 0, highWidth = ramp ? context.measureText(ramp.high).width : 0;
+    if (ramp) textWidth = Math.max(textWidth, lowWidth + between + highWidth);
     // As wide as its words ask, at least 150 and at most 200 of the page's pixels (the legend over the canvas is no wider), and
     // within the picture; a heading or a key too long for that is cut with an ellipsis, as the page's own legend breaks it.
     const barWidth = Math.min(Math.max(150 * k, textWidth), Math.max(100 * k, Math.min(200 * k, width - 2 * (12 * k + pad))));
@@ -79,6 +85,17 @@ function drawLegend(context, width, height, k, model) {
     const title = fitText(context, heading, barWidth);
     context.font = `${small}px ${family}`;
     const shownKeys = keys.map(([color, label]) => [color, fitText(context, label, barWidth - 20 * k)]);
+    // Labels too long for the bar even then are cut with an ellipsis, each kept to its share (a short one keeps its own width).
+    let lowText = '', highText = '';
+    if (ramp) {
+        const half = (barWidth - between) / 2;
+        let lowLimit = half, highLimit = half;
+        if (lowWidth + between + highWidth <= barWidth) [lowLimit, highLimit] = [lowWidth, highWidth];
+        else if (lowWidth <= half) highLimit = barWidth - between - lowWidth;
+        else if (highWidth <= half) lowLimit = barWidth - between - highWidth;
+        lowText = fitText(context, ramp.low, lowLimit);
+        highText = fitText(context, ramp.high, highLimit);
+    }
     const hasBar = legend.kind !== 'table';
     const boxWidth = Math.ceil(barWidth + 2 * pad);
     const boxHeight = Math.ceil(2 * pad + normal + gap + (marks.length ? small + 2 * k : 0) + (hasBar ? 8 * k + gap + small : 0) + keys.length * (small + 4 * k));
@@ -98,7 +115,6 @@ function drawLegend(context, width, height, k, model) {
     context.fillText(title, x + pad, y + pad);
     let at = y + pad + normal + gap;
     if (hasBar) {
-        const ramp = legendRamp(legend);
         if (marks.length) {
             context.fillStyle = '#71717a';
             context.font = `${small}px ${family}`;
@@ -116,9 +132,9 @@ function drawLegend(context, width, height, k, model) {
         context.fillStyle = '#71717a';
         context.font = `${small}px ${family}`;
         context.textAlign = 'left';
-        context.fillText(ramp.low, x + pad, at);
+        context.fillText(lowText, x + pad, at);
         context.textAlign = 'right';
-        context.fillText(ramp.high, x + pad + barWidth, at);
+        context.fillText(highText, x + pad + barWidth, at);
         context.textAlign = 'left';
         at += small;
     }

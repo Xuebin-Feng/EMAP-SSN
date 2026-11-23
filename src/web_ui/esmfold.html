@@ -447,6 +447,10 @@
         .canvas-legend .ramp { height: 8px; }
         .canvas-legend .band { font-size: 11px; }
         .canvas-legend .compact-keys { gap: 2px; }
+        /* The two end labels of a bar are never closer than 12 px: the legend is as wide as they need (up to its maximum width), and a
+           label that cannot fit even then is cut with an ellipsis (the whole text is its title), on one line. */
+        .canvas-legend .ticks { gap: 12px; }
+        .canvas-legend .ticks > span:not(.tick-mark) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         /* pLDDT's band limits (50, 70, 90) are named above the bar, each centred on its place; they take no room in the row of its ends. */
         .canvas-legend .legend-compact.has-marks { position: relative; padding-top: 13px; }
         .canvas-legend .tick-mark { position: absolute; top: 0; white-space: nowrap; transform: translateX(-50%); font-size: 10.5px; line-height: 1.2; color: var(--text-subtle); font-variant-numeric: tabular-nums; }

@@ -783,6 +783,133 @@ class PropertyColoringTests(ColorTestCase):
         self.assertEqual(card["keys"], ["Positive", "Negative", "Histidine", "Neutral"])
 
 
+class LegendEndTests(ColorTestCase):
+    """The two end labels of a bar in the legend over the canvas, and in the legend of a saved picture, keep their distance."""
+
+    BARS = ("plddt", "information_content", "builtin:residue-position", "builtin:accessible-surface-area", "builtin:hydrophobicity")
+    GAP = 12
+
+    def open_two(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, "information_content", sequence=fixtures.SECOND_SEQUENCE, shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+
+    def measure(self):
+        return self.script("""
+            document.body.dataset.view = 'ready';
+            showStatus('Loaded and aligned 22. A longer message, to see where the status line goes.', 0);
+            const box = document.getElementById('canvas-legend');
+            const rect = n => { const r = n.getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom]; };
+            const legend = rect(box);
+            const ends = [...box.querySelectorAll('.ticks > span:not(.tick-mark)')].map(n => ({box: rect(n), text: n.textContent, title: n.title,
+                lines: new Set([...(() => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects(); })()].map(q => Math.round(q.top))).size}));
+            const stage = document.getElementById('stage').getBoundingClientRect();
+            const others = {toast: rect(document.getElementById('toast')), axes: [stage.right - 128, stage.right, stage.bottom - 128, stage.bottom]};
+            const select = document.getElementById('seq-structure');
+            if (getComputedStyle(select).display !== 'none') others.chooser = rect(select);
+            const apart = (a, b) => a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= a[2];
+            const out = {legend, ends, apart: Object.fromEntries(Object.entries(others).map(([name, r]) => [name, apart(legend, r)])),
+                         width: legend[1] - legend[0], max: parseFloat(getComputedStyle(box).maxWidth)};
+            hideStatus();
+            document.body.dataset.view = 'webgl';
+            return out;
+            """)
+
+    def check_page(self, label):
+        for coloring in self.BARS:
+            self.choose(coloring)
+            for width in (1300, 900, 600):
+                with self.subTest(label=label, coloring=coloring, width=width):
+                    self.view.resize(width, 800)
+                    self.addCleanup(self.view.resize, 1300, 800)
+                    self.settle(300)
+                    found = self.measure()
+                    low, high = found["ends"]
+                    self.assertGreaterEqual(high["box"][0] - low["box"][1], self.GAP - 0.5, found)
+                    for end in (low, high):
+                        self.assertGreaterEqual(end["box"][0], found["legend"][0] - 0.5, found)
+                        self.assertLessEqual(end["box"][1], found["legend"][1] + 0.5, found)
+                        self.assertEqual(end["lines"], 1, found)
+                    self.assertLessEqual(found["width"], found["max"] + 0.5)
+                    self.assertTrue(all(found["apart"].values()), found)
+
+    def test_the_end_labels_keep_12_px_apart_inside_the_legend_in_english_at_every_width(self):
+        self.open_two()
+        self.check_page("en")
+
+    def test_the_same_in_simplified_chinese(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_two()
+        self.check_page("zh")
+
+    def test_a_label_too_long_for_the_widest_legend_is_cut_with_an_ellipsis_whole_in_its_title_and_the_marks_stay_on_their_places(self):
+        self.open_two()
+        self.choose("plddt")
+        found = self.script("""
+            document.body.dataset.view = 'ready';
+            const legend = {heading: 'x', unit: '', kind: 'scale', colors: ['#ffffff', '#000000'], low: 'A far too long label for the low end', high: 'And another far too long one for the high end'};
+            const box = document.getElementById('canvas-legend');
+            box.replaceChildren(legendBar(legend, true));
+            const r = n => n.getBoundingClientRect();
+            const ends = [...box.querySelectorAll('.ticks > span')].map(n => ({text: n.textContent, title: n.title, clipped: n.scrollWidth > n.clientWidth + 1,
+                                                                             right: r(n).right, left: r(n).left, top: r(n).top, bottom: r(n).bottom}));
+            const out = {ends, legend: [r(box).left, r(box).right], width: r(box).width, max: parseFloat(getComputedStyle(box).maxWidth)};
+            document.body.dataset.view = 'webgl';
+            return out;
+            """)
+        low, high = found["ends"]
+        self.assertTrue(low["clipped"] and high["clipped"], found)
+        self.assertEqual((low["title"], high["title"]), ("A far too long label for the low end", "And another far too long one for the high end"))
+        self.assertGreaterEqual(high["left"] - low["right"], self.GAP - 0.5)
+        self.assertEqual((low["top"], low["bottom"]), (high["top"], high["bottom"]))
+        self.assertLessEqual(found["width"], found["max"] + 0.5)
+        # pLDDT's marks stay at their places over the bar however wide the legend is: 50, 70 and 90 per cent of the bar's width.
+        self.choose("plddt")
+        self.view.resize(1300, 800)
+        marks = self.script("""
+            await renderColorCard(true);
+            document.body.dataset.view = 'ready';
+            const bar =document.querySelector('#canvas-legend .ramp').getBoundingClientRect();
+            const out = [...document.querySelectorAll('#canvas-legend .tick-mark')].map(n => { const q = n.getBoundingClientRect(); return [n.textContent, (q.left + q.right) / 2 - bar.left, bar.width]; });
+            document.body.dataset.view = 'webgl';
+            return out;""")
+        for (text, centre, bar) in marks:
+            self.assertAlmostEqual(centre / bar, int(text) / 100, delta=0.01, msg=text)
+
+    def test_the_legend_of_a_saved_picture_is_as_wide_as_its_two_end_labels_and_the_gap_need(self):
+        self.open_two()
+        for coloring in self.BARS:
+            self.choose(coloring)
+            with self.subTest(coloring=coloring):
+                found = self.script("""
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 600; canvas.height = 400;
+                    const context = canvas.getContext('2d');
+                    const calls = [];
+                    const original = context.fillText.bind(context);
+                    context.fillText = (text, x, y) => { calls.push([text, x, context.textAlign]); return original(text, x, y); };
+                    const model = await colorModel();
+                    const box = drawLegend(context, 600, 400, 1, model);
+                    const family = getComputedStyle(document.body).fontFamily;
+                    context.font = '11px ' + family;
+                    const high = calls.findIndex(call => call[2] === 'right');
+                    const ramp = legendRamp(model.legend);
+                    return {box, low: calls[high - 1], high: calls[high], need: context.measureText(ramp.low).width + 12 + context.measureText(ramp.high).width,
+                            lowWidth: context.measureText(calls[high - 1][0]).width, highWidth: context.measureText(calls[high][0]).width};""")
+                bar = found["box"]["width"] - 20
+                # As wide as the labels and the gap need, within the picture legend's maximum (220 at the page's size).
+                self.assertTrue(found["need"] <= bar + 0.01 or found["box"]["width"] == 220, found)
+                # What is drawn: the two labels, with the gap between them, inside the box.
+                low_right = found["low"][1] + found["lowWidth"]
+                high_left = found["high"][1] - found["highWidth"]
+                self.assertGreaterEqual(high_left - low_right, self.GAP - 0.01, found)
+                self.assertGreaterEqual(found["low"][1], found["box"]["x"])
+                self.assertLessEqual(found["high"][1], found["box"]["x"] + found["box"]["width"])
+
+
 class PanelTabTests(ColorTestCase):
     def test_on_a_phone_the_cards_take_turns_in_the_strip_and_elsewhere_all_are_in_view(self):
         self.write_with(A, "information_content")
