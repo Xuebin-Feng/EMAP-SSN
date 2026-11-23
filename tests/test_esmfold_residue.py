@@ -61,7 +61,6 @@ window.residueNow = function () {
     const body = document.getElementById('residue-body');
     return {head: (body.querySelector('.res-head div') || {}).firstChild?.textContent ?? null,
             where: (body.querySelector('.res-head div span') || {}).textContent ?? null,
-            secondary: (body.querySelector('.res-head > span') || {}).textContent ?? null,
             header: [...body.querySelectorAll('th')].map(c => c.textContent),
             rows: [...body.querySelectorAll('tr')].slice(1).map(row => [...row.children].map(c => c.textContent)),
             buttons: [...document.querySelectorAll('#residue-zoom, #residue-clear')].map(b => [b.id, b.getAttribute('aria-label'), b.getAttribute('aria-disabled')]),
@@ -775,25 +774,78 @@ class ResidueButtonTests(ResidueTestCase):
         self.script("await hoverOn(0, 16); return 1")
         self.assertEqual(self.script(row_script), ["#i-ss-strand", "Strand", 1, 14, False])
 
-    def test_the_pictures_are_in_the_sprite_and_the_small_strand_arrow_points_up(self):
+    def test_the_pictures_are_in_the_sprite_in_the_order_they_are_drawn_and_the_small_glyphs_are_the_new_ones(self):
         self.write_with_secondary(A)
         self.open_scene(A)
         found = self.script("""
             const ids = ['i-ss-helix-art', 'i-ss-strand-art', 'i-ss-turn-art', 'i-ss-helix', 'i-ss-strand', 'i-ss-turn'];
             const symbol = id => document.getElementById(id);
+            const paths = id => [...symbol(id).querySelectorAll('path')].map(p => ({classes: p.getAttribute('class').split(' ').sort(), d: p.getAttribute('d')}));
+            const small = id => symbol(id).querySelector('path').getAttribute('d');
             const art = ['i-ss-helix-art', 'i-ss-strand-art', 'i-ss-turn-art'];
             return {ids: ids.map(id => [id, !!symbol(id), symbol(id)?.getAttribute('viewBox')]),
-                    strand: symbol('i-ss-strand').querySelector('path').getAttribute('d'),
-                    fronts: symbol('i-ss-helix-art').querySelectorAll('.ss-front').length, backs: symbol('i-ss-helix-art').querySelectorAll('.ss-back').length,
-                    fills: art.map(id => getComputedStyle(symbol(id).querySelector('.ss-front')).fill)};
+                    helix: paths('i-ss-helix-art'), strand: paths('i-ss-strand-art'), turn: paths('i-ss-turn-art'),
+                    small: ['i-ss-strand', 'i-ss-turn'].map(small),
+                    fills: art.map(id => getComputedStyle(symbol(id).querySelector('path')).strokeWidth)};
             """)
         self.assertEqual(found["ids"], [["i-ss-helix-art", True, "0 0 48 48"], ["i-ss-strand-art", True, "0 0 48 48"], ["i-ss-turn-art", True, "0 0 48 48"],
                                         ["i-ss-helix", True, "0 0 24 24"], ["i-ss-strand", True, "0 0 24 24"], ["i-ss-turn", True, "0 0 24 24"]])
-        self.assertEqual((found["fronts"], found["backs"]), (3, 2))
-        # The small arrow points up: its path rises from the shaft's foot to the tip at (12, 3); the old one ran right to a tip at (21, 12).
-        self.assertEqual(found["strand"], "M9 21V11H5l7-8 7 8h-4v10z")
-        # The pictures are filled by the sprite's own rules, so each front path has a colour (an unmatched rule would leave the "none" of the symbol).
-        self.assertTrue(all(fill != "none" for fill in found["fills"]), found["fills"])
+        # The helix is one thin chain line, then pieces of a tube. Every piece is two paths with the same line, the wide edge and the narrower core over it.
+        helix = found["helix"]
+        self.assertEqual([p["classes"] for p in helix].count(["ss-chain"]), 1)
+        self.assertEqual(helix[0]["classes"], ["ss-chain"])
+        tube = helix[1:]
+        for edge, core in zip(tube[0::2], tube[1::2]):
+            self.assertIn("ss-edge", edge["classes"])
+            self.assertIn("ss-core", core["classes"])
+            self.assertEqual(edge["d"], core["d"])
+            self.assertEqual([c for c in edge["classes"] if c != "ss-edge"], [c for c in core["classes"] if c != "ss-core"])
+        self.assertEqual(len(tube), 14)
+        # The drawing order is the whole point: every far half of a turn is drawn before every near one (an edge that is neither far nor an end cap),
+        # so that nothing shows that lies behind another part. A far path after a near one would draw over it.
+        far = [i for i, p in enumerate(helix) if "ss-far" in p["classes"]]
+        near = [i for i, p in enumerate(helix) if "ss-edge" in p["classes"] and "ss-far" not in p["classes"] and "ss-cap" not in p["classes"]]
+        self.assertEqual((len(far), len(near)), (4, 3))
+        self.assertLess(max(far), min(near), helix)
+        # The strand is a hairpin: one chain path of three pieces (the line over the top and a line at each lower end), then two arrows, one up and one down.
+        strand = found["strand"]
+        self.assertEqual([p["classes"] for p in strand], [["ss-chain"], ["ss-front"], ["ss-front"]])
+        self.assertEqual(strand[0]["d"].count("M"), 3)
+        self.assertTrue(strand[1]["d"].startswith("M13 10 "), strand[1])
+        self.assertTrue(strand[2]["d"].startswith("M35 41 "), strand[2])
+        # The turn is one tube, round at its two ends, with a short straight piece at each end.
+        turn = found["turn"]
+        self.assertEqual([p["classes"] for p in turn], [["ss-edge", "ss-round"], ["ss-core", "ss-round"]])
+        self.assertEqual(turn[0]["d"], turn[1]["d"])
+        self.assertTrue(turn[0]["d"].startswith("M5 39H12") and turn[0]["d"].endswith("H43"), turn[0])
+        # The small glyphs of the hover box: the strand as two arrows in opposite directions, the turn with a short line at each end.
+        self.assertEqual(found["small"], ["M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4", "M2 20h3a2 2 0 0 0 2-2v-7a5 5 0 0 1 10 0v7a2 2 0 0 0 2 2h3"])
+        # The rules reach the paths (the widths of the tube are the rules', not the symbol's 2).
+        self.assertEqual(found["fills"][0], "2px")
+
+    def test_the_rules_that_style_the_pictures_name_the_paths_class_alone(self):
+        """The copy of a symbol that a <use> draws is matched inside the symbol only by a current Chromium (Edge, Chrome: the browser the Fold View
+        page may be opened in), while this QtWebEngine also matches a rule that reaches the path through the sprite or the place of use. A rule
+        written with an ancestor or another class would style the pictures here and leave them unfilled and thin there."""
+        self.write_with_secondary(A)
+        self.open_scene(A)
+        rules = self.script("""
+            const classes = ['ss-front', 'ss-chain', 'ss-edge', 'ss-core', 'ss-far', 'ss-cap', 'ss-round'];
+            const found = [];
+            for (const sheet of document.styleSheets) {
+                let list; try { list = sheet.cssRules; } catch (error) { continue; }
+                const walk = rules => { for (const rule of rules) {
+                    if (rule.selectorText && classes.some(name => rule.selectorText.includes('.' + name))) found.push(rule.selectorText);
+                    if (rule.cssRules) walk(rule.cssRules);
+                } };
+                walk(list);
+            }
+            return found;
+            """)
+        self.assertGreaterEqual(len(rules), 6, rules)
+        for text in rules:
+            for selector in text.split(","):
+                self.assertRegex(selector.strip(), r"^(\.ss-(front|chain|edge|core|far|cap|round))+$", text)
 
 
 if __name__ == "__main__":

@@ -673,11 +673,18 @@
                    border-radius: var(--radius); background: var(--bg-muted); color: var(--text-secondary); }
         .ss-tile .icon { width: 52px; height: 52px; }
         .res-head .ss-tile .ss-word { font-size: 11px; font-weight: 600; line-height: 1.2; color: var(--text-secondary); white-space: nowrap; }
-        /* The fills of the tile's pictures are matched in the sprite's own tree: a rule that reaches a path through the place where the
-           picture is used (.ss-tile ...) does not match the copy a <use> draws. currentColor and --bg-card are inherited from the place
-           of use, so the pictures follow the theme. */
-        .icon-sprite .ss-front { fill: color-mix(in srgb, currentColor 22%, var(--bg-card)); }
-        .icon-sprite .ss-back { fill: color-mix(in srgb, currentColor 55%, var(--bg-card)); stroke: none; }
+        /* The pictures' own colours and widths. Each rule names the path's class alone: the copy a <use> draws is matched inside the
+           symbol only (a current Chromium does so, as the browser Fold View is opened in may), so a rule that reaches the path through
+           anything outside it, the sprite or the place where the picture is used, does not match. currentColor and --bg-card are
+           inherited from the place of use, so the pictures follow the theme. */
+        .ss-front { fill: color-mix(in srgb, currentColor 22%, var(--bg-card)); }
+        .ss-chain { stroke-width: 2; }
+        /* A tube: a wide line in the line colour and a narrower one of the fill over it. Its pieces are cut square where they meet (a
+           round end would show as a mark across the tube); the two ends of a whole tube are round. */
+        .ss-edge { stroke-width: 6.4; stroke-linecap: butt; }
+        .ss-core { stroke-width: 3; stroke-linecap: butt; stroke: color-mix(in srgb, currentColor 22%, var(--bg-card)); }
+        .ss-far.ss-core { stroke: color-mix(in srgb, currentColor 42%, var(--bg-card)); }
+        .ss-cap, .ss-round { stroke-linecap: round; }
         /* The hover box says it on one line: the small icon, then the word. */
         .ss-label { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
         .ss-label .icon { width: 14px; height: 14px; flex: none; }
@@ -896,25 +903,42 @@
         <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
         <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
         <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
-        <!-- The three pictures of the Residue card's tile (48 x 48), drawn for this page as a cartoon of each kind: a helix as a ribbon
-             of three turns (two back bands behind the three front ones), a strand as a block arrow pointing up, a turn as an arch. -->
+        <!-- The three pictures of the Residue card's tile (48 x 48), drawn for this page. Each shows the chain going on at its two ends.
+             Helix: a coiled tube seen a little from above, its pieces in the order they are drawn, the far halves of the turns first and
+             the near ones over them, so that nothing shows that lies behind another part; a thin line comes in at the bottom and leaves
+             at the top. Strand: a hairpin, an arrow up and an arrow down joined by a line over the top, with a thin line at each lower
+             end. Turn: a tube that turns, with a short straight piece at each end. -->
         <symbol id="i-ss-helix-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path class="ss-back" d="M37 36.9C37 33.21 11 33.89 11 30.2V24.2C11 27.89 37 27.21 37 30.9Z"/>
-            <path class="ss-back" d="M37 23.5C37 19.82 11 20.48 11 16.8V10.8C11 14.49 37 13.82 37 17.5Z"/>
-            <path class="ss-front" d="M11 44.85C11 41.16 37 41.84 37 38.15Q42 33.9 37 29.65C37 33.34 11 32.66 11 36.35Q6 40.6 11 44.85Z"/>
-            <path class="ss-front" d="M11 31.45C11 27.77 37 28.44 37 24.75Q42 20.5 37 16.25C37 19.94 11 19.27 11 22.95Q6 27.2 11 31.45Z"/>
-            <path class="ss-front" d="M11 18.05C11 14.37 37 15.04 37 11.35Q42 7.1 37 2.85C37 6.54 11 5.87 11 9.55Q6 13.8 11 18.05Z"/>
+            <path class="ss-chain" d="M12.49 35.48C16.15 33.88 24 41 24 46.5M35.51 9.73C32.79 6.8 24 7 24 1.5"/>
+            <path class="ss-edge ss-cap" d="M12.59 35.44L12.26 35.59L11.99 35.74"/>
+            <path class="ss-core ss-cap" d="M12.59 35.44L12.26 35.59L11.99 35.74"/>
+            <path class="ss-edge ss-cap" d="M36.01 10.37L35.74 9.99L35.41 9.63"/>
+            <path class="ss-core ss-cap" d="M36.01 10.37L35.74 9.99L35.41 9.63"/>
+            <path class="ss-edge ss-far" d="M36.25 30.41L35.53 29.35L34.38 28.36L32.82 27.45L30.93 26.65L28.77 25.98L26.43 25.44L24 25.06L21.57 24.83L19.23 24.75L17.07 24.82L15.18 25.01L13.62 25.3L12.47 25.69L11.75 26.13"/>
+            <path class="ss-core ss-far" d="M36.25 30.41L35.53 29.35L34.38 28.36L32.82 27.45L30.93 26.65L28.77 25.98L26.43 25.44L24 25.06L21.57 24.83L19.23 24.75L17.07 24.82L15.18 25.01L13.62 25.3L12.47 25.69L11.75 26.13"/>
+            <path class="ss-edge ss-far" d="M36.25 20.61L35.53 19.55L34.38 18.56L32.82 17.65L30.93 16.85L28.77 16.18L26.43 15.64L24 15.26L21.57 15.03L19.23 14.95L17.07 15.02L15.18 15.21L13.62 15.5L12.47 15.89L11.75 16.33"/>
+            <path class="ss-core ss-far" d="M36.25 20.61L35.53 19.55L34.38 18.56L32.82 17.65L30.93 16.85L28.77 16.18L26.43 15.64L24 15.26L21.57 15.03L19.23 14.95L17.07 15.02L15.18 15.21L13.62 15.5L12.47 15.89L11.75 16.33"/>
+            <path class="ss-edge" d="M12.49 35.48L11.76 35.92L11.5 36.4L11.73 36.87L12.43 37.32L13.58 37.71L15.14 38.01L17.03 38.2L19.2 38.27L21.55 38.19L24 37.96L26.45 37.58L28.8 37.04L30.97 36.36L32.86 35.55L34.42 34.63L35.57 33.63L36.27 32.57L36.5 31.48L36.24 30.39L35.51 29.33"/>
+            <path class="ss-core" d="M12.49 35.48L11.76 35.92L11.5 36.4L11.73 36.87L12.43 37.32L13.58 37.71L15.14 38.01L17.03 38.2L19.2 38.27L21.55 38.19L24 37.96L26.45 37.58L28.8 37.04L30.97 36.36L32.86 35.55L34.42 34.63L35.57 33.63L36.27 32.57L36.5 31.48L36.24 30.39L35.51 29.33"/>
+            <path class="ss-edge" d="M12.49 25.68L11.76 26.12L11.5 26.6L11.73 27.07L12.43 27.52L13.58 27.91L15.14 28.21L17.03 28.4L19.2 28.47L21.55 28.39L24 28.16L26.45 27.78L28.8 27.24L30.97 26.56L32.86 25.75L34.42 24.83L35.57 23.83L36.27 22.77L36.5 21.68L36.24 20.59L35.51 19.53"/>
+            <path class="ss-core" d="M12.49 25.68L11.76 26.12L11.5 26.6L11.73 27.07L12.43 27.52L13.58 27.91L15.14 28.21L17.03 28.4L19.2 28.47L21.55 28.39L24 28.16L26.45 27.78L28.8 27.24L30.97 26.56L32.86 25.75L34.42 24.83L35.57 23.83L36.27 22.77L36.5 21.68L36.24 20.59L35.51 19.53"/>
+            <path class="ss-edge" d="M12.49 15.88L11.76 16.32L11.5 16.8L11.73 17.27L12.43 17.72L13.58 18.11L15.14 18.41L17.03 18.6L19.2 18.67L21.55 18.59L24 18.36L26.45 17.98L28.8 17.44L30.97 16.76L32.86 15.95L34.42 15.03L35.57 14.03L36.27 12.97L36.5 11.88L36.24 10.79L35.51 9.73"/>
+            <path class="ss-core" d="M12.49 15.88L11.76 16.32L11.5 16.8L11.73 17.27L12.43 17.72L13.58 18.11L15.14 18.41L17.03 18.6L19.2 18.67L21.55 18.59L24 18.36L26.45 17.98L28.8 17.44L30.97 16.76L32.86 15.95L34.42 15.03L35.57 14.03L36.27 12.97L36.5 11.88L36.24 10.79L35.51 9.73"/>
         </symbol>
         <symbol id="i-ss-strand-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path class="ss-front" d="M24 4 41 22H32V44H16V22H7Z"/>
+            <path class="ss-chain" d="M13 41Q13 46.5 5 46.5M13 10C13 1 35 1 35 10M35 41Q35 46.5 43 46.5"/>
+            <path class="ss-front" d="M13 10 20 20H16.5V41H9.5V20H6Z"/>
+            <path class="ss-front" d="M35 41 28 31H31.5V10H38.5V31H42Z"/>
         </symbol>
         <symbol id="i-ss-turn-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path class="ss-front" d="M9 44V23a15 15 0 0 1 30 0V44H31V23a7 7 0 0 0-14 0V44Z"/>
+            <path class="ss-edge ss-round" d="M5 39H12a4 4 0 0 0 4-4V20a8 8 0 0 1 16 0V35a4 4 0 0 0 4 4H43"/>
+            <path class="ss-core ss-round" d="M5 39H12a4 4 0 0 0 4-4V20a8 8 0 0 1 16 0V35a4 4 0 0 0 4 4H43"/>
         </symbol>
-        <!-- The small icons of the hover box (24 x 24): a helix as a spring seen from the side, a strand as an arrow pointing up (as the card's picture does), a turn as a hairpin bend. -->
+        <!-- The small icons of the hover box (24 x 24): the helix as a spring seen from the side, the strand as two arrows in opposite
+             directions, the turn with a short line at each end. -->
         <symbol id="i-ss-helix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3c7 0 12 1.2 12 3s-5 3-12 3c7 0 12 1.2 12 3s-5 3-12 3c7 0 12 1.2 12 3s-5 3-12 3"/></symbol>
-        <symbol id="i-ss-strand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21V11H5l7-8 7 8h-4v10z"/></symbol>
-        <symbol id="i-ss-turn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V11a7 7 0 0 1 14 0v10"/></symbol>
+        <symbol id="i-ss-strand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></symbol>
+        <symbol id="i-ss-turn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h3a2 2 0 0 0 2-2v-7a5 5 0 0 1 10 0v7a2 2 0 0 0 2 2h3"/></symbol>
     </svg>
     <a class="skip-link" href="#side" data-i18n>Skip to the controls</a>
 
