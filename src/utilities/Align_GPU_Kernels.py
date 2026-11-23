@@ -1773,9 +1773,7 @@ def run_fused_gpu_alignment_pipeline(
                         ]
                         emit_results(rows)
 
-                    def submit_gpu_job(
-                        A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len, *, target_slices=None
-                    ):
+                    def submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len):
                         nonlocal stream_cursor
                         num_p = len(pair_ids)
                         if active_trial is not None:
@@ -1788,11 +1786,7 @@ def run_fused_gpu_alignment_pipeline(
                         st = streams[sid]
                         ws = ws_list[sid]
                         M = int(A_ten.shape[0])
-                        N = (
-                            int(sum(L for _, L in target_slices))
-                            if target_slices is not None
-                            else int(B_ten.shape[0])
-                        )
+                        N = int(B_ten.shape[0])
                         rs_off = np.zeros(num_p, dtype=np.int32)
                         if num_p > 1:
                             rs_off[1:] = np.cumsum(r_len[:-1], dtype=np.int32)
@@ -1804,17 +1798,6 @@ def run_fused_gpu_alignment_pipeline(
                         max_r = int(r_len.max())
 
                         with torch.cuda.stream(st):
-                            # Build sparse packed targets on `st` (never on the default stream) so
-                            # torch.mm is strictly ordered after torch.cat and the caching allocator
-                            # cannot recycle B_ten before `st` finishes reading it.
-                            if target_slices is not None:
-                                B_ten = torch.cat(
-                                    [packed[s:s + L] for s, L in target_slices],
-                                    dim=0,
-                                )
-                                ws["t_cat"] = B_ten
-                            else:
-                                ws.pop("t_cat", None)
                             ensure_ws(ws, M, N, num_p, tot_r, tot_c, max_r, tile_max_mat_elems)
                             h_meta = ws["h_meta"][:, :num_p]
                             h_meta_np = h_meta.numpy()
@@ -1864,8 +1847,137 @@ def run_fused_gpu_alignment_pipeline(
                             ev.record(st)
                         inflight.append((ev, sid, pair_ids, num_p))
 
-                    A_ten = B_ten = row_t = t_cat = None
+                    def submit_sparse_slab_job(slab_chunks, slab_M, slab_N, num_p, slab_mat_cap, slab_b_cap):
+                        """Execute many sparse rows in one packed 2D matrix slab on a single stream.
+
+                        Packing multiple rows onto 2D shelves inside one reusable `ws["mat"]` buffer
+                        eliminates per-row kernel/sync overhead on sparse prefiltered or injection
+                        graphs while keeping target assembly in one reusable per-stream `ws["b_buf"]`
+                        (zero dynamic `torch.cat` allocator fragmentation and zero cross-stream races).
+                        """
+                        nonlocal stream_cursor
+                        if active_trial is not None:
+                            active_trial.submitted += num_p
+                            active_trial.microbatches += 1
+                        sid = stream_cursor % n_streams
+                        stream_cursor += 1
+                        while len(inflight) >= n_streams:
+                            drain_one()
+                        st = streams[sid]
+                        ws = ws_list[sid]
+
+                        pair_ids = []
+                        r_off = np.empty(num_p, dtype=np.int32)
+                        r_len = np.empty(num_p, dtype=np.int32)
+                        c_off = np.empty(num_p, dtype=np.int32)
+                        c_len = np.empty(num_p, dtype=np.int32)
+                        pos = 0
+                        for y0, x0, row_L, _c_cols, _ri, c_targets in slab_chunks:
+                            cx = x0
+                            for si, sj, cj in c_targets:
+                                L_j = int(lengths[cj])
+                                pair_ids.append((si, sj))
+                                r_off[pos] = y0
+                                r_len[pos] = row_L
+                                c_off[pos] = cx
+                                c_len[pos] = L_j
+                                cx += L_j
+                                pos += 1
+
+                        rs_off = np.zeros(num_p, dtype=np.int32)
+                        if num_p > 1:
+                            rs_off[1:] = np.cumsum(r_len[:-1], dtype=np.int32)
+                        cs_off = np.zeros(num_p, dtype=np.int32)
+                        if num_p > 1:
+                            cs_off[1:] = np.cumsum(c_len[:-1], dtype=np.int32)
+                        tot_r = int(r_len.sum())
+                        tot_c = int(c_len.sum())
+                        max_r = int(r_len.max())
+                        need_b = max(
+                            (c_cols for _, _, _, c_cols, _, ct in slab_chunks if len(ct) > 1),
+                            default=0,
+                        )
+                        mat_hint = max(slab_M * slab_N, slab_mat_cap)
+
+                        with torch.cuda.stream(st):
+                            ensure_ws(ws, slab_M, slab_N, num_p, tot_r, tot_c, max_r, mat_hint)
+                            if need_b > 0 and (
+                                "b_buf" not in ws
+                                or ws["b_buf"].shape[0] < need_b
+                                or ws["b_buf"].dtype != compute_dtype
+                            ):
+                                ws["b_buf"] = torch.empty(
+                                    (max(need_b, slab_b_cap), feature_dim),
+                                    dtype=compute_dtype,
+                                    device=device,
+                                )
+                            h_meta = ws["h_meta"][:, :num_p]
+                            h_meta_np = h_meta.numpy()
+                            h_meta_np[0] = r_off
+                            h_meta_np[1] = r_len
+                            h_meta_np[2] = c_off
+                            h_meta_np[3] = c_len
+                            h_meta_np[4] = rs_off
+                            h_meta_np[5] = cs_off
+                            meta_d = ws["d_meta"][:, :num_p]
+                            meta_d.copy_(h_meta, non_blocking=True)
+                            mat = ws["mat"][:slab_M * slab_N].view(slab_M, slab_N)
+                            for y0, x0, row_L, c_cols, ri, c_targets in slab_chunks:
+                                a_row = packed[starts[ri]:starts[ri] + row_L]
+                                if len(c_targets) == 1:
+                                    cj = c_targets[0][2]
+                                    b_view = packed[starts[cj]:starts[cj] + c_cols]
+                                else:
+                                    b_view = ws["b_buf"][:c_cols]
+                                    torch.cat(
+                                        [
+                                            packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])]
+                                            for x in c_targets
+                                        ],
+                                        dim=0,
+                                        out=b_view,
+                                    )
+                                sub = mat[y0:y0 + row_L, x0:x0 + c_cols]
+                                if compute_dtype == torch.float32:
+                                    torch.mm(a_row, b_view.T, out=sub)
+                                else:
+                                    sub.copy_(torch.mm(a_row, b_view.T).to(torch.float32))
+                            kernels.launch(
+                                "align_exp_stats",
+                                (num_p, 1, 1),
+                                (128, 1, 1),
+                                [
+                                    mat, slab_N, meta_d[0], meta_d[1], meta_d[2], meta_d[3],
+                                    meta_d[4], meta_d[5], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
+                                    d_nf, num_p,
+                                ],
+                                st.cuda_stream,
+                            )
+                            dp_name = "align_dp_f64gap_k4" if use_f64_always else "align_dp_f32_k4"
+                            kernels.launch(
+                                dp_name,
+                                ((num_p + 3) // 4, 1, 1),
+                                (128, 1, 1),
+                                [
+                                    mat, slab_N, meta_d[0], meta_d[1], meta_d[2], meta_d[3],
+                                    meta_d[4], meta_d[5], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
+                                    ws["sc_g"], ws["sc_gl"], ws["sc_l"], ws["sc_ll"], max_r,
+                                    ws["ogs"], ws["ogl"], ws["ols"], ws["oll"],
+                                    num_p, float(global_gap), float(local_gap), 2.0,
+                                ],
+                                st.cuda_stream,
+                            )
+                            ws["h_gs"][:num_p].copy_(ws["ogs"][:num_p], non_blocking=True)
+                            ws["h_gl"][:num_p].copy_(ws["ogl"][:num_p], non_blocking=True)
+                            ws["h_ls"][:num_p].copy_(ws["ols"][:num_p], non_blocking=True)
+                            ws["h_ll"][:num_p].copy_(ws["oll"][:num_p], non_blocking=True)
+                            ev = torch.cuda.Event()
+                            ev.record(st)
+                        inflight.append((ev, sid, pair_ids, num_p))
+
+                    A_ten = B_ten = None
                     try:
+                        sparse_pairs = []
                         for (bi, bj), pair_quads in blk_pairs.items():
                             if active_trial is not None and not active_trial.can_submit():
                                 break
@@ -1882,66 +1994,105 @@ def run_fused_gpu_alignment_pipeline(
                                 c_off = np.array([starts[cj] - b_base for _, _, _, cj in pair_quads], dtype=np.int32)
                                 submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len)
                             else:
-                                by_row = OrderedDict()
-                                for si, sj, ri, cj in pair_quads:
-                                    by_row.setdefault(ri, []).append((si, sj, cj))
-                                max_cols_emb = (64 * 1024 * 1024) // max(1, feature_dim * element_bytes)
-                                for ri, targets in by_row.items():
-                                    if active_trial is not None and not active_trial.can_submit():
-                                        break
-                                    row_L = int(lengths[ri])
-                                    row_t = packed[starts[ri]:starts[ri] + row_L]
-                                    max_cols_mat = (block_res * block_res) // max(1, row_L)
-                                    max_cols = max(max_tile_len, min(max_cols_mat, max_cols_emb))
-                                    chunk_targets, chunk_cols = [], 0
-                                    for si, sj, cj in targets:
-                                        L_j = int(lengths[cj])
-                                        if chunk_targets and chunk_cols + L_j > max_cols:
-                                            t_slices = [
-                                                (starts[x[2]], int(lengths[x[2]]))
-                                                for x in chunk_targets
-                                            ]
-                                            cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
-                                            co = np.zeros(len(chunk_targets), dtype=np.int32)
-                                            if len(chunk_targets) > 1:
-                                                co[1:] = np.cumsum(cl[:-1], dtype=np.int32)
-                                            ro = np.zeros(len(chunk_targets), dtype=np.int32)
-                                            rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
-                                            submit_gpu_job(
-                                                row_t,
-                                                None,
-                                                [(x[0], x[1]) for x in chunk_targets],
-                                                ro,
-                                                rl,
-                                                co,
-                                                cl,
-                                                target_slices=t_slices,
-                                            )
-                                            chunk_targets, chunk_cols = [], 0
-                                        chunk_targets.append((si, sj, cj))
-                                        chunk_cols += L_j
-                                    if chunk_targets:
-                                        t_slices = [
-                                            (starts[x[2]], int(lengths[x[2]]))
-                                            for x in chunk_targets
-                                        ]
-                                        cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
-                                        co = np.zeros(len(chunk_targets), dtype=np.int32)
-                                        if len(chunk_targets) > 1:
-                                            co[1:] = np.cumsum(cl[:-1], dtype=np.int32)
-                                        ro = np.zeros(len(chunk_targets), dtype=np.int32)
-                                        rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
-                                        submit_gpu_job(
-                                            row_t,
-                                            None,
-                                            [(x[0], x[1]) for x in chunk_targets],
-                                            ro,
-                                            rl,
-                                            co,
-                                            cl,
-                                            target_slices=t_slices,
-                                        )
-                                    row_t = None
+                                sparse_pairs.extend(pair_quads)
+
+                        if sparse_pairs and (active_trial is None or active_trial.can_submit()):
+                            # Aggregate sparse pairs across the whole tile so no row is shattered
+                            # across separate (bi, bj) block pairs, orienting the higher-degree
+                            # endpoint as the row sequence.
+                            s_deg = {}
+                            for si, sj, _, _ in sparse_pairs:
+                                s_deg[si] = s_deg.get(si, 0) + 1
+                                s_deg[sj] = s_deg.get(sj, 0) + 1
+                            by_row = {}
+                            for si, sj, _, _ in sparse_pairs:
+                                if (s_deg[si], int(lengths[si]), si) >= (s_deg[sj], int(lengths[sj]), sj):
+                                    by_row.setdefault(si, []).append((si, sj, sj))
+                                else:
+                                    by_row.setdefault(sj, []).append((si, sj, si))
+
+                            max_cols_emb = (32 * 1024 * 1024) // max(1, feature_dim * element_bytes)
+                            max_slab_elems = max(
+                                max_tile_len * max_tile_len,
+                                min(tile_max_mat_elems, 33_554_432),
+                            )
+                            max_chunk_cols_cap = max(max_tile_len, min(block_res, max_cols_emb))
+
+                            row_chunks = []
+                            for ri, targets in by_row.items():
+                                row_L = int(lengths[ri])
+                                targets.sort(key=lambda x: (int(lengths[x[2]]), x[2]))
+                                max_cols_mat = max_slab_elems // max(1, row_L)
+                                max_cols = max(max_tile_len, min(max_cols_mat, max_chunk_cols_cap))
+                                chunk_targets, chunk_cols = [], 0
+                                for item in targets:
+                                    L_j = int(lengths[item[2]])
+                                    if chunk_targets and chunk_cols + L_j > max_cols:
+                                        row_chunks.append((row_L, chunk_cols, ri, chunk_targets))
+                                        chunk_targets, chunk_cols = [], 0
+                                    chunk_targets.append(item)
+                                    chunk_cols += L_j
+                                if chunk_targets:
+                                    row_chunks.append((row_L, chunk_cols, ri, chunk_targets))
+
+                            # Sort by ascending row_L so chunks on the same shelf share height and
+                            # adjacent DP warps stay balanced.
+                            row_chunks.sort(key=lambda c: (c[0], c[1], c[2]))
+                            shelf_width = max(c[1] for c in row_chunks)
+                            max_slab_pairs = 1024
+
+                            slab_chunks = []
+                            slab_pairs = 0
+                            shelf_y = 0
+                            shelf_h = 0
+                            cur_x = 0
+
+                            def _flush_sparse_slab():
+                                nonlocal slab_chunks, slab_pairs, shelf_y, shelf_h, cur_x
+                                if not slab_chunks:
+                                    return
+                                actual_M = shelf_y + shelf_h
+                                actual_N = max(x0 + c_cols for _, x0, _, c_cols, _, _ in slab_chunks)
+                                submit_sparse_slab_job(
+                                    slab_chunks,
+                                    actual_M,
+                                    actual_N,
+                                    slab_pairs,
+                                    max_slab_elems,
+                                    min(max_chunk_cols_cap, shelf_width),
+                                )
+                                slab_chunks = []
+                                slab_pairs = 0
+                                shelf_y = 0
+                                shelf_h = 0
+                                cur_x = 0
+
+                            for row_L, c_cols, ri, c_targets in row_chunks:
+                                if active_trial is not None and not active_trial.can_submit():
+                                    break
+                                n_ct = len(c_targets)
+                                if slab_chunks:
+                                    if cur_x + c_cols <= shelf_width:
+                                        cand_M = shelf_y + max(shelf_h, row_L)
+                                    else:
+                                        cand_M = (shelf_y + shelf_h) + row_L
+                                    if (
+                                        cand_M * shelf_width > max_slab_elems
+                                        or slab_pairs + n_ct > max_slab_pairs
+                                    ):
+                                        _flush_sparse_slab()
+                                        if active_trial is not None and not active_trial.can_submit():
+                                            break
+                                if cur_x > 0 and cur_x + c_cols > shelf_width:
+                                    shelf_y += shelf_h
+                                    shelf_h = 0
+                                    cur_x = 0
+                                slab_chunks.append((shelf_y, cur_x, row_L, c_cols, ri, c_targets))
+                                cur_x += c_cols
+                                if row_L > shelf_h:
+                                    shelf_h = row_L
+                                slab_pairs += n_ct
+                            _flush_sparse_slab()
 
                         while inflight:
                             drain_one()
@@ -1953,12 +2104,11 @@ def run_fused_gpu_alignment_pipeline(
                         # Drop EVERY tensor view referencing `packed` before the next tile
                         # uploads so two tiles never coexist on GPU simultaneously.
                         blk_slices.clear()
-                        for ws in ws_list:
-                            ws.pop("t_cat", None)
-                        A_ten = B_ten = row_t = t_cat = packed = None
-                        if is_oom_retry and len(phase_tiles) > 1:
-                            for ws in ws_list:
-                                ws.clear()
+                        A_ten = B_ten = packed = None
+                        if len(phase_tiles) > 1:
+                            if is_oom_retry:
+                                for ws in ws_list:
+                                    ws.clear()
                             torch.cuda.empty_cache()
 
             if benchmark_trial is not None:

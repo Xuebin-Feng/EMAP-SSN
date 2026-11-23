@@ -287,6 +287,65 @@ class AlignGPUKernelsTests(unittest.TestCase):
             )
             self.assertTrue(ok, reason)
 
+    def test_fused_sparse_multirow_slab_multitile_2lanes_matches_reference(self):
+        # Exercises tile-wide 2D-shelf sparse slabs across 2 async lanes with mixed single-target
+        # zero-copy rows and multi-target b_buf rows across irregular sequence lengths and 3 blocks.
+        from dataclasses import replace
+
+        rng = np.random.default_rng(20261124)
+        n_seqs = 60
+        lengths = rng.integers(80, 260, size=n_seqs).tolist()
+        dim = 256
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _path, headers, store = self._make_store(
+                temp_dir, lengths, dim=dim, dtype=np.float16, host_cache="auto"
+            )
+            pair_set = set()
+            for u in range(n_seqs):
+                deg = 1 if u < 15 else int(rng.integers(2, 7))
+                partners = rng.choice(n_seqs, size=deg, replace=False)
+                for v in partners:
+                    v = int(v)
+                    if u != v:
+                        a, b = (u, v) if u < v else (v, u)
+                        pair_set.add((a, b))
+            tasks = [(u, v, headers[u], headers[v]) for u, v in sorted(pair_set)]
+            dev = torch.device("cuda:0")
+            base_plan = engine.accelerator_memory_plan(dev, lanes=2, compute_element_bytes=4)
+            # Force ~3 blocks so sparse slabs run across both diagonal and off-diagonal tiles.
+            per_block_bytes = int(sum(lengths) * dim * 4 // 3)
+            tight_plan = replace(base_plan, tile_cache_bytes=max(1, per_block_bytes * 2))
+            fused = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=2,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                memory_plan_override=tight_plan,
+                gpu_dp_gaps=(0.0, -2.0),
+            )
+            ref = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=1,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                gpu_dp_gaps=None,
+            )
+            self.assertEqual(len(fused), len(tasks))
+            ok, reason = engine.compare_precision_results(
+                ref, fused, per_residue_tolerance=1e-4, candidate_label="fused_sparse_slab"
+            )
+            self.assertTrue(ok, reason)
+
 
 if __name__ == "__main__":
     unittest.main()
