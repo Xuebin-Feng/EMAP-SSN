@@ -2174,6 +2174,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>There is no structure in the scene yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The structures are drawn in different ways. Choose one here for all of them, or set each in its row.</source>
         <translation type="unfinished"></translation>
     </message>

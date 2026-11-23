@@ -806,7 +806,7 @@ function representationNotes() {
 
 // The chips are made as the colors' are (a label round a native radio). Which is checked is read from the scene each time the card is
 // drawn: the kind every structure shares, and none when they differ. With no structure none is checked either (the scene keeps no kind
-// of its own, as it keeps a coloring), and choosing one then changes nothing: the card is drawn again as it was.
+// of its own, as it keeps a coloring), and the chips are switched off: there is nothing to change.
 function representationChip(type, label, model) {
     const chip = make('label', 'seg-btn');
     chip.title = label;
@@ -816,13 +816,13 @@ function representationChip(type, label, model) {
     input.name = 'representation';
     input.value = type;
     input.checked = model.rep === type;
+    input.disabled = !model.count;
     input.dataset.focusKey = 'representation:' + type;
     const text = make('span', 'seg-label', label);
     text.dataset.text = label;
     chip.append(input, text);
     input.addEventListener('change', () => {
-        if (input.checked && model.rep !== type && model.count) setSceneRepresentation(type);
-        else renderColorCard(true);
+        if (input.checked && model.rep !== type) setSceneRepresentation(type);
     });
     return chip;
 }
@@ -835,20 +835,18 @@ function renderRepresentationBody(model) {
     group.setAttribute('aria-label', t("Representation"));
     group.append(...representationOptions().map(([type, label]) => representationChip(type, label, model)));
     const nodes = [group];
-    if (model.count) {
-        // In the box the Colors tab's note is in, with its icon, and the whole of it (it is what the tab says, so it is never cut short).
-        const box = make('div', 'legend rep-note');
-        const note = make('div', 'src');
-        const row = make('div', 'note-row');
-        const words = model.rep ? representationNotes()[model.rep]
-            : t("The structures are drawn in different ways. Choose one here for all of them, or set each in its row.");
-        const info = icon("info");
-        const line = make('span', 'note-text', words);
-        row.append(info, line);
-        note.append(row);
-        box.append(note);
-        nodes.push(box);
-    }
+    // In the box the Colors tab's note is in, with its icon, and the whole of it (it is what the tab says, so it is never cut short).
+    const box = make('div', 'legend rep-note');
+    const note = make('div', 'src');
+    const row = make('div', 'note-row');
+    const words = !model.count ? t("There is no structure in the scene yet.") : model.rep ? representationNotes()[model.rep]
+        : t("The structures are drawn in different ways. Choose one here for all of them, or set each in its row.");
+    const info = icon("info");
+    const line = make('span', 'note-text', words);
+    row.append(info, line);
+    note.append(row);
+    box.append(note);
+    nodes.push(box);
     body.replaceChildren(...nodes);
     if (focused) keyedControl(body, focused)?.focus();
 }

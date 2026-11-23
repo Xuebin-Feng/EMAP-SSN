@@ -3439,7 +3439,12 @@ Command-line usage:
         <translation type="unfinished">仅显示骨架，为一根连接各残基的细管。</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+39"/>
+        <source>There is no structure in the scene yet.</source>
+        <translation type="unfinished">场景中还没有结构。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>The structures are drawn in different ways. Choose one here for all of them, or set each in its row.</source>
         <translation type="unfinished">各结构的绘制方式不同。可在此为全部结构选择一种，也可在各自的行中分别设置。</translation>
     </message>
@@ -3452,7 +3457,7 @@ Command-line usage:
         <translation type="obsolete">模型</translation>
     </message>
     <message>
-        <location line="-156"/>
+        <location line="-155"/>
         <location line="+3"/>
         <source>Properties</source>
         <translation type="unfinished">性质</translation>
@@ -3480,7 +3485,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../../../web_ui/esmfold.html" line="+1060"/>
+        <location filename="../../../web_ui/esmfold.html" line="+1065"/>
         <source>Colors</source>
         <translation type="unfinished">颜色</translation>
     </message>
@@ -3993,8 +3998,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-920"/>
-        <location line="+915"/>
+        <location filename="../../../web_ui/esmfold.html" line="-925"/>
+        <location line="+920"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>

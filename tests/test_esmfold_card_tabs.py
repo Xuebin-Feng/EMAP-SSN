@@ -121,6 +121,22 @@ class TabTests(CardTabsTestCase):
         self.assertEqual([tab[2] for tab in state["tabs"]], ["true", "false"])
         self.assertEqual([panel[2] for panel in state["panels"]], [False, True])
 
+    def test_opening_either_tab_leaves_both_tabs_where_they_were(self):
+        self.open_page()
+        edges = """return ['colors', 'representation'].map(name => {
+            const box = document.getElementById('card-tab-' + name).getBoundingClientRect();
+            return [box.left, box.width];});"""
+        before = self.script(edges)
+        for name in ("representation", "colors", "representation"):
+            self.click("#card-tab-" + name, 100)
+            after = self.script(edges)
+            for old, new in zip(before, after):
+                self.assertAlmostEqual(old[0], new[0], delta=0.5, msg=(name, before, after))
+                self.assertAlmostEqual(old[1], new[1], delta=0.5, msg=(name, before, after))
+        # Both are weight 600: the open one is told by its colour and line, not by being bolder.
+        self.assertEqual(self.script("return ['colors', 'representation'].map(n => getComputedStyle(document.getElementById('card-tab-' + n)).fontWeight)"),
+                         ["600", "600"])
+
     def test_in_simplified_chinese_the_tabs_and_the_heading_are_translated(self):
         from desktop.Desktop_App import install_translations
 
@@ -362,22 +378,50 @@ class RepresentationTabTests(CardTabsTestCase):
         self.assertEqual(self.script("return drawn().map(item => item.type)"), ["ball-and-stick", "cartoon", "cartoon"])
         self.assertEqual(self.script("await cardNow(); return repCard().checked"), None)
 
-    def test_with_no_structure_the_chips_are_there_none_is_checked_there_is_no_note_and_choosing_one_changes_nothing(self):
+    EMPTY = "There is no structure in the scene yet."
+    OFF = """
+        const radios = [...document.querySelectorAll('#representation-body input')];
+        return {disabled: radios.map(r => r.disabled), checked: radios.filter(r => r.checked).length, note: repCard().note,
+                cursor: radios.map(r => getComputedStyle(r.closest('.seg-btn')).cursor)};"""
+
+    def test_with_no_structure_the_five_radios_are_off_none_is_checked_and_the_note_says_so_until_one_arrives_and_again_after_the_last_goes(self):
+        self.write(A)
         self.open_page()
         self.click("#card-tab-representation", 100)
-        state = self.script("return repCard()")
-        self.assertEqual((state["chips"], state["checked"], state["note"]), (KINDS, None, None))
+        state = self.script(self.OFF)
+        self.assertEqual(state, {"disabled": [True] * 5, "checked": 0, "note": self.EMPTY, "cursor": ["not-allowed"] * 5})
+        self.assertEqual(self.script("return repCard().chips"), KINDS)
+        # A click on an off chip changes nothing and the focus cannot come to it.
         self.script("""
             document.querySelector('#representation-body [data-representation="spacefill"]').click();
+            document.querySelector('#representation-body input').focus();
             await structureQueue;
-            await new Promise(resolve => setTimeout(resolve, 300));
-            return 1;
-            """)
-        self.assertEqual(self.script("return repCard().checked"), None)
-        # Nothing is remembered for the structure that comes: it has Mol*'s own default.
-        self.write(A)
+            return 1;""")
+        self.assertEqual(self.script("return document.activeElement.closest('#representation-body') === null"), True)
+        self.assertEqual(self.script(self.OFF)["checked"], 0)
+        # A structure arrives: the chips are live and show its kind.
         self.push(A)
-        self.assertEqual(self.script("return drawn().map(item => item.type)"), ["cartoon"])
+        self.settle(200)
+        state = self.script(self.OFF)
+        self.assertEqual((state["disabled"], state["checked"], state["note"]), ([False] * 5, 1, NOTES["cartoon"]))
+        self.assertEqual(self.script("return repCard().checked"), "cartoon")
+        # The last one is removed: off again.
+        self.script("removeStructure(loadedStructures()[0]); await structureQueue; return 1")
+        self.settle(300)
+        state = self.script("await cardNow(); " + self.OFF)
+        self.assertEqual((state["disabled"], state["checked"], state["note"]), ([True] * 5, 0, self.EMPTY))
+        self.assertEqual(self.console_errors(), [])
+
+    def test_in_simplified_chinese_the_empty_scene_note_is_translated(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_page()
+        note = self.script("return repCard().note")
+        self.assertNotEqual(note, self.EMPTY)
+        self.assertTrue(note)
+        self.assertEqual(self.script("return [...document.querySelectorAll('#representation-body input')].every(r => r.disabled)"), True)
 
     def test_a_session_saved_and_restored_shows_the_restored_kind(self):
         self.open_representation(A, B)

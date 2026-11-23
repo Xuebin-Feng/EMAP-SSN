@@ -463,6 +463,9 @@
         /* The chip is a label round a native radio, which covers it and is not seen: the browser's own radio keys and Tab stop. */
         .seg-btn input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; appearance: none; cursor: pointer; }
         .seg-btn:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        /* Switched off (no structure to change): drawn as the page's other off controls are. */
+        .seg-btn:has(input:disabled) { color: var(--text-disabled); background: var(--input-disabled-bg); border-color: var(--border-color); box-shadow: none; cursor: not-allowed; }
+        .seg-btn input:disabled { cursor: not-allowed; }
         .seg-btn:has(input:focus-visible) { border-color: var(--accent); box-shadow: var(--focus-ring); }
         .seg-btn .cov { font-size: 10.5px; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; flex: none; }
         /* The chosen chip's text is bold, which is wider. The same text, bold and unseen, makes every chip as wide as it is when
@@ -574,10 +577,12 @@
            wider than its box is what the page's overflow checks count as scrolling sideways) */
         .card-title-hidden { position: absolute; margin: 0; white-space: nowrap; clip-path: inset(50%); pointer-events: none; }
         .card-tabs { display: flex; gap: 14px; align-self: stretch; min-width: 0; }
-        .card-tab { position: relative; display: inline-flex; align-items: center; background: none; border: 0; padding: 0 1px; font: inherit; font-size: 13px; font-weight: 500; color: var(--text-subtle); cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
-        .card-tab[aria-selected="true"] { color: var(--text-primary); font-weight: 600; }
+        .card-tab { position: relative; display: inline-flex; align-items: center; background: none; border: 0; padding: 0 1px; font: inherit; font-size: 13px; font-weight: 600; color: var(--text-subtle); cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
+        .card-tab[aria-selected="true"] { color: var(--text-primary); }
         .card-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
         .card-tab:focus-visible { box-shadow: var(--focus-ring); }
+        /* Both tabs are weight 600, so opening one moves nothing (a bolder open tab would be wider and push its neighbour); the open one is
+           told by its colour and its line. */
         .sec-title .count { font-weight: 400; color: var(--text-subtle); }
         /* A card's heading takes the focus when the control that had it went with what it acted on (a structure removed, a failure
            dismissed, the pin cleared), so that the focus stays in the card; it is no stop of Tab's (tabindex -1). */
