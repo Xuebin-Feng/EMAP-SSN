@@ -537,12 +537,12 @@ still change before version 1.0.0.
     identical values. While it is computed it holds 12 bytes per pair of sequences
     (2.0 GB for 12,927 sequences).
   - Tested offline on 15 dense networks with 20–75% of their pairs hidden as the prefilter
-    would hide them: the 12,927-sequence aminotransferase set with E1, Ankh base and ESM C
-    600M, and four HomFam families with Ankh base, ESM C 600M and ProstT5. The estimates'
-    R² on hidden pairs rose from a median of −0.47 (0 or below in all 60 cases) to 0.61,
-    and the held-out check came within 0.004 of the true R² (median). The guide tree's
-    topology barely changed; its agreement with the dense tree's distances rose in 39 of
-    the 60 cases and fell in 12.
+    would hide them: the 12,927-sequence fold-type IV PLP-dependent enzyme set with E1,
+    Ankh base and ESM C 600M, and four HomFam families with Ankh base, ESM C 600M and
+    ProstT5. The estimates' R² on hidden pairs rose from a median of −0.47 (0 or below in
+    all 60 cases) to 0.61, and the held-out check came within 0.004 of the true R²
+    (median). The guide tree's topology barely changed; its agreement with the dense
+    tree's distances rose in 39 of the 60 cases and fell in 12.
     The samples in that test were drawn the same way, from 2,000 to 50,000 pairs, and
     were stored in the network file.
   - **Checked against that stored-sample design**, which development builds had and no
@@ -575,11 +575,11 @@ still change before version 1.0.0.
     ignored. MCP accepts the document, drops the setting and lists it under `overrides`.
     The Tools window drops it at the next Save. Any other unknown setting is treated as
     before.
-  - **Why:** on the 12,927-sequence aminotransferase set (E1, three seeds, mean TC over
-    75, 50 and 25% of pairs kept), the calibrated fill with the full consensus scored
-    0.366, the uniform fill with it 0.349, the uniform fill with the partial consensus
-    0.340, and the calibrated fill with the partial consensus, the default until now,
-    0.292.
+  - **Why:** on the 12,927-sequence fold-type IV PLP-dependent enzyme set (E1, three
+    seeds, mean TC over 75, 50 and 25% of pairs kept), the calibrated fill with the full
+    consensus scored 0.366, the uniform fill with it 0.349, the uniform fill with the
+    partial consensus 0.340, and the calibrated fill with the partial consensus, the
+    default until now, 0.292.
   - **Checked when the consensus code changed**, on the HomFam kringle family (829
     sequences, Ankh base, 75% of pairs kept, on the CPU): with the uniform fill, the
     guide tree had the same clades and replicate percentages as the earlier version's
@@ -653,9 +653,9 @@ still change before version 1.0.0.
   and keeps the network's share of pairs.** It used to cut on another similarity (the
   cosine of mean-pooled embeddings, without the length ratio), at the lowest value among
   the input network's edges. On that scale the kept edges reach far down, so the cut
-  removed little: on the 12,927-sequence aminotransferase set (E1, 75% of pairs kept,
-  300 sequences taken out and injected back) every one of the 3,832,950 pairs with an
-  injected sequence was aligned.
+  removed little: on the 12,927-sequence fold-type IV PLP-dependent enzyme set (E1, 75% of
+  pairs kept, 300 sequences taken out and injected back) every one of the 3,832,950 pairs
+  with an injected sequence was aligned.
   - **The rule.** s is the shared similarity (max-pooled embeddings, cosine ×
     (shorter/longer)²) of every pair of the new set. K is the share of pairs the input
     network keeps. The cut is the lower of two values: the lowest s among the input
@@ -941,11 +941,11 @@ still change before version 1.0.0.
   tree are built, but they stayed in memory through the replicate trees, the final tree
   and the whole progressive merge: 20 bytes per sequence pair plus 12 bytes per edge.
   Each is now released right after its last use.
-  - **Measured** on the 12,927-sequence aminotransferase set (E1, 62,710,401 edges, 75%
-    of pairs kept, on the CPU): the main process's private memory at the start of the
-    merge fell from 6.64 GB to 2.54 GB, and at the start of the replicate trees from
-    6.95 GB to 2.85 GB. The difference, 4.10 GB, matches the size of these arrays
-    (4.09 GB).
+  - **Measured** on the 12,927-sequence fold-type IV PLP-dependent enzyme set (E1,
+    62,710,401 edges, 75% of pairs kept, on the CPU): the main process's private memory at
+    the start of the merge fell from 6.64 GB to 2.54 GB, and at the start of the replicate
+    trees from 6.95 GB to 2.85 GB. The difference, 4.10 GB, matches the size of these
+    arrays (4.09 GB).
   - **Unchanged:** the results, and the run's highest memory use (11.2 GB on that set),
     which is reached earlier, while the fit is checked. The guide tree of that set is
     byte-identical, and so are the alignments and guide trees of the HomFam kringle
