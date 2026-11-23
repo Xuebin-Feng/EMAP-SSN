@@ -463,9 +463,9 @@ still change before version 1.0.0.
     Import instead of calling the file legacy, and the help page describes the format in a
     new section, Embedding File Format.
 - **The Fold View colors structures by solvent accessibility, hydrophobicity and charge.**
-  A new Properties group in the Color by card, always shown between Model and Layers,
-  holds the three together with Secondary structure, which moves there from More
-  colorings. Mol* works each of them out from the structure, in its own colors.
+  A new Properties group in the Colors card (the Color by card until now), always shown
+  after Layers, holds the three together with Secondary structure, which moves there from
+  More colorings. Mol* works each of them out from the structure, in its own colors.
   - **Solvent accessibility** is how much of a residue the solvent can reach, as a share
     of the most a residue of its kind can expose, with a water probe of 1.4 Å. Each
     structure is worked out on its own, and only the atoms of the chains are in the way,
@@ -481,6 +481,22 @@ still change before version 1.0.0.
     picture follow each of them, a saved session brings its coloring back, and the card
     says in a sentence or two what the colors mean. The hover box and the Residue card do
     not give a residue's value for these three: Mol* does not hand the values out.
+- **The Fold View changes how every structure is drawn in one click.** The Colors card
+  (the Color by card until now, see Changed) has a second tab, Representation, with the
+  five kinds a structure's own row already offered: Cartoon, Ball and stick, Spacefill,
+  Surface and Backbone.
+  - **One click changes them all.** A kind chosen in the tab is given to every structure
+    in the scene, and each keeps its colors and its opacity. A structure's own row still
+    changes that one alone.
+  - **The tab shows what is true.** The kind that is lit is read from the scene, so it is
+    right after a row's change and after a restored session. When the structures differ
+    no kind is lit and a line says so. With no structure in the scene the kinds are
+    greyed out.
+  - **Structures that arrive follow.** One folded or opened while all the others share a
+    kind is drawn in that kind. Into an empty scene, or among structures that differ, it
+    is drawn as a cartoon, as before.
+  - A line under the kinds says what the chosen one shows. The card opens on Colors each
+    time the page is opened, and nothing stores which tab was open.
 
 ### Changed
 
@@ -887,7 +903,7 @@ still change before version 1.0.0.
     right, where the toolbar was. It is shown only while the strip is on and there is more
     than one to choose from.
 - **The Fold View draws a coloring's colors in one place, the legend over the canvas.**
-  The Color by card repeated them. It now keeps only the texts: pLDDT's description and
+  The Colors card repeated them. It now keeps only the texts: pLDDT's description and
   the caution for opened files, a layer's source and description and its no-data warning,
   and the note of Structure color. Secondary structure and Residue position have no box
   there.
@@ -897,21 +913,31 @@ still change before version 1.0.0.
     drawn into a saved picture has the same limits, key and spacing.
   - pLDDT's four band names (Very high, Confident, Low, Very low) are no longer listed in
     the card. A residue's band is in the hover box and the Residue card, as before.
-- **Structure color is under More colorings** in the Fold View's Color by card, with
-  Residue position, and the Model group holds pLDDT alone. A structure's own row still
-  offers it. More colorings is open when the page starts, where it started closed, and
-  it opens by itself when the scene's coloring becomes one inside it, as when a saved
-  session is restored. Closed by hand, it stays closed while that coloring is drawn.
+- **The Fold View's Color by card is named Colors, and pLDDT is the first of its Layers.**
+  The card's title is one of two tabs now, Colors and Representation (see Added). In
+  Colors the groups are Layers, with pLDDT first and the layers computed from the
+  alignment after it, then Properties, then More colorings. pLDDT had a Model group of
+  its own, above the others. With more layers than fit in a few rows, pLDDT stays in
+  view above their filter and list.
+- **Structure color is under More colorings** in the Fold View's Colors card, with
+  Residue position. A structure's own row still offers it. More colorings is open when
+  the page starts, where it started closed, and it opens by itself when the scene's
+  coloring becomes one inside it, as when a saved session is restored. Closed by hand, it
+  stays closed while that coloring is drawn.
 - **The Fold View's hover box follows the color mode:** light in the light theme and dark
   in the dark one, where it was dark in both. Its color square has a thin edge, so that a
   white one shows on a light box. The status line keeps its dark look.
-- **The Fold View's Residue card shows a residue's secondary structure as an icon and a
-  word** (helix, strand or turn) on one line, as the hover box now does, where a long
-  structure name used to squeeze the word. Zoom to and Clear are icon buttons in the
-  card's title row, greyed out unless a residue is pinned.
+- **The Fold View's Residue card shows a residue's secondary structure as a picture with
+  the word under it** (helix, strand or turn), in a tile at the right of the card's head,
+  where a long structure name used to squeeze the word. The pictures are drawn for the
+  page, and each shows the chain going on at both ends: a coiled tube for a helix, two
+  arrows in opposite directions joined over the top for a strand, a tube that turns for
+  a turn. The hover box now says it too, on one line, as a small icon and the word. Zoom
+  to and Clear are icon buttons in the card's title row, greyed out unless a residue is
+  pinned.
 - **The small titles of the Fold View are written as their texts are,** with a capital at
-  the start only. "Model" and "Layers" in the Color by card and the headings of the Help
-  dialog were drawn in capitals.
+  the start only. The titles of the groups in the Colors card and the headings of the
+  Help dialog were drawn in capitals.
 
 ### Fixed
 
