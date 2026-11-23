@@ -276,7 +276,13 @@ class FoldViewPageMixin:
         self.js(HELPERS)
 
     def push(self, name):
-        """Send the page a folded structure, as the Viewer does, and wait until it is loaded."""
+        """Send the page a folded structure, as the Viewer does, and wait until it is loaded and listed.
+
+        It returns when the load queue is idle, the Color by card is drawn, and the Structures card's list
+        has a row (a ".srow" carrying the structure's ref in data-ref, which job and failure rows lack) for
+        every loaded structure. The list is drawn by the page's own timer after the load; this waits for it
+        and never draws it.
+        """
         before = self.script("return loadedStructures().length")
         self.broadcast({"type": "esmfold_pdb", "node_id": name[:-4], "pdb_url": f"/structures/{name}"})
         deadline = time.monotonic() + 60
@@ -286,7 +292,17 @@ class FoldViewPageMixin:
             self.pump(0.1)
         else:
             self.fail(f"{name} was not loaded")
-        self.script("await structureQueue; await cardNow(); return 1")
+        listed = """
+            await structureQueue;
+            await cardNow();
+            const shown = new Set([...byId('struct-list').querySelectorAll('.srow[data-ref]')].map(row => row.dataset.ref));
+            return loadedStructures().every(structure => shown.has(structure.cell.transform.ref));
+            """
+        while time.monotonic() < deadline:
+            if self.script(listed):
+                return
+            self.pump(0.05)
+        self.fail(f"{name} was loaded, but the Structures card did not list it")
 
 
 # Test-side readers of the page's Mol* state. Everything they return is plain JSON.
