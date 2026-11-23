@@ -1773,7 +1773,9 @@ def run_fused_gpu_alignment_pipeline(
                         ]
                         emit_results(rows)
 
-                    def submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len):
+                    def submit_gpu_job(
+                        A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len, *, target_slices=None
+                    ):
                         nonlocal stream_cursor
                         num_p = len(pair_ids)
                         if active_trial is not None:
@@ -1785,7 +1787,12 @@ def run_fused_gpu_alignment_pipeline(
                             drain_one()
                         st = streams[sid]
                         ws = ws_list[sid]
-                        M, N = int(A_ten.shape[0]), int(B_ten.shape[0])
+                        M = int(A_ten.shape[0])
+                        N = (
+                            int(sum(L for _, L in target_slices))
+                            if target_slices is not None
+                            else int(B_ten.shape[0])
+                        )
                         rs_off = np.zeros(num_p, dtype=np.int32)
                         if num_p > 1:
                             rs_off[1:] = np.cumsum(r_len[:-1], dtype=np.int32)
@@ -1797,6 +1804,17 @@ def run_fused_gpu_alignment_pipeline(
                         max_r = int(r_len.max())
 
                         with torch.cuda.stream(st):
+                            # Build sparse packed targets on `st` (never on the default stream) so
+                            # torch.mm is strictly ordered after torch.cat and the caching allocator
+                            # cannot recycle B_ten before `st` finishes reading it.
+                            if target_slices is not None:
+                                B_ten = torch.cat(
+                                    [packed[s:s + L] for s, L in target_slices],
+                                    dim=0,
+                                )
+                                ws["t_cat"] = B_ten
+                            else:
+                                ws.pop("t_cat", None)
                             ensure_ws(ws, M, N, num_p, tot_r, tot_c, max_r, tile_max_mat_elems)
                             h_meta = ws["h_meta"][:, :num_p]
                             h_meta_np = h_meta.numpy()
@@ -1879,10 +1897,10 @@ def run_fused_gpu_alignment_pipeline(
                                     for si, sj, cj in targets:
                                         L_j = int(lengths[cj])
                                         if chunk_targets and chunk_cols + L_j > max_cols:
-                                            t_cat = torch.cat(
-                                                [packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])] for x in chunk_targets],
-                                                dim=0,
-                                            )
+                                            t_slices = [
+                                                (starts[x[2]], int(lengths[x[2]]))
+                                                for x in chunk_targets
+                                            ]
                                             cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
                                             co = np.zeros(len(chunk_targets), dtype=np.int32)
                                             if len(chunk_targets) > 1:
@@ -1890,17 +1908,23 @@ def run_fused_gpu_alignment_pipeline(
                                             ro = np.zeros(len(chunk_targets), dtype=np.int32)
                                             rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
                                             submit_gpu_job(
-                                                row_t, t_cat, [(x[0], x[1]) for x in chunk_targets], ro, rl, co, cl
+                                                row_t,
+                                                None,
+                                                [(x[0], x[1]) for x in chunk_targets],
+                                                ro,
+                                                rl,
+                                                co,
+                                                cl,
+                                                target_slices=t_slices,
                                             )
-                                            t_cat = None
                                             chunk_targets, chunk_cols = [], 0
                                         chunk_targets.append((si, sj, cj))
                                         chunk_cols += L_j
                                     if chunk_targets:
-                                        t_cat = torch.cat(
-                                            [packed[starts[x[2]]:starts[x[2]] + int(lengths[x[2]])] for x in chunk_targets],
-                                            dim=0,
-                                        )
+                                        t_slices = [
+                                            (starts[x[2]], int(lengths[x[2]]))
+                                            for x in chunk_targets
+                                        ]
                                         cl = np.array([lengths[x[2]] for x in chunk_targets], dtype=np.int32)
                                         co = np.zeros(len(chunk_targets), dtype=np.int32)
                                         if len(chunk_targets) > 1:
@@ -1908,9 +1932,15 @@ def run_fused_gpu_alignment_pipeline(
                                         ro = np.zeros(len(chunk_targets), dtype=np.int32)
                                         rl = np.full(len(chunk_targets), row_L, dtype=np.int32)
                                         submit_gpu_job(
-                                            row_t, t_cat, [(x[0], x[1]) for x in chunk_targets], ro, rl, co, cl
+                                            row_t,
+                                            None,
+                                            [(x[0], x[1]) for x in chunk_targets],
+                                            ro,
+                                            rl,
+                                            co,
+                                            cl,
+                                            target_slices=t_slices,
                                         )
-                                        t_cat = None
                                     row_t = None
 
                         while inflight:
@@ -1923,6 +1953,8 @@ def run_fused_gpu_alignment_pipeline(
                         # Drop EVERY tensor view referencing `packed` before the next tile
                         # uploads so two tiles never coexist on GPU simultaneously.
                         blk_slices.clear()
+                        for ws in ws_list:
+                            ws.pop("t_cat", None)
                         A_ten = B_ten = row_t = t_cat = packed = None
                         if is_oom_retry and len(phase_tiles) > 1:
                             for ws in ws_list:
@@ -2302,8 +2334,15 @@ def run_fused_fixed_query_gpu_pipeline(
 
                     with torch.cuda.stream(st):
                         ensure_ws(ws, slab_cols, n_t)
+                        # Pin host and device metadata buffers in the per-stream workspace until
+                        # drain_one() synchronizes `st`, since raw cuLaunchKernel does not register
+                        # tensor lifetimes with PyTorch's caching allocator.
+                        ws["meta_h"] = meta_h
+                        ws["tc_h"] = tc_h
                         meta_d = meta_h.to(device=device, non_blocking=non_block)
                         tc_d = tc_h.to(device=device, non_blocking=non_block)
+                        ws["meta_d"] = meta_d
+                        ws["tc_d"] = tc_d
                         if contiguous:
                             B_ten = packed[first_start:first_start + slab_cols]
                         else:
@@ -2314,6 +2353,7 @@ def run_fused_fixed_query_gpu_pipeline(
                                 ],
                                 dim=0,
                             )
+                        ws["B_ten"] = B_ten
                         mat = ws["mat"][:query_length * slab_cols].view(query_length, slab_cols)
                         if compute_dtype == torch.float32:
                             torch.mm(query_tensor, B_ten.T, out=mat)

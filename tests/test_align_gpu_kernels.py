@@ -246,6 +246,47 @@ class AlignGPUKernelsTests(unittest.TestCase):
             )
             self.assertTrue(ok, reason)
 
+    def test_fused_sparse_multichunk_2lanes_matches_reference(self):
+        # Regression test for cross-stream t_cat race: 1 row against 240 targets with D=1152
+        # forces sparse density (<20%) and multiple <=64 MiB t_cat chunks across 2 async streams.
+        rng = np.random.default_rng(20261123)
+        lengths = [309] + rng.integers(289, 312, size=240).tolist()
+        dim = 1152
+        with tempfile.TemporaryDirectory() as temp_dir:
+            _path, headers, store = self._make_store(
+                temp_dir, lengths, dim=dim, dtype=np.float16, host_cache="auto"
+            )
+            tasks = [(0, j, headers[0], headers[j]) for j in range(1, len(lengths))]
+            dev = torch.device("cuda:0")
+            fused = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=2,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                gpu_dp_gaps=(0.0, -2.0),
+            )
+            ref = engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=dev,
+                workers=2,
+                lanes=1,
+                alignment_callback=align_tool.calculate_alignment_data,
+                batch_alignment_callback=align_tool.calculate_alignment_batch,
+                precision="float32",
+                gpu_dp_gaps=None,
+            )
+            ok, reason = engine.compare_precision_results(
+                ref, fused, per_residue_tolerance=1e-4, candidate_label="fused_sparse_2lanes"
+            )
+            self.assertTrue(ok, reason)
+
 
 if __name__ == "__main__":
     unittest.main()
