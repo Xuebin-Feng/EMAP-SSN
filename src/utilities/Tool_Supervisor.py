@@ -24,6 +24,8 @@ numpy; psutil is imported by the child's parent watcher alone.
 
 from __future__ import annotations
 
+import ast
+import functools
 import json
 import os
 import signal
@@ -414,6 +416,56 @@ def _pass_on(code):
                 pass
         sys.exit(128 - code)
     sys.exit(code)
+
+
+def signal_of_exit(code, platform=None):
+    """The signal number n when ``code`` is what :func:`_pass_on` makes of a child ended by signal n, else None.
+
+    The inverse of the rule in ``_pass_on``: a signal that is not a stop signal ends the parent with
+    exit code 128+n, so a reader of that code (an MCP job) can name the signal again. Codes up to 128,
+    codes that are no signal number, a stop signal (mirrored, never turned into a code) and Windows give None.
+    """
+    if (platform or sys.platform) == "win32":
+        return None
+    if not isinstance(code, int) or isinstance(code, bool) or code <= 128:
+        return None
+    number = code - 128
+    try:
+        signal.Signals(number)
+    except ValueError:
+        return None
+    return None if number in _STOP_SIGNALS else number
+
+
+@functools.lru_cache(maxsize=64)
+def _script_calls_supervise(path, size, mtime_ns):
+    """Whether the script at ``path`` calls ``Tool_Supervisor.supervise`` at the top of its module."""
+    try:
+        with open(path, "rb") as handle:
+            tree = ast.parse(handle.read(), filename=path)
+    except (OSError, SyntaxError, ValueError):
+        return False
+    return any(
+        isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value.func) == "Tool_Supervisor.supervise"
+        for node in tree.body
+    )
+
+
+def is_supervised_script(script_path):
+    """Whether a run of this script starts under the watching parent: it calls ``supervise`` and the switch is on.
+
+    The knowledge is in the tool scripts themselves, so a tool that gains the call is recognised with no list.
+    The script's text is parsed (never run) once per file version.
+    """
+    if os.environ.get(OFF_VARIABLE, "").strip() == "0":
+        return False
+    try:
+        path = os.path.abspath(os.fspath(script_path))
+        info = os.stat(path)
+    except (OSError, TypeError, ValueError):
+        return False
+    return _script_calls_supervise(path, info.st_size, info.st_mtime_ns)
 
 
 def shortage_sentence(note):

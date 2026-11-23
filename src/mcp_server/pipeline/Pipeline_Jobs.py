@@ -25,6 +25,7 @@ import uuid
 import psutil
 
 from mcp_server.pipeline.Pipeline_Guide import watched_directories
+from utilities import Tool_Supervisor
 from utilities.Utf8_Pages import read_utf8_page
 from tools.tool_helpers.Tool_Pipeline import (
     ToolInvocation,
@@ -149,6 +150,25 @@ def exit_description(return_code, platform=None):
             name = ""
         return f"was ended by signal {-return_code}{name}"
     return f"exited with code {return_code}"
+
+
+def _is_watched_tool(invocation):
+    """Whether the job's process is a tool script that runs under the watching parent (Tool_Supervisor)."""
+    for argument in invocation.argv[1:]:
+        if str(argument).lower().endswith(".py"):
+            return Tool_Supervisor.is_supervised_script(argument)
+    return False
+
+
+def process_failure_message(invocation, return_code, platform=None):
+    """The failure message of a job whose process ended with ``return_code``."""
+    platform = platform or sys.platform
+    if platform != "win32" and _is_watched_tool(invocation):
+        number = Tool_Supervisor.signal_of_exit(return_code, platform)
+        if number is not None:
+            # The watching parent ends with 128+n, not by the signal, so that a crash is not reported twice; name n again.
+            return_code = -number
+    return f"The pipeline process {exit_description(return_code, platform)}."
 
 
 def latest_line(path):
@@ -856,9 +876,7 @@ class PipelineJobManager:
                         job.failure_message = _benchmark_failure(job.result, return_code)
                     else:
                         job.status = "failed"
-                        job.failure_message = (
-                            f"The pipeline process {exit_description(return_code)}."
-                        )
+                        job.failure_message = process_failure_message(job.invocation, return_code)
                     evicted_directories = self._finish_job_locked(job)
             except asyncio.CancelledError:
                 if process is not None:

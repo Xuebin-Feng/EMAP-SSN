@@ -1094,6 +1094,92 @@ class ToolHookTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip().splitlines()[-1], "0 None", result.stderr)
 
 
+class SignalOfExitTests(unittest.TestCase):
+    """signal_of_exit reads back what _pass_on writes, so a job can name the signal again."""
+
+    STOPS = (1, 2, 9, 15)
+
+    def passed_on_code(self, number):
+        with mock.patch.object(Tool_Supervisor.os, "name", "posix"), \
+                mock.patch.object(Tool_Supervisor.os, "kill"), \
+                mock.patch.object(Tool_Supervisor.signal, "signal"), \
+                mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", self.STOPS), \
+                mock.patch.object(Tool_Supervisor.time, "sleep"):
+            with self.assertRaises(SystemExit) as stop:
+                Tool_Supervisor._pass_on(-number)
+        return stop.exception.code
+
+    def test_it_is_the_inverse_of_what_pass_on_does_for_every_signal_number(self):
+        real = {int(item) for item in signal.Signals}
+        for number in range(1, 130):
+            code = self.passed_on_code(number)
+            with self.subTest(signal=number), mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", self.STOPS):
+                if number in real and number not in self.STOPS:
+                    self.assertEqual(code, 128 + number)
+                    self.assertEqual(Tool_Supervisor.signal_of_exit(code, "linux"), number)
+                else:
+                    self.assertIsNone(Tool_Supervisor.signal_of_exit(code, "linux"))
+
+    def test_only_codes_above_128_that_are_a_signal_number_give_one(self):
+        with mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", self.STOPS):
+            for code in (None, True, "134", 0, 1, 127, 128, -6, 128 + 100000, 1000):
+                with self.subTest(code=code):
+                    self.assertIsNone(Tool_Supervisor.signal_of_exit(code, "linux"))
+            abort, segv = signal.SIGABRT.value, signal.SIGSEGV.value  # 6 and 11 on POSIX; the host's numbers here
+            self.assertEqual(Tool_Supervisor.signal_of_exit(128 + abort, "linux"), abort)
+            self.assertEqual(Tool_Supervisor.signal_of_exit(128 + segv, "darwin"), segv)
+
+    def test_a_stop_signal_and_windows_give_none(self):
+        with mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", self.STOPS):
+            for number in self.STOPS:
+                self.assertIsNone(Tool_Supervisor.signal_of_exit(128 + number, "linux"))
+            self.assertIsNone(Tool_Supervisor.signal_of_exit(134, "win32"))
+
+
+class SupervisedScriptTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop(OFF, None)
+
+    def test_the_five_watched_tools_are_recognised_and_other_tools_are_not(self):
+        for name in TOOLS:
+            with self.subTest(tool=name):
+                self.assertTrue(Tool_Supervisor.is_supervised_script(SRC_DIR / "tools" / f"{name}.py"))
+        for name in ("Sanitize_Sequences", "Network_Extraction", "Embedding_Import"):
+            with self.subTest(tool=name):
+                self.assertFalse(Tool_Supervisor.is_supervised_script(SRC_DIR / "tools" / f"{name}.py"))
+        self.assertFalse(Tool_Supervisor.is_supervised_script(SRC_DIR / "EMAPSSN_Config.py"))
+        self.assertFalse(Tool_Supervisor.is_supervised_script(SRC_DIR / "tools" / "No_Such_Tool.py"))
+
+    def test_a_script_that_calls_supervise_is_recognised_with_no_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            watched = pathlib.Path(folder, "Sixth_Tool.py")
+            watched.write_text(
+                "from utilities import Tool_Supervisor\n"
+                "Tool_Supervisor.supervise(__name__, __file__)\n", encoding="utf-8")
+            only_named = pathlib.Path(folder, "Named_Only.py")
+            only_named.write_text(
+                "# Tool_Supervisor.supervise(__name__, __file__)\n"
+                "def f():\n    Tool_Supervisor.supervise(__name__, __file__)\n", encoding="utf-8")
+            broken = pathlib.Path(folder, "Broken.py")
+            broken.write_text("def (:\n", encoding="utf-8")
+            self.assertTrue(Tool_Supervisor.is_supervised_script(watched))
+            self.assertFalse(Tool_Supervisor.is_supervised_script(only_named))
+            self.assertFalse(Tool_Supervisor.is_supervised_script(broken))
+            # The answer follows the file when it changes (the cache is keyed by its version).
+            only_named.write_text("Tool_Supervisor.supervise(__name__, __file__)  # now with the call\n", encoding="utf-8")
+            self.assertTrue(Tool_Supervisor.is_supervised_script(only_named))
+
+    def test_the_off_switch_means_no_tool_is_watched(self):
+        script = SRC_DIR / "tools" / "Embedding_MSA.py"
+        os.environ[OFF] = "0"
+        self.assertFalse(Tool_Supervisor.is_supervised_script(script))
+        os.environ[OFF] = "1"
+        self.assertTrue(Tool_Supervisor.is_supervised_script(script))
+
+
 class LineKindTests(unittest.TestCase):
     def test_the_messages_are_classified_sensibly(self):
         from utilities.Line_Kinds import ERROR, WARNING, classify

@@ -527,5 +527,57 @@ class ExitDescriptionTests(unittest.TestCase):
         )
 
 
+class WatchedToolFailureMessageTests(unittest.TestCase):
+    """A watched tool that crashed ends its parent with 128+n; the job names signal n again (stand-in codes only)."""
+
+    WATCHED = str(SRC_DIR / "tools" / "Embedding_MSA.py")
+    UNWATCHED = str(SRC_DIR / "tools" / "Sanitize_Sequences.py")
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("SSN_TOOL_SUPERVISOR", None)
+
+    @staticmethod
+    def invocation(script):
+        return ToolInvocation(tool=None, argv=(sys.executable, "-u", script), cwd=".", settings_path="")
+
+    def message(self, script, code, platform="linux"):
+        return Pipeline_Jobs.process_failure_message(self.invocation(script), code, platform)
+
+    def test_a_watched_tool_ended_by_a_crash_signal_names_the_signal(self):
+        self.assertEqual(self.message(self.WATCHED, 128 + signal.SIGABRT.value),
+                         f"The pipeline process was ended by signal {signal.SIGABRT.value} (SIGABRT).")
+        self.assertEqual(self.message(self.WATCHED, 128 + signal.SIGSEGV.value, "darwin"),
+                         f"The pipeline process was ended by signal {signal.SIGSEGV.value} (SIGSEGV).")
+
+    def test_an_unwatched_tool_with_the_same_code_says_the_code(self):
+        self.assertEqual(self.message(self.UNWATCHED, 134), "The pipeline process exited with code 134.")
+
+    def test_a_watched_tool_with_an_ordinary_code_says_the_code(self):
+        for code in (1, 2, 128):
+            with self.subTest(code=code):
+                self.assertEqual(self.message(self.WATCHED, code), f"The pipeline process exited with code {code}.")
+
+    def test_a_negative_code_and_a_stopped_tool_are_as_before(self):
+        self.assertEqual(self.message(self.WATCHED, -signal.SIGTERM.value),
+                         f"The pipeline process was ended by signal {signal.SIGTERM.value} (SIGTERM).")
+        self.assertEqual(self.message(self.UNWATCHED, -signal.SIGABRT.value),
+                         f"The pipeline process was ended by signal {signal.SIGABRT.value} (SIGABRT).")
+        self.assertEqual(self.message(self.WATCHED, 137), "The pipeline process exited with code 137.")
+
+    def test_windows_is_unchanged(self):
+        self.assertEqual(self.message(self.WATCHED, 134, "win32"), "The pipeline process exited with code 134.")
+
+    def test_the_off_switch_leaves_the_code(self):
+        os.environ["SSN_TOOL_SUPERVISOR"] = "0"
+        self.assertEqual(self.message(self.WATCHED, 134), "The pipeline process exited with code 134.")
+
+    def test_the_benchmark_message_is_unchanged_by_a_128_plus_code(self):
+        self.assertIn("exited with code 134",
+                      Pipeline_Jobs._benchmark_failure({"stages": []}, 134, "linux"))
+
+
 if __name__ == "__main__":
     unittest.main()
