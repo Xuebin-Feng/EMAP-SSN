@@ -669,7 +669,41 @@ class ResidueButtonTests(ResidueTestCase):
         self.open_scene(name)
         self.script("await clickOn(0, %d); return 1" % (number - 1))
 
-    def test_the_secondary_structure_is_an_icon_and_a_word_on_one_line_that_the_name_gives_way_to(self):
+    HEAD_GEOMETRY = """
+        const tile = document.querySelector('#residue-body .res-head .ss-tile');
+        if (!tile) return null;
+        const box = node => { const r = node.getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height}; };
+        const picture = tile.querySelector('svg'), word = tile.querySelector('.ss-word'), title = document.querySelector('#residue-body .res-title');
+        const range = document.createRange(); range.selectNodeContents(word);
+        return {tile: box(tile), picture: box(picture), word: box(word), title: box(title), body: box(document.getElementById('residue-body')),
+                text: tile.textContent, use: picture.querySelector('use').getAttribute('href'), hidden: picture.getAttribute('aria-hidden'),
+                lines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size, panel: document.getElementById('side').getBoundingClientRect().width,
+                titleLines: Math.round(box(title).height / 17), shrink: getComputedStyle(tile).flexShrink, wrap: getComputedStyle(word).whiteSpace};
+        """
+
+    def test_the_card_head_has_a_tile_with_a_picture_of_the_kind_and_its_word(self):
+        # Residue 6 is in the fixture's helix and residue 17 in its strand; it has no turn, so that picture is made with a made-up residue.
+        self.write_with_secondary(A)
+        self.open_scene(A)
+        for number, kind, word in ((6, "helix", "Helix"), (17, "strand", "Strand")):
+            with self.subTest(kind=kind):
+                self.script("await clickOn(0, %d); return 1" % (number - 1))
+                found = self.script(self.HEAD_GEOMETRY)
+                self.assertIsNotNone(found, "the fixture has no secondary structure for this residue")
+                self.assertEqual((found["use"], found["text"], found["hidden"]), ("#i-ss-%s-art" % kind, word, "true"), found)
+        made_up = self.script("""
+            const out = {};
+            for (const [kind, word] of Object.entries({helix: 'Helix', strand: 'Strand', turn: 'Turn'})) {
+                const tile = secondaryTile({secondary: word, secondaryKind: kind});
+                out[kind] = [tile.className, tile.querySelector('svg use').getAttribute('href'), tile.querySelector('.ss-word').textContent,
+                             tile.querySelector('svg').getAttribute('aria-hidden'), tile.firstChild.tagName.toLowerCase()];
+            }
+            return out;
+            """)
+        for kind, word in (("helix", "Helix"), ("strand", "Strand"), ("turn", "Turn")):
+            self.assertEqual(made_up[kind], ["ss-tile", "#i-ss-%s-art" % kind, word, "true", "svg"])
+
+    def test_the_tile_has_the_picture_on_top_and_the_word_centred_under_it_and_the_title_gives_way(self):
         for language in ("en", "zh_CN"):
             with self.subTest(language=language):
                 if language != "en":
@@ -677,30 +711,40 @@ class ResidueButtonTests(ResidueTestCase):
 
                     install_translations(self.app, language)
                     self.addCleanup(install_translations, self.app, None)
-                widths = []
+                widths, lines = {}, {}
                 for name in ("A.pdb", self.LONG + ".pdb"):
-                    self.pin_with_name(name)
-                    found = self.script("""
-                        const label = document.querySelector('#residue-body .res-head .ss-label');
-                        if (!label) return null;
-                        const range = document.createRange(); range.selectNodeContents(label.lastChild);
-                        const title = document.querySelector('#residue-body .res-title');
-                        const panel = document.getElementById('side').getBoundingClientRect().width;
-                        return {text: label.textContent, lines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size,
-                                width: label.getBoundingClientRect().width, icon: label.querySelector('svg use').getAttribute('href'),
-                                hidden: label.querySelector('svg').getAttribute('aria-hidden'), panel, nameLines: Math.round(title.getBoundingClientRect().height / 17),
-                                shrink: getComputedStyle(label).flexShrink, wrap: getComputedStyle(label).whiteSpace,
-                                inside: label.getBoundingClientRect().right <= document.getElementById('residue-body').getBoundingClientRect().right + 0.5};
-                        """)
-                    self.assertIsNotNone(found, "the fixture has no secondary structure for this residue")
-                    self.assertEqual((found["lines"], found["shrink"], found["wrap"], found["hidden"], found["inside"]), (1, "0", "nowrap", "true", True), found)
-                    self.assertEqual(found["panel"], 340)
-                    widths.append((found["width"], found["nameLines"]))
-                # The word is as wide with a long name as with a short one, and the name is what took more lines.
-                self.assertEqual(widths[0][0], widths[1][0])
-                self.assertGreater(widths[1][1], widths[0][1])
+                    for number in (6, 17):
+                        self.pin_with_name(name, number)
+                        found = self.script(self.HEAD_GEOMETRY)
+                        self.assertIsNotNone(found, "the fixture has no secondary structure for this residue")
+                        picture, word, tile, title = found["picture"], found["word"], found["tile"], found["title"]
+                        self.assertGreaterEqual(picture["width"], 44, found)
+                        self.assertGreaterEqual(picture["height"], 44, found)
+                        # The word starts at or below the picture's bottom, on one line, centred under it.
+                        self.assertGreaterEqual(word["top"], picture["bottom"] - 0.5, found)
+                        self.assertEqual((found["lines"], found["shrink"], found["wrap"]), (1, "0", "nowrap"), found)
+                        self.assertLess(abs((word["left"] + word["right"]) / 2 - (picture["left"] + picture["right"]) / 2), 1, found)
+                        # The tile is inside the card, and the title, which gives way, never runs under it.
+                        self.assertGreaterEqual(tile["left"], found["body"]["left"] - 0.5, found)
+                        self.assertLessEqual(tile["right"], found["body"]["right"] + 0.5, found)
+                        self.assertLessEqual(title["right"], tile["left"] + 0.5, found)
+                        self.assertGreaterEqual(tile["width"], 64, found)
+                        self.assertEqual(found["panel"], 340)
+                        widths[(name, number)], lines[(name, number)] = tile["width"], found["titleLines"]
+                # The tile is as wide with a long name as with a short one, and the name is what took more lines.
+                for number in (6, 17):
+                    self.assertEqual(widths[("A.pdb", number)], widths[(self.LONG + ".pdb", number)])
+                    self.assertGreater(lines[(self.LONG + ".pdb", number)], lines[("A.pdb", number)])
 
-    def test_each_kind_has_its_own_icon_before_its_word_in_the_card_and_the_hover_box(self):
+    def test_a_residue_with_no_secondary_structure_has_no_tile(self):
+        self.write_with_secondary(A)
+        self.open_scene(A)
+        # Residue 13 is between the helix (1 to 11) and the strand (15 to 20) and is in neither.
+        self.script("await clickOn(0, 12); return 1")
+        found = self.script("return {head: !!document.querySelector('#residue-body .res-head'), tile: !!document.querySelector('#residue-body .ss-tile'), label: !!document.querySelector('#residue-body .ss-label')}")
+        self.assertEqual(found, {"head": True, "tile": False, "label": False})
+
+    def test_the_hover_box_keeps_its_small_icon_before_its_word_on_one_line(self):
         self.write_with_secondary(A)
         self.open_scene(A)
         found = self.script("""
@@ -712,22 +756,44 @@ class ResidueButtonTests(ResidueTestCase):
             }
             const flags = molstar.lib.structure.Types.SecondaryStructureType.Flag;
             out.kinds = [secondaryKind(flags.Helix), secondaryKind(flags.Beta), secondaryKind(flags.Turn), secondaryKind(0)];
-            out.symbols = ['i-ss-helix', 'i-ss-strand', 'i-ss-turn'].map(id => !!document.getElementById(id));
             return out;
             """)
         self.assertEqual(found["helix"], ["#i-ss-helix", "Helix", "true"])
         self.assertEqual(found["strand"], ["#i-ss-strand", "Strand", "true"])
         self.assertEqual(found["turn"], ["#i-ss-turn", "Turn", "true"])
         self.assertEqual(found["kinds"], ["helix", "strand", "turn", None])
-        self.assertEqual(found["symbols"], [True, True, True])
-        # The hover box says it in the same way, in its Secondary structure row (residue 6 is in the helix, residue 17 in the strand).
+        # The hover box says it on one line, in its Secondary structure row (residue 6 is in the helix, residue 17 in the strand).
+        row_script = """
+            const cell = [...document.querySelectorAll('#tip tr')].find(r => r.children[0].textContent === 'Secondary structure');
+            if (!cell) return null;
+            const label = cell.children[1].querySelector('.ss-label'), range = document.createRange(); range.selectNodeContents(label.lastChild);
+            return [label.querySelector('svg use').getAttribute('href'), cell.children[1].textContent, new Set([...range.getClientRects()].map(r => Math.round(r.top))).size,
+                    label.querySelector('svg').getBoundingClientRect().width, !!document.querySelector('#tip .ss-tile')];
+            """
         self.script("await hoverOn(0, 5); return 1")
-        row = self.script("const cell = [...document.querySelectorAll('#tip tr')].find(r => r.children[0].textContent === 'Secondary structure'); return cell ? [cell.children[1].querySelector('svg use').getAttribute('href'), cell.children[1].textContent] : null")
-        self.assertIsNotNone(row)
-        self.assertEqual(row, ["#i-ss-helix", "Helix"])
+        self.assertEqual(self.script(row_script), ["#i-ss-helix", "Helix", 1, 14, False])
         self.script("await hoverOn(0, 16); return 1")
-        row = self.script("const cell = [...document.querySelectorAll('#tip tr')].find(r => r.children[0].textContent === 'Secondary structure'); return cell ? [cell.children[1].querySelector('svg use').getAttribute('href'), cell.children[1].textContent] : null")
-        self.assertEqual(row, ["#i-ss-strand", "Strand"])
+        self.assertEqual(self.script(row_script), ["#i-ss-strand", "Strand", 1, 14, False])
+
+    def test_the_pictures_are_in_the_sprite_and_the_small_strand_arrow_points_up(self):
+        self.write_with_secondary(A)
+        self.open_scene(A)
+        found = self.script("""
+            const ids = ['i-ss-helix-art', 'i-ss-strand-art', 'i-ss-turn-art', 'i-ss-helix', 'i-ss-strand', 'i-ss-turn'];
+            const symbol = id => document.getElementById(id);
+            const art = ['i-ss-helix-art', 'i-ss-strand-art', 'i-ss-turn-art'];
+            return {ids: ids.map(id => [id, !!symbol(id), symbol(id)?.getAttribute('viewBox')]),
+                    strand: symbol('i-ss-strand').querySelector('path').getAttribute('d'),
+                    fronts: symbol('i-ss-helix-art').querySelectorAll('.ss-front').length, backs: symbol('i-ss-helix-art').querySelectorAll('.ss-back').length,
+                    fills: art.map(id => getComputedStyle(symbol(id).querySelector('.ss-front')).fill)};
+            """)
+        self.assertEqual(found["ids"], [["i-ss-helix-art", True, "0 0 48 48"], ["i-ss-strand-art", True, "0 0 48 48"], ["i-ss-turn-art", True, "0 0 48 48"],
+                                        ["i-ss-helix", True, "0 0 24 24"], ["i-ss-strand", True, "0 0 24 24"], ["i-ss-turn", True, "0 0 24 24"]])
+        self.assertEqual((found["fronts"], found["backs"]), (3, 2))
+        # The small arrow points up: its path rises from the shaft's foot to the tip at (12, 3); the old one ran right to a tip at (21, 12).
+        self.assertEqual(found["strand"], "M9 21V11H5l7-8 7 8h-4v10z")
+        # The pictures are filled by the sprite's own rules, so each front path has a colour (an unmatched rule would leave the "none" of the symbol).
+        self.assertTrue(all(fill != "none" for fill in found["fills"]), found["fills"])
 
 
 if __name__ == "__main__":

@@ -128,7 +128,7 @@ class BundledPageIconTests(unittest.TestCase):
     made by the page's icon(NAME); setIcon(svg, NAME) shows another.
     """
 
-    SYMBOL = re.compile(r'<symbol id="i-([a-z0-9-]+)" viewBox="0 0 24 24"([^>]*)>(.*?)</symbol>', re.DOTALL)
+    SYMBOL = re.compile(r'<symbol id="i-([a-z0-9-]+)" viewBox="0 0 (?:24|48) (?:24|48)"([^>]*)>(.*?)</symbol>', re.DOTALL)
     NAMED = (
         re.compile(r'href="#i-([a-z0-9-]+)"'),
         re.compile(r'''\bicon\(["']([a-z0-9-]+)["']\)'''),
@@ -143,8 +143,9 @@ class BundledPageIconTests(unittest.TestCase):
         'tree.html': tuple(PAGES / name for name in (
             'tree_model.js', 'tree_layout.js', 'tree_render.js', 'tree_nav.js', 'tree_session.js')),
     }
-    # The icons a page draws itself (the Fold View's three kinds of secondary structure), which are not Lucide's.
-    DRAWN_FOR_THE_PAGE = {'esmfold.html': ('ss-helix', 'ss-strand', 'ss-turn')}
+    # The icons a page draws itself (the Fold View's three kinds of secondary structure, small and as the pictures of the Residue
+    # card's tile, 48 x 48), which are not Lucide's.
+    DRAWN_FOR_THE_PAGE = {'esmfold.html': ('ss-helix', 'ss-strand', 'ss-turn', 'ss-helix-art', 'ss-strand-art', 'ss-turn-art')}
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'
 

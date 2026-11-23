@@ -663,13 +663,23 @@
         .tip .pinned-note { margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 
         /* The Residue card */
-        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
+        .res-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
         .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 12px; }
-        /* The residue and its structure's name take what room there is and break, anywhere, to give way; the secondary structure beside
-           them (an icon and a word) is one line that neither wraps nor shrinks. */
+        /* The residue and its structure's name take what room there is and break, anywhere, to give way; the secondary structure's tile
+           beside them (a picture of its kind and the word under it) neither wraps nor shrinks, and the head is aligned at the top so that
+           the title's first line is at the tile's top however tall the tile is. */
         .res-head .res-title { flex: 1 1 auto; min-width: 0; }
+        .ss-tile { flex: none; min-width: 64px; box-sizing: border-box; padding: 5px 6px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+                   border-radius: var(--radius); background: var(--bg-muted); color: var(--text-secondary); }
+        .ss-tile .icon { width: 52px; height: 52px; }
+        .res-head .ss-tile .ss-word { font-size: 11px; font-weight: 600; line-height: 1.2; color: var(--text-secondary); white-space: nowrap; }
+        /* The fills of the tile's pictures are matched in the sprite's own tree: a rule that reaches a path through the place where the
+           picture is used (.ss-tile ...) does not match the copy a <use> draws. currentColor and --bg-card are inherited from the place
+           of use, so the pictures follow the theme. */
+        .icon-sprite .ss-front { fill: color-mix(in srgb, currentColor 22%, var(--bg-card)); }
+        .icon-sprite .ss-back { fill: color-mix(in srgb, currentColor 55%, var(--bg-card)); stroke: none; }
+        /* The hover box says it on one line: the small icon, then the word. */
         .ss-label { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
-        .res-head .ss-label { color: var(--text-secondary); }
         .ss-label .icon { width: 14px; height: 14px; flex: none; }
         .tip .ss-label .icon { margin-right: 0; }
         /* The card's two buttons are at the right of its title row; off, they are greyed out as the toolbar's Zoom is. */
@@ -886,9 +896,24 @@
         <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
         <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
         <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
-        <!-- The three kinds of secondary structure, drawn for this page: a helix as a spring seen from the side, a strand as the broad arrow of a cartoon, a turn as a hairpin bend. -->
+        <!-- The three pictures of the Residue card's tile (48 x 48), drawn for this page as a cartoon of each kind: a helix as a ribbon
+             of three turns (two back bands behind the three front ones), a strand as a block arrow pointing up, a turn as an arch. -->
+        <symbol id="i-ss-helix-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path class="ss-back" d="M37 36.9C37 33.21 11 33.89 11 30.2V24.2C11 27.89 37 27.21 37 30.9Z"/>
+            <path class="ss-back" d="M37 23.5C37 19.82 11 20.48 11 16.8V10.8C11 14.49 37 13.82 37 17.5Z"/>
+            <path class="ss-front" d="M11 44.85C11 41.16 37 41.84 37 38.15Q42 33.9 37 29.65C37 33.34 11 32.66 11 36.35Q6 40.6 11 44.85Z"/>
+            <path class="ss-front" d="M11 31.45C11 27.77 37 28.44 37 24.75Q42 20.5 37 16.25C37 19.94 11 19.27 11 22.95Q6 27.2 11 31.45Z"/>
+            <path class="ss-front" d="M11 18.05C11 14.37 37 15.04 37 11.35Q42 7.1 37 2.85C37 6.54 11 5.87 11 9.55Q6 13.8 11 18.05Z"/>
+        </symbol>
+        <symbol id="i-ss-strand-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path class="ss-front" d="M24 4 41 22H32V44H16V22H7Z"/>
+        </symbol>
+        <symbol id="i-ss-turn-art" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path class="ss-front" d="M9 44V23a15 15 0 0 1 30 0V44H31V23a7 7 0 0 0-14 0V44Z"/>
+        </symbol>
+        <!-- The small icons of the hover box (24 x 24): a helix as a spring seen from the side, a strand as an arrow pointing up (as the card's picture does), a turn as a hairpin bend. -->
         <symbol id="i-ss-helix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3c7 0 12 1.2 12 3s-5 3-12 3c7 0 12 1.2 12 3s-5 3-12 3c7 0 12 1.2 12 3s-5 3-12 3"/></symbol>
-        <symbol id="i-ss-strand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h10V5l8 7-8 7v-4H3z"/></symbol>
+        <symbol id="i-ss-strand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21V11H5l7-8 7 8h-4v10z"/></symbol>
         <symbol id="i-ss-turn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V11a7 7 0 0 1 14 0v10"/></symbol>
     </svg>
     <a class="skip-link" href="#side" data-i18n>Skip to the controls</a>

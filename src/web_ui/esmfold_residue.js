@@ -53,7 +53,7 @@ function secondaryName(flags) {
     return null;
 }
 
-// Which of the three the residue is in, for the icon beside the word (the word itself is secondaryName's).
+// Which of the three the residue is in, for the icon of the hover box and the picture of the card's tile (the word itself is secondaryName's).
 function secondaryKind(flags) {
     const type = molstar.lib.structure.Types.SecondaryStructureType;
     if (!flags) return null;
@@ -63,16 +63,28 @@ function secondaryKind(flags) {
     return null;
 }
 
-// The icon of each kind, drawn for this page (the symbols are in esmfold.html's sprite).
+// The small icon of each kind, drawn for this page (the symbols are in esmfold.html's sprite).
 const SECONDARY_ICONS = { helix: () => icon('ss-helix'), strand: () => icon('ss-strand'), turn: () => icon('ss-turn') };
 
-// The secondary structure of a residue as the card and the hover box say it: its icon, then the word, on one line that never breaks
+// The hover box says the secondary structure of a residue as its icon, then the word, on one line that never breaks
 // (the icon is a picture, aria-hidden; the word is the text a screen reader reads).
 function secondaryLabel(residue) {
     const label = make('span', 'ss-label');
     if (residue.secondaryKind) label.append(SECONDARY_ICONS[residue.secondaryKind]());
     label.append(residue.secondary);
     return label;
+}
+
+// The picture of each kind for the card's tile (48 x 48, filled; also in the sprite).
+const SECONDARY_ART = { helix: () => icon('ss-helix-art'), strand: () => icon('ss-strand-art'), turn: () => icon('ss-turn-art') };
+
+// The Residue card says it larger: a tile at the right of the head with a picture of the kind (one drawn for this page, filled, as wide
+// as the tile) and the word under it. The picture is aria-hidden; the word is the text a screen reader reads.
+function secondaryTile(residue) {
+    const tile = make('div', 'ss-tile');
+    if (residue.secondaryKind) tile.append(SECONDARY_ART[residue.secondaryKind]());
+    tile.append(make('span', 'ss-word', residue.secondary));
+    return tile;
 }
 
 function residueTitle(residue) {
@@ -372,12 +384,12 @@ async function renderResidueCard() {
     const { rows, layerLabel } = await residueRows(residue);
     if (renderId !== residueRenderId) return;
     const head = make('div', 'res-head');
-    // The residue and the structure's name give way (the name breaks, anywhere); the secondary structure beside them does not.
+    // The residue and the structure's name give way (the name breaks, anywhere); the secondary structure's tile beside them does not.
     const title = make('div', 'res-title', residueTitle(residue));
     const where = make('span', undefined, t("chain {chain} · {name}", {chain: residue.chain, name: structureName(structureByRef(residue.ref))}));
     title.append(' ', where);
     head.append(title);
-    if (residue.secondary) head.append(secondaryLabel(residue));
+    if (residue.secondary) head.append(secondaryTile(residue));
     const table = make('table', 'res-table');
     const header = make('tr');
     // A layer's name may take two lines in its header (it is the data's, and as long as the data says); every value is one line.
