@@ -12,6 +12,7 @@ does, and read the page's DOM; tests/test_esmfold_shell_webgl.py moves a real
 pointer over a real canvas.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -102,6 +103,60 @@ class TooltipTests(ResidueTestCase):
         # Over nothing the tip goes.
         self.script("await hoverOff(); return 1")
         self.assertFalse(self.script("return tipNow().shown"))
+        self.assertEqual(self.console_errors(), [])
+
+    COLORS = """
+        const probe = token => { const n = document.createElement('i'); n.style.color = 'var(' + token + ')'; document.body.append(n);
+                                 const c = getComputedStyle(n).color; n.remove(); return c; };
+        const probeBg = token => { const n = document.createElement('i'); n.style.backgroundColor = 'var(' + token + ')'; document.body.append(n);
+                                   const c = getComputedStyle(n).backgroundColor; n.remove(); return c; };
+        const channels = c => c.match(/[\\d.]+/g).slice(0, 3).map(Number);
+        const luminance = c => { const [r, g, b] = channels(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                                 return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+        const tip = document.getElementById('tip'), toast = document.getElementById('toast');
+        const style = getComputedStyle(tip), tipBg = style.backgroundColor;
+        const muted = [tip.querySelector('.h span'), tip.querySelector('td:first-child')].map(n => getComputedStyle(n).color);
+        const dot = tip.querySelector('.swatch-dot');
+        dot.style.background = '#ffffff';
+        const dotStyle = getComputedStyle(dot);
+        return {
+            bg: tipBg, text: style.color, border: style.borderTopColor, shadow: style.boxShadow,
+            card: probeBg('--bg-card'), primary: probe('--text-primary'), secondary: probe('--text-secondary'), edge: probe('--border-color'),
+            dialogShadow: getComputedStyle(document.documentElement).getPropertyValue('--shadow-dialog').trim(),
+            muted, contrastText: contrast(style.color, tipBg), contrastMuted: muted.map(c => contrast(c, tipBg)),
+            toastBg: getComputedStyle(toast).backgroundColor, toastText: getComputedStyle(toast).color, toastBorder: getComputedStyle(toast).borderTopColor,
+            dot: [dotStyle.borderTopWidth, dotStyle.borderTopColor, dotStyle.backgroundColor] };
+        """
+
+    def tip_colors(self, theme):
+        self.script("applyTheme(%s, false); await hoverOn(0, 5); return 1" % json.dumps(theme))
+        return self.script(self.COLORS)
+
+    def test_the_hover_box_follows_the_colour_mode_and_the_status_line_does_not(self):
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        found = {theme: self.tip_colors(theme) for theme in ("light", "dark")}
+        for theme, now in found.items():
+            with self.subTest(theme=theme):
+                # The page's card, its text, its edge and its dialog shadow, as the Tree View's tooltip has them.
+                self.assertEqual((now["bg"], now["text"], now["border"]), (now["card"], now["primary"], now["edge"]))
+                self.assertEqual(now["muted"], [now["secondary"]] * 2)
+                self.assertNotEqual(now["shadow"], "none")
+                # Readable: ordinary text and the muted texts at 4.5 to 1 against the box.
+                self.assertGreaterEqual(now["contrastText"], 4.5)
+                self.assertGreaterEqual(min(now["contrastMuted"]), 4.5)
+                # A white swatch has an edge that shows on the box (a light one) and still reads on a dark one.
+                self.assertEqual(now["dot"][0], "1px")
+                self.assertNotEqual(now["dot"][1], now["dot"][2])
+        self.assertNotEqual(found["light"]["bg"], found["dark"]["bg"])
+        self.assertNotEqual(found["light"]["text"], found["dark"]["text"])
+        self.assertEqual(found["light"]["bg"], "rgb(255, 255, 255)")
+        # The status line is as it was: dark in both themes (the --tip-* colors).
+        self.assertEqual((found["light"]["toastBg"], found["light"]["toastText"], found["light"]["toastBorder"]),
+                         ("rgb(24, 24, 27)", "rgb(250, 250, 250)", "rgb(39, 39, 42)"))
+        self.assertEqual((found["dark"]["toastBg"], found["dark"]["toastText"], found["dark"]["toastBorder"]),
+                         ("rgb(39, 39, 42)", "rgb(250, 250, 250)", "rgb(63, 63, 70)"))
         self.assertEqual(self.console_errors(), [])
 
     def test_a_residue_with_no_value_for_the_layer_says_no_data(self):

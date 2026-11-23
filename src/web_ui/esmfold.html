@@ -180,7 +180,6 @@
             --tip-bg: #18181b;
             --tip-border: #27272a;
             --tip-text: #fafafa;
-            --tip-muted: #a1a1aa;
             --tip-shadow: rgba(0, 0, 0, 0.35);
             --focus-ring: 0 0 0 1px var(--accent);
         }
@@ -635,8 +634,9 @@
         }
         .stage.dropping .drop-hint { display: flex; }
 
-        /* The tooltip: what the pointer is over, at the pointer, drawn as the windows' tips are */
-        .tip { position: absolute; z-index: 8; pointer-events: none; min-width: 200px; max-width: min(360px, calc(100% - 16px)); padding: 8px 10px; border-radius: var(--radius); background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); box-shadow: 0 4px 12px var(--tip-shadow); font-size: 12px; line-height: 1.4; display: none; }
+        /* The tooltip: what the pointer is over, at the pointer, in the page's own card colors (light in the light theme, dark in the dark
+           one), as the Tree View's tooltip is. The status line (.toast) keeps the --tip-* colors, which are dark in both. */
+        .tip { position: absolute; z-index: 8; pointer-events: none; min-width: 200px; max-width: min(360px, calc(100% - 16px)); padding: 8px 10px; border-radius: var(--radius); background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color); box-shadow: var(--shadow-dialog); font-size: 12px; line-height: 1.4; display: none; }
         .tip.show { display: block; }
         body[data-adv="1"] .tip { display: none !important; }
         /* The residue ("Val 185") never breaks. The structure's name, which has no spaces to break at in a name such as
@@ -644,13 +644,13 @@
            most, ending in an ellipsis (the whole name is in the Residue card and the Structures list). */
         .tip .h { font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
         .tip .h b { flex: none; white-space: nowrap; }
-        .tip .h span { color: var(--tip-muted); font-weight: 400; min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+        .tip .h span { color: var(--text-secondary); font-weight: 400; min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
         .tip table { border-collapse: collapse; width: 100%; margin-top: 4px; }
         .tip td { padding: 1px 0; vertical-align: baseline; }
-        .tip td:first-child { color: var(--tip-muted); padding-right: 12px; overflow-wrap: anywhere; }
+        .tip td:first-child { color: var(--text-secondary); padding-right: 12px; overflow-wrap: anywhere; }
         .tip td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-        .tip .swatch-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -0.5px; }
-        .tip .pinned-note { margin-top: 5px; color: var(--tip-muted); font-size: 11px; }
+        .tip .swatch-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -0.5px; border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); box-sizing: content-box; }
+        .tip .pinned-note { margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 
         /* The Residue card */
         .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
