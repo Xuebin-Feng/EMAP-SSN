@@ -191,13 +191,12 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         Mol* answers a hover from a pick that it reads back from the graphics card a few frames later, and on a busy machine the
         first answer can be "nothing" although a pick at the spot finds the structure (measured: the page's thread busy for 40 ms of
         every 50, on this branch and on main alike); the next move of the pointer gets the answer. A person's hand moves on, so the
-        pointer is moved away and back, at most 4 times in all, about 2 s each, and FACTS says how many moves it took. Before the first,
-        a direct pick at the spot says whether the canvas can be picked there at all: when it cannot, Mol*'s drawing and its canvas are
-        out of step, which is another fault and no move helps."""
+        pointer is moved away and back, at most 4 times in all, about 2 s each, and FACTS says how many moves it took. After the last,
+        whether it came or not, a direct pick at the spot says whether the canvas can be picked there at all: when it cannot, Mol*'s
+        drawing and its canvas are out of step, which is another fault and no move helps. (The pick is made after the moves: one made
+        before them primes Mol*'s own pick and hides the miss, which a person's hand does not do.)"""
         widget = self.view.focusProxy() or self.view
         first = "hoverMoves" not in FACTS
-        if first:
-            FACTS["pickAtSpot"] = self.script(self.PICK_AT_SPOT % (spot.x(), spot.y()))
         condition = "hoveredResidue && document.getElementById('tip').classList.contains('show') && document.getElementById('tip').textContent.trim()"
         what = "a residue under the pointer being hovered with its tip shown"
         limit = 4
@@ -211,10 +210,14 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
             except AssertionError as error:
                 if move < limit:
                     continue
+                picked = self.script(self.PICK_AT_SPOT % (spot.x(), spot.y()))
+                if first:
+                    FACTS["pickAtSpot"] = picked
                 raise AssertionError(f"{error} The pointer was moved to the spot {move} times in all (away and back between, about 2 s each); "
-                                     f"a pick at the spot {'found the structure' if FACTS.get('pickAtSpot') else 'found NOTHING'} before the first move.") from None
+                                     f"a pick at the spot {'found the structure' if picked else 'found NOTHING'} after the last move.") from None
             if first:
                 FACTS["hoverMoves"] = move
+                FACTS["pickAtSpot"] = self.script(self.PICK_AT_SPOT % (spot.x(), spot.y()))
             return
 
     def pin_at(self, spot):

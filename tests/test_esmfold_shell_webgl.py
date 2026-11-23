@@ -171,11 +171,11 @@ class ShellWebglTests(unittest.TestCase):
     def test_a_direct_pick_at_the_spot_finds_the_structure_so_that_the_canvas_and_mol_star_s_drawing_are_in_step(self):
         # Two faults look alike from the test's side (no hover with its tip): a hover that Mol* answered with "nothing" once, which the
         # next move of the pointer cures (see the test of the moves), and a canvas that cannot be picked at all at the spot, which no move
-        # cures. A pick made directly at the spot tells them apart; this is the second one.
+        # cures. A pick made directly at the spot after the moves tells them apart; this is the second one.
         pointer = self.found["pointer"]
         self.assertIsNotNone(
             self.found["pickAtSpot"],
-            f"the canvas cannot be picked at all at the spot {pointer['spot']} (page pixels; canvas {pointer['rect']}, buffer {pointer['buffer']}, "
+            f"after the moves of the pointer the canvas cannot be picked at all at the spot {pointer['spot']} (page pixels; canvas {pointer['rect']}, buffer {pointer['buffer']}, "
             f"page size {pointer['client']}): Mol*'s drawing and its canvas are out of step, which is not a hover that was answered late "
             "and no further move of the pointer cures it")
 
