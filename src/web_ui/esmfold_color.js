@@ -47,7 +47,12 @@ const MAX_PLAIN_LAYERS = 8;
 let colorMode = PLDDT_LAYER;
 let noDataColor = 0xdcdcdc;
 let colorFilter = '';
-let moreColorings = false;
+// "More colorings" starts open. It is held here only (a person's choice is not stored, in the session or in the browser), and it opens by
+// itself when the scene's coloring becomes one that is inside it, however that came about (a session restored, a fall-back, the page's own
+// calls); closed by hand while such a coloring is drawn, it stays closed until the scene's coloring next changes to one inside it.
+let moreColorings = true;
+const MORE_COLORINGS = [STRUCTURE_COLORING, POSITION_COLORING];
+let lastColorMode = colorMode;
 let colorRenderId = 0;
 let renderedColors = '';
 // The listings of the Viewer as they came, by file, so that a row can offer a structure's layers without waiting.
@@ -332,6 +337,10 @@ function legendOf(model) {
 // The model of the card: all that it draws, as data, so that it is drawn again only when it changes.
 async function colorModel() {
     const gathered = await gatherColoring();
+    if (colorMode !== lastColorMode) {
+        lastColorMode = colorMode;
+        if (MORE_COLORINGS.includes(colorMode)) moreColorings = true;
+    }
     const model = { mode: colorMode, filter: colorFilter, more: moreColorings, layers: gathered.layers,
                     unavailable: gathered.unavailable, plddt: gathered.plddt, count: gathered.structures.length };
     model.legend = gathered.structures.length ? legendOf(model) : null;

@@ -59,7 +59,7 @@ from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers, serve_fold_view
 from tests.sparse_alignment import load_manager, write_fasta
-from tests.test_esmfold_colors import PROPERTY_CHIPS
+from tests.test_esmfold_colors import MORE_CHIPS, PROPERTY_CHIPS
 from tests.test_esmfold_worker import REMOTE_SETTINGS, FakeFoldClient, FakeOutput, fake_esm_modules
 # A remote fold imports this on first use; load it before a test puts a stand-in torch in sys.modules.
 from tools.tool_helpers import Remote_Requests  # noqa: F401
@@ -755,7 +755,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         # The card offers pLDDT and each property (the structure's own color is under More colorings) of the file, with a legend for the chosen one.
         self.assertEqual(start["card"]["chips"], [
             ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
-            ["same_residue_pct", "Residue Agreement", ""]])
+            ["same_residue_pct", "Residue Agreement", ""], *MORE_CHIPS])
         self.assertEqual(start["card"]["selected"], "plddt")
         self.assertEqual(start["card"]["title"], "Color by")
         self.assertEqual((start["card"]["bar"], start["card"]["marks"], start["card"]["cardColors"]), (True, ["50", "70", "90"], 0))
@@ -840,7 +840,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             """)
         self.assertEqual(result["options"], [
             ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
-            ["same_residue_pct", "Residue Agreement", ""]])
+            ["same_residue_pct", "Residue Agreement", ""], *MORE_CHIPS])
         self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
         for layer_id, label, rows_expected, swatches in (
                 ("information_content", "Information Content", 33, []), ("same_residue_pct", "Residue Agreement", 32, ["No data"])):

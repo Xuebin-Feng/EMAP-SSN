@@ -328,8 +328,7 @@ class LegendNoteTests(LongNameTestCase):
         # The opened file shows pLDDT too, which says its colors are its B-factors (the note that holds its name).
         self.script("await setStructureColoring(loadedStructures()[3].cell.transform.ref, 'plddt'); return 1")
         self.settle(500)
-        # (Secondary structure and Residue position are under More colorings.)
-        self.script("document.querySelector('.more-toggle').click(); return 1")
+        # (Residue position is under More colorings, which is open at the start.)
         self.settle(150)
         for coloring in self.COLORINGS:
             self.choose(coloring)
@@ -583,7 +582,6 @@ class LegendNoteDisclosureTests(LongNameTestCase):
     def test_nothing_in_any_legend_offers_to_open_what_is_not_there(self):
         # In every coloring, in the panel's least and widest room, and in the drawer and the strip: every control of a legend that offers
         # to open something makes the legend taller when it is pressed and gives the height back when it is pressed again.
-        self.script("document.querySelector('.more-toggle').click(); return 1")
         self.settle(150)
         offered = 0
         for layout in ((1300, 340), (1300, 640), (900, None), (600, None)):
@@ -691,6 +689,31 @@ class ChipLayoutTests(LongNameTestCase):
                 # (Structure color is under More colorings, in a row of its own, below pLDDT's.)
                 self.assertGreater(tops["builtin:structure"], tops["plddt"])
                 self.assertEqual(tops["information_content"], tops["same_residue_pct"], (width, tops))
+
+    def test_with_more_colorings_open_the_cards_under_it_are_still_reachable_by_scrolling_the_panel(self):
+        self.scene()
+        # Open at the start, which makes the Color by card taller: the panel scrolls, and what is last in it comes into view whole.
+        self.assertEqual(self.script("return document.querySelector('#color-body .more-toggle').getAttribute('aria-expanded')"), "true")
+        for width, tab, last in ((1300, "color", ".sec[data-tab=residue]"), (900, "color", ".sec[data-tab=residue]"),
+                                 (700, "color", "#color-body > :last-child"), (600, "color", "#color-body > :last-child")):
+            with self.subTest(width=width):
+                self.at(width, tab)
+                self.settle(200)
+                found = self.script("""
+                    const side = document.getElementById('side-scroll');
+                    side.scrollTop = side.scrollHeight;
+                    const box = side.getBoundingClientRect();
+                    const last = document.querySelector(%s).getBoundingClientRect();
+                    const group = document.querySelector('#color-body .more-colorings').getBoundingClientRect();
+                    return {scrolls: side.scrollHeight > side.clientHeight, lastBottom: last.bottom, lastTop: last.top, bottom: box.bottom, top: box.top,
+                            groupHeight: group.height, sideLeft: box.left, sideRight: box.right, lastLeft: last.left, lastRight: last.right};
+                    """ % json.dumps(last))
+                # The group is drawn (it is not cut to nothing), and the last of the panel ends inside the scroller, whole.
+                self.assertGreater(found["groupHeight"], 20, found)
+                self.assertLessEqual(found["lastBottom"], found["bottom"] + 1, found)
+                self.assertGreaterEqual(found["lastTop"], found["top"] - 1, found)
+                self.assertGreaterEqual(found["lastLeft"], found["sideLeft"] - 1, found)
+                self.assertLessEqual(found["lastRight"], found["sideRight"] + 1, found)
 
     def test_the_same_in_simplified_chinese(self):
         from desktop.Desktop_App import install_translations

@@ -54,11 +54,12 @@ def write_saved_structures(directory):
 def saved_scene(name):
     """{"session": dict, "molj": str, "expected": dict} of one scene (see SCENES)."""
     scene = json.loads(zlib.decompress(base64.b64decode("".join(PACKED[name]))))
-    # The frozen scenes were saved when Structure color was a chip of the card's Model group; it is under "More colorings" (closed
-    # in a page that has just opened) now, so the card the page shows has no chip for it.
+    # The frozen scenes were saved when Structure color was a chip of the card's Model group; it is under "More colorings" (open in a
+    # page that has just opened) now, with Residue position, so it comes last in the card with the other.
     chips = scene["expected"].get("card", {}).get("chips")
     if chips and "builtin:structure" in chips:
         chips.remove("builtin:structure")
+        chips.extend(["builtin:structure", "builtin:residue-position"])
     # And before the Properties group (Secondary structure and the three Mol* works out) was in the card, after pLDDT's chip.
     if chips and "builtin:accessible-surface-area" not in chips:
         at = chips.index("plddt") + 1
