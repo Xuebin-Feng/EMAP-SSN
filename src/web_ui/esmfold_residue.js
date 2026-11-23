@@ -83,7 +83,10 @@ const SECONDARY_ART = { helix: () => icon('ss-helix-art'), strand: () => icon('s
 function secondaryTile(residue) {
     const tile = make('div', 'ss-tile');
     if (residue.secondaryKind) tile.append(SECONDARY_ART[residue.secondaryKind]());
-    tile.append(make('span', 'ss-word', residue.secondary));
+    // The word is already in the page's language (secondaryName's t()), so it is appended as the hover box's is.
+    const word = make('span', 'ss-word');
+    word.append(residue.secondary);
+    tile.append(word);
     return tile;
 }
 
