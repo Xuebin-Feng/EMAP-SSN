@@ -3283,7 +3283,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location line="+459"/>
+        <location line="+462"/>
         <location filename="../../../web_ui/esmfold_image.js" line="+69"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
         <location line="+199"/>
@@ -3292,7 +3292,7 @@ Command-line usage:
         <translation type="unfinished">无数据</translation>
     </message>
     <message>
-        <location line="-398"/>
+        <location line="-401"/>
         <source>Could not color {file} by that layer.</source>
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
@@ -3404,7 +3404,7 @@ Command-line usage:
         <translation type="unfinished">精氨酸和赖氨酸算作带正电，天冬氨酸和谷氨酸算作带负电；组氨酸有自己的颜色，其余残基均为电中性。这是按残基名称确定的电荷，并非针对该结构计算。</translation>
     </message>
     <message>
-        <location line="+134"/>
+        <location line="+137"/>
         <source>{names}: the colors are the file&apos;s B-factor column. In an experimental structure that is not confidence.</source>
         <translation type="unfinished">{names}：颜色来自文件的 B 因子列。在实验测定的结构中，它不代表置信度。</translation>
     </message>
@@ -3415,7 +3415,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+194"/>
-        <location filename="../../../web_ui/esmfold.html" line="+1013"/>
+        <location filename="../../../web_ui/esmfold.html" line="+1017"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3729,7 +3729,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="-587"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="-590"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -3953,8 +3953,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-876"/>
-        <location line="+871"/>
+        <location filename="../../../web_ui/esmfold.html" line="-880"/>
+        <location line="+875"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -4492,7 +4492,7 @@ Command-line usage:
         <translation type="obsolete">3D 结构视图。方向键逐个选择残基，F 缩放到已固定的残基，R 重置视图，Esc 取消固定。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_image.js" line="+120"/>
+        <location filename="../../../web_ui/esmfold_image.js" line="+136"/>
         <source>Saved fold-view.png.</source>
         <translation type="unfinished">已保存 fold-view.png。</translation>
     </message>
@@ -9485,7 +9485,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2358"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2462"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -13142,12 +13142,11 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">BLASTP 目录：</translation>
     </message>
     <message>
-        <location line="-693"/>
         <source>With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores.</source>
-        <translation type="unfinished">开启校准插补时，运行开始时会比对缺失序列对的一个样本，因此拟合覆盖这些序列对，并报告它对其计算得分的预测效果。</translation>
+        <translation type="obsolete">开启校准插补时，运行开始时会比对缺失序列对的一个样本，因此拟合覆盖这些序列对，并报告它对其计算得分的预测效果。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-689"/>
         <source>The embeddings the network was made from. Needed only when the Embedding Set is of another model than the network&apos;s.</source>
         <translation type="unfinished">生成网络所用的 embedding。仅当 Embedding 数据库与网络属于不同模型时才需要。</translation>
     </message>
@@ -13166,17 +13165,15 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">展示归一化网络得分对经长度校正的池化 embedding 相似度的保序拟合；开启校准插补时，还会显示校准序列对及其留出检验结果。</translation>
     </message>
     <message>
-        <location line="+32"/>
         <source>Fills a sparse network&apos;s missing pairs with a fit that uses a sample of them, aligned at the start of the run.</source>
-        <translation type="unfinished">用一个使用缺失序列对样本的拟合来填补稀疏网络的缺失序列对，该样本在运行开始时比对。</translation>
+        <translation type="obsolete">用一个使用缺失序列对样本的拟合来填补稀疏网络的缺失序列对，该样本在运行开始时比对。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>ON draws a sample of this run&apos;s missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network&apos;s own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit&apos;s lowest value.</source>
-        <translation type="unfinished">开启时，从本次运行的缺失序列对中抽取一个样本（占 1%，至少 5,000 个、至多 100,000 个序列对），用网络自己的打分方式比对，并按权重与网络已有的序列对一起拟合插补。关闭时不做任何比对：拟合只取网络已有的序列对，低于其范围的每个缺失序列对都得到拟合的最低值。</translation>
+        <translation type="obsolete">开启时，从本次运行的缺失序列对中抽取一个样本（占 1%，至少 5,000 个、至多 100,000 个序列对），用网络自己的打分方式比对，并按权重与网络已有的序列对一起拟合插补。关闭时不做任何比对：拟合只取网络已有的序列对，低于其范围的每个缺失序列对都得到拟合的最低值。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+35"/>
         <source>Aligns a sample of the missing pairs.</source>
         <translation type="unfinished">比对缺失序列对的一个样本。</translation>
     </message>
@@ -13344,7 +13341,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST-EFI]_EValue.h5`。</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+37"/>
+        <source>With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, and the other missing pairs are estimated from their embedding similarity and from chains of computed pairs.</source>
+        <translation type="unfinished">开启校准插补时，运行开始时会比对缺失序列对的一个样本，其余缺失序列对则根据 embedding 相似度和已计算序列对的链来估计。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Leave it blank to use the Embedding Set for this; that is right when the Embedding Set is of the network&apos;s model.</source>
         <translation type="unfinished">留空则由 Embedding 数据库负责；当 Embedding 数据库与网络属于同一模型时，这样即可。</translation>
     </message>
@@ -13354,7 +13356,17 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">为稀疏网络显示插补拟合的诊断图。</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+33"/>
+        <source>Fills a sparse network&apos;s missing pairs from their embedding similarity and from chains of computed pairs, calibrated on a sample of them aligned at the start of the run.</source>
+        <translation type="unfinished">根据 embedding 相似度和已计算序列对的链来填补稀疏网络的缺失序列对，并用运行开始时比对的一个样本进行校准。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>ON aligns a sample of this run&apos;s missing pairs (1% of them, from 5,000 to 100,000 pairs) with the network&apos;s own scoring, and the sample sets the weights that combine the two estimates. The log and the guide tree give the check, the share of pairs with a chain and the weights. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit&apos;s lowest value.</source>
+        <translation type="unfinished">开启时，用网络自己的打分方式比对本次运行缺失序列对的一个样本（占缺失序列对的 1%，5,000 到 100,000 个），样本决定把两种估计结合起来的权重。日志和引导树会给出检验结果、有链的序列对所占比例和这些权重。关闭时不做任何比对：拟合只取网络已有的序列对，低于其范围的每个缺失序列对都得到拟合的最低值。</translation>
+    </message>
+    <message>
+        <location line="+71"/>
         <source>The EFI-EST alignment score, from each hit&apos;s bit score and the two sequence lengths in the FASTA; saved as `&lt;name&gt;_[BLAST-EFI]_EValue.h5`.</source>
         <translation type="unfinished">EFI-EST 比对得分，由每个比对的比特得分和 FASTA 中两条序列的长度计算；保存为 `&lt;name&gt;_[BLAST-EFI]_EValue.h5`。</translation>
     </message>

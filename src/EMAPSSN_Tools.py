@@ -2057,7 +2057,7 @@ class ToolsGUI(QMainWindow):
                     translate("Tools", "Pairwise similarity network (`.h5`) used to construct the guide tree."),
                     details=(
                         translate("Tools", "For sparse networks, missing edge scores are automatically imputed using isotonic regression."),
-                        translate("Tools", "With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores."),
+                        translate("Tools", "With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, and the other missing pairs are estimated from their embedding similarity and from chains of computed pairs."),
                     ),
                 ),
                 "INPUT_NETWORK_EMBED": Tip(
@@ -2101,8 +2101,8 @@ class ToolsGUI(QMainWindow):
                     details=(translate("Tools", "Higher values yield a more stable consensus guide tree but increase computation time."),),
                 ),
                 "CALIBRATED_IMPUTATION": Tip(
-                    translate("Tools", "Fills a sparse network's missing pairs with a fit that uses a sample of them, aligned at the start of the run."),
-                    details=(translate("Tools", "ON draws a sample of this run's missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network's own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit's lowest value."),),
+                    translate("Tools", "Fills a sparse network's missing pairs from their embedding similarity and from chains of computed pairs, calibrated on a sample of them aligned at the start of the run."),
+                    details=(translate("Tools", "ON aligns a sample of this run's missing pairs (1% of them, from 5,000 to 100,000 pairs) with the network's own scoring, and the sample sets the weights that combine the two estimates. The log and the guide tree give the check, the share of pairs with a chain and the weights. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit's lowest value."),),
                     options=(
                         TipOption(True, translate("Tools", "Aligns a sample of the missing pairs.")),
                         TipOption(False, translate("Tools", "Aligns nothing.")),

@@ -48,7 +48,11 @@ Settings:
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
 - CALIBRATED_IMPUTATION: For a sparse network, whether a sample of this run's missing pairs is aligned, with the network's own
   scoring, at the start of the run (ON) and used to fit the imputation and to check it, or nothing is aligned and the fit takes
-  only the observed pairs, giving every missing pair below its range the fit's lowest value (OFF). It is not applied when fewer
+  only the observed pairs, giving every missing pair below its range the fit's lowest value (OFF). With a sample, every other
+  missing pair is estimated from its embedding similarity (the fit the sample calibrates) and from chains of computed pairs: each
+  third sequence with a computed score to both gives the lower of its two scores and the highest of these is the pair's chain
+  value; four weights fitted on the sample combine the two (see utilities/Chain_Fill.py). When the chain step does not fit in the
+  free memory, the similarity fit alone fills the missing pairs. It is not applied when fewer
   than 10% of the run's pairs are missing, nor when the network does not record how its scores were made or a check on some of
   its own edges does not reproduce them. Every sparse network averages replicate tree distances over all pairs.
 - INPUT_NETWORK_EMBED: Optional, with CALIBRATED_IMPUTATION on and a sparse network: the embeddings the network's scores were

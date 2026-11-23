@@ -8416,7 +8416,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, so the fit covers them and reports how well it predicts their computed scores.</source>
+        <source>With Calibrated Imputation on, a sample of the missing pairs is aligned at the start of the run, and the other missing pairs are estimated from their embedding similarity and from chains of computed pairs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8500,11 +8500,11 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Fills a sparse network&apos;s missing pairs with a fit that uses a sample of them, aligned at the start of the run.</source>
+        <source>Fills a sparse network&apos;s missing pairs from their embedding similarity and from chains of computed pairs, calibrated on a sample of them aligned at the start of the run.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>ON draws a sample of this run&apos;s missing pairs (1% of them, from 5,000 to 100,000 pairs), aligns it with the network&apos;s own scoring and fits the imputation on it, weighted, together with the pairs the network has. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit&apos;s lowest value.</source>
+        <source>ON aligns a sample of this run&apos;s missing pairs (1% of them, from 5,000 to 100,000 pairs) with the network&apos;s own scoring, and the sample sets the weights that combine the two estimates. The log and the guide tree give the check, the share of pairs with a chain and the weights. OFF aligns nothing: the fit takes the pairs the network has, and every missing pair below its range gets the fit&apos;s lowest value.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
