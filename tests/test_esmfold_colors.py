@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Fold View page's Color by card (esmfold_color.js).
+"""The Fold View page's Colors tab (esmfold_color.js).
 
 One choice of coloring for the whole scene (pLDDT, a structure's own color, a
 layer of the Viewer's residue data, or one of Mol*'s secondary-structure and
@@ -34,7 +34,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 
 GREY = 0xDCDCDC
 A, B, C = "11.pdb", "22.pdb", "33.pdb"
-# The "Properties" group of the Color by card, as a card lists it: the chips' ids and texts, in order.
+# The "Properties" group of the Colors tab, as a card lists it: the chips' ids and texts, in order.
 PROPERTY_CHIPS = [["builtin:secondary-structure", "Secondary structure", ""], ["builtin:accessible-surface-area", "Solvent accessibility", ""],
                   ["builtin:hydrophobicity", "Hydrophobicity", ""], ["builtin:residue-charge", "Charge", ""]]
 PROPERTY_IDS = [chip[0] for chip in PROPERTY_CHIPS]
@@ -107,8 +107,8 @@ class SceneColoringTests(ColorTestCase):
         self.open_scene(A, B, C)
         card = self.script("return await cardNow()")
         self.assertEqual(card["chips"], [
-            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS,
-            ["information_content", "Information Content", "2 of 3"], ["hydro", "Hydrophobicity", "1 of 3"], *MORE_CHIPS])
+            ["plddt", "pLDDT", ""], ["information_content", "Information Content", "2 of 3"], ["hydro", "Hydrophobicity", "1 of 3"],
+            *PROPERTY_CHIPS, *MORE_CHIPS])
         self.assertEqual(card["selected"], "plddt")
         # The structure with no residue data says why, in the Viewer's words.
         self.assertEqual(len(card["layerNotes"]), 1)
@@ -426,7 +426,7 @@ class CardTests(ColorTestCase):
                     labelled: radios.every(r => r.labels.length === 1 && r.labels[0].textContent.trim().length > 0)};
             """)
         self.assertEqual(group, {
-            "groups": ["Color by", "Properties", "More colorings"],
+            "groups": ["Colors", "Properties", "More colorings"],
             "names": {"coloring": ["plddt", "information_content", "same_residue_pct"], "coloring-properties": PROPERTY_IDS,
                       "coloring-more": ["builtin:structure", "builtin:residue-position"]},
             "checked": ["plddt"], "roles": 0, "labelled": True})
@@ -443,7 +443,7 @@ class CardTests(ColorTestCase):
                                            coloring: coloringOf(loadedStructures()[0])}""")
             self.assertEqual(state, {"selected": expected, "focus": expected, "coloring": expected}, key)
 
-    def test_structure_color_is_the_first_of_the_more_colorings_and_the_model_group_holds_only_plddt(self):
+    def test_structure_color_is_the_first_of_the_more_colorings_and_the_layers_row_starts_with_plddt(self):
         self.write_with(A, "information_content")
         self.open_scene(A)
         closed = self.script("""
@@ -451,7 +451,7 @@ class CardTests(ColorTestCase):
             return {chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), more: body.querySelector('.more-toggle').getAttribute('aria-expanded')};
             """)
         # Open at the start.
-        self.assertEqual(closed, {"chips": ["plddt", *PROPERTY_IDS, "information_content", "builtin:structure", "builtin:residue-position"],
+        self.assertEqual(closed, {"chips": ["plddt", "information_content", *PROPERTY_IDS, "builtin:structure", "builtin:residue-position"],
                                   "more": "true"})
         opened = self.script("""
             const body = document.getElementById('color-body');
@@ -464,9 +464,9 @@ class CardTests(ColorTestCase):
                     reachable: document.activeElement === radio('plddt'), group: radio('plddt').closest('[role=radiogroup]').getAttribute('aria-label'),
                     label: radio('builtin:structure').labels[0].textContent.trim()};
             """)
-        self.assertEqual(opened["model"], ["plddt"])
+        self.assertEqual(opened["model"], ["plddt", "information_content"])
         self.assertEqual(opened["more"], ["builtin:structure", "builtin:residue-position"])
-        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 2, "Color by"))
+        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 2, "Colors"))
         self.assertTrue(opened["reachable"])
         self.assertIn("Structure color", opened["label"])
 
@@ -547,7 +547,7 @@ class CardTests(ColorTestCase):
 
 
 class LegendPlaceTests(ColorTestCase):
-    """The colors of the chosen coloring are drawn once, in the legend over the canvas; the Color by card keeps only the texts."""
+    """The colors of the chosen coloring are drawn once, in the legend over the canvas; the Colors tab keeps only the texts."""
 
     COLORINGS = ("plddt", "information_content", "same_residue_pct", "builtin:structure", "builtin:secondary-structure", "builtin:residue-position")
 
@@ -687,9 +687,10 @@ class PropertyColoringTests(ColorTestCase):
     def test_the_group_has_its_chips_in_order_always_shown_and_choosing_one_puts_its_theme_in_the_scene(self):
         self.open_two()
         card = self.script("return await cardNow()")
-        self.assertEqual([chip[0] for chip in card["chips"]][:5], ["plddt", *PROPERTY_IDS])
+        # pLDDT is the first chip of Layers, the layers follow it, and the Properties come after them.
+        self.assertEqual([chip[0] for chip in card["chips"]][:6], ["plddt", "information_content", *PROPERTY_IDS])
         self.assertEqual(self.script("return [...document.querySelectorAll('#color-body .group-label')].map(n => n.textContent)"),
-                         ["Model", "Properties", "Layers"])
+                         ["Layers", "Properties"])
         for coloring, theme in ((ASA, "accessible-surface-area"), (HYDROPHOBICITY, "hydrophobicity"), (CHARGE, "residue-charge"),
                                 ("builtin:secondary-structure", "secondary-structure")):
             with self.subTest(coloring=coloring):
@@ -785,11 +786,8 @@ class PropertyColoringTests(ColorTestCase):
             self.settle(150)
             state = self.script("return {focus: document.activeElement.closest('.seg-btn')?.dataset.coloring, coloring: coloringOf(loadedStructures()[0])}")
             self.assertEqual(state, {"focus": expected, "coloring": expected}, key)
-        # The chosen chip is the group's Tab stop now, and Tab leaves it for the next group (the Layers chips are one with pLDDT's, and nothing
-        # of it is chosen, so its first is the stop) and then for More colorings.
-        QTest.keyClick(widget, Qt.Key_Tab)
-        self.pump(0.3)
-        self.assertEqual(self.script("return document.activeElement.name"), "coloring")
+        # The chosen chip is the group's Tab stop now, and Tab leaves it for More colorings (the Layers, with pLDDT first, come before the
+        # Properties, so Tab has passed them).
         QTest.keyClick(widget, Qt.Key_Tab)
         self.pump(0.3)
         self.assertEqual(self.script("return document.activeElement.className"), "more-toggle")
@@ -814,7 +812,7 @@ class PropertyColoringTests(ColorTestCase):
         english = ["Properties", "Solvent accessibility", "Hydrophobicity", "Charge", "Buried", "Exposed", "Hydrophilic", "Hydrophobic",
                    "Positive", "Negative", "Histidine", "Neutral"]
         card = self.script("return await cardNow()")
-        self.assertEqual([chip[1] for chip in card["chips"]][1:5], ["二级结构", "溶剂可及性", "疏水性", "电荷"])
+        self.assertEqual([chip[1] for chip in card["chips"]][2:6], ["二级结构", "溶剂可及性", "疏水性", "电荷"])
         self.assertEqual(self.script("return [...document.querySelectorAll('#color-body .group-label')].map(n => n.textContent)")[1], "性质")
         seen = []
         for coloring in (ASA, HYDROPHOBICITY, CHARGE):

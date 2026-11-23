@@ -492,15 +492,27 @@ async function loadAndAlignStructure(load, label, url) {
         showStatus(t("Loading structure {name}...", {name: label}), 0, {quiet: true});
         plugin.log.info(`Loading structure ${label}...`);
 
-        const before = loadedStructures().length;
+        const present = loadedStructures();
+        const before = present.length;
+        // The kind the structures already there share, if they do: asked before the load, since the new one starts in Mol*'s own default.
+        const sharedKind = sharedRepresentation(present);
         await load();
 
         // Mol* logs a file it cannot get or read and carries on: no new structure is the failure.
         const structures = loadedStructures();
         if (structures.length <= before) throw new Error(t("Mol* could not get a structure from it."));
         // The new structure (the newest) takes the scene's coloring, pLDDT unless the
-        // Color by card says otherwise; the structures already there keep what they show.
+        // Colors tab says otherwise; the structures already there keep what they show.
         await colorNewStructure(structures[structures.length - 1]);
+        // It is drawn the way the others are when they all are drawn one way (it keeps the color it was just given); with none there, or
+        // with the others differing, it keeps Mol*'s own default.
+        if (sharedKind) {
+            try {
+                await changeRepresentation(structures[structures.length - 1].cell.transform.ref, sharedKind);
+            } catch (err) {
+                console.warn("Could not draw the new structure like the others:", err);
+            }
+        }
         if (structures.length > 1) {
             showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0, {quiet: true});
             plugin.log.info(`Aligning ${label} to pivot structure...`);

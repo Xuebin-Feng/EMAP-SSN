@@ -8,7 +8,7 @@ It opens the Fold View page in Qt WebEngine over the real web server and the
 Mol* the checkout vendors (the harness of tests/esmfold_page_harness.py), over
 the two fixture structures of tests/esmfold_session_fixture.py, does what each
 scene says through the page's own functions (a folded structure arriving, the
-Color by card, a row's coloring, representation and opacity, the Measure and
+Colors tab, a row's coloring, representation and opacity, the Measure and
 Labels tools, a click that pins a residue), and keeps what the page then gives
 away: the session it posts to the Viewer, and the file its Session menu
 downloads. It then restores each scene in a fresh page, by both routes, and

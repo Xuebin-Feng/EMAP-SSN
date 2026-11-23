@@ -456,7 +456,7 @@
         .canvas-legend .tick-mark { position: absolute; top: 0; white-space: nowrap; transform: translateX(-50%); font-size: 10.5px; line-height: 1.2; color: var(--text-subtle); font-variant-numeric: tabular-nums; }
         .canvas-legend .tick-mark::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 3px; background: var(--text-subtle); }
 
-        /* Color by */
+        /* The Colors and Representation card's chips */
         .seg { display: flex; flex-wrap: wrap; gap: 6px; }
         .seg-btn { position: relative; user-select: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 0 8px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 12.5px; color: var(--text-primary); cursor: pointer; outline: 2px solid transparent; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
         .seg-btn:hover { background: var(--bg-muted); }
@@ -472,7 +472,7 @@
         .seg-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
         .seg-label::after { content: attr(data-text); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
         .seg.scroll { max-height: 188px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px; margin: -2px; }
-        /* The small titles of a group (the Color by card's "Model" and "Layers", the headings of the help dialog) are written as the
+        /* The small titles of a group (the Colors tab's "Layers" and "Properties", the headings of the help dialog) are written as the
            texts are, with a capital at the start only, in the same size, weight and colour. */
         .group-label { font-size: 12px; font-weight: 600; color: var(--text-subtle); margin: 10px 0 6px; }
         .group-label:first-child { margin-top: 0; }
@@ -510,6 +510,8 @@
         /* The row is a button while there is more to show: it looks as the plain row does. */
         .legend .src button.note-row { width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; text-align: left; }
         .legend .src .note-text { flex: 1; min-width: 0; }
+        /* The Representation tab's note is the box's only text: no line above it. */
+        .legend.rep-note .src { margin-top: 0; padding-top: 0; border-top: 0; }
         .legend .src .note-row.clamp .note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
         .legend .src div.note-row .chev, .legend .src .note-row.measuring .chev { display: none; }
         .legend .src button.note-row { cursor: pointer; }
@@ -549,7 +551,7 @@
         .side-resizer:focus-visible::after { background: var(--accent); box-shadow: var(--focus-ring); }
         body[data-resizing="1"] { cursor: col-resize; user-select: none; }
         /* A scrollbar that comes and goes takes its 8 px from the cards' width, and the text in them wraps differently: the chips of
-           the Color by card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
+           the Colors card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
            always there, and the padding beside it is smaller by as much, so the cards are as wide as they always were without one. */
         .side-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 2px 4px 10px; }
         /* Beside the canvas the panel is no panel to look at: it has no background and no edge line, so its cards stand on the page's own
@@ -564,6 +566,18 @@
         .sec-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; min-height: 40px; }
         .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }
         .sec-title .icon { color: var(--text-secondary); }
+        /* The Colors card's two tabs stand where its title stood: the open one reads as the title did, with a 2 px line under it that
+           lies over the line between the head and the body. The head has no space above and below, so that a tab is as tall as it. */
+        .card-head { padding-top: 0; padding-bottom: 0; gap: 8px; }
+        .card-head > .icon { color: var(--text-secondary); }
+        /* The card's heading for assistive technology, which the tabs stand in for: cut away to nothing, not clipped by a box of 1 px (a text
+           wider than its box is what the page's overflow checks count as scrolling sideways) */
+        .card-title-hidden { position: absolute; margin: 0; white-space: nowrap; clip-path: inset(50%); pointer-events: none; }
+        .card-tabs { display: flex; gap: 14px; align-self: stretch; min-width: 0; }
+        .card-tab { position: relative; display: inline-flex; align-items: center; background: none; border: 0; padding: 0 1px; font: inherit; font-size: 13px; font-weight: 500; color: var(--text-subtle); cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
+        .card-tab[aria-selected="true"] { color: var(--text-primary); font-weight: 600; }
+        .card-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
+        .card-tab:focus-visible { box-shadow: var(--focus-ring); }
         .sec-title .count { font-weight: 400; color: var(--text-subtle); }
         /* A card's heading takes the focus when the control that had it went with what it acted on (a structure removed, a failure
            dismissed, the pin cleared), so that the focus stays in the card; it is no stop of Tab's (tabindex -1). */
@@ -851,6 +865,7 @@
             .btn[aria-pressed="true"], .seg-btn:has(input:checked), .view-toolbar .btn[aria-pressed="true"] { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -3px; }
             .btn:focus-visible, .seg-btn:has(input:focus-visible), .btn[aria-pressed="true"]:focus-visible, .seg-btn:has(input:checked:focus-visible) { outline: 2px solid CanvasText; outline-offset: -2px; }
             .side-tabs button[aria-selected="true"] { border-bottom-color: Highlight; }
+            .card-tab[aria-selected="true"]::after { background: Highlight; }
             .progress { border: 1px solid ButtonText; }
             .progress > div { background: Highlight; }
             /* Colors that are data (a structure's, a layer's, a residue's) keep theirs. */
@@ -1063,8 +1078,15 @@
                         <div class="sec-body flush" id="struct-list"></div>
                     </section>
                     <section class="sec" data-tab="color" role="tabpanel" aria-labelledby="tab-color">
-                        <div class="sec-head"><h2 class="sec-title" id="h-color"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg><span data-i18n>Color by</span></h2></div>
-                        <div class="sec-body" id="color-body"></div>
+                        <div class="sec-head card-head"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg>
+                            <h2 class="card-title-hidden" id="h-color" data-i18n>Colors and representation</h2>
+                            <div class="card-tabs" role="tablist" aria-labelledby="h-color">
+                                <button class="card-tab" type="button" role="tab" id="card-tab-colors" aria-selected="true" aria-controls="color-body" data-i18n>Colors</button>
+                                <button class="card-tab" type="button" role="tab" id="card-tab-representation" aria-selected="false" aria-controls="representation-body" tabindex="-1" data-i18n>Representation</button>
+                            </div>
+                        </div>
+                        <div class="sec-body" id="color-body" role="tabpanel" aria-labelledby="card-tab-colors"></div>
+                        <div class="sec-body" id="representation-body" role="tabpanel" aria-labelledby="card-tab-representation" hidden></div>
                     </section>
                     <section class="sec" data-tab="residue" role="tabpanel" aria-labelledby="tab-residue">
                         <div class="sec-head"><h2 class="sec-title" id="h-residue" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Residue</span></h2>

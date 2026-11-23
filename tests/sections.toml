@@ -190,7 +190,7 @@ modules = [
 # slowest took 174 s) and so the whole run's time; sections run in parallel, so these eight share the work,
 # each of them 60 to 120 s.
 [sections.fold_color]
-description = "Fold View page: Color by card, residue tooltip, pinned residue and Residue card"
+description = "Fold View page: Colors tab, residue tooltip, pinned residue and Residue card"
 seconds = 105
 modules = [
     "test_esmfold_colors",
@@ -203,6 +203,7 @@ seconds = 105
 modules = [
     "test_esmfold_jobs",
     "test_esmfold_opened",
+    "test_esmfold_card_tabs",
     "test_esmfold_structures",
 ]
 
@@ -225,7 +226,7 @@ modules = [
 ]
 
 [sections.fold_layout]
-description = "Fold View page: names with no spaces to break at in the tooltip, the legends and the Color by chips, the legend's note and its chevron"
+description = "Fold View page: names with no spaces to break at in the tooltip, the legends and the Colors chips, the legend's note and its chevron"
 seconds = 115
 modules = [
     "test_esmfold_layout",

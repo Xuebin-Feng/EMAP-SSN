@@ -100,9 +100,18 @@ function structureOpacity(structure) {
     return Math.round(100 * (alpha ?? 1));
 }
 
+// The kind every structure of `structures` is drawn in, when they share one of the five a person can choose; otherwise ''. The scene
+// keeps no kind of its own: it is read from what Mol* has, so that a row's own change, a session restored and Undo are all true at once.
+function sharedRepresentation(structures) {
+    const kinds = new Set(structures.map(representationType));
+    const [kind] = kinds;
+    return kinds.size === 1 && representationOptions().some(([type]) => type === kind) ? kind : '';
+}
+
 // Another type of representation: the new one is made with Mol*'s own defaults for the type
-// and the colors the old one had (a layer stays), then the old one goes.
-async function setRepresentation(ref, type) {
+// and the colors the old one had (a layer stays), then the old one goes. It draws nothing of the page and saves nothing: the callers do,
+// once for all they changed.
+async function changeRepresentation(ref, type) {
     const structure = structureByRef(ref);
     if (!structure) return;
     const state = plugin.state.data;
@@ -117,8 +126,29 @@ async function setRepresentation(ref, type) {
         for (const representation of old) removal.delete(representation.cell.transform.ref);
         await plugin.runTask(state.updateTree(removal));
     }
+}
+
+// One structure on its own (a row's choice).
+async function setRepresentation(ref, type) {
+    await changeRepresentation(ref, type);
     scheduleStructures();
     setTimeout(saveSession, 1500);
+}
+
+// The card's choice: every structure loaded now gets the kind, one after another in one task of the queue, so that loads and layer
+// changes wait for it or run after it. The card and the rows are drawn and the session saved once, when all are done.
+function setSceneRepresentation(type) {
+    return runExclusive(async () => {
+        showStatus(t("Changing the representation..."), 0, {quiet: true});
+        try {
+            for (const structure of loadedStructures()) await changeRepresentation(structure.cell.transform.ref, type);
+        } finally {
+            scheduleStructures();
+            renderColorCard(true);
+            setTimeout(saveSession, 1500);
+        }
+        hideStatus();
+    }).catch(err => reportFailure("Could not change the representation:", err));
 }
 
 async function setOpacity(ref, percent) {

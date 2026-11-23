@@ -287,7 +287,7 @@ class TooltipLayoutTests(LongNameTestCase):
 
 
 class LegendNoteTests(LongNameTestCase):
-    """The notes and legends of the Color by card say a file's name and a structure's: they stay inside the card."""
+    """The notes and legends of the Colors tab say a file's name and a structure's: they stay inside the card."""
 
     COLORINGS = ("plddt", "builtin:structure", "information_content", "same_residue_pct", "builtin:secondary-structure",
                  "builtin:residue-position")
@@ -604,7 +604,7 @@ class LegendNoteDisclosureTests(LongNameTestCase):
         self.assertGreater(offered, 8)
 
 
-# What the panel's scroller and the Color by card's buttons are doing: where each button is, and whether the panel scrolls.
+# What the panel's scroller and the Colors tab's buttons are doing: where each button is, and whether the panel scrolls.
 PANEL = """
 window.chipRects = function () {
     const side = document.getElementById('side-scroll');
@@ -622,7 +622,7 @@ window.panelNow = function () {
 
 
 class ChipLayoutTests(LongNameTestCase):
-    """The Color by card's buttons are where they were whatever is chosen, with the panel's scrollbar there or not."""
+    """The Colors tab's buttons are where they were whatever is chosen, with the panel's scrollbar there or not."""
 
     LAYERS = ("builtin:structure", "plddt", "information_content", "same_residue_pct")
 
@@ -684,15 +684,17 @@ class ChipLayoutTests(LongNameTestCase):
                 # The room for the scrollbar is there with or without one.
                 self.assertEqual(len(bars), 1, bars)
                 self.assertGreater(bars.pop(), 0)
-                # The user's two layers share a row beside the canvas and in the drawer (as they did when no bar was there).
+                # pLDDT is the first button of the Layers row, with the first of the user's two layers beside it, and the second
+                # one is in the same row or the next, beside the canvas and in the drawer (as it was when no bar was there).
                 tops = {name: top for name, _, top, _, _ in first}
                 # (Structure color is under More colorings, in a row of its own, below pLDDT's.)
                 self.assertGreater(tops["builtin:structure"], tops["plddt"])
-                self.assertEqual(tops["information_content"], tops["same_residue_pct"], (width, tops))
+                self.assertEqual(tops["information_content"], tops["plddt"], (width, tops))
+                self.assertGreaterEqual(tops["same_residue_pct"], tops["information_content"], (width, tops))
 
     def test_with_more_colorings_open_the_cards_under_it_are_still_reachable_by_scrolling_the_panel(self):
         self.scene()
-        # Open at the start, which makes the Color by card taller: the panel scrolls, and what is last in it comes into view whole.
+        # Open at the start, which makes the Colors tab taller: the panel scrolls, and what is last in it comes into view whole.
         self.assertEqual(self.script("return document.querySelector('#color-body .more-toggle').getAttribute('aria-expanded')"), "true")
         for width, tab, last in ((1300, "color", ".sec[data-tab=residue]"), (900, "color", ".sec[data-tab=residue]"),
                                  (700, "color", "#color-body > :last-child"), (600, "color", "#color-body > :last-child")):

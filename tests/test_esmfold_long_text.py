@@ -4,7 +4,7 @@
 
 """A sweep of the Fold View page for text that has no spaces to break at: every place a name, a file name, a log path or a reason is shown.
 
-tests/test_esmfold_layout.py lays out the places a long name made trouble in (the tooltip, the legends, the Color by chips); this
+tests/test_esmfold_layout.py lays out the places a long name made trouble in (the tooltip, the legends, the Colors chips); this
 one gives the whole page names of 120 characters and more, a long MSA file name, a file opened from disk, a run in progress and
 failed folds with long reasons, and checks every part of the page that shows them (the Structures rows and their details, the
 Residue card, the sequence strip, the status line, the folding card, the dialogs and the legends, also the one drawn into a saved

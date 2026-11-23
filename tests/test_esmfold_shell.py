@@ -458,7 +458,7 @@ class GroupTitleTests(PageTestCase):
     def test_the_group_titles_are_written_as_their_texts_are_not_in_capitals(self):
         self.open_with_two()
         self.assertEqual(self.script(self.GROUP_TITLES), [
-            [title, "none", "normal", "12px", "600"] for title in ("Model", "Properties", "Layers")])
+            [title, "none", "normal", "12px", "600"] for title in ("Layers", "Properties")])
 
     def test_the_group_titles_are_not_in_capitals_in_simplified_chinese_either(self):
         from desktop.Desktop_App import install_translations
@@ -467,9 +467,9 @@ class GroupTitleTests(PageTestCase):
         self.addCleanup(install_translations, self.app, None)
         self.open_with_two()
         titles = self.script(self.GROUP_TITLES)
-        self.assertEqual(len(titles), 3)
+        self.assertEqual(len(titles), 2)
         for text, transform, spacing, size, weight in titles:
-            self.assertTrue(text and text not in ("Model", "Properties", "Layers"), text)
+            self.assertTrue(text and text not in ("Layers", "Properties"), text)
             self.assertEqual((transform, spacing, size, weight), ("none", "normal", "12px", "600"))
 
 
@@ -485,7 +485,7 @@ class DialogTests(PageTestCase):
             const capitals = [...document.querySelectorAll('body *')].filter(n => getComputedStyle(n).textTransform !== 'none').map(n => n.className || n.tagName);
             return {dialogs: dialogs.filter(d => d.headings.length), capitals};
             """)
-        # Only the help dialog has such headings, and each is written as its text is, with the look of the Color by card's group titles.
+        # Only the help dialog has such headings, and each is written as its text is, with the look of the Colors tab's group titles.
         self.assertEqual(found["dialogs"], [{"id": "help-modal", "headings": [
             [name, "none", "normal", "12px", "600"] for name in ("Mouse", "Keyboard", "Advanced")]}])
         self.assertEqual(found["capitals"], [])

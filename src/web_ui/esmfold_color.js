@@ -2,7 +2,7 @@
  * Author affiliation: University of Toronto
  * SPDX-License-Identifier: Apache-2.0
  *
- * The Fold View page's Color by card: one choice of coloring for the whole scene, its legend, and a compact legend on the canvas.
+ * The Fold View page's Colors and Representation card: one choice of coloring for the whole scene, its legend, and a compact legend on the canvas.
  */
 
 // The scene has one coloring at a time (pLDDT, a structure's own color, a
@@ -342,7 +342,9 @@ async function colorModel() {
         if (MORE_COLORINGS.includes(colorMode)) moreColorings = true;
     }
     const model = { mode: colorMode, filter: colorFilter, more: moreColorings, layers: gathered.layers,
-                    unavailable: gathered.unavailable, plddt: gathered.plddt, count: gathered.structures.length };
+                    unavailable: gathered.unavailable, plddt: gathered.plddt, count: gathered.structures.length,
+                    // The Representation tab's: the kind every structure shares ('' when they differ, or there are none).
+                    rep: sharedRepresentation(gathered.structures.map(item => item.structure)) };
     model.legend = gathered.structures.length ? legendOf(model) : null;
     model.noData = gathered.structures.filter(item => coloringOf(item.structure) === NO_DATA).map(item => item.name);
     // Opened files showing pLDDT: the colors are the file's B-factors.
@@ -628,13 +630,14 @@ function filterLayers() {
 }
 
 // The layer buttons the filter lets through (with eight layers or fewer there is no filter: all of them), or what says none does.
-function layerChoices(model) {
+// `lead` is the chip that stands first in the same row of buttons (pLDDT, when the layers are few); with many layers it is not given.
+function layerChoices(model, lead = null) {
     const many = model.layers.length > MAX_PLAIN_LAYERS;
     const wanted = model.filter.trim().toLowerCase();
     const shown = model.layers.filter(layer => !many || layer.label.toLowerCase().includes(wanted));
-    if (shown.length) {
+    if (shown.length || lead) {
         const layerChips = make('div', (many ? 'seg scroll' : 'seg') + ' layer-choices');
-        layerChips.append(...shown.map(layer => colorChip(layer.id, layer.label, model,
+        layerChips.append(...(lead ? [lead] : []), ...shown.map(layer => colorChip(layer.id, layer.label, model,
             layer.lack.length ? t("{n} of {total}", {n: layer.have.length, total: model.count}) : '', MODEL_CHIPS)));
         return layerChips;
     }
@@ -667,12 +670,20 @@ function renderColorBody(model) {
     if (!group) {
         group = make('div', 'seg-group');
         group.setAttribute('role', 'radiogroup');
-        group.setAttribute('aria-label', t("Color by"));
+        group.setAttribute('aria-label', t("Colors"));
     }
 
-    const modelLabel = groupLabel(t("Model"));
-    const modelChips = make('div', 'seg');
-    modelChips.append(colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS));
+    // Layers come first, and pLDDT is the first of them (the model's own layer): one radio group with the layers of the Viewer's residue
+    // data, so that the arrow keys go between them. pLDDT stays outside the scroller and the filter, always in view.
+    const layersLabel = groupLabel(t("Layers"));
+    const plddtChip = colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS);
+    // With few layers pLDDT is the first button of their row; with many it has a row of its own, above the filter and the scroller.
+    const plddtRow = make('div', 'seg');
+    if (many) plddtRow.append(plddtChip);
+    const choices = layerChoices(model, many ? null : plddtChip);
+    const before = many ? [layersLabel, plddtRow] : [layersLabel];
+    if (filter) replaceAround(group, filter, before, choices ? [choices] : []);
+    else group.replaceChildren(...before, ...(choices ? [choices] : []));
     // The properties Mol* works out from the structure: always shown, and a radio group of their own (one Tab stop, the arrow keys inside).
     const propertiesLabel = groupLabel(t("Properties"));
     const propertyChips = make('div', 'seg properties');
@@ -680,11 +691,6 @@ function renderColorBody(model) {
     propertyChips.setAttribute('aria-label', t("Properties"));
     propertyChips.append(...[SECONDARY_COLORING, ASA_COLORING, HYDROPHOBICITY_COLORING, CHARGE_COLORING]
         .map(id => colorChip(id, coloringLabel(id), model, '', PROPERTY_CHIPS)));
-    const layersLabel = groupLabel(t("Layers"));
-    const choices = layerChoices(model);
-    const before = [modelLabel, modelChips, propertiesLabel, propertyChips, layersLabel];
-    if (filter) replaceAround(group, filter, before, choices ? [choices] : []);
-    else group.replaceChildren(...before, ...(choices ? [choices] : []));
 
     if (model.count && (!model.layers.length || model.unavailable.length)) {
         const empty = make('div', 'empty-layers');
@@ -700,6 +706,7 @@ function renderColorBody(model) {
         empty.append(lines);
         nodes.push(empty);
     }
+    nodes.push(propertiesLabel, propertyChips);
 
     const toggle = make('button', 'more-toggle');
     toggle.type = 'button';
@@ -745,7 +752,102 @@ async function renderColorCard(force = false) {
     if (!force && signature === renderedColors) return;
     renderedColors = signature;
     renderColorBody(model);
+    renderRepresentationBody(model);
     compactLegend(model);
+}
+
+// ---- The card's two tabs ----------------------------------------------------------------------
+// "Colors" and "Representation" take the place of the card's title. Which is open is the page's own state, here only (nothing stores it,
+// and the card opens on Colors at every load); the closed one's panel is hidden. The tabs are one Tab stop (the open one has the tabindex),
+// the arrow keys, Home and End move along them and open the one they reach.
+let cardTab = 'colors';
+const CARD_TABS = ['colors', 'representation'];
+
+function setCardTab(name) {
+    cardTab = name;
+    for (const tab of CARD_TABS) {
+        const button = byId('card-tab-' + tab);
+        const open = tab === name;
+        button.setAttribute('aria-selected', open ? 'true' : 'false');
+        button.tabIndex = open ? 0 : -1;
+        byId(tab === 'colors' ? 'color-body' : 'representation-body').hidden = !open;
+    }
+}
+
+for (const name of CARD_TABS) {
+    const button = byId('card-tab-' + name);
+    button.addEventListener('click', () => setCardTab(name));
+    button.addEventListener('keydown', event => {
+        const at = CARD_TABS.indexOf(name);
+        let to;
+        if (event.key === 'ArrowRight') to = (at + 1) % CARD_TABS.length;
+        else if (event.key === 'ArrowLeft') to = (at - 1 + CARD_TABS.length) % CARD_TABS.length;
+        else if (event.key === 'Home') to = 0;
+        else if (event.key === 'End') to = CARD_TABS.length - 1;
+        else return;
+        event.preventDefault();
+        setCardTab(CARD_TABS[to]);
+        byId('card-tab-' + CARD_TABS[to]).focus();
+    });
+}
+setCardTab(cardTab);
+
+// ---- The Representation tab ---------------------------------------------------------------
+// What each kind is, in a sentence.
+function representationNotes() {
+    return {
+        'cartoon': t("The chain as a ribbon: helices as coils, strands as arrows."),
+        'ball-and-stick': t("Every atom as a ball and every bond as a stick."),
+        'spacefill': t("Every atom as a sphere of its own size."),
+        'gaussian-surface': t("A smooth surface around all the atoms."),
+        'backbone': t("The backbone alone, as a thin tube from residue to residue.")
+    };
+}
+
+// The chips are made as the colors' are (a label round a native radio). Which is checked is read from the scene each time the card is
+// drawn: the kind every structure shares, and none when they differ. With no structure none is checked either (the scene keeps no kind
+// of its own, as it keeps a coloring), and choosing one then changes nothing: the card is drawn again as it was.
+function representationChip(type, label, model) {
+    const chip = make('label', 'seg-btn');
+    chip.title = label;
+    chip.dataset.representation = type;
+    const input = make('input');
+    input.type = 'radio';
+    input.name = 'representation';
+    input.value = type;
+    input.checked = model.rep === type;
+    input.dataset.focusKey = 'representation:' + type;
+    const text = make('span', 'seg-label', label);
+    text.dataset.text = label;
+    chip.append(input, text);
+    input.addEventListener('change', () => {
+        if (input.checked && model.rep !== type && model.count) setSceneRepresentation(type);
+        else renderColorCard(true);
+    });
+    return chip;
+}
+
+function renderRepresentationBody(model) {
+    const body = byId('representation-body');
+    const focused = body.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    const group = make('div', 'seg');
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', t("Representation"));
+    group.append(...representationOptions().map(([type, label]) => representationChip(type, label, model)));
+    const nodes = [group];
+    if (model.count) {
+        // In the box the Colors tab's note is in, with its icon, and the whole of it (it is what the tab says, so it is never cut short).
+        const box = make('div', 'legend rep-note');
+        const note = make('div', 'src');
+        const row = make('div', 'note-row');
+        row.append(icon("info"), make('span', 'note-text', model.rep ? representationNotes()[model.rep]
+            : t("The structures are drawn in different ways. Choose one here for all of them, or set each in its row.")));
+        note.append(row);
+        box.append(note);
+        nodes.push(box);
+    }
+    body.replaceChildren(...nodes);
+    if (focused) keyedControl(body, focused)?.focus();
 }
 
 // ---- What a row offers ------------------------------------------------------------------------

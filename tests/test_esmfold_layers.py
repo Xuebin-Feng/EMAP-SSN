@@ -754,10 +754,10 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             self.assertEqual(start["colors"][str(number)], self.band(plddt[number - 1]), number)
         # The card offers pLDDT and each property (the structure's own color is under More colorings) of the file, with a legend for the chosen one.
         self.assertEqual(start["card"]["chips"], [
-            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
-            ["same_residue_pct", "Residue Agreement", ""], *MORE_CHIPS])
+            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["same_residue_pct", "Residue Agreement", ""], *PROPERTY_CHIPS, *MORE_CHIPS])
         self.assertEqual(start["card"]["selected"], "plddt")
-        self.assertEqual(start["card"]["title"], "Color by")
+        self.assertEqual(start["card"]["title"], "Colors and representation")
         self.assertEqual((start["card"]["bar"], start["card"]["marks"], start["card"]["cardColors"]), (True, ["50", "70", "90"], 0))
         self.assertEqual(start["card"]["compact"]["shown"], "1")
 
@@ -839,8 +839,8 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             return out;
             """)
         self.assertEqual(result["options"], [
-            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
-            ["same_residue_pct", "Residue Agreement", ""], *MORE_CHIPS])
+            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["same_residue_pct", "Residue Agreement", ""], *PROPERTY_CHIPS, *MORE_CHIPS])
         self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
         for layer_id, label, rows_expected, swatches in (
                 ("information_content", "Information Content", 33, []), ("same_residue_pct", "Residue Agreement", 32, ["No data"])):

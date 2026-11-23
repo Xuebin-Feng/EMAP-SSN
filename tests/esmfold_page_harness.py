@@ -364,7 +364,7 @@ window.fit = function (index) {
     const node = structure.transform ? structure.transform.cell.transform.params : null;
     return {transformed: !!structure.transform, rmsd: Math.sqrt(sum / n), matrix: node ? Array.from(node.transform.params.data) : null};
 };
-// The Color by card as a person sees it: its buttons, the texts it says of the chosen coloring, and the legend over the canvas, which
+// The Colors tab as a person sees it: its buttons, the texts it says of the chosen coloring, and the legend over the canvas, which
 // is the one place the colors of the coloring are drawn (the card has none: `cardColors` counts what it has of them, a bar or keys).
 window.card = function () {
     const body = document.getElementById('color-body');
@@ -398,4 +398,25 @@ window.card = function () {
     };
 };
 window.cardNow = async function () { await renderColorCard(true); return card(); };
+// The Representation tab as a person sees it: its chips in order, the one checked (the kind every structure shares), and its note.
+window.repCard = function () {
+    const body = document.getElementById('representation-body');
+    const chips = [...body.querySelectorAll('.seg-btn')];
+    const chosen = chips.find(chip => chip.querySelector('input').checked);
+    const note = body.querySelector('.note-text');
+    return {
+        chips: chips.map(chip => [chip.dataset.representation, chip.querySelector('.seg-label').textContent]),
+        checked: chosen ? chosen.dataset.representation : null,
+        note: note ? note.textContent : null,
+        group: body.querySelector('[role="radiogroup"]').getAttribute('aria-label'),
+        hidden: body.hidden
+    };
+};
+// What each structure shows of the kinds a person can set: its representation, opacity and colour theme (as Mol* has them).
+window.drawn = function () {
+    return loadedStructures().map(structure => ({
+        name: structureName(structure), type: representationType(structure), opacity: structureOpacity(structure),
+        theme: JSON.stringify(colorThemeOf(structure))
+    }));
+};
 """

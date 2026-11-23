@@ -461,7 +461,7 @@ class LayoutTests(PanelTestCase):
         for tab in ("structures", "color", "residue"):
             with self.subTest(tab=tab):
                 self.assertEqual(self.overflowing("#side"), [])
-        # The Color by card's body is as much wider as the panel is, and no wider than that once the handle is let go.
+        # The Colors card's body is as much wider as the panel is, and no wider than that once the handle is let go.
         self.assertEqual(self.script("return document.getElementById('color-body').clientWidth"), narrow + 200)
         self.press("Home")
         self.assertEqual(self.script("return document.getElementById('color-body').clientWidth"), narrow)
