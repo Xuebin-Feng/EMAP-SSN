@@ -457,7 +457,8 @@ class GroupTitleTests(PageTestCase):
 
     def test_the_group_titles_are_written_as_their_texts_are_not_in_capitals(self):
         self.open_with_two()
-        self.assertEqual(self.script(self.GROUP_TITLES), [["Model", "none", "normal", "12px", "600"], ["Layers", "none", "normal", "12px", "600"]])
+        self.assertEqual(self.script(self.GROUP_TITLES), [
+            [title, "none", "normal", "12px", "600"] for title in ("Model", "Properties", "Layers")])
 
     def test_the_group_titles_are_not_in_capitals_in_simplified_chinese_either(self):
         from desktop.Desktop_App import install_translations
@@ -466,9 +467,9 @@ class GroupTitleTests(PageTestCase):
         self.addCleanup(install_translations, self.app, None)
         self.open_with_two()
         titles = self.script(self.GROUP_TITLES)
-        self.assertEqual(len(titles), 2)
+        self.assertEqual(len(titles), 3)
         for text, transform, spacing, size, weight in titles:
-            self.assertTrue(text and text not in ("Model", "Layers"), text)
+            self.assertTrue(text and text not in ("Model", "Properties", "Layers"), text)
             self.assertEqual((transform, spacing, size, weight), ("none", "normal", "12px", "600"))
 
 
