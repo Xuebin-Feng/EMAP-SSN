@@ -39,7 +39,8 @@ function residueOf(loci) {
         number: StructureProperties.residue.auth_seq_id(location),
         name: StructureProperties.atom.label_comp_id(location),
         plddt: StructureProperties.atom.B_iso_or_equiv(location),
-        secondary: secondaryName(StructureProperties.residue.secondary_structure_type(location))
+        secondary: secondaryName(StructureProperties.residue.secondary_structure_type(location)),
+        secondaryKind: secondaryKind(StructureProperties.residue.secondary_structure_type(location))
     };
 }
 
@@ -50,6 +51,25 @@ function secondaryName(flags) {
     if (type.is(flags, type.Flag.Beta)) return t("Strand");
     if (type.is(flags, type.Flag.Turn)) return t("Turn");
     return null;
+}
+
+// Which of the three the residue is in, for the icon beside the word (the word itself is secondaryName's).
+function secondaryKind(flags) {
+    const type = molstar.lib.structure.Types.SecondaryStructureType;
+    if (!flags) return null;
+    if (type.is(flags, type.Flag.Helix)) return 'helix';
+    if (type.is(flags, type.Flag.Beta)) return 'strand';
+    if (type.is(flags, type.Flag.Turn)) return 'turn';
+    return null;
+}
+
+// The secondary structure of a residue as the card and the hover box say it: its icon, then the word, on one line that never breaks
+// (the icon is a picture, aria-hidden; the word is the text a screen reader reads).
+function secondaryLabel(residue) {
+    const label = make('span', 'ss-label');
+    if (residue.secondaryKind) label.append(icon('ss-' + residue.secondaryKind));
+    label.append(residue.secondary);
+    return label;
 }
 
 function residueTitle(residue) {
@@ -181,7 +201,7 @@ async function showTip(residue) {
         const entry = layerEntry(structure, layerId);
         table.append(tipRow(entry?.label ?? layerId, row ? roundedValue(row.value) + (entry?.unit ? ' ' + entry.unit : '') : t("No data")));
     }
-    if (residue.secondary) table.append(tipRow(t("Secondary structure"), residue.secondary));
+    if (residue.secondary) table.append(tipRow(t("Secondary structure"), secondaryLabel(residue)));
     const parts = [head, table];
     if (sameResidue(pinnedResidue, residue)) {
         const note = make('div', 'pinned-note', t("Pinned. Escape clears it."));
@@ -317,6 +337,21 @@ function cell(tag, text, className) {
     return make(tag, className, text);
 }
 
+// Zoom to and Clear are in the card's title row, always there, and on only while a residue is pinned (a hovered one is not a choice
+// yet). Off, they are aria-disabled, as the toolbar's Zoom is: greyed out, ignoring a press, and still reachable by the keyboard so
+// that the tooltip can be read. They are never drawn again with the card, so the focus stays on the one it is on, Clear included.
+function refreshResidueButtons() {
+    const on = !!pinnedResidue;
+    for (const id of ['residue-zoom', 'residue-clear']) byId(id).setAttribute('aria-disabled', on ? 'false' : 'true');
+}
+
+byId('residue-zoom').addEventListener('click', () => {
+    if (pinnedResidue && byId('residue-zoom').getAttribute('aria-disabled') !== 'true') zoomToResidue(pinnedResidue);
+});
+byId('residue-clear').addEventListener('click', () => {
+    if (byId('residue-clear').getAttribute('aria-disabled') !== 'true') clearPin();
+});
+
 async function renderResidueCard() {
     if (!plugin) return;
     const renderId = ++residueRenderId;
@@ -325,10 +360,8 @@ async function renderResidueCard() {
     if (!residue || !structureByRef(residue.ref)) {
         if (pinnedResidue && !structureByRef(pinnedResidue.ref)) pinnedResidue = null;
         const hint = make('div', 'hint', t("Hover a residue to see its values here. Click it to pin it; Escape clears the pin."));
-        // The card's buttons go with the residue (its Clear, pressed): the focus goes to the card's heading.
-        const place = focusPlace(body);
         body.replaceChildren(hint);
-        restoreFocus(body, place, byId('h-residue'));
+        refreshResidueButtons();
         refreshSequenceMarks();
         refreshTools();
         return;
@@ -336,14 +369,12 @@ async function renderResidueCard() {
     const { rows, layerLabel } = await residueRows(residue);
     if (renderId !== residueRenderId) return;
     const head = make('div', 'res-head');
-    const title = make('div', undefined, residueTitle(residue));
+    // The residue and the structure's name give way (the name breaks, anywhere); the secondary structure beside them does not.
+    const title = make('div', 'res-title', residueTitle(residue));
     const where = make('span', undefined, t("chain {chain} · {name}", {chain: residue.chain, name: structureName(structureByRef(residue.ref))}));
     title.append(' ', where);
     head.append(title);
-    if (residue.secondary) {
-        const secondary = make('span', undefined, residue.secondary);
-        head.append(secondary);
-    }
+    if (residue.secondary) head.append(secondaryLabel(residue));
     const table = make('table', 'res-table');
     const header = make('tr');
     // A layer's name may take two lines in its header (it is the data's, and as long as the data says); every value is one line.
@@ -380,22 +411,8 @@ async function renderResidueCard() {
         const caution = make('div', 'res-note', t("{names}: the number is the file's B-factor, which is not confidence in an experimental structure.", {names: opened.join(', ')}));
         parts.push(caution);
     }
-    const foot = make('div', 'res-foot');
-    const zoom = focusable(make('button', 'btn btn-sm', t("Zoom to")), 'residue:zoom');
-    zoom.type = 'button';
-    zoom.addEventListener('click', () => zoomToResidue(residue));
-    foot.append(zoom);
-    if (pinnedResidue) {
-        const clear = focusable(make('button', 'btn btn-sm', t("Clear")), 'residue:clear');
-        clear.type = 'button';
-        clear.addEventListener('click', clearPin);
-        foot.append(clear);
-    }
-    parts.push(foot);
-    // The card is drawn again whenever the structures are: the focus stays on the button it was on, or goes to the heading if that went.
-    const place = focusPlace(body);
     body.replaceChildren(...parts);
-    restoreFocus(body, place, byId('h-residue'));
+    refreshResidueButtons();
     refreshSequenceMarks();
     refreshTools();
 }

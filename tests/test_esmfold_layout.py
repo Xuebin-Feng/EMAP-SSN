@@ -727,7 +727,7 @@ class ChipLayoutTests(LongNameTestCase):
             "#struct-list .srow:nth-child(2) .srow-main button:last-child", "#struct-list .srow:nth-child(1) .srow-body select",
             "#struct-list .srow:nth-child(1) .srow-body input[type=range]", "#struct-list .srow:nth-child(1) .kv",
             "#color-body .seg", "#residue-body .res-head", "#residue-body .res-table", "#residue-body .res-table th:nth-child(2)",
-            "#residue-body .res-note", "#residue-body .res-foot",
+            "#residue-body .res-note", "#residue-zoom", "#residue-clear",
         ]
         self.js("window.edges = selectors => Object.fromEntries(selectors.map(s => { const r = document.querySelector(s).getBoundingClientRect(); return [s, [r.left, r.right]]; }))")
         self.fit_height(1300, colorings=("builtin:structure", "plddt"))

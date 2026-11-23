@@ -13,6 +13,7 @@ pointer over a real canvas.
 """
 
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -26,7 +27,8 @@ for folder in (SRC, ROOT):
 from tests import esmfold_layer_fixtures as fixtures
 from tests.test_esmfold_colors import A, B, C, ColorTestCase
 
-from PySide6.QtCore import QUrl  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtCore import Qt, QUrl  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtTest import QTest  # noqa: E402
 
 # Mol*'s pointer events: the loci of the residue `group` (from 0) of a structure, as the representation gives them.
 POINTER = """
@@ -62,7 +64,7 @@ window.residueNow = function () {
             secondary: (body.querySelector('.res-head > span') || {}).textContent ?? null,
             header: [...body.querySelectorAll('th')].map(c => c.textContent),
             rows: [...body.querySelectorAll('tr')].slice(1).map(row => [...row.children].map(c => c.textContent)),
-            buttons: [...body.querySelectorAll('.res-foot button')].map(b => b.textContent),
+            buttons: [...document.querySelectorAll('#residue-zoom, #residue-clear')].map(b => [b.id, b.getAttribute('aria-label'), b.getAttribute('aria-disabled')]),
             hint: (body.querySelector('.hint') || {}).textContent ?? null};
 };
 """
@@ -226,6 +228,7 @@ class PinTests(ResidueTestCase):
         self.open_scene(A, B, C)
         empty = self.script("return residueNow()")
         self.assertIn("Hover a residue", empty["hint"])
+        self.assertEqual([button[2] for button in empty["buttons"]], ["true", "true"])
         self.script("await clickOn(0, 5); return 1")
         card = self.script("return residueNow()")
         self.assertEqual((card["head"], card["where"]), ("Ile 6", "chain A · 11"))
@@ -237,7 +240,7 @@ class PinTests(ResidueTestCase):
         for row in card["rows"][1:]:
             self.assertEqual(row[1], self.plddt(5))
             self.assertLess(float(row[2]), 3.0)
-        self.assertEqual(card["buttons"], ["Zoom to", "Clear"])
+        self.assertEqual(card["buttons"], [["residue-zoom", "Zoom to the pinned residue", "false"], ["residue-clear", "Clear", "false"]])
         # Mol*'s selection marks the pinned residue.
         self.assertGreater(self.script("return plugin.managers.structure.selection.stats.elementCount"), 0)
         # Colored by a layer, a column of its values joins, and a structure with none says so.
@@ -253,34 +256,34 @@ class PinTests(ResidueTestCase):
         self.assertEqual(self.script("return residueNow().head"), "Ile 6")
         self.assertIsNone(self.script("return tipNow().pinned"))
         # Clear lets go, and the mark with it.
-        self.script("document.querySelector('#residue-body .res-foot button:last-child').click(); await new Promise(r => setTimeout(r, 300)); return 1")
+        self.script("document.getElementById('residue-clear').click(); await new Promise(r => setTimeout(r, 300)); return 1")
         self.assertIsNone(self.script("return pinnedResidue"))
         self.assertEqual(self.script("return plugin.managers.structure.selection.stats.elementCount"), 0)
         self.assertEqual(self.console_errors(), [])
 
-    def test_the_cards_buttons_keep_the_focus_as_it_is_drawn_again_and_clear_gives_it_to_the_heading(self):
+    def test_the_cards_buttons_are_not_drawn_again_with_the_card_so_the_focus_stays_on_them_clear_included(self):
         self.write_with(A, "information_content")
         self.write_with(B, "information_content", shift=(3.0, 1.0, 0.0), wobble=0.4)
         self.open_scene(A, B)
         self.script("await clickOn(0, 5); return 1")
-        focus = "return {key: document.activeElement.dataset.focusKey || document.activeElement.id, text: document.activeElement.textContent.trim()}"
-        # The card is drawn again whenever the structures are (here, as any change does it): Zoom to keeps the focus.
+        focus = "return document.activeElement.id"
+        # The card is drawn again whenever the structures are (here, as any change does it): Zoom keeps the focus.
         self.script("""
-            document.querySelector('#residue-body [data-focus-key="residue:zoom"]').focus();
+            document.getElementById('residue-zoom').focus();
             renderStructures();
             await new Promise(resolve => setTimeout(resolve, 400));
             return 1;""")
-        self.assertEqual(self.script(focus), {"key": "residue:zoom", "text": "Zoom to"})
-        self.assertEqual(self.script("return residueNow().buttons"), ["Zoom to", "Clear"])
-        # Clear lets go of the pin and goes with it: the focus goes to the card's heading, not to the page.
+        self.assertEqual(self.script(focus), "residue-zoom")
+        # Clear lets go of the pin and stays, greyed out: the focus is still on it, not on the page.
         self.script("""
-            const clear = document.querySelector('#residue-body [data-focus-key="residue:clear"]');
+            const clear = document.getElementById('residue-clear');
             clear.focus();
             clear.click();
             await new Promise(resolve => setTimeout(resolve, 400));
             return 1;""")
         self.assertIsNone(self.script("return pinnedResidue"))
-        self.assertEqual(self.script(focus), {"key": "h-residue", "text": "Residue"})
+        self.assertEqual(self.script(focus), "residue-clear")
+        self.assertEqual(self.script("return residueNow().buttons.map(b => b[2])"), ["true", "true"])
         self.assertEqual(self.console_errors(), [])
 
     def test_the_card_follows_the_hover_until_something_is_pinned(self):
@@ -350,7 +353,7 @@ class FocusTests(ResidueTestCase):
             if way == "escape":
                 self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
             elif way == "clear":
-                self.script("document.querySelector('#residue-body .res-foot button:last-child').click(); return 1")
+                self.script("document.getElementById('residue-clear').click(); return 1")
             elif way == "nothing":
                 self.script("await clickOn(null); return 1")
             else:
@@ -552,6 +555,179 @@ class ResidueTableLayoutTests(ResidueTestCase):
         # The layer's name is translated, and a name with no spaces stays on one line, whole, as a Latin word does.
         self.assertEqual(layout["header"][2]["text"], "残基一致率")
         self.assert_laid_out(layout, "zh_CN", self.NAMES, True, 1)
+
+
+class ResidueButtonTests(ResidueTestCase):
+    """Zoom to and Clear are icon buttons in the Residue card's title row, on only while a residue is pinned."""
+
+    LONG = "A_very_long_structure_name_that_has_no_spaces_to_break_at_and_goes_on_and_on_for_a_good_while"
+
+    def open_two(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, "information_content", shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+
+    def buttons(self):
+        return self.script("""
+            const head = document.querySelector('.sec-head:has(#h-residue)').getBoundingClientRect();
+            const rect = id => { const r = document.getElementById(id).getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom]; };
+            const title = document.getElementById('h-residue').getBoundingClientRect();
+            return {state: [...document.querySelectorAll('#residue-zoom, #residue-clear')].map(b => b.getAttribute('aria-disabled')),
+                    inRow: ['residue-zoom', 'residue-clear'].every(id => document.getElementById(id).closest('.sec-head') === document.querySelector('.sec-head:has(#h-residue)')),
+                    names: ['residue-zoom', 'residue-clear'].map(id => [document.getElementById(id).title, document.getElementById(id).getAttribute('aria-label'),
+                        document.getElementById(id).querySelector('use').getAttribute('href'), document.getElementById(id).textContent.trim()]),
+                    head: [head.left, head.right, head.top, head.bottom], title: [title.left, title.right, title.top, title.bottom],
+                    zoom: rect('residue-zoom'), clear: rect('residue-clear'),
+                    foot: document.querySelectorAll('.res-foot').length,
+                    look: ['residue-zoom', 'residue-clear'].map(id => getComputedStyle(document.getElementById(id)).opacity),
+                    reachable: ['residue-zoom', 'residue-clear'].map(id => { const b = document.getElementById(id); b.focus(); return document.activeElement === b; })};
+            """)
+
+    def test_they_are_in_the_title_row_at_its_right_greyed_out_with_nothing_shown_or_only_a_hovered_residue(self):
+        self.open_two()
+        found = self.buttons()
+        self.assertEqual(found["state"], ["true", "true"])
+        self.assertEqual(found["names"], [["Zoom to the pinned residue", "Zoom to the pinned residue", "#i-crosshair", ""], ["Clear", "Clear", "#i-x", ""]])
+        self.assertTrue(found["inRow"])
+        self.assertEqual(found["foot"], 0)
+        self.assertEqual(found["look"], ["0.4", "0.4"])
+        self.assertEqual(found["reachable"], [True, True])
+        # In the row: beside the heading (not under it), at the right of the card's head.
+        self.assertGreaterEqual(found["zoom"][0], found["title"][1] - 0.5)
+        self.assertLessEqual(found["clear"][1], found["head"][1] + 0.5)
+        self.assertLess(found["zoom"][1], found["clear"][0] + 0.5)
+        self.assertLess(abs((found["zoom"][2] + found["zoom"][3]) - (found["title"][2] + found["title"][3])), 6)
+        # A hovered residue fills the card, and is not a choice yet: both stay off, and a press does nothing.
+        self.script("await hoverOn(0, 5); window.__calls = []; const real = plugin.managers.camera.focusLoci; plugin.managers.camera.focusLoci = (...a) => window.__calls.push(1); return 1")
+        self.assertIn("Ile 6", self.script("return residueNow().head"))
+        self.assertEqual(self.buttons()["state"], ["true", "true"])
+        self.script("document.getElementById('residue-zoom').click(); document.getElementById('residue-clear').click(); return 1")
+        self.assertEqual(self.script("return window.__calls"), [])
+        self.assertIn("Ile 6", self.script("return residueNow().head"))
+
+    def test_with_a_pinned_residue_both_are_on_and_each_does_its_job(self):
+        self.open_two()
+        self.script("await clickOn(0, 5); window.__calls = []; plugin.managers.camera.focusLoci = (...a) => window.__calls.push(1); return 1")
+        found = self.buttons()
+        self.assertEqual(found["state"], ["false", "false"])
+        self.assertEqual(found["look"], ["1", "1"])
+        self.script("document.getElementById('residue-zoom').click(); return 1")
+        self.assertEqual(self.script("return window.__calls"), [1])
+        self.assertEqual(self.script("return pinnedResidue.number"), 6)
+        self.script("document.getElementById('residue-clear').click(); await new Promise(r => setTimeout(r, 300)); return 1")
+        self.assertIsNone(self.script("return pinnedResidue"))
+        self.assertEqual(self.buttons()["state"], ["true", "true"])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_they_work_from_the_keyboard_and_the_focus_is_never_lost_to_the_page(self):
+        self.open_two()
+        widget = self.view.focusProxy() or self.view
+        self.script("await clickOn(0, 5); document.getElementById('residue-clear').focus(); return 1")
+        QTest.keyClick(widget, Qt.Key_Return)
+        self.pump(0.4)
+        self.assertIsNone(self.script("return pinnedResidue"))
+        self.assertEqual(self.script("return document.activeElement.id"), "residue-clear")
+
+    def test_they_are_in_the_title_row_in_the_drawer_layout_and_in_the_strip_of_a_phone(self):
+        self.open_two()
+        self.script("await clickOn(0, 5); return 1")
+        for width, tab in ((900, None), (600, "residue")):
+            with self.subTest(width=width):
+                self.view.resize(width, 800)
+                self.addCleanup(self.view.resize, 1300, 800)
+                self.settle(300)
+                self.script("setPanel(true); %s return 1" % ("setTab('%s');" % tab if tab else ""))
+                self.settle(300)
+                found = self.buttons()
+                self.assertTrue(found["inRow"])
+                for key in ("zoom", "clear"):
+                    box = found[key]
+                    self.assertGreater(box[1] - box[0], 20)
+                    self.assertGreaterEqual(box[0], found["head"][0] - 0.5)
+                    self.assertLessEqual(box[1], found["head"][1] + 0.5)
+                    self.assertLessEqual(box[3], found["head"][3] + 0.5)
+                    # One row with the heading.
+                    self.assertLess(abs((box[2] + box[3]) - (found["title"][2] + found["title"][3])), 6)
+
+    THREE = {"A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS", "Q": "GLN", "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE", "L": "LEU",
+             "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO", "S": "SER", "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL"}
+
+    def write_with_secondary(self, name):
+        """The fixture structure with a HELIX record over residues 1 to 11 and a SHEET record over 15 to 20 (it has none of its own)."""
+        self.write_with(name, "information_content")
+        path = os.path.join(self.directory, name)
+        with open(path, encoding="utf-8") as stream:
+            text = stream.read()
+        word = lambda number: self.THREE[fixtures.FIRST_SEQUENCE[number - 1]]
+        helix = "HELIX  %3d %3s %3s %1s %4d  %3s %1s %4d  %2d%30s %5d" % (1, "H1", word(1), "A", 1, word(11), "A", 11, 1, "", 11)
+        sheet = "SHEET  %3d %3s%2d %3s %1s%4d  %3s %1s%4d  %2d" % (1, "S1", 1, word(15), "A", 15, word(20), "A", 20, 0)
+        with open(path, "w", encoding="utf-8", newline="") as stream:
+            stream.write(helix + chr(10) + sheet + chr(10) + text)
+
+    def pin_with_name(self, name, number=6):
+        self.write_with_secondary(name)
+        self.open_scene(name)
+        self.script("await clickOn(0, %d); return 1" % (number - 1))
+
+    def test_the_secondary_structure_is_an_icon_and_a_word_on_one_line_that_the_name_gives_way_to(self):
+        for language in ("en", "zh_CN"):
+            with self.subTest(language=language):
+                if language != "en":
+                    from desktop.Desktop_App import install_translations
+
+                    install_translations(self.app, language)
+                    self.addCleanup(install_translations, self.app, None)
+                widths = []
+                for name in ("A.pdb", self.LONG + ".pdb"):
+                    self.pin_with_name(name)
+                    found = self.script("""
+                        const label = document.querySelector('#residue-body .res-head .ss-label');
+                        if (!label) return null;
+                        const range = document.createRange(); range.selectNodeContents(label.lastChild);
+                        const title = document.querySelector('#residue-body .res-title');
+                        const panel = document.getElementById('side').getBoundingClientRect().width;
+                        return {text: label.textContent, lines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size,
+                                width: label.getBoundingClientRect().width, icon: label.querySelector('svg use').getAttribute('href'),
+                                hidden: label.querySelector('svg').getAttribute('aria-hidden'), panel, nameLines: Math.round(title.getBoundingClientRect().height / 17),
+                                shrink: getComputedStyle(label).flexShrink, wrap: getComputedStyle(label).whiteSpace,
+                                inside: label.getBoundingClientRect().right <= document.getElementById('residue-body').getBoundingClientRect().right + 0.5};
+                        """)
+                    self.assertIsNotNone(found, "the fixture has no secondary structure for this residue")
+                    self.assertEqual((found["lines"], found["shrink"], found["wrap"], found["hidden"], found["inside"]), (1, "0", "nowrap", "true", True), found)
+                    self.assertEqual(found["panel"], 340)
+                    widths.append((found["width"], found["nameLines"]))
+                # The word is as wide with a long name as with a short one, and the name is what took more lines.
+                self.assertEqual(widths[0][0], widths[1][0])
+                self.assertGreater(widths[1][1], widths[0][1])
+
+    def test_each_kind_has_its_own_icon_before_its_word_in_the_card_and_the_hover_box(self):
+        self.write_with_secondary(A)
+        self.open_scene(A)
+        found = self.script("""
+            const kinds = {helix: 'Helix', strand: 'Strand', turn: 'Turn'};
+            const out = {};
+            for (const [kind, word] of Object.entries(kinds)) {
+                const label = secondaryLabel({secondary: word, secondaryKind: kind});
+                out[kind] = [label.querySelector('use').getAttribute('href'), label.textContent, label.firstChild.getAttribute('aria-hidden')];
+            }
+            const flags = molstar.lib.structure.Types.SecondaryStructureType.Flag;
+            out.kinds = [secondaryKind(flags.Helix), secondaryKind(flags.Beta), secondaryKind(flags.Turn), secondaryKind(0)];
+            out.symbols = ['i-ss-helix', 'i-ss-strand', 'i-ss-turn'].map(id => !!document.getElementById(id));
+            return out;
+            """)
+        self.assertEqual(found["helix"], ["#i-ss-helix", "Helix", "true"])
+        self.assertEqual(found["strand"], ["#i-ss-strand", "Strand", "true"])
+        self.assertEqual(found["turn"], ["#i-ss-turn", "Turn", "true"])
+        self.assertEqual(found["kinds"], ["helix", "strand", "turn", None])
+        self.assertEqual(found["symbols"], [True, True, True])
+        # The hover box says it in the same way, in its Secondary structure row (residue 6 is in the helix, residue 17 in the strand).
+        self.script("await hoverOn(0, 5); return 1")
+        row = self.script("const cell = [...document.querySelectorAll('#tip tr')].find(r => r.children[0].textContent === 'Secondary structure'); return cell ? [cell.children[1].querySelector('svg use').getAttribute('href'), cell.children[1].textContent] : null")
+        self.assertIsNotNone(row)
+        self.assertEqual(row, ["#i-ss-helix", "Helix"])
+        self.script("await hoverOn(0, 16); return 1")
+        row = self.script("const cell = [...document.querySelectorAll('#tip tr')].find(r => r.children[0].textContent === 'Secondary structure'); return cell ? [cell.children[1].querySelector('svg use').getAttribute('href'), cell.children[1].textContent] : null")
+        self.assertEqual(row, ["#i-ss-strand", "Strand"])
 
 
 if __name__ == "__main__":
