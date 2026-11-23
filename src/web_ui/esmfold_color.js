@@ -840,8 +840,11 @@ function renderRepresentationBody(model) {
         const box = make('div', 'legend rep-note');
         const note = make('div', 'src');
         const row = make('div', 'note-row');
-        row.append(icon("info"), make('span', 'note-text', model.rep ? representationNotes()[model.rep]
-            : t("The structures are drawn in different ways. Choose one here for all of them, or set each in its row.")));
+        const words = model.rep ? representationNotes()[model.rep]
+            : t("The structures are drawn in different ways. Choose one here for all of them, or set each in its row.");
+        const info = icon("info");
+        const line = make('span', 'note-text', words);
+        row.append(info, line);
         note.append(row);
         box.append(note);
         nodes.push(box);

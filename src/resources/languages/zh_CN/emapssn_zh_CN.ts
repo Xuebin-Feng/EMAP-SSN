@@ -3414,7 +3414,7 @@ Command-line usage:
         <translation type="unfinished">无数据：{names}。此图层对它们没有数值。</translation>
     </message>
     <message>
-        <location line="+318"/>
+        <location line="+321"/>
         <source>The chain as a ribbon: helices as coils, strands as arrows.</source>
         <translation type="unfinished">链以飘带形式显示：螺旋为线圈，β 链为箭头。</translation>
     </message>
@@ -3439,7 +3439,7 @@ Command-line usage:
         <translation type="unfinished">仅显示骨架，为一根连接各残基的细管。</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+41"/>
         <source>The structures are drawn in different ways. Choose one here for all of them, or set each in its row.</source>
         <translation type="unfinished">各结构的绘制方式不同。可在此为全部结构选择一种，也可在各自的行中分别设置。</translation>
     </message>
@@ -3452,24 +3452,24 @@ Command-line usage:
         <translation type="obsolete">模型</translation>
     </message>
     <message>
-        <location line="-153"/>
+        <location line="-156"/>
         <location line="+3"/>
         <source>Properties</source>
         <translation type="unfinished">性质</translation>
     </message>
     <message>
-        <location line="-11"/>
+        <location line="-13"/>
         <source>Layers</source>
         <translation type="unfinished">图层</translation>
     </message>
     <message>
-        <location line="-68"/>
+        <location line="-69"/>
         <location line="+1"/>
         <source>Filter layers</source>
         <translation type="unfinished">筛选图层</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>{n} of {total}</source>
         <translation type="unfinished">{total} 个中的 {n} 个</translation>
     </message>
@@ -3480,12 +3480,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../../../web_ui/esmfold.html" line="+1055"/>
+        <location filename="../../../web_ui/esmfold.html" line="+1060"/>
         <source>Colors</source>
         <translation type="unfinished">颜色</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+26"/>
         <source>Layers such as conservation need an alignment: fold with one loaded in the Viewer.</source>
         <translation type="unfinished">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
     </message>
@@ -3769,7 +3769,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location line="-707"/>
+        <location line="-710"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -3993,8 +3993,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-915"/>
-        <location line="+910"/>
+        <location filename="../../../web_ui/esmfold.html" line="-920"/>
+        <location line="+915"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
