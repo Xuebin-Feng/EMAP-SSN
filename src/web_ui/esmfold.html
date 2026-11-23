@@ -465,7 +465,9 @@
         .seg-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
         .seg-label::after { content: attr(data-text); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
         .seg.scroll { max-height: 188px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px; margin: -2px; }
-        .group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); margin: 10px 0 6px; }
+        /* The small titles of a group (the Color by card's "Model" and "Layers", the headings of the help dialog) are written as the
+           texts are, with a capital at the start only, in the same size, weight and colour. */
+        .group-label { font-size: 12px; font-weight: 600; color: var(--text-subtle); margin: 10px 0 6px; }
         .group-label:first-child { margin-top: 0; }
         .more-toggle { display: flex; align-items: center; gap: 4px; margin-top: 10px; background: none; border: 0; padding: 2px 4px 2px 0; color: var(--text-secondary); font-size: 12px; cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
         .more-toggle:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
@@ -735,7 +737,7 @@
         .modal-overlay::backdrop { background: var(--overlay); overflow: hidden; overscroll-behavior: contain; }
         .modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-card); box-shadow: var(--shadow-dialog); width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 18px 20px 16px; }
         .modal h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
-        .modal h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); }
+        .modal h4 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; color: var(--text-subtle); }
         .modal p { margin: 0 0 8px; color: var(--text-secondary); line-height: 1.55; }
         .modal table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
         .modal td { padding: 4px 0; border-top: 1px solid var(--border-color); color: var(--text-secondary); }

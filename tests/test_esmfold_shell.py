@@ -444,8 +444,50 @@ class ShellTests(PageTestCase):
         self.assertFalse(self.js(banner))
 
 
+class GroupTitleTests(PageTestCase):
+    FIRST, SECOND = ShellTests.FIRST, ShellTests.SECOND
+    write = ShellTests.write
+    open_with_two = ShellTests.open_with_two
+
+    GROUP_TITLES = """
+        return [...document.querySelectorAll('#color-body .group-label')].map(n => {
+            const s = getComputedStyle(n);
+            return [n.textContent, s.textTransform, s.letterSpacing, s.fontSize, s.fontWeight];
+        });"""
+
+    def test_the_group_titles_are_written_as_their_texts_are_not_in_capitals(self):
+        self.open_with_two()
+        self.assertEqual(self.script(self.GROUP_TITLES), [["Model", "none", "normal", "12px", "600"], ["Layers", "none", "normal", "12px", "600"]])
+
+    def test_the_group_titles_are_not_in_capitals_in_simplified_chinese_either(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_with_two()
+        titles = self.script(self.GROUP_TITLES)
+        self.assertEqual(len(titles), 2)
+        for text, transform, spacing, size, weight in titles:
+            self.assertTrue(text and text not in ("Model", "Layers"), text)
+            self.assertEqual((transform, spacing, size, weight), ("none", "normal", "12px", "600"))
+
+
 class DialogTests(PageTestCase):
     """Help, the question before Clear scene and Save an image are <dialog>s opened with showModal(): the page under one is inert."""
+
+    def test_the_small_headings_of_the_dialogs_are_not_in_capitals_and_nothing_on_the_page_is(self):
+        self.open_page()
+        found = self.script("""
+            const dialogs = [...document.querySelectorAll('dialog')].map(dialog => ({
+                id: dialog.id, headings: [...dialog.querySelectorAll('h4')].map(h => [h.textContent, getComputedStyle(h).textTransform,
+                    getComputedStyle(h).letterSpacing, getComputedStyle(h).fontSize, getComputedStyle(h).fontWeight])}));
+            const capitals = [...document.querySelectorAll('body *')].filter(n => getComputedStyle(n).textTransform !== 'none').map(n => n.className || n.tagName);
+            return {dialogs: dialogs.filter(d => d.headings.length), capitals};
+            """)
+        # Only the help dialog has such headings, and each is written as its text is, with the look of the Color by card's group titles.
+        self.assertEqual(found["dialogs"], [{"id": "help-modal", "headings": [
+            [name, "none", "normal", "12px", "600"] for name in ("Mouse", "Keyboard", "Advanced")]}])
+        self.assertEqual(found["capitals"], [])
 
     # (the dialog, what opens it, the control that has the focus then, and the control that opened it)
     DIALOGS = (
