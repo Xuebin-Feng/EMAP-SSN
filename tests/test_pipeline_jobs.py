@@ -532,6 +532,7 @@ class WatchedToolFailureMessageTests(unittest.TestCase):
 
     WATCHED = str(SRC_DIR / "tools" / "Embedding_MSA.py")
     UNWATCHED = str(SRC_DIR / "tools" / "Sanitize_Sequences.py")
+    ABORTED = 128 + signal.SIGABRT.value  # what the watching parent ends with after SIGABRT (134 on POSIX)
 
     def setUp(self):
         patcher = mock.patch.dict(os.environ)
@@ -553,7 +554,7 @@ class WatchedToolFailureMessageTests(unittest.TestCase):
                          f"The pipeline process was ended by signal {signal.SIGSEGV.value} (SIGSEGV).")
 
     def test_an_unwatched_tool_with_the_same_code_says_the_code(self):
-        self.assertEqual(self.message(self.UNWATCHED, 134), "The pipeline process exited with code 134.")
+        self.assertEqual(self.message(self.UNWATCHED, self.ABORTED), f"The pipeline process exited with code {self.ABORTED}.")
 
     def test_a_watched_tool_with_an_ordinary_code_says_the_code(self):
         for code in (1, 2, 128):
@@ -565,18 +566,19 @@ class WatchedToolFailureMessageTests(unittest.TestCase):
                          f"The pipeline process was ended by signal {signal.SIGTERM.value} (SIGTERM).")
         self.assertEqual(self.message(self.UNWATCHED, -signal.SIGABRT.value),
                          f"The pipeline process was ended by signal {signal.SIGABRT.value} (SIGABRT).")
-        self.assertEqual(self.message(self.WATCHED, 137), "The pipeline process exited with code 137.")
+        stopped = 128 + signal.SIGTERM.value  # a stop signal is mirrored by the parent, never turned into a code
+        self.assertEqual(self.message(self.WATCHED, stopped), f"The pipeline process exited with code {stopped}.")
 
     def test_windows_is_unchanged(self):
-        self.assertEqual(self.message(self.WATCHED, 134, "win32"), "The pipeline process exited with code 134.")
+        self.assertEqual(self.message(self.WATCHED, self.ABORTED, "win32"), f"The pipeline process exited with code {self.ABORTED}.")
 
     def test_the_off_switch_leaves_the_code(self):
         os.environ["SSN_TOOL_SUPERVISOR"] = "0"
-        self.assertEqual(self.message(self.WATCHED, 134), "The pipeline process exited with code 134.")
+        self.assertEqual(self.message(self.WATCHED, self.ABORTED), f"The pipeline process exited with code {self.ABORTED}.")
 
     def test_the_benchmark_message_is_unchanged_by_a_128_plus_code(self):
-        self.assertIn("exited with code 134",
-                      Pipeline_Jobs._benchmark_failure({"stages": []}, 134, "linux"))
+        self.assertIn(f"exited with code {self.ABORTED}",
+                      Pipeline_Jobs._benchmark_failure({"stages": []}, self.ABORTED, "linux"))
 
 
 if __name__ == "__main__":
