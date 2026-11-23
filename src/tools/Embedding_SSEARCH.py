@@ -996,6 +996,23 @@ def _execute_search_plan(
         Hardware_Utils.synchronize_device(candidate)
     if variant == "tiled":
         progress = tqdm(total=len(tasks), desc="Search (tiled CUDA)") if show_progress else None
+        first = tasks[0]
+        mode, gap, norm_mode, query_seq, sim_mat = first[4], first[5], first[6], first[7], first[9]
+        gpu_search_config = None
+        if all(
+            (t[4], t[5], t[6], t[9]) == (mode, gap, norm_mode, sim_mat) and t[7] == query_seq
+            for t in tasks
+        ):
+            gpu_search_config = {
+                "mode": mode,
+                "gap": gap,
+                "norm_mode": norm_mode,
+                "query_codes": encode_identity_residues(query_seq, QUERY_UNMATCHED_CODE),
+                "similar_table": similar_pair_table(sim_mat),
+                "encode_target_fn": lambda t, _L: encode_identity_residues(t[8], TARGET_UNMATCHED_CODE),
+                "make_row_fn": _search_row,
+                "mismatched_error_fn": _mismatched_matrix_error,
+            }
         try:
             return run_fixed_query_cuda_pipeline(
                 tasks,
@@ -1009,6 +1026,7 @@ def _execute_search_plan(
                 precision=precision,
                 progress=progress,
                 timing=timing,
+                gpu_search_config=gpu_search_config,
             )
         finally:
             if progress is not None:

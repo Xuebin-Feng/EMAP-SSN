@@ -92,6 +92,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
+from utilities import Align_GPU_Kernels
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
 # global_local_scores is the reference kernel the per-pair path is checked against.
@@ -107,6 +108,7 @@ from Embedding_Alignment_Engine import (
     EmbeddingTileStore,
     bf16_accelerator_support,
     bf16_validation_notice,
+    build_adaptive_tile_plans,
     compare_bf16_precision_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
@@ -736,6 +738,7 @@ def _execute_injection_plan(
             batch_alignment_callback=calculate_alignment_batch,
             precision=matmul_precision,
             benchmark_trial=benchmark_trial,
+            gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
         )
     return _run_accelerated_pipeline(
         tasks, workers, input_h5, candidate.device, batch_id, lanes,
@@ -1153,23 +1156,58 @@ def _benchmark_injection_plans(
                 compute_element_bytes=precision_element_bytes(matmul_precision),
             )
             memory_info = (memory.free_bytes, memory.total_bytes)
+        real_store = isinstance(store, EmbeddingTileStore)
+        fused_gpu = (
+            real_store
+            and candidate.backend == "cuda"
+            and "tiled" in variants
+            and Align_GPU_Kernels.align_kernels(candidate.device) is not None
+        )
+        if fused_gpu and "tiled" in variants and "scalar" in variants:
+            variants = ["tiled"] + [v for v in variants if v != "tiled"]
+
         estimates = {}
+        variant_lanes = {}
         for variant in variants:
-            for lanes in lane_candidates:
-                estimates[variant, lanes] = (
-                    estimate_cuda_working_set(
-                        sample, store=store, lengths=lengths,
-                        device=candidate.device, lanes=lanes, variant=variant,
+            if variant == "tiled" and fused_gpu:
+                v_lanes = [l for l in lane_candidates if l <= 2] or [lane_candidates[0]]
+                variant_lanes[variant] = v_lanes
+                if memory_info is not None:
+                    fused_plans = build_adaptive_tile_plans(
+                        sample,
+                        store=store,
+                        lengths=lengths,
+                        device=candidate.device,
+                        lane_candidates=v_lanes,
                         memory_info=memory_info,
                         compute_element_bytes=precision_element_bytes(matmul_precision),
-                    ) if memory_info is not None else None
-                )
+                        fused_gpu=True,
+                    )
+                    by_lanes = {p.lanes: p.estimate for p in fused_plans}
+                    for lanes in v_lanes:
+                        estimates[variant, lanes] = by_lanes.get(lanes)
+                else:
+                    for lanes in v_lanes:
+                        estimates[variant, lanes] = None
+            else:
+                variant_lanes[variant] = lane_candidates
+                for lanes in lane_candidates:
+                    estimates[variant, lanes] = (
+                        estimate_cuda_working_set(
+                            sample, store=store, lengths=lengths,
+                            device=candidate.device, lanes=lanes, variant=variant,
+                            memory_info=memory_info,
+                            compute_element_bytes=precision_element_bytes(matmul_precision),
+                        ) if memory_info is not None else None
+                    )
         feasible_count = sum(e is None or e.feasible for e in estimates.values())
         print(f"[Hardware] {candidate.display_name}: {feasible_count} feasible configurations.")
+        best_tiled_rate = 0.0
         for variant in variants:
-            for lanes in lane_candidates:
+            prev_scalar_rate = None
+            for lanes in variant_lanes[variant]:
                 vram = "--"
-                if memory_info is not None:
+                if memory_info is not None and estimates[variant, lanes] is not None:
                     estimate = estimates[variant, lanes]
                     vram = (
                         f"{estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
@@ -1184,6 +1222,7 @@ def _benchmark_injection_plans(
                         continue
                 free_memory = Hardware_Utils.begin_gpu_trial(candidate)
                 trial = BenchmarkTrial()
+                rate = None
                 try:
                     _execute_injection_plan(
                         (candidate, variant, lanes), sample, workers, input_h5,
@@ -1191,6 +1230,8 @@ def _benchmark_injection_plans(
                         benchmark_trial=trial,
                     )
                     rate = trial.rate
+                    if variant == "tiled" and rate > best_tiled_rate:
+                        best_tiled_rate = rate
                     results.append(
                         Hardware_Utils.BenchmarkResult(
                             candidate, rate, lanes=lanes, variant=variant
@@ -1213,6 +1254,16 @@ def _benchmark_injection_plans(
                     )
                     for line in detail_lines:
                         print(line)
+                if real_store and not candidate.is_cpu and variant == "scalar" and rate is not None:
+                    if best_tiled_rate > 0.0 and rate * 4.0 < best_tiled_rate:
+                        print(
+                            f"  > Pruned higher scalar lanes on {candidate.display_name} "
+                            f"(scalar {rate:.0f} pairs/s << tiled {best_tiled_rate:.0f} pairs/s)."
+                        )
+                        break
+                    if prev_scalar_rate is not None and rate < prev_scalar_rate * 1.05:
+                        break
+                    prev_scalar_rate = rate
         Hardware_Utils.release_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(
@@ -1359,6 +1410,7 @@ def process_batch(
                         precision=matmul_precision,
                         result_callback=writer,
                         matrix_budget_override=budget,
+                        gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
                     )
                     break
                 except Exception as error:

@@ -91,6 +91,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
+from utilities import Align_GPU_Kernels
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
@@ -1025,6 +1026,7 @@ def process_accelerated_tasks(
                         matrix_budget_override=matrix_budget,
                         result_callback=result_callback,
                         memory_plan_override=memory_plan_override,
+                        gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
                     )
                 except Exception as error:
                     if not backend.is_out_of_memory(error):
@@ -1346,6 +1348,7 @@ def _resolve_active_matmul_precision(
                             alignment_callback=calculate_alignment_data,
                             batch_alignment_callback=calculate_alignment_batch,
                             precision="bf16",
+                            gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
                         )
                     report = compare_bf16_precision_results(
                         baseline,
@@ -1475,6 +1478,7 @@ def _resolve_active_matmul_precision(
             alignment_callback=calculate_alignment_data,
             batch_alignment_callback=calculate_alignment_batch,
             precision=precision,
+            gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
         )
 
     try:
@@ -1644,6 +1648,7 @@ def _benchmark_processing_plans(
                 precision=matmul_precision,
                 benchmark_trial=trial,
                 memory_plan_override=memory_plan,
+                gpu_dp_gaps=(GLOBAL_GAP_P, LOCAL_GAP_P),
             )
         return _run_accelerated_pipeline(
             tasks,
@@ -1731,6 +1736,16 @@ def _benchmark_processing_plans(
         ):
             variants.remove("tiled")
 
+        real_store = isinstance(embedding_store, EmbeddingTileStore)
+        fused_gpu = (
+            real_store
+            and candidate.backend == "cuda"
+            and "tiled" in variants
+            and Align_GPU_Kernels.align_kernels(candidate.device) is not None
+        )
+        if fused_gpu and "tiled" in variants and "scalar" in variants:
+            variants = ["tiled"] + [v for v in variants if v != "tiled"]
+
         adaptive_plans = []
         if "tiled" in variants:
             adaptive_plans = build_adaptive_tile_plans(
@@ -1743,6 +1758,7 @@ def _benchmark_processing_plans(
                 compute_element_bytes=precision_element_bytes(
                     matmul_precision
                 ),
+                fused_gpu=fused_gpu,
             )
         scalar_estimates = {}
         if "scalar" in variants:
@@ -1759,6 +1775,7 @@ def _benchmark_processing_plans(
         )
         print(f"[Hardware] {candidate.display_name}: {feasible_count} feasible configurations.")
 
+        best_tiled_rate = 0.0
         for variant in variants:
             if variant == "tiled":
                 if not adaptive_plans:
@@ -1795,6 +1812,8 @@ def _benchmark_processing_plans(
                             adaptive.memory_plan,
                         )
                         rate = trial.rate
+                        if rate > best_tiled_rate:
+                            best_tiled_rate = rate
                         result = Hardware_Utils.BenchmarkResult(
                             candidate,
                             rate,
@@ -1842,6 +1861,7 @@ def _benchmark_processing_plans(
                     _release_alignment_device_cache(candidate)
                 continue
 
+            prev_scalar_rate = None
             for lanes in lane_candidates:
                 memory_estimate = None
                 vram_label = "--"
@@ -1910,7 +1930,18 @@ def _benchmark_processing_plans(
                     )
                     for line in detail_lines:
                         print(line)
+                    rate = None
                 candidate_results.append(result)
+                if real_store and not candidate.is_cpu and rate is not None:
+                    if best_tiled_rate > 0.0 and rate * 4.0 < best_tiled_rate:
+                        print(
+                            f"  > Pruned higher scalar lanes on {candidate.display_name} "
+                            f"(scalar {rate:.0f} pairs/s << tiled {best_tiled_rate:.0f} pairs/s)."
+                        )
+                        break
+                    if prev_scalar_rate is not None and rate < prev_scalar_rate * 1.05:
+                        break
+                    prev_scalar_rate = rate
         results.extend(candidate_results)
         _release_alignment_device_cache(candidate)
 

@@ -30,6 +30,7 @@ import h5py
 import numpy as np
 import psutil
 import torch
+from utilities import Align_GPU_Kernels
 from utilities import Tool_Supervisor
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -1444,6 +1445,47 @@ def _host_output_buffer(tensor):
     return torch.empty(tensor.shape, dtype=torch.float32, device="cpu")
 
 
+class _PinnedHostBufferPool:
+    """Reuse pinned float32 staging buffers across microbatches to avoid per-batch cudaHostAlloc."""
+
+    def __init__(self, device, max_buffers=16):
+        self._pin = _pins_host_memory(device)
+        self._max_buffers = max(1, int(max_buffers))
+        self._pool = []
+
+    def acquire(self, shape):
+        need = int(np.prod(shape, dtype=np.int64))
+        best_idx = -1
+        best_cap = None
+        for idx, buf in enumerate(self._pool):
+            cap = buf.numel()
+            if cap >= need and (best_cap is None or cap < best_cap):
+                best_idx = idx
+                best_cap = cap
+                if cap <= need * 2:
+                    break
+        if best_idx >= 0:
+            buf = self._pool.pop(best_idx)
+            return buf, buf[:need].view(shape)
+        if self._pin:
+            try:
+                buf = torch.empty(need, dtype=torch.float32, device="cpu", pin_memory=True)
+                return buf, buf.view(shape)
+            except RuntimeError:
+                self._pin = False
+        buf = torch.empty(need, dtype=torch.float32, device="cpu")
+        return buf, buf.view(shape)
+
+    def release(self, buf):
+        if buf is None:
+            return
+        if len(self._pool) < self._max_buffers:
+            self._pool.append(buf)
+
+    def clear(self):
+        self._pool.clear()
+
+
 def _partition_tiles(tasks, block_ids):
     grouped = OrderedDict()
     for task in tasks:
@@ -1696,13 +1738,23 @@ def build_adaptive_tile_plans(
     memory_info=None,
     memory_snapshot=None,
     compute_element_bytes=4,
+    fused_gpu=False,
 ):
     """Build, deduplicate, and Pareto-prune safe tile-plan candidates."""
     tasks = list(tasks)
     candidates = []
     seen = set()
-    for lanes in sorted(set(max(1, int(value)) for value in lane_candidates)):
-        for profile_name, tile_fraction, matrix_fraction in TILE_MEMORY_PROFILES:
+    normalized_lanes = sorted(set(max(1, int(value)) for value in lane_candidates))
+    if fused_gpu:
+        # Fused GPU alignment executes end-to-end on GPU with 1-2 async streams and fixed
+        # block-GEMM workspaces; testing 3 memory profiles x 5 lanes adds pure startup overhead.
+        normalized_lanes = [l for l in normalized_lanes if l <= 2] or [normalized_lanes[0]]
+        profiles = (("balanced", 0.30, 0.50),)
+    else:
+        profiles = TILE_MEMORY_PROFILES
+
+    for lanes in normalized_lanes:
+        for profile_name, tile_fraction, matrix_fraction in profiles:
             plan = accelerator_memory_plan(
                 device,
                 lanes=lanes,
@@ -1713,16 +1765,73 @@ def build_adaptive_tile_plans(
                 profile_name=profile_name,
                 compute_element_bytes=compute_element_bytes,
             )
-            estimate = estimate_cuda_working_set(
-                tasks,
-                store=store,
-                lengths=lengths,
-                device=device,
-                lanes=lanes,
-                variant="tiled",
-                memory_plan_override=plan,
-                compute_element_bytes=compute_element_bytes,
-            )
+            if fused_gpu:
+                baseline_bytes = max(0, plan.total_bytes - plan.free_bytes)
+                safe_peak = max(0, plan.total_bytes - plan.reserve_bytes)
+                resident_bytes = _store_resident_bytes(store, lengths, compute_element_bytes)
+                per_block = max(1, plan.tile_cache_bytes // 2)
+                block_ids = _store_block_ids(store, per_block, lengths, compute_element_bytes)
+                tile_bytes = 0
+                reload_bytes = 0
+                max_len = 1
+                for tile_tasks in _partition_tiles(tasks, block_ids):
+                    tile_indices = {int(t[0]) for t in tile_tasks} | {int(t[1]) for t in tile_tasks}
+                    if tile_indices:
+                        resident = sum(resident_bytes[i] for i in tile_indices)
+                        tile_bytes = max(tile_bytes, resident)
+                        reload_bytes += resident
+                        max_len = max(max_len, max(int(lengths[i]) for i in tile_indices))
+                n_streams = max(1, min(2, int(lanes)))
+                blk_side = Align_GPU_Kernels._choose_block_residues(
+                    plan.usable_bytes, n_streams, max_len
+                )
+                # Per stream: blk_side^2 float32 cosine mat + stats/DP scratch (~128 MiB)
+                # plus cuBLAS workspace and normalization staging slack so the allocator cap
+                # never causes false OOM retries.
+                per_slot = int(blk_side) * int(blk_side) * 4 + 128 * 1024 * 1024
+                transient_bytes = per_slot * n_streams + 256 * 1024 * 1024
+                additional = tile_bytes + transient_bytes
+                projected_peak = baseline_bytes + additional
+                feasible = tile_bytes <= plan.tile_cache_bytes and projected_peak <= safe_peak
+                reason = (
+                    "within reserved-VRAM boundary"
+                    if feasible
+                    else (
+                        "one embedding block pair exceeds its tile-cache budget"
+                        if tile_bytes > plan.tile_cache_bytes
+                        else "projected peak exceeds the reserved-VRAM boundary"
+                    )
+                )
+                estimate = CudaWorkloadEstimate(
+                    variant="tiled",
+                    lanes=int(lanes),
+                    inflight_slots=n_streams,
+                    tile_bytes=int(tile_bytes),
+                    transient_bytes=int(transient_bytes),
+                    additional_bytes=int(additional),
+                    projected_peak_bytes=int(projected_peak),
+                    safe_peak_bytes=int(safe_peak),
+                    per_microbatch_bytes=int(per_slot),
+                    largest_microbatch_bytes=int(per_slot),
+                    feasible=bool(feasible),
+                    reason=reason,
+                    embedding_reload_bytes=int(reload_bytes),
+                    microbatch_count=1,
+                    padded_elements=0,
+                    real_elements=0,
+                    schedule_signature=(tuple(block_ids.tolist()), ("fused", n_streams, blk_side)),
+                )
+            else:
+                estimate = estimate_cuda_working_set(
+                    tasks,
+                    store=store,
+                    lengths=lengths,
+                    device=device,
+                    lanes=lanes,
+                    variant="tiled",
+                    memory_plan_override=plan,
+                    compute_element_bytes=compute_element_bytes,
+                )
             if not estimate.feasible:
                 continue
             # What this plan was dry-run to need, for the allocator cap while it runs.
@@ -1930,10 +2039,16 @@ def run_tiled_accelerator_pipeline(
     memory_plan_override=None,
     benchmark_trial=None,
     batch_alignment_callback=None,
+    gpu_dp_gaps=None,
 ):
     """Run the tiled producer and completion-driven CPU consumers.
 
-    Each tile's embeddings are uploaded once into a packed device buffer, and
+    When ``gpu_dp_gaps=(global_gap, local_gap)`` is supplied on a CUDA/ROCm device
+    whose runtime alignment kernels pass self-check, the entire cosine GEMM, exact
+    two-pass Z-score normalization, and global+local DP run fused on the GPU with
+    zero score-matrix PCIe transfer.
+
+    Otherwise each tile's embeddings are uploaded once into a packed device buffer, and
     every microbatch gathers its zero-padded targets from it in one
     operation. With ``batch_alignment_callback`` one CPU task aligns a whole
     microbatch, ``(row, targets, target_lengths, matrices) -> [result, ...]``;
@@ -1950,6 +2065,37 @@ def run_tiled_accelerator_pipeline(
     tasks = list(tasks)
     if not tasks:
         return []
+
+    if (
+        gpu_dp_gaps is not None
+        and backend.device_type == "cuda"
+        and Align_GPU_Kernels.align_kernels(device) is not None
+    ):
+        global_gap, local_gap = gpu_dp_gaps
+        return Align_GPU_Kernels.run_fused_gpu_alignment_pipeline(
+            tasks,
+            store=store,
+            lengths=lengths,
+            device=device,
+            lanes=lanes,
+            global_gap=global_gap,
+            local_gap=local_gap,
+            precision=precision,
+            progress=progress,
+            result_callback=result_callback,
+            result_chunk_size=result_chunk_size,
+            matrix_budget_override=matrix_budget_override,
+            memory_plan_override=memory_plan_override,
+            benchmark_trial=benchmark_trial,
+            cuda_matmul_precision_ctx=cuda_matmul_precision,
+            precision_compute_dtype_fn=precision_compute_dtype,
+            precision_element_bytes_fn=precision_element_bytes,
+            accelerator_memory_plan_fn=accelerator_memory_plan,
+            allocator_cap_ctx=allocator_cap,
+            clear_failed_frames_fn=_clear_failed_frames,
+            partition_tiles_fn=_partition_tiles,
+            backend=backend,
+        )
 
     plan = memory_plan_override or accelerator_memory_plan(
         device,
@@ -1991,9 +2137,11 @@ def run_tiled_accelerator_pipeline(
     results = []
     active_trial = None
     cpu_pending = set()
+    future_buffers = {}
     inflight = deque()
     max_inflight = max(2, int(lanes) * 2)
     batch_pending_limit = max(1, int(workers)) + max(1, int(lanes))
+    host_pool = _PinnedHostBufferPool(device, max_buffers=max_inflight + batch_pending_limit + 2)
     streams = [backend.create_stream() for _ in range(max(1, int(lanes)))]
     stream_cursor = 0
     cap_stack = ExitStack()
@@ -2007,13 +2155,18 @@ def run_tiled_accelerator_pipeline(
         completed_count = 0
         for future in completed:
             cpu_pending.remove(future)
-            if batch_alignment_callback is None:
-                results.append(future.result())
-                completed_count += 1
-            else:
-                batch_results = future.result()
-                results.extend(batch_results)
-                completed_count += len(batch_results)
+            pooled_buf = future_buffers.pop(future, None)
+            try:
+                if batch_alignment_callback is None:
+                    results.append(future.result())
+                    completed_count += 1
+                else:
+                    batch_results = future.result()
+                    results.extend(batch_results)
+                    completed_count += len(batch_results)
+            finally:
+                if pooled_buf is not None:
+                    host_pool.release(pooled_buf)
         if progress is not None and completed_count:
             progress.update(completed_count)
         if active_trial is not None:
@@ -2025,7 +2178,7 @@ def run_tiled_accelerator_pipeline(
     def submit_oldest(block):
         if not inflight:
             return
-        event, host_tensor, idx_i, target_indices, target_lengths, _row = inflight[0]
+        event, pooled_buf, host_tensor, idx_i, target_indices, target_lengths, _row = inflight[0]
         if not block and not event.query():
             return
         if block:
@@ -2035,12 +2188,12 @@ def run_tiled_accelerator_pipeline(
         inflight.popleft()
         matrix_array = host_tensor.numpy()
         if batch_alignment_callback is not None:
-            cpu_pending.add(
-                cpu_executor.submit(
-                    batch_alignment_callback,
-                    (idx_i, target_indices, target_lengths, matrix_array),
-                )
+            future = cpu_executor.submit(
+                batch_alignment_callback,
+                (idx_i, target_indices, target_lengths, matrix_array),
             )
+            future_buffers[future] = pooled_buf
+            cpu_pending.add(future)
             while len(cpu_pending) >= batch_pending_limit:
                 collect_cpu(block=True)
             return
@@ -2169,7 +2322,10 @@ def run_tiled_accelerator_pipeline(
                                 matrices = _batched_score_matrices(
                                     row_tensor, targets, target_lengths
                                 )
-                                host_tensor = _host_output_buffer(matrices)
+                                if batch_alignment_callback is not None:
+                                    pooled_buf, host_tensor = host_pool.acquire(matrices.shape)
+                                else:
+                                    pooled_buf, host_tensor = None, _host_output_buffer(matrices)
                                 host_tensor.copy_(
                                     matrices, non_blocking=host_tensor.is_pinned()
                                 )
@@ -2179,6 +2335,7 @@ def run_tiled_accelerator_pipeline(
                             # this microbatch has finished on its stream.
                             inflight.append((
                                 event,
+                                pooled_buf,
                                 host_tensor,
                                 int(idx_i),
                                 target_indices,
@@ -2213,6 +2370,8 @@ def run_tiled_accelerator_pipeline(
         # caching allocator's reserve would otherwise read as used memory.
         try:
             inflight.clear()
+            future_buffers.clear()
+            host_pool.clear()
             packed = None
             backend.empty_cache()
         finally:
@@ -2498,23 +2657,56 @@ def run_fixed_query_cuda_pipeline(
     matrix_budget_override=None,
     task_index: Callable = _fixed_query_task_index,
     timing=None,
+    gpu_search_config=None,
 ):
     """Batch a fixed query against target embeddings and overlap CPU scoring.
 
-    Targets are grouped into tile blocks that fit the device, as before. Within a block the
-    work is pipelined: a reader thread reads the next embeddings into pinned buffers while
-    the device scores the current ones; each chunk is copied up once and every target
-    normalized exactly as ``_to_normalized_cuda`` does, into one packed device buffer reused
-    for every block; each microbatch gathers its zero-padded targets from it in one operation;
-    and one CPU task, ``batch_alignment_callback(tasks, target_lengths, matrices)``, aligns a
-    whole microbatch and returns its results. Microbatches, matrices and results are those of
-    the per-target pipeline this replaces, bit for bit.
+    When ``gpu_search_config`` is supplied and CUDA/ROCm runtime alignment kernels
+    pass self-check (and lengths/gap fit the fused search kernel), scoring and
+    dynamic programming run end-to-end on the GPU with zero score-matrix transfer.
     """
     if getattr(device, "type", None) != "cuda":
         raise ValueError("The fixed-query tiled engine currently requires CUDA.")
     tasks = list(tasks)
     if not tasks:
         return []
+
+    if (
+        gpu_search_config is not None
+        and Align_GPU_Kernels.align_kernels(device) is not None
+        and Align_GPU_Kernels.can_use_fused_search(
+            tasks, int(np.asarray(query_embedding).shape[0]), lengths, gpu_search_config, task_index
+        )
+    ):
+        return Align_GPU_Kernels.run_fused_fixed_query_gpu_pipeline(
+            tasks,
+            query_embedding=query_embedding,
+            store=store,
+            lengths=lengths,
+            device=device,
+            lanes=lanes,
+            search_config=gpu_search_config,
+            precision=precision,
+            progress=progress,
+            matrix_budget_override=matrix_budget_override,
+            task_index=task_index,
+            timing=timing,
+            cuda_matmul_precision_ctx=cuda_matmul_precision,
+            precision_compute_dtype_fn=precision_compute_dtype,
+            precision_element_bytes_fn=precision_element_bytes,
+            accelerator_memory_plan_fn=accelerator_memory_plan,
+            fixed_query_block_ids_fn=fixed_query_block_ids,
+            plan_upload_chunks_fn=plan_upload_chunks,
+            chunk_reader_cls=_ChunkReader,
+            to_normalized_accelerator_fn=_to_normalized_accelerator,
+            torch_source_dtypes=_TORCH_SOURCE_DTYPES,
+            fixed_query_chunk_bytes=FIXED_QUERY_CHUNK_BYTES,
+            fixed_query_min_chunk_bytes=FIXED_QUERY_MIN_CHUNK_BYTES,
+            fixed_query_chunks_per_run=FIXED_QUERY_CHUNKS_PER_RUN,
+            fixed_query_ring_bytes=FIXED_QUERY_RING_BYTES,
+            pins_host_memory_fn=_pins_host_memory,
+            clear_failed_frames_fn=_clear_failed_frames,
+        )
 
     element_bytes = precision_element_bytes(precision)
     compute_dtype = precision_compute_dtype(precision)
