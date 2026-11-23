@@ -395,6 +395,8 @@ window.pressNote = function () {
 // Everything in the legend that offers to open something: its state, and what pressing it does to the legend's height.
 window.disclosures = function () {
     const legend = document.getElementById('color-legend');
+    // (Secondary structure and Residue position have nothing to say besides their colors, so the card has no box for them.)
+    if (!legend) return [];
     return [...legend.querySelectorAll('button.note-row, details.src summary')].map(control => {
         const before = legend.getBoundingClientRect().height;
         control.click();
@@ -630,19 +632,24 @@ class ChipLayoutTests(LongNameTestCase):
         super().scene(*names or (USER_NAME, SECOND_NAME), **options)
         self.js(PANEL)
 
-    def fit_height(self, width, tab="color"):
-        """Resize the window so that the panel scrolls for pLDDT's legend and does not for Structure color's (shorter one)."""
+    def fit_height(self, width, tab="color", colorings=("builtin:structure", "plddt", "information_content")):
+        """Resize the window so that the panel scrolls for the coloring whose card is the tallest and not for the shortest.
+
+        Which two they are depends on the texts (a language, the listing's description): they are found by measuring, and left in
+        self.tallest and self.shortest.
+        """
         need = []
         self.view.resize(width, 500)
         self.addCleanup(self.view.resize, 1300, 800)
         self.script("setPanel(true); setTab(%s); return 1" % json.dumps(tab))
-        for coloring in ("builtin:structure", "plddt"):
+        for coloring in colorings:
             self.choose(coloring)
             self.settle(150)
             need.append(self.script("return panelNow().content"))
+        self.tallest, self.shortest = colorings[need.index(max(need))], colorings[need.index(min(need))]
         # The panel's height follows the window's one for one, beside the canvas and in the drawer; in the strip it is a share of it.
         slope = 1.0 if width > 700 else 0.46
-        target, height = (need[0] + need[1]) / 2, 500
+        target, height = (max(need) + min(need)) / 2, 500
         for _ in range(4):
             self.view.resize(width, height)
             self.settle(200)
@@ -670,8 +677,8 @@ class ChipLayoutTests(LongNameTestCase):
                 self.at(width)
                 height = self.fit_height(width)
                 rects, scrolls, bars = self.chips_in_every_coloring()
-                # The test is a test only if pLDDT's longer legend makes the panel scroll and Structure color's does not.
-                self.assertEqual((scrolls["builtin:structure"], scrolls["plddt"]), (False, True), (width, height, scrolls))
+                # The test is a test only if Structure color's taller card (More colorings is open, under it) makes the panel scroll and pLDDT's does not.
+                self.assertEqual((scrolls[self.shortest], scrolls[self.tallest]), (False, True), (width, height, scrolls))
                 # Every button is exactly where it is for every other coloring, chosen (bold) or not.
                 first = rects["builtin:structure"]
                 for coloring, found in rects.items():
@@ -694,7 +701,7 @@ class ChipLayoutTests(LongNameTestCase):
         self.at(1300)
         self.fit_height(1300)
         rects, scrolls, _ = self.chips_in_every_coloring()
-        self.assertEqual((scrolls["builtin:structure"], scrolls["plddt"]), (False, True), scrolls)
+        self.assertEqual((scrolls[self.shortest], scrolls[self.tallest]), (False, True), scrolls)
         self.assertEqual(len({json.dumps(found) for found in rects.values()}), 1)
 
     def test_a_chosen_chip_is_as_wide_as_it_is_when_it_is_not(self):
@@ -723,14 +730,14 @@ class ChipLayoutTests(LongNameTestCase):
             "#residue-body .res-note", "#residue-body .res-foot",
         ]
         self.js("window.edges = selectors => Object.fromEntries(selectors.map(s => { const r = document.querySelector(s).getBoundingClientRect(); return [s, [r.left, r.right]]; }))")
-        self.fit_height(1300)
+        self.fit_height(1300, colorings=("builtin:structure", "plddt"))
         found = {}
         for coloring in ("builtin:structure", "plddt"):
             self.choose(coloring)
             self.settle(150)
             found[coloring] = (self.script("return panelNow().scrolls"), self.script("return edges(%s)" % json.dumps(selectors)))
-        self.assertEqual((found["builtin:structure"][0], found["plddt"][0]), (False, True))
-        self.assertEqual(found["builtin:structure"][1], found["plddt"][1])
+        self.assertEqual((found[self.shortest][0], found[self.tallest][0]), (False, True))
+        self.assertEqual(found[self.shortest][1], found[self.tallest][1])
 
     def test_a_label_too_long_for_the_card_is_cut_with_an_ellipsis_and_whole_on_hover(self):
         # Too long for the 340 px panel, and short enough for the 600 px strip, which is as wide as the window.

@@ -757,7 +757,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual(start["card"]["selected"], "plddt")
         self.assertEqual(start["card"]["title"], "Color by")
-        self.assertEqual(len(start["card"]["keys"]), 4)
+        self.assertEqual((start["card"]["bar"], start["card"]["marks"], start["card"]["cardColors"]), (True, ["50", "70", "90"], 0))
         self.assertEqual(start["card"]["compact"]["shown"], "1")
 
         layered = self.script("""

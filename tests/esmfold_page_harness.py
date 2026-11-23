@@ -348,7 +348,8 @@ window.fit = function (index) {
     const node = structure.transform ? structure.transform.cell.transform.params : null;
     return {transformed: !!structure.transform, rmsd: Math.sqrt(sum / n), matrix: node ? Array.from(node.transform.params.data) : null};
 };
-// The Color by card as a person sees it: its buttons, the legend of the chosen coloring, the notes.
+// The Color by card as a person sees it: its buttons, the texts it says of the chosen coloring, and the legend over the canvas, which
+// is the one place the colors of the coloring are drawn (the card has none: `cardColors` counts what it has of them, a bar or keys).
 window.card = function () {
     const body = document.getElementById('color-body');
     const chips = [...body.querySelectorAll('.seg-btn')];
@@ -356,21 +357,28 @@ window.card = function () {
     const compact = document.getElementById('canvas-legend');
     const text = node => (node ? node.textContent : null);
     const chosen = chips.find(chip => chip.querySelector('input').checked);
+    const shown = compact.dataset.shown === '1';
+    const title = shown ? compact.querySelector('.t') : null;
     return {
         title: text(document.getElementById('h-color')),
         chips: chips.map(chip => [chip.dataset.coloring, chip.querySelector('.seg-label').textContent, text(chip.querySelector('.cov')) || '']),
         selected: chosen ? chosen.dataset.coloring : null,
-        legendTitle: legend ? legend.querySelector('.t').firstChild.textContent : null,
-        legendUnit: legend ? text(legend.querySelector('.t small')) : null,
-        bar: !!(legend && legend.querySelector('.ramp')),
-        ends: legend ? [...legend.querySelectorAll('.ticks span')].map(s => s.textContent) : [],
-        keys: legend ? [...legend.querySelectorAll('.band')].map(k => k.textContent) : [],
+        legendTitle: title ? title.firstChild.textContent : null,
+        legendUnit: title ? text(title.querySelector('small')) : null,
+        bar: !!(shown && compact.querySelector('.ramp')),
+        ends: shown ? [...compact.querySelectorAll('.ticks span:not(.tick-mark)')].map(s => s.textContent) : [],
+        marks: shown ? [...compact.querySelectorAll('.tick-mark')].map(s => s.textContent) : [],
+        keys: shown ? [...compact.querySelectorAll('.band')].map(k => k.textContent) : [],
+        box: !!legend,
+        cardColors: legend ? legend.querySelectorAll('.ramp, .ticks, .bands, .band, .t').length : 0,
+        legendText: legend ? legend.textContent : null,
+        legendNote: legend ? text(legend.querySelector('.legend-note')) : null,
         noData: legend ? text(legend.querySelector('.nodata span')) : null,
         caution: legend ? text(legend.querySelector('.caution')) : null,
         source: legend ? text(legend.querySelector('.src summary span')) : null,
         description: legend ? text(legend.querySelector('.src p')) : null,
         layerNotes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent),
-        compact: {shown: compact.dataset.shown, title: text(compact.querySelector('.t')), ends: [...compact.querySelectorAll('.ticks span')].map(s => s.textContent)}
+        compact: {shown: compact.dataset.shown, title: text(compact.querySelector('.t')), ends: [...compact.querySelectorAll('.ticks span:not(.tick-mark)')].map(s => s.textContent)}
     };
 };
 window.cardNow = async function () { await renderColorCard(true); return card(); };

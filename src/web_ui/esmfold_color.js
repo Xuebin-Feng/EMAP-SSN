@@ -362,7 +362,9 @@ function legendRamp(legend) {
         at += widths[index];
         stops.push([at, band.color]);
     });
-    return { stops, low: confidence ? '0' : '', high: confidence ? '100' : '' };
+    // pLDDT's band limits are named between its ends (50, 70 and 90), at the places where the bands meet.
+    const marks = confidence && ordered.length === 4 ? [[0.5, '50'], [0.7, '70'], [0.9, '90']] : [];
+    return { stops, low: confidence ? '0' : '', high: confidence ? '100' : '', marks };
 }
 
 // A bar of the legend's colors with its two ends named.
@@ -371,10 +373,19 @@ function legendBar(legend, compact) {
     const bar = make('div', 'ramp');
     const ramp = legendRamp(legend);
     bar.style.background = 'linear-gradient(to right, ' + ramp.stops.map(([at, color]) => `${color} ${(100 * at).toFixed(1)}%`).join(', ') + ')';
+    // The bar is a picture: what it says is the text of its ends and its marks, which a screen reader reads in order.
+    bar.setAttribute('aria-hidden', 'true');
     const ends = make('div', 'ticks');
     const lowEnd = make('span', undefined, ramp.low);
     const highEnd = make('span', undefined, ramp.high);
-    ends.append(lowEnd, highEnd);
+    // The marks are above the bar, each centred on its place, and take no room in the row of the ends.
+    const marks = (ramp.marks ?? []).map(([at, text]) => {
+        const mark = make('span', 'tick-mark', text);
+        mark.style.left = (100 * at).toFixed(1) + '%';
+        return mark;
+    });
+    ends.append(lowEnd, ...marks, highEnd);
+    wrap.classList.toggle('has-marks', marks.length > 0);
     wrap.append(bar, ends);
     return wrap;
 }
@@ -397,37 +408,27 @@ function legendTitle(legend, tag) {
     return title;
 }
 
+// What the card says of the chosen coloring besides what the canvas's legend draws (its colors, in compactLegend): the texts. pLDDT's
+// description and the caution for opened files, a layer's source (which opens to its description) and the warning of the structures
+// that have no values for it, and the note of Structure color, which the canvas has no legend for. The texts read well under the chips
+// with no name of their own; a coloring with none (Secondary structure, Residue position) has no box at all.
 function cardLegend(model) {
     const legend = model.legend;
-    const box = make('div', 'legend');
-    box.id = 'color-legend';
-    const heading = legendTitle(legend, 'div');
-    box.append(heading);
-    if (legend.kind === 'gradient' || legend.kind === 'scale') {
-        box.append(legendBar(legend, false));
-    } else if (legend.kind === 'bands' || legend.kind === 'table') {
-        const keys = make('div', 'bands');
-        keys.append(...legend.bands.map(band => legendKey(band.color, band.label)));
-        box.append(keys);
-    } else if (legend.kind === 'note') {
+    const parts = [];
+    if (legend.kind === 'note') {
         const note = make('div', 'legend-note', legend.note);
-        box.append(note);
-    }
-    if (legend.partial) {
-        const some = legendKey(intToHex(noDataColor), t("No data"));
-        some.classList.add('band-nodata');
-        box.append(some);
+        parts.push(note);
     }
     if (colorMode === PLDDT_LAYER && model.fromFiles.length) {
         const caution = make('div', 'caution', t("{names}: the colors are the file's B-factor column. In an experimental structure that is not confidence.", {names: model.fromFiles.join(', ')}));
-        box.append(caution);
+        parts.push(caution);
     }
     if (model.noData.length && colorMode !== PLDDT_LAYER && !colorMode.startsWith(BUILTIN_PREFIX)) {
         const warning = make('div', 'nodata');
         const swatch = make('i');
         const words = make('span', undefined, t("No data: {names}. This layer has no values for them.", {names: model.noData.join(', ')}));
         warning.append(swatch, words);
-        box.append(warning);
+        parts.push(warning);
     }
     const text = legend.source || legend.description;
     if (text && legend.source && legend.description) {
@@ -440,10 +441,14 @@ function cardLegend(model) {
         summary.append(info, line, chevron);
         const more = make('p', undefined, legend.description);
         details.append(summary, more);
-        box.append(details);
+        parts.push(details);
     } else if (text) {
-        box.append(legendNote(text));
+        parts.push(legendNote(text));
     }
+    if (!parts.length) return null;
+    const box = make('div', 'legend');
+    box.id = 'color-legend';
+    box.append(...parts);
     return box;
 }
 
@@ -503,16 +508,30 @@ function legendNote(text) {
     return box;
 }
 
+// Whether a legend has the "No data" key: a layer that some structure lacks, or that a structure covers in part.
+function legendHasNoData(model) {
+    if (colorMode === PLDDT_LAYER || colorMode.startsWith(BUILTIN_PREFIX)) return false;
+    return model.noData.length > 0 || !!model.legend?.partial;
+}
+
+// The legend over the canvas: the one place the colors of the coloring are drawn. A labelled group, named by its own title, so that a
+// screen reader has the title, the ends and marks of the bar, and the keys.
 function compactLegend(model) {
     const legend = model.legend;
     const box = byId('canvas-legend');
     if (!legend || legend.kind === 'note') {
         box.replaceChildren();
         box.dataset.shown = '0';
+        box.removeAttribute('role');
+        box.removeAttribute('aria-labelledby');
         return;
     }
     box.dataset.shown = '1';
-    const parts = [legendTitle(legend, 'div')];
+    const title = legendTitle(legend, 'div');
+    title.id = 'canvas-legend-title';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-labelledby', title.id);
+    const parts = [title];
     if (legend.kind === 'table') {
         const keys = make('div', 'bands compact-keys');
         keys.append(...legend.bands.map(band => legendKey(band.color, band.label)));
@@ -520,7 +539,7 @@ function compactLegend(model) {
     } else {
         parts.push(legendBar(legend, true));
     }
-    if (model.noData.length && !colorMode.startsWith(BUILTIN_PREFIX) && colorMode !== PLDDT_LAYER) {
+    if (legendHasNoData(model)) {
         parts.push(legendKey(intToHex(noDataColor), t("No data")));
     }
     box.replaceChildren(...parts);
@@ -648,7 +667,8 @@ function renderColorBody(model) {
                     colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model, '', MORE_CHIPS));
         nodes.push(more);
     }
-    if (model.legend) nodes.push(cardLegend(model));
+    const legendBox = model.legend ? cardLegend(model) : null;
+    if (legendBox) nodes.push(legendBox);
     replaceAround(body, group, [], nodes);
     // (The filter, which stayed, keeps the focus by itself.)
     if (focused && !body.contains(document.activeElement)) keyedControl(body, focused)?.focus();

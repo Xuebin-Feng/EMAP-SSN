@@ -99,7 +99,7 @@ class LongTextSweepTests(LongNameTestCase):
         self.check_side_panel("zh_CN")
 
     def test_a_legends_unit_stays_whole_beside_a_heading_that_breaks_anywhere(self):
-        # The heading of a layer whose name is as long as can be, and "(%)" beside it: not "(" "%" ")" on three lines.
+        # The heading of a layer whose name is as long as can be (in the legend over the canvas, which draws it now), and "(%)" beside it: not "(" "%" ")" on three lines.
         label = "Information_Content_after_the_small-sample_correction_of_the_logo_bits_over_all_columns_of_the_alignment"
         self.scene(USER_NAME, label_a=label)
         for width in self.WIDTHS:
@@ -107,10 +107,12 @@ class LongTextSweepTests(LongNameTestCase):
                 self.at(width)
                 self.choose("information_content")
                 unit = self.script("""
-                    const small = document.querySelector('#color-legend .t small');
+                    document.body.dataset.view = 'ready';
+                    const small = document.querySelector('#canvas-legend .t small');
                     const range = document.createRange(); range.selectNodeContents(small);
                     return {text: small.textContent, lines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size,
-                            width: small.getBoundingClientRect().width, heading: document.querySelector('#color-legend .t').firstChild.textContent};""")
+                            width: small.getBoundingClientRect().width, heading: document.querySelector('#canvas-legend .t').firstChild.textContent};""")
+                self.js("updateView()")
                 self.assertEqual((unit["text"], unit["lines"], unit["heading"]), ("(%)", 1, label))
                 self.assertGreater(unit["width"], 15)
 

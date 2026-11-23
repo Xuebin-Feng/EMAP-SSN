@@ -65,9 +65,11 @@ function drawLegend(context, width, height, k, model) {
     context.font = `600 ${normal}px ${family}`;
     let textWidth = context.measureText(heading).width;
     const keys = legend.kind === 'table' ? legend.bands.map(band => [band.color, band.label]) : [];
-    if (model.noData.length && !colorMode.startsWith(BUILTIN_PREFIX) && colorMode !== PLDDT_LAYER) {
+    if (legendHasNoData(model)) {
         keys.push([intToHex(noDataColor), t("No data")]);
     }
+    // pLDDT's band limits are named above its bar, as the legend over the canvas names them.
+    const marks = legend.kind === 'table' ? [] : legendRamp(legend).marks ?? [];
     context.font = `${small}px ${family}`;
     for (const [, label] of keys) textWidth = Math.max(textWidth, context.measureText(label).width + 20 * k);
     // As wide as its words ask, at least 150 and at most 200 of the page's pixels (the legend over the canvas is no wider), and
@@ -79,7 +81,7 @@ function drawLegend(context, width, height, k, model) {
     const shownKeys = keys.map(([color, label]) => [color, fitText(context, label, barWidth - 20 * k)]);
     const hasBar = legend.kind !== 'table';
     const boxWidth = Math.ceil(barWidth + 2 * pad);
-    const boxHeight = Math.ceil(2 * pad + normal + gap + (hasBar ? 8 * k + gap + small : 0) + keys.length * (small + 4 * k));
+    const boxHeight = Math.ceil(2 * pad + normal + gap + (marks.length ? small + 2 * k : 0) + (hasBar ? 8 * k + gap + small : 0) + keys.length * (small + 4 * k));
     const x = 12 * k, y = height - 12 * k - boxHeight;
     context.save();
     context.globalAlpha = 0.95;
@@ -97,6 +99,14 @@ function drawLegend(context, width, height, k, model) {
     let at = y + pad + normal + gap;
     if (hasBar) {
         const ramp = legendRamp(legend);
+        if (marks.length) {
+            context.fillStyle = '#71717a';
+            context.font = `${small}px ${family}`;
+            context.textAlign = 'center';
+            for (const [offset, text] of marks) context.fillText(text, x + pad + offset * barWidth, at);
+            context.textAlign = 'left';
+            at += small + 2 * k;
+        }
         const gradient = context.createLinearGradient(x + pad, 0, x + pad + barWidth, 0);
         for (const [offset, color] of ramp.stops) gradient.addColorStop(Math.min(1, Math.max(0, offset)), color);
         context.fillStyle = gradient;

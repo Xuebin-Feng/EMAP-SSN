@@ -295,5 +295,37 @@ class ImageDialogTests(ToolTestCase):
             return [error.textContent, getComputedStyle(error).display];"""), ["", "none"])
 
 
+class ImageLegendTests(ToolTestCase):
+    """The legend drawn into a saved picture is the legend over the canvas: the same band limits and the same "No data" key."""
+
+    DRAW = """
+        const canvas = document.createElement('canvas');
+        canvas.width = 600; canvas.height = 400;
+        const context = canvas.getContext('2d');
+        const texts = [];
+        const original = context.fillText.bind(context);
+        context.fillText = (text, ...rest) => { texts.push(text); return original(text, ...rest); };
+        const box = drawLegend(context, 600, 400, 1, await colorModel());
+        const compact = document.getElementById('canvas-legend');
+        return {box, texts, canvas: [...compact.querySelectorAll('.t, .ticks span, .band span')].map(n => n.firstChild ? n.firstChild.textContent : n.textContent)};"""
+
+    def test_the_picture_has_plddts_band_limits_and_the_partial_no_data_key_as_the_canvas_has_them(self):
+        self.write_with(A, "same_residue_pct")
+        self.open_scene(A)
+        plddt = self.script(self.DRAW)
+        self.assertEqual(plddt["texts"], ["pLDDT", "50", "70", "90", "0", "100"])
+        self.assertEqual(plddt["canvas"], ["pLDDT", "0", "50", "70", "90", "100"])
+        # The bar is below the limits: the legend is taller by a line than it is for a layer's bar.
+        self.choose("same_residue_pct")
+        layer = self.script(self.DRAW)
+        self.assertEqual(layer["texts"], ["Residue Agreement (%)", "0 %", "100 %", "No data"])
+        self.assertEqual(layer["canvas"], ["Residue Agreement", "0 %", "100 %", "No data"])
+        self.assertEqual(sorted(layer["texts"][1:3]), sorted(layer["canvas"][1:3]))
+        self.assertGreater(plddt["box"]["height"], layer["box"]["height"] - 20)
+        # Whole structures with no values, and a layer covering all of a structure, have the same key or none, as the canvas does.
+        self.choose("builtin:structure")
+        self.assertIsNone(self.script("return drawLegend(document.createElement('canvas').getContext('2d'), 600, 400, 1, await colorModel())"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -106,8 +106,10 @@ class SceneColoringTests(ColorTestCase):
         # The structure with no residue data says why, in the Viewer's words.
         self.assertEqual(len(card["layerNotes"]), 1)
         self.assertTrue(card["layerNotes"][0].startswith("33: "), card["layerNotes"])
+        # The colors of pLDDT are on the canvas's legend (its bar, with its ends and band limits); the card has none of them.
         self.assertEqual(card["legendTitle"], "pLDDT")
-        self.assertEqual(len(card["keys"]), 4)
+        self.assertEqual((card["bar"], card["ends"], card["marks"]), (True, ["0", "100"], ["50", "70", "90"]))
+        self.assertEqual(card["cardColors"], 0)
 
     def test_a_structure_with_no_values_for_the_chosen_layer_is_grey_and_says_so_and_comes_back(self):
         self.write_with(A, "information_content", "hydro")
@@ -487,6 +489,118 @@ class CardTests(ColorTestCase):
         layer = self.choose("information_content")
         self.assertEqual(layer["compact"], {"shown": "1", "title": "Information Content (%)", "ends": ["0 %", "100 %"]})
         self.assertEqual(self.choose("builtin:structure")["compact"]["shown"], "0")
+
+
+class LegendPlaceTests(ColorTestCase):
+    """The colors of the chosen coloring are drawn once, in the legend over the canvas; the Color by card keeps only the texts."""
+
+    COLORINGS = ("plddt", "information_content", "same_residue_pct", "builtin:structure", "builtin:secondary-structure", "builtin:residue-position")
+
+    def open_layers(self):
+        self.write_with(A, "information_content", "same_residue_pct")
+        self.write_with(B, "information_content", "same_residue_pct", sequence=fixtures.SECOND_SEQUENCE, shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+
+    def test_the_card_draws_no_colors_for_any_coloring_and_the_canvas_legend_draws_them(self):
+        self.open_layers()
+        found = {coloring: self.choose(coloring) for coloring in self.COLORINGS}
+        for coloring, card in found.items():
+            with self.subTest(coloring=coloring):
+                # Not a bar, not a key, not a title with its colors, in the card.
+                self.assertEqual(card["cardColors"], 0)
+        # On the canvas: a bar for pLDDT (with its band limits), a layer and Residue position, keys for Secondary structure, and nothing
+        # for Structure color (its note is in the card).
+        self.assertEqual((found["plddt"]["legendTitle"], found["plddt"]["bar"], found["plddt"]["ends"], found["plddt"]["marks"]),
+                         ("pLDDT", True, ["0", "100"], ["50", "70", "90"]))
+        self.assertEqual((found["information_content"]["bar"], found["information_content"]["marks"], found["information_content"]["ends"]),
+                         (True, [], ["0 %", "100 %"]))
+        self.assertEqual((found["builtin:secondary-structure"]["keys"], found["builtin:secondary-structure"]["bar"]), (["Helix", "Strand", "Coil"], False))
+        self.assertEqual((found["builtin:residue-position"]["bar"], found["builtin:residue-position"]["ends"]), (True, ["N-terminus", "C-terminus"]))
+        self.assertEqual((found["builtin:structure"]["compact"]["shown"], found["builtin:structure"]["legendTitle"]), ("0", None))
+
+    def test_a_layer_that_covers_part_of_a_structure_has_the_no_data_key_on_the_canvas(self):
+        self.open_layers()
+        self.assertEqual(self.choose("same_residue_pct")["keys"], ["No data"])
+        self.assertEqual(self.choose("information_content")["keys"], [])
+        self.assertEqual(self.choose("plddt")["keys"], [])
+
+    def test_what_the_card_keeps_is_the_texts_and_a_coloring_with_none_has_no_box(self):
+        self.open_layers()
+        plddt = self.choose("plddt")
+        self.assertTrue(plddt["box"])
+        self.assertTrue(plddt["legendText"].strip())
+        # (pLDDT's note is the listing's description, with no name of the coloring above it: it reads well under the chips.)
+        layer = self.choose("information_content")
+        self.assertTrue(layer["box"])
+        # (These fixtures give a description and no source, so the card's text is the one note; a source that opens to its description is
+        # checked with the long texts, in tests/test_esmfold_layout.py.)
+        self.assertTrue(layer["legendText"].strip())
+        self.assertIsNone(layer["legendNote"])
+        own = self.choose("builtin:structure")
+        self.assertEqual((own["box"], own["legendNote"]), (True, "Each structure has its own color, the one beside its name."))
+        for coloring in ("builtin:secondary-structure", "builtin:residue-position"):
+            with self.subTest(coloring=coloring):
+                card = self.choose(coloring)
+                self.assertFalse(card["box"])
+                self.assertEqual(self.script("return document.getElementById('color-legend')"), None)
+        # The card simply ends after the chips: what comes last is the opened "More colorings", and nothing is drawn under it.
+        self.assertEqual(self.script("""
+            const body = document.getElementById('color-body');
+            return body.lastElementChild.className;"""), "seg more-colorings")
+
+    def test_the_no_data_warning_stays_in_the_card(self):
+        self.write_with(A, "information_content", "hydro")
+        self.write_with(B, "information_content", shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+        card = self.choose("hydro")
+        self.assertEqual(card["noData"], "No data: 22. This layer has no values for them.")
+        self.assertEqual(card["keys"], ["No data"])
+
+    def test_the_legend_over_the_canvas_is_a_labelled_group_with_its_bar_in_text(self):
+        self.open_layers()
+        self.choose("plddt")
+        found = self.script("""
+            const box = document.getElementById('canvas-legend');
+            const title = document.getElementById(box.getAttribute('aria-labelledby'));
+            return {hidden: box.hasAttribute('aria-hidden'), role: box.getAttribute('role'), title: title ? title.textContent : null,
+                    inside: !!title && box.contains(title), bar: box.querySelector('.ramp').getAttribute('aria-hidden'),
+                    text: [...box.querySelectorAll('.ticks span')].map(s => s.textContent)};
+            """)
+        self.assertEqual(found, {"hidden": False, "role": "group", "title": "pLDDT", "inside": True, "bar": "true",
+                                 "text": ["0", "50", "70", "90", "100"]})
+        # With nothing to draw (Structure color), the group is not there to be read.
+        self.choose("builtin:structure")
+        self.assertEqual(self.script("""
+            const box = document.getElementById('canvas-legend');
+            return [box.hasAttribute('role'), box.hasAttribute('aria-labelledby'), box.childElementCount];"""), [False, False, 0])
+
+    def test_the_band_limits_fit_in_the_legend_at_its_narrowest_and_never_meet_each_other_or_the_ends(self):
+        self.open_layers()
+        self.choose("plddt")
+        for width in (1300, 900, 600):
+            with self.subTest(width=width):
+                self.view.resize(width, 800)
+                self.addCleanup(self.view.resize, 1300, 800)
+                self.settle(300)
+                found = self.script("""
+                    document.body.dataset.view = 'ready';
+                    const box = document.getElementById('canvas-legend').getBoundingClientRect();
+                    const rect = n => { const r = n.getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom]; };
+                    const marks = [...document.querySelectorAll('#canvas-legend .tick-mark')].map(rect);
+                    const ends = [...document.querySelectorAll('#canvas-legend .ticks > span:not(.tick-mark)')].map(rect);
+                    const bar = rect(document.querySelector('#canvas-legend .ramp'));
+                    const meet = (a, b) => !(a[1] <= b[0] || b[1] <= a[0]);
+                    const row = [...marks, ...ends].map(r => r);
+                    let overlaps = 0;
+                    for (let i = 0; i < marks.length; i++) for (let j = i + 1; j < marks.length; j++) if (meet(marks[i], marks[j])) overlaps++;
+                    // The ends are below the bar and the marks above it, so they cannot meet; the marks stay in the legend and above the bar.
+                    const within = marks.every(r => r[0] >= box.left && r[1] <= box.right && r[3] <= bar[2] + 0.5);
+                    const legendWidth = box.width;
+                    document.body.dataset.view = 'webgl';
+                    return {overlaps, within, legendWidth, count: marks.length, marks, bar, box: [box.left, box.right, box.top, box.bottom]};
+                    """)
+                self.assertEqual((found["overlaps"], found["within"], found["count"]), (0, True, 3), found)
+                self.assertGreaterEqual(found["legendWidth"], 119)
 
 
 class PanelTabTests(ColorTestCase):
