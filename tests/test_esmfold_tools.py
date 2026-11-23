@@ -321,7 +321,23 @@ class ImageLegendTests(ToolTestCase):
         self.assertEqual(layer["texts"], ["Residue Agreement (%)", "0 %", "100 %", "No data"])
         self.assertEqual(layer["canvas"], ["Residue Agreement", "0 %", "100 %", "No data"])
         self.assertEqual(sorted(layer["texts"][1:3]), sorted(layer["canvas"][1:3]))
-        self.assertGreater(plddt["box"]["height"], layer["box"]["height"] - 20)
+        # The row of the band limits takes its own height: 11 px of text and 2 px, in a picture at the page's size. The same pLDDT legend
+        # drawn with its marks taken out is exactly that much lower.
+        bare = self.script("""
+            const original = legendRamp;
+            legendRamp = legend => ({...original(legend), marks: []});
+            const canvas = document.createElement('canvas');
+            canvas.width = 600; canvas.height = 400;
+            let box;
+            try {
+                colorMode = PLDDT_LAYER;
+                box = drawLegend(canvas.getContext('2d'), 600, 400, 1, await colorModel());
+            } finally { legendRamp = original; }
+            return box;""")
+        self.choose("plddt")
+        marks = self.script(self.DRAW)
+        self.assertEqual(marks["box"]["height"] - bare["height"], 13)
+        self.choose("same_residue_pct")
         # Whole structures with no values, and a layer covering all of a structure, have the same key or none, as the canvas does.
         self.choose("builtin:structure")
         self.assertIsNone(self.script("return drawLegend(document.createElement('canvas').getContext('2d'), 600, 400, 1, await colorModel())"))
