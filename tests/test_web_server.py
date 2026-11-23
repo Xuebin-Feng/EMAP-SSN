@@ -143,6 +143,8 @@ class BundledPageIconTests(unittest.TestCase):
         'tree.html': tuple(PAGES / name for name in (
             'tree_model.js', 'tree_layout.js', 'tree_render.js', 'tree_nav.js', 'tree_session.js')),
     }
+    # The icons a page draws itself (the Fold View's three kinds of secondary structure), which are not Lucide's.
+    DRAWN_FOR_THE_PAGE = {'esmfold.html': ('ss-helix', 'ss-strand', 'ss-turn')}
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'
 
@@ -164,6 +166,11 @@ class BundledPageIconTests(unittest.TestCase):
                     symbols[name] = (dict(symbol.attrib), [(shape.tag, shape.attrib) for shape in symbol])
                 self.assertTrue(symbols)
                 for name, symbol in symbols.items():
+                    if name in self.DRAWN_FOR_THE_PAGE.get(page, ()):
+                        # An icon drawn for the page, not taken from Lucide: in the same style as the bundled ones.
+                        self.assertEqual(symbol[0], {'fill': 'none', 'stroke': 'currentColor', 'stroke-width': '2',
+                                                     'stroke-linecap': 'round', 'stroke-linejoin': 'round'}, name)
+                        continue
                     self.assertEqual(symbol, self.lucide(name), name)
                 code = source + ''.join(script.read_text(encoding='utf-8')
                                         for script in self.PAGE_SCRIPTS.get(page, ()))

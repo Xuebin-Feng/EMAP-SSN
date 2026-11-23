@@ -63,11 +63,14 @@ function secondaryKind(flags) {
     return null;
 }
 
+// The icon of each kind, drawn for this page (the symbols are in esmfold.html's sprite).
+const SECONDARY_ICONS = { helix: () => icon('ss-helix'), strand: () => icon('ss-strand'), turn: () => icon('ss-turn') };
+
 // The secondary structure of a residue as the card and the hover box say it: its icon, then the word, on one line that never breaks
 // (the icon is a picture, aria-hidden; the word is the text a screen reader reads).
 function secondaryLabel(residue) {
     const label = make('span', 'ss-label');
-    if (residue.secondaryKind) label.append(icon('ss-' + residue.secondaryKind));
+    if (residue.secondaryKind) label.append(SECONDARY_ICONS[residue.secondaryKind]());
     label.append(residue.secondary);
     return label;
 }
