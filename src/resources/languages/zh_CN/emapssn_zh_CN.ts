@@ -3251,13 +3251,13 @@ Command-line usage:
         <translation type="unfinished">{file} 没有图层 {layer}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="+101"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="+113"/>
         <source>Structure color</source>
         <translation type="unfinished">结构颜色</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold_residue.js" line="+204"/>
+        <location filename="../../../web_ui/esmfold_residue.js" line="+207"/>
         <source>Secondary structure</source>
         <translation type="unfinished">二级结构</translation>
     </message>
@@ -3268,7 +3268,22 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location line="+439"/>
+        <source>Solvent accessibility</source>
+        <translation type="unfinished">溶剂可及性</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Hydrophobicity</source>
+        <translation type="unfinished">疏水性</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Charge</source>
+        <translation type="unfinished">电荷</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+459"/>
         <location filename="../../../web_ui/esmfold_image.js" line="+69"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
         <location line="+199"/>
@@ -3277,7 +3292,7 @@ Command-line usage:
         <translation type="unfinished">无数据</translation>
     </message>
     <message>
-        <location line="-378"/>
+        <location line="-398"/>
         <source>Could not color {file} by that layer.</source>
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
@@ -3308,7 +3323,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../../../web_ui/esmfold_residue.js" line="-351"/>
+        <location filename="../../../web_ui/esmfold_residue.js" line="-354"/>
         <source>Helix</source>
         <translation type="unfinished">螺旋</translation>
     </message>
@@ -3334,6 +3349,61 @@ Command-line usage:
         <translation type="unfinished">C 端</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Buried</source>
+        <translation type="unfinished">埋藏</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Exposed</source>
+        <translation type="unfinished">暴露</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>How much of each residue the solvent can reach, as a share of the most a residue of its kind can expose. Each structure is worked out on its own, with a water probe of 1.4 Å and only protein atoms in the way.</source>
+        <translation type="unfinished">每个残基能被溶剂接触到的程度，以同类残基最多可暴露面积的比例表示。每个结构单独计算，使用 1.4 Å 的水分子探针，只有蛋白质原子起遮挡作用。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Hydrophilic</source>
+        <translation type="unfinished">亲水</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Hydrophobic</source>
+        <translation type="unfinished">疏水</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>One value for each kind of residue, from the Wimley and White scale for membrane interfaces (water to membrane), the same wherever the residue sits.</source>
+        <translation type="unfinished">每种残基有一个值，取自适用于膜界面的 Wimley–White 标度（水到膜），无论残基位于何处都相同。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Positive</source>
+        <translation type="unfinished">带正电</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Negative</source>
+        <translation type="unfinished">带负电</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Histidine</source>
+        <translation type="unfinished">组氨酸</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Neutral</source>
+        <translation type="unfinished">电中性</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Arginine and lysine count as positive, aspartate and glutamate as negative; histidine has a color of its own and every other residue is neutral. It is the charge of the residue&apos;s name, not worked out for the structure.</source>
+        <translation type="unfinished">精氨酸和赖氨酸算作带正电，天冬氨酸和谷氨酸算作带负电；组氨酸有自己的颜色，其余残基均为电中性。这是按残基名称确定的电荷，并非针对该结构计算。</translation>
+    </message>
+    <message>
         <location line="+134"/>
         <source>{names}: the colors are the file&apos;s B-factor column. In an experimental structure that is not confidence.</source>
         <translation type="unfinished">{names}：颜色来自文件的 B 因子列。在实验测定的结构中，它不代表置信度。</translation>
@@ -3355,12 +3425,18 @@ Command-line usage:
         <translation type="unfinished">模型</translation>
     </message>
     <message>
+        <location line="+4"/>
+        <location line="+3"/>
+        <source>Properties</source>
+        <translation type="unfinished">性质</translation>
+    </message>
+    <message>
         <location line="+3"/>
         <source>Layers</source>
         <translation type="unfinished">图层</translation>
     </message>
     <message>
-        <location line="-69"/>
+        <location line="-76"/>
         <location line="+1"/>
         <source>Filter layers</source>
         <translation type="unfinished">筛选图层</translation>
@@ -3376,7 +3452,7 @@ Command-line usage:
         <translation type="unfinished">没有匹配的图层。</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+52"/>
         <source>Layers such as conservation need an alignment: fold with one loaded in the Viewer.</source>
         <translation type="unfinished">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
     </message>
@@ -3524,7 +3600,7 @@ Command-line usage:
         <translation type="unfinished">转角</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+141"/>
         <location line="+184"/>
         <source>chain {chain} · {name}</source>
         <translation type="unfinished">链 {chain} · {name}</translation>
@@ -3653,7 +3729,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="-559"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="-587"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>

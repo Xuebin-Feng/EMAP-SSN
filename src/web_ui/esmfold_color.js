@@ -6,8 +6,10 @@
  */
 
 // The scene has one coloring at a time (pLDDT, a structure's own color, a
-// layer of the Viewer's residue data, or one of Mol*'s secondary-structure
-// and residue-position colorings), and each structure follows it; a
+// layer of the Viewer's residue data, or one of Mol*'s own colorings: the
+// properties it works out from a structure (secondary structure, solvent
+// accessibility, hydrophobicity, charge) and the residue position), and each
+// structure follows it; a
 // structure's row can give it a coloring of its own. A structure that lacks
 // the chosen layer shows the listing's grey and says "No data", because
 // keeping its pLDDT colors would put two meanings under one legend. What
@@ -23,11 +25,22 @@ const BUILTIN_PREFIX = 'builtin:';
 const STRUCTURE_COLORING = 'builtin:structure';
 const SECONDARY_COLORING = 'builtin:secondary-structure';
 const POSITION_COLORING = 'builtin:residue-position';
+// The properties Mol* works out from the structure itself (themes of its own, in their default parameters).
+const ASA_COLORING = 'builtin:accessible-surface-area';
+const HYDROPHOBICITY_COLORING = 'builtin:hydrophobicity';
+const CHARGE_COLORING = 'builtin:residue-charge';
+// The Mol* color theme of each built-in that is one of Mol*'s own, and the other way round.
+const BUILTIN_THEMES = {
+    [SECONDARY_COLORING]: 'secondary-structure', [POSITION_COLORING]: 'sequence-id', [ASA_COLORING]: 'accessible-surface-area',
+    [HYDROPHOBICITY_COLORING]: 'hydrophobicity', [CHARGE_COLORING]: 'residue-charge'
+};
+const BUILTIN_OF_THEME = Object.fromEntries(Object.entries(BUILTIN_THEMES).map(([id, name]) => [name, id]));
 // What a structure shows when it has no values for the chosen layer: not a choice, a state.
 const NO_DATA = 'nodata';
 const OTHER_COLORING = 'other';
-// The names of the two radio groups of colorings (the card's own chips, and those under More colorings).
+// The names of the three radio groups of colorings (the card's own chips, the Properties, and those under More colorings).
 const MODEL_CHIPS = 'coloring';
+const PROPERTY_CHIPS = 'coloring-properties';
 const MORE_CHIPS = 'coloring-more';
 // The most layers shown as buttons before the card adds a filter and a scroll area.
 const MAX_PLAIN_LAYERS = 8;
@@ -75,8 +88,8 @@ function coloringOf(structure) {
     switch (theme.name) {
         case 'mvs-annotation': return activeLayerId(structure);
         case 'plddt-confidence': return PLDDT_LAYER;
-        case 'secondary-structure': return SECONDARY_COLORING;
-        case 'sequence-id': return POSITION_COLORING;
+        case 'secondary-structure': case 'sequence-id': case 'accessible-surface-area': case 'hydrophobicity': case 'residue-charge':
+            return BUILTIN_OF_THEME[theme.name];
         case 'uniform': {
             const value = theme.params?.value;
             if (value === noDataColor) return NO_DATA;
@@ -90,8 +103,7 @@ function themeFor(structure, id) {
     if (id === STRUCTURE_COLORING) {
         return { color: 'uniform', colorParams: { value: hexToInt(structureColor(structure.cell.transform.ref)) } };
     }
-    if (id === SECONDARY_COLORING) return { color: 'secondary-structure' };
-    if (id === POSITION_COLORING) return { color: 'sequence-id' };
+    if (BUILTIN_THEMES[id]) return { color: BUILTIN_THEMES[id] };
     return { color: 'uniform', colorParams: { value: noDataColor } };
 }
 
@@ -101,6 +113,9 @@ function coloringLabel(id, layers = []) {
     if (id === STRUCTURE_COLORING) return t("Structure color");
     if (id === SECONDARY_COLORING) return t("Secondary structure");
     if (id === POSITION_COLORING) return t("Residue position");
+    if (id === ASA_COLORING) return t("Solvent accessibility");
+    if (id === HYDROPHOBICITY_COLORING) return t("Hydrophobicity");
+    if (id === CHARGE_COLORING) return t("Charge");
     if (id === NO_DATA) return t("No data");
     if (id === OTHER_COLORING) return t("Other (set in Advanced)");
     return layers.find(layer => layer.id === id)?.label ?? id;
@@ -288,6 +303,26 @@ function legendOf(model) {
         const colors = (themeLegend('sequence-id')?.colors ?? []).map(intToHex);
         return { heading: coloringLabel(id), unit: '', kind: 'scale', colors, low: t("N-terminus"), high: t("C-terminus") };
     }
+    if (id === ASA_COLORING) {
+        // Mol*'s scale runs from the first color (buried: a relative area of 0) to the last (exposed: 1 or more).
+        const colors = (themeLegend('accessible-surface-area')?.colors ?? []).map(intToHex);
+        return { heading: coloringLabel(id), unit: '', kind: 'scale', colors, low: t("Buried"), high: t("Exposed"),
+                 note: t("How much of each residue the solvent can reach, as a share of the most a residue of its kind can expose. Each structure is worked out on its own, with a water probe of 1.4 Å and only protein atoms in the way.") };
+    }
+    if (id === HYDROPHOBICITY_COLORING) {
+        // Mol*'s scale runs from the most hydrophilic residue type (the first color, red) to the most hydrophobic (the last, green).
+        const colors = (themeLegend('hydrophobicity')?.colors ?? []).map(intToHex);
+        return { heading: coloringLabel(id), unit: '', kind: 'scale', colors, low: t("Hydrophilic"), high: t("Hydrophobic"),
+                 note: t("One value for each kind of residue, from the Wimley and White scale for membrane interfaces (water to membrane), the same wherever the residue sits.") };
+    }
+    if (id === CHARGE_COLORING) {
+        // The colors Mol* gives arginine and lysine, aspartate and glutamate, histidine and the rest, read from its own table.
+        const table = new Map((themeLegend('residue-charge')?.table ?? []).map(([name, color]) => [name, intToHex(color)]));
+        const bands = [['ARG', t("Positive")], ['ASP', t("Negative")], ['HIS', t("Histidine")], ['ALA', t("Neutral")]]
+            .filter(([key]) => table.has(key)).map(([key, label]) => ({ color: table.get(key), label }));
+        return { heading: coloringLabel(id), unit: '', kind: 'table', bands,
+                 note: t("Arginine and lysine count as positive, aspartate and glutamate as negative; histidine has a color of its own and every other residue is neutral. It is the charge of the residue's name, not worked out for the structure.") };
+    }
     const layer = model.layers.find(known => known.id === id);
     if (!layer) return null;
     return { heading: layer.label, unit: layer.unit, kind: layer.legend.kind, legend: layer.legend, description: layer.description,
@@ -415,7 +450,7 @@ function legendTitle(legend, tag) {
 function cardLegend(model) {
     const legend = model.legend;
     const parts = [];
-    if (legend.kind === 'note') {
+    if (legend.note) {
         const note = make('div', 'legend-note', legend.note);
         parts.push(note);
     }
@@ -626,10 +661,18 @@ function renderColorBody(model) {
     const modelLabel = groupLabel(t("Model"));
     const modelChips = make('div', 'seg');
     modelChips.append(colorChip(PLDDT_LAYER, coloringLabel(PLDDT_LAYER), model, '', MODEL_CHIPS));
+    // The properties Mol* works out from the structure: always shown, and a radio group of their own (one Tab stop, the arrow keys inside).
+    const propertiesLabel = groupLabel(t("Properties"));
+    const propertyChips = make('div', 'seg properties');
+    propertyChips.setAttribute('role', 'radiogroup');
+    propertyChips.setAttribute('aria-label', t("Properties"));
+    propertyChips.append(...[SECONDARY_COLORING, ASA_COLORING, HYDROPHOBICITY_COLORING, CHARGE_COLORING]
+        .map(id => colorChip(id, coloringLabel(id), model, '', PROPERTY_CHIPS)));
     const layersLabel = groupLabel(t("Layers"));
     const choices = layerChoices(model);
-    if (filter) replaceAround(group, filter, [modelLabel, modelChips, layersLabel], choices ? [choices] : []);
-    else group.replaceChildren(modelLabel, modelChips, layersLabel, ...(choices ? [choices] : []));
+    const before = [modelLabel, modelChips, propertiesLabel, propertyChips, layersLabel];
+    if (filter) replaceAround(group, filter, before, choices ? [choices] : []);
+    else group.replaceChildren(...before, ...(choices ? [choices] : []));
 
     if (model.count && (!model.layers.length || model.unavailable.length)) {
         const empty = make('div', 'empty-layers');
@@ -663,7 +706,6 @@ function renderColorBody(model) {
         more.setAttribute('role', 'radiogroup');
         more.setAttribute('aria-label', t("More colorings"));
         more.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model, '', MORE_CHIPS),
-                    colorChip(SECONDARY_COLORING, coloringLabel(SECONDARY_COLORING), model, '', MORE_CHIPS),
                     colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model, '', MORE_CHIPS));
         nodes.push(more);
     }

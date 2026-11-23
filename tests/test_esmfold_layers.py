@@ -59,6 +59,7 @@ from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers, serve_fold_view
 from tests.sparse_alignment import load_manager, write_fasta
+from tests.test_esmfold_colors import PROPERTY_CHIPS
 from tests.test_esmfold_worker import REMOTE_SETTINGS, FakeFoldClient, FakeOutput, fake_esm_modules
 # A remote fold imports this on first use; load it before a test puts a stand-in torch in sys.modules.
 from tools.tool_helpers import Remote_Requests  # noqa: F401
@@ -753,7 +754,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             self.assertEqual(start["colors"][str(number)], self.band(plddt[number - 1]), number)
         # The card offers pLDDT and each property (the structure's own color is under More colorings) of the file, with a legend for the chosen one.
         self.assertEqual(start["card"]["chips"], [
-            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
             ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual(start["card"]["selected"], "plddt")
         self.assertEqual(start["card"]["title"], "Color by")
@@ -838,7 +839,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             return out;
             """)
         self.assertEqual(result["options"], [
-            ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS, ["information_content", "Information Content", ""],
             ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
         for layer_id, label, rows_expected, swatches in (

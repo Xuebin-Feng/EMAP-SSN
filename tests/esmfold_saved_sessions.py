@@ -59,6 +59,10 @@ def saved_scene(name):
     chips = scene["expected"].get("card", {}).get("chips")
     if chips and "builtin:structure" in chips:
         chips.remove("builtin:structure")
+    # And before the Properties group (Secondary structure and the three Mol* works out) was in the card, after pLDDT's chip.
+    if chips and "builtin:accessible-surface-area" not in chips:
+        at = chips.index("plddt") + 1
+        chips[at:at] = ["builtin:secondary-structure", "builtin:accessible-surface-area", "builtin:hydrophobicity", "builtin:residue-charge"]
     return scene
 
 

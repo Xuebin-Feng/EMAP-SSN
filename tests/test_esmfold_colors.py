@@ -34,6 +34,10 @@ from PySide6.QtTest import QTest  # noqa: E402
 
 GREY = 0xDCDCDC
 A, B, C = "11.pdb", "22.pdb", "33.pdb"
+# The "Properties" group of the Color by card, as a card lists it: the chips' ids and texts, in order.
+PROPERTY_CHIPS = [["builtin:secondary-structure", "Secondary structure", ""], ["builtin:accessible-surface-area", "Solvent accessibility", ""],
+                  ["builtin:hydrophobicity", "Hydrophobicity", ""], ["builtin:residue-charge", "Charge", ""]]
+PROPERTY_IDS = [chip[0] for chip in PROPERTY_CHIPS]
 SEQUENCE = fixtures.FIRST_SEQUENCE
 
 
@@ -100,7 +104,7 @@ class SceneColoringTests(ColorTestCase):
         self.open_scene(A, B, C)
         card = self.script("return await cardNow()")
         self.assertEqual(card["chips"], [
-            ["plddt", "pLDDT", ""],
+            ["plddt", "pLDDT", ""], *PROPERTY_CHIPS,
             ["information_content", "Information Content", "2 of 3"], ["hydro", "Hydrophobicity", "1 of 3"]])
         self.assertEqual(card["selected"], "plddt")
         # The structure with no residue data says why, in the Viewer's words.
@@ -218,10 +222,9 @@ class SceneColoringTests(ColorTestCase):
         self.assertNotEqual(shown[0]["value"], shown[1]["value"])
         self.assertEqual(card["selected"], "builtin:structure")
         self.assertEqual(card["compact"]["shown"], "0")
-        # (Structure color is behind "More colorings", with the other two, which the card shows in this order.)
+        # (Structure color is behind "More colorings", with Residue position, in this order.)
         opened = self.script("return await cardNow()")
-        self.assertEqual([chip[0] for chip in opened["chips"]][-3:],
-                         ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"])
+        self.assertEqual([chip[0] for chip in opened["chips"]][-2:], ["builtin:structure", "builtin:residue-position"])
         secondary = self.choose("builtin:secondary-structure")
         self.assertEqual([item["theme"] for item in self.shown()], ["secondary-structure"] * 2)
         self.assertEqual(secondary["legendTitle"], "Secondary structure")
@@ -279,7 +282,7 @@ class LayerNameTests(ColorTestCase):
         self.open_scene(A)
 
     def layer_chips(self, card):
-        return {chip[0]: chip[1] for chip in card["chips"] if chip[0] not in ("plddt", "builtin:structure")}
+        return {chip[0]: chip[1] for chip in card["chips"] if chip[0] not in ["plddt", "builtin:structure", *PROPERTY_IDS]}
 
     def test_in_simplified_chinese_the_card_and_its_legend_name_them_and_another_writers_layer_keeps_its_name(self):
         from desktop.Desktop_App import install_translations
@@ -326,7 +329,7 @@ class CardTests(ColorTestCase):
             return {filter: !!body.querySelector('.filter'), scroll: !!body.querySelector('.seg.scroll'),
                     chips: body.querySelectorAll('.seg-btn').length};
             """)
-        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 11})
+        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 15})
         # Typing narrows the buttons, and the filter keeps the focus.
         self.script("""
             const filter = document.querySelector('#color-body .filter');
@@ -358,7 +361,7 @@ class CardTests(ColorTestCase):
                     notes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent)};
             """)
         self.assertFalse(none["filter"])
-        self.assertEqual(none["chips"], ["plddt"])
+        self.assertEqual(none["chips"], ["plddt", *PROPERTY_IDS])
         self.assertEqual(none["notes"][0], "Layers such as conservation need an alignment: fold with one loaded in the Viewer.")
 
     def test_the_layer_filter_stays_the_same_field_and_waits_for_an_ime_to_finish_its_word(self):
@@ -422,9 +425,9 @@ class CardTests(ColorTestCase):
                     labelled: radios.every(r => r.labels.length === 1 && r.labels[0].textContent.trim().length > 0)};
             """)
         self.assertEqual(group, {
-            "groups": ["Color by", "More colorings"],
-            "names": {"coloring": ["plddt", "information_content", "same_residue_pct"],
-                      "coloring-more": ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"]},
+            "groups": ["Color by", "Properties", "More colorings"],
+            "names": {"coloring": ["plddt", "information_content", "same_residue_pct"], "coloring-properties": PROPERTY_IDS,
+                      "coloring-more": ["builtin:structure", "builtin:residue-position"]},
             "checked": ["plddt"], "roles": 0, "labelled": True})
         # The browser's own keys: Right and Left move along the group (round its ends) and choose, as radio buttons do.
         widget = self.view.focusProxy() or self.view
@@ -446,7 +449,7 @@ class CardTests(ColorTestCase):
             const body = document.getElementById('color-body');
             return {chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), more: body.querySelector('.more-toggle').getAttribute('aria-expanded')};
             """)
-        self.assertEqual(closed, {"chips": ["plddt", "information_content"], "more": "false"})
+        self.assertEqual(closed, {"chips": ["plddt", *PROPERTY_IDS, "information_content"], "more": "false"})
         self.script("document.querySelector('#color-body .more-toggle').click(); return await cardNow()")
         opened = self.script("""
             const body = document.getElementById('color-body');
@@ -455,22 +458,22 @@ class CardTests(ColorTestCase):
             radio('plddt').focus();
             return {model: [...body.querySelector('.seg').querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
                     more: [...more.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), moreName: more.getAttribute('aria-label'),
-                    names: ['builtin:structure', 'builtin:secondary-structure', 'builtin:residue-position'].map(id => radio(id).name),
+                    names: ['builtin:structure', 'builtin:residue-position'].map(id => radio(id).name),
                     reachable: document.activeElement === radio('plddt'), group: radio('plddt').closest('[role=radiogroup]').getAttribute('aria-label'),
                     label: radio('builtin:structure').labels[0].textContent.trim()};
             """)
         self.assertEqual(opened["model"], ["plddt"])
-        self.assertEqual(opened["more"], ["builtin:structure", "builtin:secondary-structure", "builtin:residue-position"])
-        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 3, "Color by"))
+        self.assertEqual(opened["more"], ["builtin:structure", "builtin:residue-position"])
+        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 2, "Color by"))
         self.assertTrue(opened["reachable"])
         self.assertIn("Structure color", opened["label"])
 
     def test_a_coloring_under_a_closed_more_colorings_leaves_it_closed_and_no_chip_is_checked(self):
-        # The rule, as it was for Secondary structure: nothing opens "More colorings" for a coloring that sits under it (a restored
-        # session, a row's choice); the legend still says what is drawn, and the section opens as the person asks.
+        # The rule, as it was for Secondary structure when that was under it: nothing opens "More colorings" for a coloring that sits
+        # under it (a restored session, a row's choice); the legend still says what is drawn, and the section opens as the person asks.
         self.write_with(A, "information_content")
         self.open_scene(A)
-        for coloring in ("builtin:secondary-structure", "builtin:structure"):
+        for coloring in ("builtin:residue-position", "builtin:structure"):
             with self.subTest(coloring=coloring):
                 self.script("await setColorMode(%s); await structureQueue; return await cardNow()" % json.dumps(coloring))
                 state = self.script("""
@@ -601,6 +604,183 @@ class LegendPlaceTests(ColorTestCase):
                     """)
                 self.assertEqual((found["overlaps"], found["within"], found["count"]), (0, True, 3), found)
                 self.assertGreaterEqual(found["legendWidth"], 119)
+
+
+ASA, HYDROPHOBICITY, CHARGE = "builtin:accessible-surface-area", "builtin:hydrophobicity", "builtin:residue-charge"
+NOTES = {
+    ASA: "How much of each residue the solvent can reach, as a share of the most a residue of its kind can expose. Each structure is worked "
+         "out on its own, with a water probe of 1.4 Å and only protein atoms in the way.",
+    HYDROPHOBICITY: "One value for each kind of residue, from the Wimley and White scale for membrane interfaces (water to membrane), the same "
+                    "wherever the residue sits.",
+    CHARGE: "Arginine and lysine count as positive, aspartate and glutamate as negative; histidine has a color of its own and every other "
+            "residue is neutral. It is the charge of the residue's name, not worked out for the structure.",
+}
+
+
+class PropertyColoringTests(ColorTestCase):
+    """The Properties group: Secondary structure and the three colorings Mol* works out from the structure itself."""
+
+    # The colors of every residue of a structure as a theme gives them, and the residues' names, by number.
+    RESIDUES = """
+        const trace = nativeTrace(loadedStructures()[0]);
+        const names = [...trace.codes].map(code => AMINO_ACIDS[code]);
+        const by = (theme) => { const c = colors(0, theme, {}); return names.map((name, k) => [name, c[String(k + 1)]]); };
+        """
+
+    def open_two(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, "information_content", sequence=fixtures.SECOND_SEQUENCE, shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+
+    def test_the_group_has_its_chips_in_order_always_shown_and_choosing_one_puts_its_theme_in_the_scene(self):
+        self.open_two()
+        card = self.script("return await cardNow()")
+        self.assertEqual([chip[0] for chip in card["chips"]][:5], ["plddt", *PROPERTY_IDS])
+        self.assertEqual(self.script("return [...document.querySelectorAll('#color-body .group-label')].map(n => n.textContent)"),
+                         ["Model", "Properties", "Layers"])
+        for coloring, theme in ((ASA, "accessible-surface-area"), (HYDROPHOBICITY, "hydrophobicity"), (CHARGE, "residue-charge"),
+                                ("builtin:secondary-structure", "secondary-structure")):
+            with self.subTest(coloring=coloring):
+                card = self.choose(coloring)
+                self.assertEqual(card["selected"], coloring)
+                self.assertEqual([item["theme"] for item in self.shown()], [theme] * 2)
+                self.assertEqual(self.script("return loadedStructures().map(s => coloringOf(s))"), [coloring] * 2)
+                # The card draws no colors, and has the one note (Secondary structure has none, and so no box).
+                self.assertEqual(card["cardColors"], 0)
+                if coloring in NOTES:
+                    self.assertEqual((card["box"], card["legendNote"]), (True, NOTES[coloring]))
+                else:
+                    self.assertFalse(card["box"])
+        self.assertEqual(self.console_errors(), [])
+
+    def test_solvent_accessibility_gives_every_structure_its_own_values_through_the_page_s_path(self):
+        self.open_two()
+        card = self.choose(ASA)
+        found = self.script("""
+            const out = [];
+            for (const index of [0, 1]) { const c = colors(index, 'accessible-surface-area', {}); out.push([Object.keys(c).length, new Set(Object.values(c)).size]); }
+            return out;""")
+        # Both structures, aligned in one scene, have a value for every residue and many different ones.
+        self.assertEqual([item[0] for item in found], [33, 33])
+        self.assertTrue(all(item[1] > 10 for item in found), found)
+        self.assertEqual((card["legendTitle"], card["bar"], card["ends"], card["marks"], card["keys"]),
+                         ("Solvent accessibility", True, ["Buried", "Exposed"], [], []))
+        # Buried is the first color of Mol*'s scale (light yellow) and exposed the last (dark blue): the bar's first stop is the lighter.
+        bar = self.script("""
+            const stops = document.querySelector('#canvas-legend .ramp').style.background.match(/#[0-9a-f]{6}|rgb\\([^)]*\\)/gi);
+            const light = c => { const n = c.startsWith('#') ? [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)) : c.match(/\\d+/g).map(Number); return n[0] + n[1] + n[2]; };
+            return light(stops[0]) > light(stops[stops.length - 1]);""")
+        self.assertTrue(bar)
+
+    def test_hydrophobicity_has_hydrophilic_residues_red_and_hydrophobic_ones_green_and_the_legend_says_so(self):
+        self.open_two()
+        card = self.choose(HYDROPHOBICITY)
+        by = self.script(self.RESIDUES + "return by('hydrophobicity')")
+        color = lambda name: next(c for n, c in by if n == name)
+        # The ends are as Mol* draws them: the first color of the bar is what a hydrophilic residue (glutamate) has, the last a hydrophobic one's.
+        self.assertEqual(color("GLU"), "#a50026")
+        self.assertGreater(int(color("GLU")[1:3], 16), int(color("GLU")[3:5], 16))
+        self.assertGreater(int(color("PHE")[3:5], 16), int(color("PHE")[1:3], 16))
+        self.assertNotEqual(color("GLU"), color("PHE"))
+        self.assertEqual((card["legendTitle"], card["bar"], card["ends"]), ("Hydrophobicity", True, ["Hydrophilic", "Hydrophobic"]))
+        first = self.script("return document.querySelector('#canvas-legend .ramp').style.background")
+        self.assertIn("rgb(165, 0, 38) 0%", first)
+        self.assertIn("rgb(0, 104, 55) 100%", first)
+
+    def test_charge_has_arginine_and_lysine_blue_aspartate_and_glutamate_red_histidine_its_own_and_the_rest_white(self):
+        self.open_two()
+        card = self.choose(CHARGE)
+        by = dict(self.script(self.RESIDUES + "return by('residue-charge')"))
+        self.assertEqual((by["LYS"], by["ARG"], by["GLU"], by["HIS"], by["ALA"], by["MET"]),
+                         ("#0000ff", "#0000ff", "#ff0000", "#33c3f9", "#ffffff", "#ffffff"))
+        self.assertEqual((card["legendTitle"], card["bar"], card["keys"]), ("Charge", False, ["Positive", "Negative", "Histidine", "Neutral"]))
+        # The keys are the colors above, the neutral one white with an edge so that it shows on the card.
+        swatches = self.script("""
+            return [...document.querySelectorAll('#canvas-legend .band i')].map(i => [i.style.getPropertyValue('--bc'), getComputedStyle(i).borderTopWidth]);""")
+        self.assertEqual(swatches, [["#0000ff", "1px"], ["#ff0000", "1px"], ["#33c3f9", "1px"], ["#ffffff", "1px"]])
+
+    def test_a_session_saved_with_each_of_them_comes_back_with_its_chip_checked(self):
+        self.open_two()
+        for coloring in (ASA, HYDROPHOBICITY, CHARGE):
+            with self.subTest(coloring=coloring):
+                self.choose(coloring)
+                self.settle(1800)
+                self.assertTrue(self.saved)
+                session = json.loads(json.dumps(self.saved[-1]))
+                del self.saved[:]
+                self.session = session
+                self.open_page()
+                self.settle(500)
+                card = self.script("return await cardNow()")
+                self.assertEqual(card["selected"], coloring)
+                self.assertEqual([item["coloring"] for item in self.shown()], [coloring] * 2)
+                self.assertEqual(card["legendTitle"], {ASA: "Solvent accessibility", HYDROPHOBICITY: "Hydrophobicity", CHARGE: "Charge"}[coloring])
+
+    def test_the_arrow_keys_stay_inside_the_group_and_tab_goes_from_group_to_group(self):
+        self.open_two()
+        widget = self.view.focusProxy() or self.view
+        stop = "return document.activeElement.closest('.seg-btn')?.dataset.coloring || document.activeElement.className"
+        self.script("document.querySelector('#color-body [data-coloring=\"plddt\"] input').focus(); return 1")
+        QTest.keyClick(widget, Qt.Key_Tab)
+        self.pump(0.3)
+        # Pointing at the Properties: its group has no chip chosen, so Tab comes to its first.
+        self.assertEqual(self.script(stop), "builtin:secondary-structure")
+        for key, expected in ((Qt.Key_Right, ASA), (Qt.Key_Right, HYDROPHOBICITY), (Qt.Key_Right, CHARGE), (Qt.Key_Right, "builtin:secondary-structure"),
+                              (Qt.Key_Left, CHARGE)):
+            QTest.keyClick(widget, key)
+            self.pump(0.3)
+            self.script("await structureQueue; await cardNow(); return 1")
+            self.settle(150)
+            state = self.script("return {focus: document.activeElement.closest('.seg-btn')?.dataset.coloring, coloring: coloringOf(loadedStructures()[0])}")
+            self.assertEqual(state, {"focus": expected, "coloring": expected}, key)
+        # The chosen chip is the group's Tab stop now, and Tab leaves it for the next group (the Layers chips are one with pLDDT's, and nothing
+        # of it is chosen, so its first is the stop) and then for More colorings.
+        QTest.keyClick(widget, Qt.Key_Tab)
+        self.pump(0.3)
+        self.assertEqual(self.script("return document.activeElement.name"), "coloring")
+        QTest.keyClick(widget, Qt.Key_Tab)
+        self.pump(0.3)
+        self.assertEqual(self.script("return document.activeElement.className"), "more-toggle")
+
+    def test_the_strips_bars_follow_a_property_as_they_follow_the_others(self):
+        self.open_two()
+        self.choose(HYDROPHOBICITY)
+        self.settle(600)
+        found = self.script("""
+            const c = colors(0, 'hydrophobicity', {});
+            const bars = [...document.querySelectorAll('#seq-body .seq-res')].map(b => b.style.getPropertyValue('--rc'));
+            return {bars, expected: Array.from({length: 33}, (_, k) => c[String(k + 1)])};""")
+        self.assertEqual(found["bars"], found["expected"])
+        self.assertGreater(len(set(found["bars"])), 5)
+
+    def test_in_simplified_chinese_the_group_its_chips_notes_and_legend_ends_are_translated(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.open_two()
+        english = ["Properties", "Solvent accessibility", "Hydrophobicity", "Charge", "Buried", "Exposed", "Hydrophilic", "Hydrophobic",
+                   "Positive", "Negative", "Histidine", "Neutral"]
+        card = self.script("return await cardNow()")
+        self.assertEqual([chip[1] for chip in card["chips"]][1:5], ["二级结构", "溶剂可及性", "疏水性", "电荷"])
+        self.assertEqual(self.script("return [...document.querySelectorAll('#color-body .group-label')].map(n => n.textContent)")[1], "性质")
+        seen = []
+        for coloring in (ASA, HYDROPHOBICITY, CHARGE):
+            card = self.choose(coloring)
+            seen += [card["legendTitle"], card["legendNote"], *card["ends"], *card["keys"]]
+        self.assertTrue(all(text and text not in english and text not in NOTES.values() for text in seen), seen)
+
+    def test_the_properties_group_follows_the_dark_theme_like_the_rest_of_the_card(self):
+        self.open_two()
+        self.script("applyTheme('dark', false); return 1")
+        card = self.choose(CHARGE)
+        colors = self.script("""
+            const label = getComputedStyle(document.querySelector('#color-body .group-label'));
+            const chip = getComputedStyle(document.querySelector('#color-body [data-coloring=\"builtin:residue-charge\"]'));
+            const probe = (token) => { const n = document.createElement('i'); n.style.color = 'var(' + token + ')'; document.body.append(n); const c = getComputedStyle(n).color; n.remove(); return c; };
+            return {label: label.color, subtle: probe('--text-subtle'), transform: label.textTransform, chip: chip.color, accent: probe('--accent')};""")
+        self.assertEqual((colors["label"], colors["transform"], colors["chip"]), (colors["subtle"], "none", colors["accent"]))
+        self.assertEqual(card["keys"], ["Positive", "Negative", "Histidine", "Neutral"])
 
 
 class PanelTabTests(ColorTestCase):

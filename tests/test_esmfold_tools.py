@@ -343,5 +343,21 @@ class ImageLegendTests(ToolTestCase):
         self.assertIsNone(self.script("return drawLegend(document.createElement('canvas').getContext('2d'), 600, 400, 1, await colorModel())"))
 
 
+    def test_the_picture_has_the_ends_and_keys_of_the_three_properties_as_the_canvas_has_them(self):
+        self.write_with(A, "information_content")
+        self.open_scene(A)
+        expected = {
+            "builtin:accessible-surface-area": (["Solvent accessibility", "Buried", "Exposed"], ["Solvent accessibility", "Buried", "Exposed"]),
+            "builtin:hydrophobicity": (["Hydrophobicity", "Hydrophilic", "Hydrophobic"], ["Hydrophobicity", "Hydrophilic", "Hydrophobic"]),
+            "builtin:residue-charge": (["Charge", "Positive", "Negative", "Histidine", "Neutral"], ["Charge", "Positive", "Negative", "Histidine", "Neutral"]),
+        }
+        for coloring, (picture, canvas) in expected.items():
+            with self.subTest(coloring=coloring):
+                self.choose(coloring)
+                drawn = self.script(self.DRAW)
+                self.assertEqual(drawn["texts"], picture)
+                self.assertEqual(drawn["canvas"], canvas)
+
+
 if __name__ == "__main__":
     unittest.main()

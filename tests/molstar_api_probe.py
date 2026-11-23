@@ -127,7 +127,8 @@ const reprs = plugin.representation.structure.registry.list.map(entry => entry.n
 out.representations = ['cartoon', 'backbone', 'ball-and-stick', 'spacefill', 'gaussian-surface', 'molecular-surface']
     .filter(name => reprs.includes(name));
 const themes = plugin.representation.structure.themes.colorThemeRegistry.list.map(entry => entry.name);
-out.themes = ['plddt-confidence', 'mvs-annotation', 'uniform', 'secondary-structure', 'sequence-id', 'chain-id', 'hydrophobicity']
+out.themes = ['plddt-confidence', 'mvs-annotation', 'uniform', 'secondary-structure', 'sequence-id', 'chain-id', 'hydrophobicity',
+              'accessible-surface-area', 'residue-charge']
     .filter(name => themes.includes(name));
 out.transforms = ['TransformStructureConformation', 'CustomModelProperties', 'CustomStructureProperties']
     .filter(name => name in molstar.lib.plugin.StateTransforms.Model);
@@ -228,6 +229,13 @@ const caLoci = number => L.StructureSelection.toLociWithSourceUnits(L.Queries.ge
         secondary: {kind: ss?.kind, names: (ss?.table || []).map(row => row[0]).sort(), colors: integers((ss?.table || []).map(row => row[1]))},
         position: {kind: position?.kind, colors: integers(position?.colors)}
     };
+    // The three properties the card's Properties group adds: scales with their two end labels, and a table of residue names.
+    const scale = name => { const legend = registry.create(name, {structure}, {}).legend; return {kind: legend?.kind, colors: integers(legend?.colors), ends: [legend?.minLabel, legend?.maxLabel]}; };
+    const charge = registry.create('residue-charge', {structure}, {}).legend;
+    out.legends.accessibility = scale('accessible-surface-area');
+    out.legends.hydrophobicity = scale('hydrophobicity');
+    out.legends.charge = {kind: charge?.kind, names: ['ARG', 'LYS', 'ASP', 'GLU', 'HIS', 'ALA'].filter(name => (charge?.table || []).some(row => row[0] === name)),
+                          colors: integers((charge?.table || []).map(row => row[1]))};
     const annotation = registry.get('mvs-annotation');
     out.annotationTheme = ['annotationId', 'fieldName', 'palette'].filter(name => name in annotation.getParams({structure}));
 }

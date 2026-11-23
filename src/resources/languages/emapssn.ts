@@ -2002,6 +2002,18 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Solvent accessibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hydrophobicity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Charge</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No data</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2054,6 +2066,50 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Buried</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exposed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How much of each residue the solvent can reach, as a share of the most a residue of its kind can expose. Each structure is worked out on its own, with a water probe of 1.4 Å and only protein atoms in the way.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hydrophilic</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hydrophobic</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One value for each kind of residue, from the Wimley and White scale for membrane interfaces (water to membrane), the same wherever the residue sits.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Positive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Negative</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Histidine</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Neutral</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arginine and lysine count as positive, aspartate and glutamate as negative; histidine has a color of its own and every other residue is neutral. It is the charge of the residue&apos;s name, not worked out for the structure.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{names}: the colors are the file&apos;s B-factor column. In an experimental structure that is not confidence.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2079,6 +2135,10 @@ Command-line usage:
     </message>
     <message>
         <source>Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Properties</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

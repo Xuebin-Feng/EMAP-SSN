@@ -110,7 +110,7 @@ class MolstarApiSurfaceTests(unittest.TestCase):
             "cartoon", "backbone", "ball-and-stick", "spacefill", "gaussian-surface", "molecular-surface"])
         self.assertEqual(self.found["themes"], [
             "plddt-confidence", "mvs-annotation", "uniform", "secondary-structure", "sequence-id", "chain-id",
-            "hydrophobicity"])
+            "hydrophobicity", "accessible-surface-area", "residue-charge"])
         self.assertEqual(self.found["transforms"], [
             "TransformStructureConformation", "CustomModelProperties", "CustomStructureProperties"])
 
@@ -166,6 +166,10 @@ class MolstarApiSurfaceTests(unittest.TestCase):
         self.assertTrue(set(["alphaHelix", "betaStrand", "coil"]) <= set(found["legends"]["secondary"]["names"]))
         self.assertTrue(found["legends"]["secondary"]["colors"])
         self.assertEqual(found["legends"]["position"], {"kind": "scale-legend", "colors": True})
+        # The Properties group's three: two scales with their end labels (the card says them in its own words), and a table of residues.
+        self.assertEqual(found["legends"]["accessibility"], {"kind": "scale-legend", "colors": True, "ends": ["buried", "exposed"]})
+        self.assertEqual(found["legends"]["hydrophobicity"], {"kind": "scale-legend", "colors": True, "ends": ["Hydrophilic", "Hydrophobic"]})
+        self.assertEqual(found["legends"]["charge"], {"kind": "table-legend", "names": ["ARG", "LYS", "ASP", "GLU", "HIS", "ALA"], "colors": True})
         # The layers' MolViewSpec property names are not documented: these are what tests/test_esmfold_layers.py colours through.
         self.assertEqual(found["annotationTheme"], ["annotationId", "fieldName", "palette"])
         self.assertEqual(found["mvsProperties"], {
