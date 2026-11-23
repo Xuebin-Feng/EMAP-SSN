@@ -171,6 +171,34 @@ class ImputationFitTests(unittest.TestCase):
         self.assertTrue(np.all(fit.fit_x >= 0.5))
         self.assertEqual(fit.calibration_x.size, 40)
 
+    def test_the_fit_takes_up_to_500000_observed_pairs_by_default(self):
+        import inspect
+
+        self.assertEqual(Embedding_MSA.IMPUTATION_FIT_PAIRS, 500_000)
+        default = inspect.signature(Embedding_MSA.fit_imputation).parameters["fit_pairs"].default
+        self.assertEqual(default, Embedding_MSA.IMPUTATION_FIT_PAIRS)
+
+    def test_with_more_than_500000_observed_pairs_the_default_picks_exactly_500000_and_with_fewer_uses_every_pair(self):
+        rng = np.random.default_rng(5)
+        limit = Embedding_MSA.IMPUTATION_FIT_PAIRS
+        total = limit + 21
+        x = rng.random(total)
+        y = (3.0 * x + 0.1 * rng.random(total)).astype(np.float32)
+        positions, weights = np.arange(total - 20, total), np.full(20, 3.0)
+        # 500,001 observed pairs without a sample, 500,001 besides the sample with one: 500,000 are picked.
+        fit = Embedding_MSA.fit_imputation(x[:limit + 1], y[:limit + 1])
+        self.assertEqual(fit.fit_x.size, limit)
+        self.assertEqual(fit.fit_y.size, limit)
+        fit = Embedding_MSA.fit_imputation(x, y, positions, weights)
+        self.assertEqual(fit.fit_x.size, limit)
+        self.assertEqual(fit.fit_y.size, limit)
+        # Exactly 500,000 observed pairs (besides the sample, if any): every pair is used and nothing is picked.
+        with mock.patch.object(Embedding_MSA.np.random, "choice", side_effect=AssertionError("a pick was made")):
+            fit = Embedding_MSA.fit_imputation(x[:limit], y[:limit])
+            self.assertEqual(fit.fit_x.size, limit)
+            fit = Embedding_MSA.fit_imputation(x[:limit + 20], y[:limit + 20], positions - 1, weights)
+            self.assertEqual(fit.fit_x.size, limit)
+
     def test_too_few_sample_pairs_stay_among_the_observed_pairs(self):
         few = self.positions[:Embedding_MSA.MIN_CALIBRATION_PAIRS - 1]
         on = Embedding_MSA.fit_imputation(self.x, self.y, few, self.weights[:len(few)])

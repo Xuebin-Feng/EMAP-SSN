@@ -1710,7 +1710,7 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
 # test the fit, so it is made as for a network without a sample.
 MIN_CALIBRATION_PAIRS = 10
 # The most observed pairs the fit takes; a random sample of them stands in above this.
-IMPUTATION_FIT_PAIRS = 100_000
+IMPUTATION_FIT_PAIRS = 500_000
 
 
 @dataclass
