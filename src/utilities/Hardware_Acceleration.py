@@ -910,8 +910,11 @@ def benchmark_layout_devices(
                 synchronize_device(candidate)
                 setup = time.perf_counter() - started
                 started = time.perf_counter()
-                for step in range(steps):
-                    simulation.step(step)
+                if getattr(simulation, "uses_kernels", False) and hasattr(simulation, "step_batch"):
+                    simulation.step_batch(0, steps)
+                else:
+                    for step in range(steps):
+                        simulation.step(step)
                 simulation.get_pos()
                 synchronize_device(candidate)
                 per_step = (time.perf_counter() - started) / steps

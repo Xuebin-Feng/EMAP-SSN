@@ -21,13 +21,204 @@ import threading
 import warnings
 
 import numpy as np
-import pandas as pd
+
+try:
+    from numba import njit, prange
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
+try:
+    from utilities import Numba_Threads
+except ImportError:
+    import Numba_Threads
 
 try:
     import umap
     UMAP_AVAILABLE = True
 except ImportError:
     UMAP_AVAILABLE = False
+
+
+if _NUMBA_AVAILABLE:
+    @njit(cache=True)
+    def _build_symmetric_csr(sources, targets, distances, n_nodes):
+        """Build undirected CSR (indptr, adj_v, adj_d) in O(E + N), skipping self-loops."""
+        n_edges = sources.shape[0]
+        indptr = np.zeros(n_nodes + 1, dtype=np.int64)
+        for e in range(n_edges):
+            u = sources[e]
+            v = targets[e]
+            if u != v:
+                indptr[u + 1] += 1
+                indptr[v + 1] += 1
+        for i in range(n_nodes):
+            indptr[i + 1] += indptr[i]
+        total = indptr[n_nodes]
+        adj_v = np.empty(total, dtype=np.int32)
+        adj_d = np.empty(total, dtype=np.float32)
+        fill = indptr[:-1].copy()
+        for e in range(n_edges):
+            u = sources[e]
+            v = targets[e]
+            if u != v:
+                d = distances[e]
+                pu = fill[u]
+                fill[u] = pu + 1
+                adj_v[pu] = v
+                adj_d[pu] = d
+                pv = fill[v]
+                fill[v] = pv + 1
+                adj_v[pv] = u
+                adj_d[pv] = d
+        return indptr, adj_v, adj_d
+
+    @njit(parallel=True, cache=True)
+    def _csr_topk_dedup(indptr, adj_v, adj_d, n_nodes, real_neighbors):
+        """Parallel per-node deduplicated top-K nearest neighbors in ascending (d, v) order."""
+        n_neighbors = real_neighbors + 1
+        knn_indices = np.full((n_nodes, n_neighbors), -1, dtype=np.int32)
+        knn_dists = np.full((n_nodes, n_neighbors), np.inf, dtype=np.float32)
+
+        for u in prange(n_nodes):
+            knn_indices[u, 0] = u
+            knn_dists[u, 0] = np.float32(0.0)
+            start = indptr[u]
+            end = indptr[u + 1]
+            if start == end or real_neighbors <= 0:
+                continue
+
+            if real_neighbors <= 64:
+                # Single-pass O(deg) bounded insertion list (no sorting of whole row!).
+                best_v = np.empty(real_neighbors, dtype=np.int32)
+                best_d = np.empty(real_neighbors, dtype=np.float32)
+                taken = 0
+                for p in range(start, end):
+                    v = adj_v[p]
+                    d = adj_d[p]
+                    if taken == real_neighbors:
+                        wd = best_d[taken - 1]
+                        if d > wd or (d == wd and v >= best_v[taken - 1]):
+                            continue
+                    # Check if v is already in best_v[:taken] (handles duplicate edges).
+                    dup_pos = -1
+                    for j in range(taken):
+                        if best_v[j] == v:
+                            dup_pos = j
+                            break
+                    if dup_pos != -1:
+                        if d < best_d[dup_pos]:
+                            best_d[dup_pos] = d
+                            pos = dup_pos
+                            while pos > 0 and (
+                                best_d[pos - 1] > d
+                                or (best_d[pos - 1] == d and best_v[pos - 1] > v)
+                            ):
+                                best_d[pos] = best_d[pos - 1]
+                                best_v[pos] = best_v[pos - 1]
+                                pos -= 1
+                            best_d[pos] = d
+                            best_v[pos] = v
+                    else:
+                        if taken < real_neighbors:
+                            pos = taken
+                            taken += 1
+                        else:
+                            pos = taken - 1
+                        while pos > 0 and (
+                            best_d[pos - 1] > d
+                            or (best_d[pos - 1] == d and best_v[pos - 1] > v)
+                        ):
+                            best_d[pos] = best_d[pos - 1]
+                            best_v[pos] = best_v[pos - 1]
+                            pos -= 1
+                        best_d[pos] = d
+                        best_v[pos] = v
+                for j in range(taken):
+                    knn_indices[u, j + 1] = best_v[j]
+                    knn_dists[u, j + 1] = best_d[j]
+            else:
+                # General K > 64: sort node u's row by (v, d) to deduplicate, then by (d, v).
+                deg = end - start
+                rv = adj_v[start:end].copy()
+                rd = adj_d[start:end].copy()
+                # Shell sort by (v, d) to collapse duplicates to min distance.
+                gap = 1
+                while gap < deg // 3:
+                    gap = gap * 3 + 1
+                while gap > 0:
+                    for i in range(gap, deg):
+                        kv = rv[i]
+                        kd = rd[i]
+                        j = i - gap
+                        while j >= 0 and (rv[j] > kv or (rv[j] == kv and rd[j] > kd)):
+                            rv[j + gap] = rv[j]
+                            rd[j + gap] = rd[j]
+                            j -= gap
+                        rv[j + gap] = kv
+                        rd[j + gap] = kd
+                    gap //= 3
+                uniq = 0
+                for i in range(deg):
+                    if uniq == 0 or rv[i] != rv[uniq - 1]:
+                        rv[uniq] = rv[i]
+                        rd[uniq] = rd[i]
+                        uniq += 1
+                # Shell sort unique entries by (d, v).
+                gap = 1
+                while gap < uniq // 3:
+                    gap = gap * 3 + 1
+                while gap > 0:
+                    for i in range(gap, uniq):
+                        kv = rv[i]
+                        kd = rd[i]
+                        j = i - gap
+                        while j >= 0 and (rd[j] > kd or (rd[j] == kd and rv[j] > kv)):
+                            rv[j + gap] = rv[j]
+                            rd[j + gap] = rd[j]
+                            j -= gap
+                        rv[j + gap] = kv
+                        rd[j + gap] = kd
+                    gap //= 3
+                take = uniq if uniq < real_neighbors else real_neighbors
+                for j in range(take):
+                    knn_indices[u, j + 1] = rv[j]
+                    knn_dists[u, j + 1] = rd[j]
+
+        return knn_indices, knn_dists
+
+
+def build_precomputed_knn(sources, targets, distances, n_nodes, real_neighbors):
+    """Build exact deduplicated UMAP (knn_indices, knn_dists) arrays."""
+    if _NUMBA_AVAILABLE:
+        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+            indptr, adj_v, adj_d = _build_symmetric_csr(
+                sources, targets, distances, int(n_nodes)
+            )
+            return _csr_topk_dedup(
+                indptr, adj_v, adj_d, int(n_nodes), int(real_neighbors)
+            )
+    import pandas as pd
+
+    n_neighbors = real_neighbors + 1
+    all_u = np.concatenate([sources, targets])
+    all_v = np.concatenate([targets, sources])
+    all_d = np.concatenate([distances, distances])
+    df = pd.DataFrame({'u': all_u, 'v': all_v, 'd': all_d})
+    df = df[df['u'] != df['v']]
+    df = df.sort_values(['u', 'd', 'v'], ascending=[True, True, True])
+    df = df.drop_duplicates(subset=['u', 'v'])
+    top = df.groupby('u').head(real_neighbors)
+
+    knn_indices = np.full((n_nodes, n_neighbors), -1, dtype=np.int32)
+    knn_dists = np.full((n_nodes, n_neighbors), np.inf, dtype=np.float32)
+    knn_indices[:, 0] = np.arange(n_nodes)
+    knn_dists[:, 0] = 0.0
+
+    top = top.assign(rank=top.groupby('u').cumcount() + 1)
+    knn_indices[top['u'].values, top['rank'].values] = top['v'].values
+    knn_dists[top['u'].values, top['rank'].values] = top['d'].values
+    return knn_indices, knn_dists
 
 
 # --- Seeded ARPACK ---------------------------------------------------------------------
@@ -190,25 +381,9 @@ def calculate_layout(connectivity, n_nodes, params):
         
     min_dist = params.get('UMAP_MIN_DIST', 0.1)
 
-    all_u = np.concatenate([sources, targets])
-    all_v = np.concatenate([targets, sources])
-    all_d = np.concatenate([distances, distances])
-
-    df = pd.DataFrame({'u': all_u, 'v': all_v, 'd': all_d})
-    # Exclude self-loops and duplicate edges
-    df = df[df['u'] != df['v']]
-    df = df.sort_values(['u', 'd'], ascending=[True, True])
-    df = df.drop_duplicates(subset=['u', 'v'])
-    top = df.groupby('u').head(real_neighbors)
-
-    knn_indices = np.full((n_nodes, n_neighbors), -1, dtype=np.int32)
-    knn_dists = np.full((n_nodes, n_neighbors), np.inf, dtype=np.float32)
-    knn_indices[:, 0] = np.arange(n_nodes)
-    knn_dists[:, 0] = 0.0
-
-    top = top.assign(rank=top.groupby('u').cumcount() + 1)
-    knn_indices[top['u'].values, top['rank'].values] = top['v'].values
-    knn_dists[top['u'].values, top['rank'].values] = top['d'].values
+    knn_indices, knn_dists = build_precomputed_knn(
+        sources, targets, distances, n_nodes, real_neighbors
+    )
 
     # --- 3. Run UMAP with Native precomputed_knn ---
     print(f"  > Initializing UMAP (K={requested_neighbors} other nodes, "

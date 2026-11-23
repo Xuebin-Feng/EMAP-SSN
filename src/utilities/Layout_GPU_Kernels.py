@@ -54,11 +54,12 @@ CHUNK_PAIRS = 1 << 24
 CHUNK_SPRING_ENTRIES = 1 << 22
 # Below this many active nodes, sorting nodes into tiles costs more than the
 # tiles it lets the repulsion kernel skip.
-SKIP_MIN_NODES = 16384
+SKIP_MIN_NODES = 4096
 RESORT_INTERVAL = 20
 # Enough blocks for about this many resident 128-thread blocks per multiprocessor.
 BLOCKS_PER_MULTIPROCESSOR = 8
 SPRING_BLOCK = 256
+STEP_BATCH_LIMIT = 64
 # Largest self-check error allowed, as a fraction of the largest force. Correct
 # kernels reach 4e-6 on an RTX 4070 (2026-10-08); a dropped taper or cap does not.
 _SELF_CHECK_TOLERANCE = 2e-5
@@ -69,9 +70,59 @@ KERNEL_SOURCE = r"""
 #define DIM 2
 #endif
 #define TILE 128
+#define SPRING_BLOCK 256
 
 static __device__ inline int imin_(int a, int b) { return a < b ? a : b; }
 static __device__ inline int imax_(int a, int b) { return a > b ? a : b; }
+
+/* Gather pos[run_node[p]] into contiguous run_pos[p] and, when compute_boxes
+   is non-zero, compute each 128-node tile's axis-aligned bounding box in
+   shared memory in a single launch (zero PyTorch temporaries). */
+extern "C" __global__ void ssn_gather_tile_boxes(
+    const float* __restrict__ pos, const int* __restrict__ run_node,
+    float* __restrict__ run_pos, float* __restrict__ tile_box,
+    int n_run, int compute_boxes)
+{
+    __shared__ float s_lo[TILE * DIM];
+    __shared__ float s_hi[TILE * DIM];
+    const int tx = (int)threadIdx.x;
+    const int p = (int)blockIdx.x * TILE + tx;
+    const int src_p = p < n_run ? p : (n_run - 1);
+    const int node = run_node[src_p];
+    float mine[DIM];
+    for (int d = 0; d < DIM; ++d) {
+        mine[d] = pos[node * DIM + d];
+    }
+    if (p < n_run) {
+        for (int d = 0; d < DIM; ++d) {
+            run_pos[p * DIM + d] = mine[d];
+        }
+    }
+    if (!compute_boxes) return;
+    for (int d = 0; d < DIM; ++d) {
+        s_lo[tx * DIM + d] = mine[d];
+        s_hi[tx * DIM + d] = mine[d];
+    }
+    __syncthreads();
+    for (int stride = TILE >> 1; stride > 0; stride >>= 1) {
+        if (tx < stride) {
+            for (int d = 0; d < DIM; ++d) {
+                const float lo_o = s_lo[(tx + stride) * DIM + d];
+                const float hi_o = s_hi[(tx + stride) * DIM + d];
+                if (lo_o < s_lo[tx * DIM + d]) s_lo[tx * DIM + d] = lo_o;
+                if (hi_o > s_hi[tx * DIM + d]) s_hi[tx * DIM + d] = hi_o;
+            }
+        }
+        __syncthreads();
+    }
+    if (tx == 0) {
+        const int base = (int)blockIdx.x * 2 * DIM;
+        for (int d = 0; d < DIM; ++d) {
+            tile_box[base + d] = s_lo[d];
+            tile_box[base + DIM + d] = s_hi[d];
+        }
+    }
+}
 
 /* All-pairs repulsion of SSNSimulationGPU (COULOMB_K / max(d, 0.5)^2, the
    MAX_FORCE_LIMIT pair cap, the taper over the outer fifth of the cutoff and the
@@ -123,16 +174,24 @@ extern "C" __global__ void ssn_repulsion(
 
     float force[DIM];
     for (int d = 0; d < DIM; ++d) force[d] = 0.0f;
+    float my_lo[DIM], my_hi[DIM];
+    if (use_skip) {
+        const int my_base = (int)blockIdx.x * 2 * DIM;
+        for (int d = 0; d < DIM; ++d) {
+            my_lo[d] = tile_box[my_base + d];
+            my_hi[d] = tile_box[my_base + DIM + d];
+        }
+    }
     for (int t = ta; t < tb; ++t) {
+        float tb_lo[DIM], tb_hi[DIM];
         if (use_skip) {
             /* Both boxes are the same for every thread, so the block agrees. */
+            const int tb_base = t * 2 * DIM;
             float gap_sq = 0.0f;
             for (int d = 0; d < DIM; ++d) {
-                const float lo_a = tile_box[blockIdx.x * 2 * DIM + d];
-                const float hi_a = tile_box[blockIdx.x * 2 * DIM + DIM + d];
-                const float lo_b = tile_box[t * 2 * DIM + d];
-                const float hi_b = tile_box[t * 2 * DIM + DIM + d];
-                const float gap = fmaxf(0.0f, fmaxf(lo_b - hi_a, lo_a - hi_b));
+                tb_lo[d] = tile_box[tb_base + d];
+                tb_hi[d] = tile_box[tb_base + DIM + d];
+                const float gap = fmaxf(0.0f, fmaxf(tb_lo[d] - my_hi[d], my_lo[d] - tb_hi[d]));
                 gap_sq += gap * gap;
             }
             if (gap_sq > skip_sq) continue;
@@ -145,28 +204,39 @@ extern "C" __global__ void ssn_repulsion(
         }
         __syncthreads();
         if (valid) {
-            const int k_lo = imax_(0, my_start - q0);
-            const int k_hi = imin_(imin_(TILE, n_run - q0), my_end - q0);
-            /* Two-level sum: a tile's pairs first, then the tile into the total. */
-            float part[DIM];
-            for (int d = 0; d < DIM; ++d) part[d] = 0.0f;
-            for (int k = k_lo; k < k_hi; ++k) {
-                float delta[DIM];
-                for (int d = 0; d < DIM; ++d) delta[d] = mine[d] - tile[k * DIM + d];
-                float dist_sq = delta[0] * delta[0];
-                for (int d = 1; d < DIM; ++d) dist_sq += delta[d] * delta[d];
-                if (dist_sq > 0.0f && dist_sq <= cutoff_sq) {
-                    const float dist = sqrtf(dist_sq);
-                    const float safe = fmaxf(dist, 0.5f);
-                    float f = (1.0f / (safe * safe)) * k_coul;
-                    if (max_f > 0.0f) f = fminf(f, max_f);
-                    if (dist > taper_start) {
-                        f = f * fminf(fmaxf((cutoff - dist) * inv_taper_width, 0.0f), 1.0f);
-                    }
-                    for (int d = 0; d < DIM; ++d) part[d] += f * (delta[d] / dist);
+            bool thread_near = true;
+            if (use_skip) {
+                float pgap_sq = 0.0f;
+                for (int d = 0; d < DIM; ++d) {
+                    const float gap = fmaxf(0.0f, fmaxf(tb_lo[d] - mine[d], mine[d] - tb_hi[d]));
+                    pgap_sq += gap * gap;
                 }
+                thread_near = (pgap_sq <= skip_sq);
             }
-            for (int d = 0; d < DIM; ++d) force[d] += part[d];
+            if (thread_near) {
+                const int k_lo = imax_(0, my_start - q0);
+                const int k_hi = imin_(imin_(TILE, n_run - q0), my_end - q0);
+                /* Two-level sum: a tile's pairs first, then the tile into the total. */
+                float part[DIM];
+                for (int d = 0; d < DIM; ++d) part[d] = 0.0f;
+                for (int k = k_lo; k < k_hi; ++k) {
+                    float delta[DIM];
+                    for (int d = 0; d < DIM; ++d) delta[d] = mine[d] - tile[k * DIM + d];
+                    float dist_sq = delta[0] * delta[0];
+                    for (int d = 1; d < DIM; ++d) dist_sq += delta[d] * delta[d];
+                    if (dist_sq > 0.0f && dist_sq <= cutoff_sq) {
+                        const float dist = sqrtf(dist_sq);
+                        const float safe = fmaxf(dist, 0.5f);
+                        float f = (1.0f / (safe * safe)) * k_coul;
+                        if (max_f > 0.0f) f = fminf(f, max_f);
+                        if (dist > taper_start) {
+                            f = f * fminf(fmaxf((cutoff - dist) * inv_taper_width, 0.0f), 1.0f);
+                        }
+                        for (int d = 0; d < DIM; ++d) part[d] += f * (delta[d] / dist);
+                    }
+                }
+                for (int d = 0; d < DIM; ++d) force[d] += part[d];
+            }
         }
     }
     if (!valid) return;
@@ -211,9 +281,131 @@ extern "C" __global__ void ssn_springs(
     }
     for (int d = 0; d < DIM; ++d) acc[i * DIM + d] += total[d];
 }
+
+/* Fused partial-repulsion reduction + total-repulsion cap + CSR springs +
+   damped semi-implicit Euler update + boundary bounce + deterministic
+   per-block squared-displacement reduction. Reads pos_in read-only and writes
+   pos_out so spring neighbours always see the pre-step coordinates. */
+extern "C" __global__ void ssn_springs_integrate(
+    const float* __restrict__ pos_in, float* __restrict__ pos_out,
+    float* __restrict__ vel, const float* __restrict__ rep_buf,
+    const long long* __restrict__ row_ptr, const int* __restrict__ col,
+    const unsigned char* __restrict__ active_mask,
+    const float* __restrict__ box_limits, double* __restrict__ block_rmsd_sq,
+    int n_nodes, int j_split, int has_springs,
+    double max_total_d, double k_spr_d, double damping_d, double dt_d)
+{
+    __shared__ double sdata[SPRING_BLOCK];
+    const int tx = (int)threadIdx.x;
+    const int i = (int)blockIdx.x * SPRING_BLOCK + tx;
+    double my_diff_sq = 0.0;
+
+    if (i < n_nodes) {
+        float mine[DIM];
+        for (int d = 0; d < DIM; ++d) mine[d] = pos_in[i * DIM + d];
+        if (!active_mask[i]) {
+            for (int d = 0; d < DIM; ++d) {
+                pos_out[i * DIM + d] = mine[d];
+                vel[i * DIM + d] = 0.0f;
+            }
+        } else {
+            float acc[DIM];
+            if (j_split > 1) {
+                for (int d = 0; d < DIM; ++d) acc[d] = 0.0f;
+                for (int y = 0; y < j_split; ++y) {
+                    const long long off = ((long long)y * n_nodes + i) * DIM;
+                    for (int d = 0; d < DIM; ++d) acc[d] += rep_buf[off + d];
+                }
+                const float max_total = (float)max_total_d;
+                if (max_total > 0.0f) {
+                    float norm_sq = acc[0] * acc[0];
+                    for (int d = 1; d < DIM; ++d) norm_sq += acc[d] * acc[d];
+                    const float scale = fminf((1.0f / fmaxf(sqrtf(norm_sq), 1e-12f)) * max_total, 1.0f);
+                    for (int d = 0; d < DIM; ++d) acc[d] = acc[d] * scale;
+                }
+            } else {
+                for (int d = 0; d < DIM; ++d) acc[d] = rep_buf[i * DIM + d];
+            }
+
+            if (has_springs) {
+                const float neg_k = (float)(-k_spr_d);
+                float spr[DIM];
+                for (int d = 0; d < DIM; ++d) spr[d] = 0.0f;
+                for (long long e = row_ptr[i]; e < row_ptr[i + 1]; ++e) {
+                    const int j = col[e];
+                    float delta[DIM];
+                    for (int d = 0; d < DIM; ++d) delta[d] = mine[d] - pos_in[j * DIM + d];
+                    float length_sq = delta[0] * delta[0];
+                    for (int d = 1; d < DIM; ++d) length_sq += delta[d] * delta[d];
+                    const float length = sqrtf(length_sq) + 1e-9f;
+                    const float f = neg_k * length;
+                    for (int d = 0; d < DIM; ++d) spr[d] += f * (delta[d] / length);
+                }
+                for (int d = 0; d < DIM; ++d) acc[d] += spr[d];
+            }
+
+            const float damping = (float)damping_d;
+            const float dt = (float)dt_d;
+            const float lim = box_limits[i];
+            float diff_sq_f = 0.0f;
+            for (int d = 0; d < DIM; ++d) {
+                float v = vel[i * DIM + d];
+                const float a = acc[d] - damping * v;
+                v = v + a * dt;
+                float moved = mine[d] + v * dt;
+                if (fabsf(moved) > lim) {
+                    v = v * -0.5f;
+                    moved = fmaxf(fminf(moved, lim), -lim);
+                }
+                vel[i * DIM + d] = v;
+                pos_out[i * DIM + d] = moved;
+                const float diff = moved - mine[d];
+                diff_sq_f += diff * diff;
+            }
+            my_diff_sq = (double)diff_sq_f;
+        }
+    }
+
+    sdata[tx] = my_diff_sq;
+    __syncthreads();
+    for (int stride = SPRING_BLOCK >> 1; stride > 0; stride >>= 1) {
+        if (tx < stride) sdata[tx] += sdata[tx + stride];
+        __syncthreads();
+    }
+    if (tx == 0) block_rmsd_sq[blockIdx.x] = sdata[0];
+}
+
+/* Single-block deterministic reduction of per-block squared displacements
+   into rmsd_out[out_slot], allowing K steps to run with zero host sync. */
+extern "C" __global__ void ssn_finish_rmsd(
+    const double* __restrict__ block_rmsd_sq, float* __restrict__ rmsd_out,
+    int n_blocks, int active_count, int out_slot)
+{
+    __shared__ double sdata[SPRING_BLOCK];
+    const int tx = (int)threadIdx.x;
+    double acc = 0.0;
+    for (int idx = tx; idx < n_blocks; idx += SPRING_BLOCK) {
+        acc += block_rmsd_sq[idx];
+    }
+    sdata[tx] = acc;
+    __syncthreads();
+    for (int stride = SPRING_BLOCK >> 1; stride > 0; stride >>= 1) {
+        if (tx < stride) sdata[tx] += sdata[tx + stride];
+        __syncthreads();
+    }
+    if (tx == 0) {
+        rmsd_out[out_slot] = (active_count > 0) ? (float)sqrt(sdata[0] / (double)active_count) : 0.0f;
+    }
+}
 """
 
-KERNEL_NAMES = ("ssn_repulsion", "ssn_springs")
+KERNEL_NAMES = (
+    "ssn_gather_tile_boxes",
+    "ssn_repulsion",
+    "ssn_springs",
+    "ssn_springs_integrate",
+    "ssn_finish_rmsd",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +797,10 @@ class RuntimeCompiler:
         return module, functions
 
     def launch(self, function, grid, block, args, stream):
+        holders, pointers = self.prepare_args(args)
+        self.launch_prepared(function, grid, block, pointers, stream)
+
+    def prepare_args(self, args):
         holders = []
         pointers = (ctypes.c_void_p * len(args))()
         for index, arg in enumerate(args):
@@ -616,6 +812,9 @@ class RuntimeCompiler:
                 value = ctypes.c_int(int(arg))
             holders.append(value)
             pointers[index] = ctypes.addressof(value)
+        return holders, pointers
+
+    def launch_prepared(self, function, grid, block, pointers, stream):
         self._driver_check(
             self._launch(function, *grid, *block, 0, ctypes.c_void_p(stream), pointers, None),
             "launching a layout kernel")
@@ -793,8 +992,13 @@ class LayoutKernels:
     def spring_plan(self, edges, active, node_count):
         return KernelSprings(self, edges, active, node_count)
 
+    def step_plan(self, repulsion, springs, active_mask, box_limits, node_count, active_count):
+        return KernelStepper(
+            self, repulsion, springs, active_mask, box_limits, node_count, active_count
+        )
+
     def self_check(self):
-        """Compare both kernels with float64 PyTorch on two fixed small problems."""
+        """Compare all kernels with float64 PyTorch on two fixed small problems."""
         cpu = torch.device("cpu")
         cases = [(_self_check_problem(self.dims), (0.0, 3.0), (False, True), (1, 3)),
                  (_tile_gap_problem(self.dims), (0.0,), (True,), (1, 2))]
@@ -825,6 +1029,79 @@ class LayoutKernels:
         pos = torch.tensor(problem["pos"], device=self.device)
         got = springs.add(pos, torch.zeros_like(pos), problem["params"]["SPRING_K"])
         _assert_close(got.double().cpu(), springs_expected, "springs")
+
+        if hasattr(self, "launch"):
+            self._self_check_stepper(problem)
+
+    def _self_check_stepper(self, problem):
+        """Verify fused gather+repulsion+springs+integrate+RMSD against float64 PyTorch."""
+        cpu = torch.device("cpu")
+        count = len(problem["pos"])
+        active_np = problem["active"]
+        active_count = int(active_np.sum())
+        pos64_init = torch.tensor(problem["pos"], dtype=torch.float64, device=cpu)
+        comp_cpu = torch.tensor(problem["comp"], device=cpu)
+        active_cpu = torch.tensor(active_np, dtype=torch.bool, device=cpu)
+        # Tight box limit so some nodes bounce off the boundary during the check.
+        limits_np = np.full(count, 25.0, dtype=np.float32)
+        limits64 = torch.tensor(limits_np, dtype=torch.float64, device=cpu).unsqueeze(1)
+        active_rows64 = active_cpu.unsqueeze(1)
+        springs_cpu = TorchSprings(problem["edges"], active_np, cpu)
+        springs_gpu = self.spring_plan(problem["edges"], active_np, count)
+        active_gpu = torch.tensor(active_np, dtype=torch.bool, device=self.device)
+        limits_gpu = torch.tensor(limits_np, dtype=torch.float32, device=self.device)
+
+        for max_total in (0.0, 3.0):
+            params = dict(
+                problem["params"],
+                MAX_TOTAL_REPULSION_FORCE=max_total,
+                DAMPING=0.9,
+                DT=0.005,
+            )
+            # Reference 2-step float64 trajectory (tests double-buffer swap too)
+            pos_ref = pos64_init.clone()
+            vel_ref = torch.zeros_like(pos_ref)
+            rmsd_ref = []
+            for _ in range(2):
+                acc = torch_repulsion(pos_ref, comp_cpu, active_cpu, params)
+                springs_cpu.add(pos_ref, acc, params["SPRING_K"])
+                acc = torch.where(active_rows64, acc - params["DAMPING"] * vel_ref, 0.0)
+                vel_ref = torch.where(active_rows64, vel_ref + acc * params["DT"], 0.0)
+                old = pos_ref
+                moved = torch.where(active_rows64, old + vel_ref * params["DT"], old)
+                oob = (moved.abs() > limits64) & active_rows64
+                vel_ref = torch.where(oob, vel_ref * -0.5, vel_ref)
+                pos_ref = torch.where(
+                    active_rows64,
+                    torch.maximum(torch.minimum(moved, limits64), -limits64),
+                    moved,
+                )
+                diff_sq = torch.where(active_cpu, (pos_ref - old).pow(2).sum(dim=1), 0.0)
+                rmsd_ref.append(float((diff_sq.sum() / active_count).sqrt()))
+
+            for j_split in (1, 3):
+                rep = self.repulsion_plan(
+                    problem["comp"], active_np, count, use_skip=False, j_split=j_split
+                )
+                stepper = self.step_plan(
+                    rep, springs_gpu, active_gpu, limits_gpu, count, active_count
+                )
+                pos_g = torch.tensor(problem["pos"], dtype=torch.float32, device=self.device)
+                vel_g = torch.zeros_like(pos_g)
+                pos_g, rmsd_got = stepper.step_batch(pos_g, vel_g, params, 2)
+                _assert_close(
+                    pos_g.double().cpu(), pos_ref,
+                    f"fused stepper pos (split={j_split}, cap={max_total})",
+                )
+                _assert_close(
+                    vel_g.double().cpu(), vel_ref,
+                    f"fused stepper vel (split={j_split}, cap={max_total})",
+                )
+                _assert_close(
+                    torch.tensor(rmsd_got, dtype=torch.float64),
+                    torch.tensor(rmsd_ref, dtype=torch.float64),
+                    f"fused stepper rmsd (split={j_split}, cap={max_total})",
+                )
 
 
 def _assert_close(got, expected, what):
@@ -942,6 +1219,11 @@ class KernelRepulsion:
         self.j_split = int(max(1, min(j_split, max(self.tile_count, 1))))
         self.tile_box = torch.zeros((max(self.tile_count, 1), 2 * self.dims),
                                     dtype=torch.float32, device=self.device)
+        self.run_pos = torch.empty((max(self.run_count, 1), self.dims),
+                                   dtype=torch.float32, device=self.device)
+        self.out_buf = (
+            torch.zeros((self.node_count, self.dims), dtype=torch.float32, device=self.device)
+            if self.j_split == 1 else torch.zeros(1, device=self.device))
         self.partial = (
             torch.zeros((self.j_split, self.node_count, self.dims), dtype=torch.float32, device=self.device)
             if self.j_split > 1 else torch.zeros(1, device=self.device))
@@ -959,12 +1241,11 @@ class KernelRepulsion:
         self.run_node = self.run_node[order].contiguous()
         self.run_index = self.run_node.long()
 
-    def _tile_boxes(self, run_pos):
-        padding = self.tile_count * TILE - self.run_count
-        if padding:
-            run_pos = torch.cat((run_pos, run_pos[-1:].expand(padding, self.dims)))
-        tiles = run_pos.view(self.tile_count, TILE, self.dims)
-        self.tile_box = torch.cat((tiles.amin(dim=1), tiles.amax(dim=1)), dim=1).contiguous()
+    def _gather_and_boxes(self, pos, compute_boxes):
+        self.kernels.launch(
+            "ssn_gather_tile_boxes", (self.tile_count, 1, 1), (TILE, 1, 1),
+            [pos, self.run_node, self.run_pos, self.tile_box, self.run_count, int(compute_boxes)],
+        )
 
     def skipped_tiles(self, pos, params):
         """How many tile pairs the next compute() may skip (for checks and logs)."""
@@ -973,7 +1254,7 @@ class KernelRepulsion:
             return 0
         self._sort(pos)
         self._steps_since_sort = 0
-        self._tile_boxes(pos.index_select(0, self.run_index))
+        self._gather_and_boxes(pos, compute_boxes=True)
         boxes = self.tile_box
         low, high = boxes[:, :self.dims], boxes[:, self.dims:]
         gap = torch.maximum(low.unsqueeze(1) - high.unsqueeze(0), low.unsqueeze(0) - high.unsqueeze(1))
@@ -994,12 +1275,10 @@ class KernelRepulsion:
                 self._sort(pos)
                 self._steps_since_sort = 0
             self._steps_since_sort += 1
-        run_pos = pos.index_select(0, self.run_index).contiguous()
-        if self.use_skip:
-            self._tile_boxes(run_pos)
+        self._gather_and_boxes(pos, compute_boxes=self.use_skip)
         self.kernels.launch(
             "ssn_repulsion", (self.tile_count, self.j_split, 1), (TILE, 1, 1),
-            [run_pos, self.run_node, self.run_start, self.run_end, self.tile_box, out,
+            [self.run_pos, self.run_node, self.run_start, self.run_end, self.tile_box, out,
              self.partial, self.node_count, self.run_count, self.j_split, int(self.use_skip),
              k_coul, max_f, max_total, cutoff])
         if self.j_split > 1:
@@ -1022,6 +1301,9 @@ class KernelSprings:
         order = torch.argsort(rows, stable=True)
         self.col = columns[order].to(torch.int32).contiguous()
         del columns, order
+        self.col_buf = self.col if self.col.numel() else torch.zeros(
+            1, dtype=torch.int32, device=kernels.device
+        )
         self.row_ptr = torch.zeros(self.node_count + 1, dtype=torch.int64, device=kernels.device)
         self.row_ptr[1:] = torch.cumsum(torch.bincount(rows, minlength=self.node_count), dim=0)
 
@@ -1030,8 +1312,136 @@ class KernelSprings:
             self.kernels.launch(
                 "ssn_springs", ((self.node_count + SPRING_BLOCK - 1) // SPRING_BLOCK, 1, 1),
                 (SPRING_BLOCK, 1, 1),
-                [pos, self.row_ptr, self.col, acc, self.node_count, float(spring_k)])
+                [pos, self.row_ptr, self.col_buf, acc, self.node_count, float(spring_k)])
         return acc
+
+
+class KernelStepper:
+    """Zero-allocation double-buffered fused step runner for SSNSimulationGPU.
+
+    Queues 1..STEP_BATCH_LIMIT full physics steps on the device stream using
+    pre-bound driver launch arguments and returns all step RMSDs in a single
+    small D2H copy.
+    """
+
+    def __init__(self, kernels, repulsion, springs, active_mask, box_limits, node_count, active_count):
+        self.kernels = kernels
+        self.compiler = kernels.compiler
+        self.device = kernels.device
+        self.dims = kernels.dims
+        self.repulsion = repulsion
+        self.springs = springs
+        self.active_mask = active_mask.contiguous()
+        self.box_limits = box_limits.contiguous()
+        self.node_count = int(node_count)
+        self.active_count = int(active_count)
+        self.n_blocks = max(1, (self.node_count + SPRING_BLOCK - 1) // SPRING_BLOCK)
+        self.pos_alt = torch.empty((self.node_count, self.dims), dtype=torch.float32, device=self.device)
+        self.block_rmsd_sq = torch.empty(self.n_blocks, dtype=torch.float64, device=self.device)
+        self.rmsd_batch = torch.empty(STEP_BATCH_LIMIT, dtype=torch.float32, device=self.device)
+        self._fn_gather = kernels._functions["ssn_gather_tile_boxes"]
+        self._fn_rep = kernels._functions["ssn_repulsion"]
+        self._fn_int = kernels._functions["ssn_springs_integrate"]
+        self._fn_rmsd = kernels._functions["ssn_finish_rmsd"]
+
+        rep_buf = repulsion.partial if repulsion.j_split > 1 else repulsion.out_buf
+        self._rep_buf = rep_buf
+        has_springs = int(springs.spring_count > 0 and self.node_count > 0)
+
+        self._gather_h, self._gather_p = self.compiler.prepare_args([
+            self.pos_alt, repulsion.run_node, repulsion.run_pos, repulsion.tile_box,
+            repulsion.run_count, int(repulsion.use_skip),
+        ])
+        self._rep_h, self._rep_p = self.compiler.prepare_args([
+            repulsion.run_pos, repulsion.run_node, repulsion.run_start, repulsion.run_end,
+            repulsion.tile_box, repulsion.out_buf, repulsion.partial,
+            self.node_count, repulsion.run_count, repulsion.j_split, int(repulsion.use_skip),
+            0.0, 0.0, 0.0, 0.0,
+        ])
+        self._int_h, self._int_p = self.compiler.prepare_args([
+            self.pos_alt, self.pos_alt, self.pos_alt, rep_buf,
+            springs.row_ptr, springs.col_buf, self.active_mask, self.box_limits,
+            self.block_rmsd_sq, self.node_count, repulsion.j_split, has_springs,
+            0.0, 0.0, 0.0, 0.0,
+        ])
+        self._rmsd_h, self._rmsd_p = self.compiler.prepare_args([
+            self.block_rmsd_sq, self.rmsd_batch, self.n_blocks, self.active_count, 0,
+        ])
+
+    def step_batch(self, pos, vel, params, count):
+        """Queue `count` full steps (1..STEP_BATCH_LIMIT) with one final RMSD sync.
+
+        Returns `(new_pos, rmsd_values)`. `pos` and `self.pos_alt` swap on each
+        step so zero extra coordinate copies occur.
+        """
+        count = int(count)
+        if count <= 0:
+            return pos, []
+        if not self.node_count or not self.active_count:
+            if self.node_count:
+                vel.zero_()
+            return pos, [0.0] * count
+        if count > STEP_BATCH_LIMIT:
+            rmsds = []
+            remaining = count
+            while remaining > 0:
+                chunk = min(remaining, STEP_BATCH_LIMIT)
+                pos, part = self.step_batch(pos, vel, params, chunk)
+                rmsds.extend(part)
+                remaining -= chunk
+            return pos, rmsds
+
+        k_coul, max_f, max_total, cutoff = _force_params(params)
+        k_spr = float(params.get("SPRING_K", 0.1))
+        damping = float(params.get("DAMPING", 0.5))
+        dt = float(params.get("DT", 0.1))
+
+        rep = self.repulsion
+        rep._cutoff = cutoff
+        self._rep_h[11].value = k_coul
+        self._rep_h[12].value = max_f
+        self._rep_h[13].value = max_total
+        self._rep_h[14].value = cutoff
+
+        self._int_h[2].value = vel.data_ptr()
+        self._int_h[12].value = max_total
+        self._int_h[13].value = k_spr
+        self._int_h[14].value = damping
+        self._int_h[15].value = dt
+
+        pos_in = pos
+        pos_out = self.pos_alt
+        run_count = rep.run_count
+        tile_grid = (rep.tile_count, 1, 1)
+        rep_grid = (rep.tile_count, rep.j_split, 1)
+        int_grid = (self.n_blocks, 1, 1)
+        tile_block = (TILE, 1, 1)
+        spr_block = (SPRING_BLOCK, 1, 1)
+        launch = self.compiler.launch_prepared
+
+        with torch.cuda.device(self.device):
+            stream = torch.cuda.current_stream(self.device).cuda_stream
+            for slot in range(count):
+                if run_count:
+                    if rep.use_skip:
+                        if rep._steps_since_sort is None or rep._steps_since_sort >= RESORT_INTERVAL:
+                            rep._sort(pos_in)
+                            rep._steps_since_sort = 0
+                            self._gather_h[1].value = rep.run_node.data_ptr()
+                            self._rep_h[1].value = rep.run_node.data_ptr()
+                        rep._steps_since_sort += 1
+                    self._gather_h[0].value = pos_in.data_ptr()
+                    launch(self._fn_gather, tile_grid, tile_block, self._gather_p, stream)
+                    launch(self._fn_rep, rep_grid, tile_block, self._rep_p, stream)
+                self._int_h[0].value = pos_in.data_ptr()
+                self._int_h[1].value = pos_out.data_ptr()
+                launch(self._fn_int, int_grid, spr_block, self._int_p, stream)
+                self._rmsd_h[4].value = slot
+                launch(self._fn_rmsd, (1, 1, 1), spr_block, self._rmsd_p, stream)
+                pos_in, pos_out = pos_out, pos_in
+
+        self.pos_alt = pos_out
+        return pos_in, self.rmsd_batch[:count].cpu().tolist()
 
 
 def layout_kernels(device, dims):

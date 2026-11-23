@@ -1534,11 +1534,26 @@ def jaccard_partition(n_nodes, edges, threshold, min_size):
     (-1); the others get distinct positive labels in no particular order, so
     callers number them with ``renumber_clusters_by_size``.
     """
+    edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+    indptr, indices = sorted_neighbour_csr(edges, n_nodes)
+    if (
+        NUMBA_AVAILABLE
+        and _jaccard_filter_own_csr is _DEFAULT_JACCARD_FILTER_OWN_CSR
+        and _rows_hold_no_repeats(indptr, indices)
+    ):
+        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+            keep_half = _jaccard_half_edge_keep(
+                indptr, indices, threshold, numba.config.NUMBA_NUM_THREADS
+            )
+            components = _connected_components_from_half_edges(
+                n_nodes, indptr, indices, keep_half
+            )
+        sizes = np.bincount(components)
+        return np.where(sizes[components] >= min_size, components + 1, -1)
+
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
 
-    edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
-    indptr, indices = sorted_neighbour_csr(edges, n_nodes)
     keep_mask = _jaccard_filter_own_csr(edges, indptr, indices, threshold)
     kept = edges[keep_mask]
     graph = coo_matrix(
@@ -1612,13 +1627,27 @@ def _mcl_prune(matrix, threshold):
     """``markov_clustering.prune`` for the canonical CSC matrices MCL
     iterates on, without its DOK round trip: the entries >= threshold in
     their order, as float64 (the DOK's dtype), with each column's maximum
-    restored by the library's own statements."""
+    preserved in a single pass (no post-construction CSC structural rebuild)."""
     import scipy.sparse as sp
 
     # A no-op for the inflated matrices MCL prunes; it guarantees the sorted
     # rows the DOK round trip produced.
     matrix.sum_duplicates()
     keep = matrix.data >= threshold
+    first_argmax = _mcl_column_argmax_positions(matrix)
+    if first_argmax is not None:
+        keep[first_argmax] = True
+        kept_before = np.zeros(matrix.data.size + 1, dtype=np.int64)
+        np.cumsum(keep, out=kept_before[1:])
+        return sp.csc_matrix(
+            (
+                matrix.data[keep].astype(np.float64),
+                matrix.indices[keep],
+                kept_before[matrix.indptr],
+            ),
+            shape=matrix.shape,
+        )
+
     kept_before = np.zeros(matrix.data.size + 1, dtype=np.int64)
     np.cumsum(keep, out=kept_before[1:])
     pruned = sp.csc_matrix(
@@ -1630,19 +1659,14 @@ def _mcl_prune(matrix, threshold):
         shape=matrix.shape,
     )
     num_cols = matrix.shape[1]
-    row_indices = _mcl_column_argmax(matrix)
-    if row_indices is None:
-        row_indices = matrix.argmax(axis=0).reshape((num_cols,))
+    row_indices = matrix.argmax(axis=0).reshape((num_cols,))
     col_indices = np.arange(num_cols)
     pruned[row_indices, col_indices] = matrix[row_indices, col_indices]
     return pruned
 
 
-def _mcl_column_argmax(matrix):
-    """``matrix.argmax(axis=0)`` as an array for a canonical CSC matrix whose
-    columns all hold a positive maximum (MCL's do: the maximum is never
-    pruned), else None. Like SciPy, it takes each column's first maximum in
-    storage order."""
+def _mcl_column_argmax_positions(matrix):
+    """Flat data-array positions of each column's first positive maximum, or None."""
     indptr, data = matrix.indptr, matrix.data
     counts = np.diff(indptr)
     if data.size == 0 or not counts.all():
@@ -1651,8 +1675,16 @@ def _mcl_column_argmax(matrix):
     if not (column_max > 0).all():  # also refuses NaN
         return None
     max_positions = np.flatnonzero(data == np.repeat(column_max, counts))
-    first = max_positions[np.searchsorted(max_positions, indptr[:-1])]
-    return matrix.indices[first]
+    return max_positions[np.searchsorted(max_positions, indptr[:-1])]
+
+
+def _mcl_column_argmax(matrix):
+    """``matrix.argmax(axis=0)`` as an array for a canonical CSC matrix whose
+    columns all hold a positive maximum (MCL's do: the maximum is never
+    pruned), else None. Like SciPy, it takes each column's first maximum in
+    storage order."""
+    first = _mcl_column_argmax_positions(matrix)
+    return None if first is None else matrix.indices[first]
 
 
 def _mcl_get_clusters(matrix, with_attractors=False):
@@ -1706,15 +1738,91 @@ else:
 
 def _converged_mcl_flow(matrix, inflation, progress):
     """The flow matrix ``run_mcl`` converges to; see markov_clusters."""
+    import scipy.sparse as sp
     from markov_clustering import mcl
 
     matrix = mcl.normalize(_mcl_add_self_loops(matrix))
+    n = matrix.shape[0]
+    threshold = 0.001
+    if (
+        NUMBA_AVAILABLE
+        and n > 0
+        and inflation > 0
+        and matrix.format == "csc"
+    ):
+        matrix.sum_duplicates()
+        matrix.sort_indices()
+        indptr = np.ascontiguousarray(matrix.indptr, dtype=np.int64)
+        indices = np.ascontiguousarray(matrix.indices, dtype=np.int32)
+        data = np.ascontiguousarray(matrix.data, dtype=np.float64)
+        cap = min(n, int(1.0 / threshold) + 4)
+        batch_cols = min(n, 512)
+        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+            n_threads = numba.config.NUMBA_NUM_THREADS
+            acc = np.zeros((n_threads, n), dtype=np.float64)
+            stamp = np.zeros((n_threads, n), dtype=np.int32)
+            touched = np.empty((n_threads, n), dtype=np.int32)
+            out_idx_buf = np.empty((batch_cols, cap), dtype=np.int32)
+            out_val_buf = np.empty((batch_cols, cap), dtype=np.float64)
+            out_cnt = np.empty(batch_cols, dtype=np.int32)
+            base_stamp = 1
+            inflation_f = float(inflation)
+
+            for _iteration in range(100):
+                if progress is not None:
+                    progress(f"MCL iteration {_iteration + 1}")
+                if base_stamp + n >= 2_000_000_000:
+                    stamp.fill(0)
+                    base_stamp = 1
+                next_indptr = np.empty(n + 1, dtype=np.int64)
+                next_indptr[0] = 0
+                idx_chunks = []
+                val_chunks = []
+                nnz_total = 0
+
+                for c0 in range(0, n, batch_cols):
+                    c1 = min(n, c0 + batch_cols)
+                    b_len = c1 - c0
+                    _mcl_step_batch_kernel(
+                        indptr, indices, data,
+                        c0, c1, inflation_f, threshold, base_stamp,
+                        acc, stamp, touched,
+                        out_idx_buf, out_val_buf, out_cnt,
+                    )
+                    base_stamp += b_len
+                    chunk_nnz = int(out_cnt[:b_len].sum())
+                    chunk_idx = np.empty(chunk_nnz, dtype=np.int32)
+                    chunk_val = np.empty(chunk_nnz, dtype=np.float64)
+                    _mcl_pack_batch_kernel(
+                        out_idx_buf, out_val_buf, out_cnt, b_len,
+                        next_indptr, c0, nnz_total, chunk_idx, chunk_val,
+                    )
+                    nnz_total += chunk_nnz
+                    idx_chunks.append(chunk_idx)
+                    val_chunks.append(chunk_val)
+
+                next_indices = (
+                    idx_chunks[0] if len(idx_chunks) == 1 else np.concatenate(idx_chunks)
+                )
+                next_data = (
+                    val_chunks[0] if len(val_chunks) == 1 else np.concatenate(val_chunks)
+                )
+                done = _mcl_sparse_allclose_kernel(
+                    next_indptr, next_indices, next_data,
+                    indptr, indices, data,
+                    1e-5, 1e-8,
+                )
+                indptr, indices, data = next_indptr, next_indices, next_data
+                if done:
+                    break
+        return sp.csc_matrix((data, indices, indptr), shape=matrix.shape)
+
     for _iteration in range(100):
         if progress is not None:
             progress(f"MCL iteration {_iteration + 1}")
         last_mat = matrix.copy()
         matrix = mcl.iterate(matrix, 2, inflation)
-        matrix = _mcl_prune(matrix, 0.001)
+        matrix = _mcl_prune(matrix, threshold)
         if mcl.converged(matrix, last_mat):
             break
     return matrix
@@ -1831,6 +1939,198 @@ def modularity_centres(labels, edges, weights, resolution):
 
 if NUMBA_AVAILABLE:
 
+    @njit(cache=True)
+    def _connected_components_from_half_edges(n_nodes, indptr, indices, keep_half):
+        """Union-Find connected components directly from kept anchor half-edges.
+
+        Avoids mapping half-edges back onto the input edge list via binary
+        searches and skips constructing an intermediate SciPy COO matrix.
+        """
+        parent = np.arange(n_nodes, dtype=np.int32)
+        for a in range(n_nodes):
+            for p in range(indptr[a], indptr[a + 1]):
+                if keep_half[p]:
+                    ra = a
+                    while parent[ra] != ra:
+                        parent[ra] = parent[parent[ra]]
+                        ra = parent[ra]
+                    rb = indices[p]
+                    while parent[rb] != rb:
+                        parent[rb] = parent[parent[rb]]
+                        rb = parent[rb]
+                    if ra != rb:
+                        if ra < rb:
+                            parent[rb] = ra
+                        else:
+                            parent[ra] = rb
+        # Assign dense 0..C-1 component IDs in node order (matching SciPy).
+        comp_id = np.full(n_nodes, -1, dtype=np.int32)
+        labels = np.empty(n_nodes, dtype=np.int32)
+        next_id = 0
+        for i in range(n_nodes):
+            r = i
+            while parent[r] != r:
+                r = parent[r]
+            parent[i] = r
+            cid = comp_id[r]
+            if cid == -1:
+                cid = next_id
+                comp_id[r] = cid
+                next_id += 1
+            labels[i] = cid
+        return labels
+
+    @njit(parallel=True, cache=True)
+    def _mcl_step_batch_kernel(
+        indptr, indices, data,
+        c0, c1, inflation, threshold, base_stamp,
+        acc, stamp, touched,
+        out_idx_buf, out_val_buf, out_cnt,
+    ):
+        """Fused parallel Gustavson CSC expand (M^2) + inflate + L1-normalize + prune."""
+        b_len = c1 - c0
+        cap = out_idx_buf.shape[1]
+        is_sq = inflation == 2.0
+        for local_c in prange(b_len):
+            j = c0 + local_c
+            tid = numba.get_thread_id()
+            acc_t = acc[tid]
+            stamp_t = stamp[tid]
+            touched_t = touched[tid]
+            cur_stamp = base_stamp + local_c
+
+            nt = 0
+            for p in range(indptr[j], indptr[j + 1]):
+                k = indices[p]
+                v_kj = data[p]
+                if v_kj == 0.0:
+                    continue
+                for q in range(indptr[k], indptr[k + 1]):
+                    i = indices[q]
+                    prod = data[q] * v_kj
+                    if stamp_t[i] != cur_stamp:
+                        stamp_t[i] = cur_stamp
+                        acc_t[i] = prod
+                        touched_t[nt] = i
+                        nt += 1
+                    else:
+                        acc_t[i] += prod
+
+            col_sum = 0.0
+            max_p = -1.0
+            max_row = 2147483647
+            for t in range(nt):
+                row = touched_t[t]
+                v = acc_t[row]
+                if v > 0.0:
+                    p_val = v * v if is_sq else v ** inflation
+                else:
+                    p_val = 0.0
+                acc_t[row] = p_val
+                col_sum += p_val
+                if p_val > max_p or (p_val == max_p and row < max_row):
+                    max_p = p_val
+                    max_row = row
+
+            kept = 0
+            if col_sum > 0.0:
+                inv_sum = 1.0 / col_sum
+                for t in range(nt):
+                    row = touched_t[t]
+                    val = acc_t[row] * inv_sum
+                    if val >= threshold or row == max_row:
+                        if kept < cap:
+                            out_idx_buf[local_c, kept] = row
+                            out_val_buf[local_c, kept] = val
+                            kept += 1
+                # Sort surviving entries of this column in ascending row order.
+                gap = 1
+                while gap < kept // 3:
+                    gap = gap * 3 + 1
+                while gap > 0:
+                    for idx in range(gap, kept):
+                        key_r = out_idx_buf[local_c, idx]
+                        key_v = out_val_buf[local_c, idx]
+                        pos = idx - gap
+                        while pos >= 0 and out_idx_buf[local_c, pos] > key_r:
+                            out_idx_buf[local_c, pos + gap] = out_idx_buf[local_c, pos]
+                            out_val_buf[local_c, pos + gap] = out_val_buf[local_c, pos]
+                            pos -= gap
+                        out_idx_buf[local_c, pos + gap] = key_r
+                        out_val_buf[local_c, pos + gap] = key_v
+                    gap //= 3
+            out_cnt[local_c] = kept
+
+    @njit(cache=True)
+    def _mcl_pack_batch_kernel(
+        out_idx_buf, out_val_buf, out_cnt, b_len,
+        next_indptr, c0, nnz_base, chunk_idx, chunk_val,
+    ):
+        cursor = 0
+        for local_c in range(b_len):
+            cnt = out_cnt[local_c]
+            for k in range(cnt):
+                chunk_idx[cursor + k] = out_idx_buf[local_c, k]
+                chunk_val[cursor + k] = out_val_buf[local_c, k]
+            cursor += cnt
+            next_indptr[c0 + local_c + 1] = nnz_base + cursor
+
+    @njit(parallel=True, cache=True)
+    def _mcl_sparse_allclose_kernel(
+        a_indptr, a_indices, a_data,
+        b_indptr, b_indices, b_data,
+        rtol, atol,
+    ):
+        """Zero-allocation parallel equivalent of markov_clustering.sparse_allclose."""
+        n_cols = a_indptr.size - 1
+        col_bad = np.zeros(n_cols, dtype=np.uint8)
+        for j in prange(n_cols):
+            pa = a_indptr[j]
+            ea = a_indptr[j + 1]
+            pb = b_indptr[j]
+            eb = b_indptr[j + 1]
+            bad = 0
+            while pa < ea and pb < eb:
+                ra = a_indices[pa]
+                rb = b_indices[pb]
+                if ra == rb:
+                    va = a_data[pa]
+                    vb = b_data[pb]
+                    if abs(va - vb) - rtol * abs(vb) > atol:
+                        bad = 1
+                        break
+                    pa += 1
+                    pb += 1
+                elif ra < rb:
+                    if abs(a_data[pa]) > atol:
+                        bad = 1
+                        break
+                    pa += 1
+                else:
+                    vb = b_data[pb]
+                    if abs(vb) - rtol * abs(vb) > atol:
+                        bad = 1
+                        break
+                    pb += 1
+            if bad == 0:
+                while pa < ea:
+                    if abs(a_data[pa]) > atol:
+                        bad = 1
+                        break
+                    pa += 1
+            if bad == 0:
+                while pb < eb:
+                    vb = b_data[pb]
+                    if abs(vb) - rtol * abs(vb) > atol:
+                        bad = 1
+                        break
+                    pb += 1
+            col_bad[j] = bad
+        for j in range(n_cols):
+            if col_bad[j] != 0:
+                return False
+        return True
+
     def fast_jaccard_filter(edges, indptr, indices, threshold):
         """Keep the edges whose endpoints' closed neighbourhoods have a
         Jaccard index of at least ``threshold``.
@@ -1863,6 +2163,8 @@ if NUMBA_AVAILABLE:
                 )
                 return _jaccard_edge_keep(edges, indptr, indices, keep_half)
             return _jaccard_keep_mask(edges, indptr, indices, threshold)
+
+    _DEFAULT_JACCARD_FILTER_OWN_CSR = _jaccard_filter_own_csr
 
     def _rows_hold_no_repeats(indptr, indices):
         """True when no row of the CSR (each row ascending) lists a node twice."""
@@ -2008,6 +2310,7 @@ else:
         return keep_mask
 
     _jaccard_filter_own_csr = fast_jaccard_filter
+    _DEFAULT_JACCARD_FILTER_OWN_CSR = None
 
 
 __all__ = [

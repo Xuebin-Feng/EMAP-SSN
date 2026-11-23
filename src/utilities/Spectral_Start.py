@@ -34,9 +34,11 @@ import warnings
 import numpy as np
 
 try:
+    import numba
     from numba import njit, prange
     NUMBA_AVAILABLE = True
 except ImportError:
+    numba = None
     NUMBA_AVAILABLE = False
     prange = range
 
@@ -131,6 +133,125 @@ def _csr_rows_product(indptr, indices, data, block, result):
             neighbour = indices[position]
             for column in range(width):
                 result[row, column] += value * block[neighbour, column]
+
+
+@njit(parallel=True, cache=True)
+def _csr_residual(indptr, indices, data, rhs, solution, residual):
+    """Fused residual = rhs - A @ solution in one parallel row pass."""
+    width = rhs.shape[1]
+    for row in prange(len(indptr) - 1):
+        for column in range(width):
+            residual[row, column] = 0.0
+        for position in range(indptr[row], indptr[row + 1]):
+            value = data[position]
+            neighbour = indices[position]
+            for column in range(width):
+                residual[row, column] += value * solution[neighbour, column]
+        for column in range(width):
+            residual[row, column] = rhs[row, column] - residual[row, column]
+
+
+@njit(parallel=True, cache=True)
+def _csr_jacobi_post_smooth(indptr, indices, data, weights, rhs, solution, out):
+    """Fused out = solution + weights * (rhs - A @ solution) in one parallel row pass."""
+    width = rhs.shape[1]
+    for row in prange(len(indptr) - 1):
+        w = weights[row]
+        for column in range(width):
+            out[row, column] = 0.0
+        for position in range(indptr[row], indptr[row + 1]):
+            value = data[position]
+            neighbour = indices[position]
+            for column in range(width):
+                out[row, column] += value * solution[neighbour, column]
+        for column in range(width):
+            out[row, column] = solution[row, column] + w * (rhs[row, column] - out[row, column])
+
+
+@njit(parallel=True, cache=True)
+def _prolongate_add(aggregate, p_weights, coarse, solution):
+    """Parallel row-independent solution[i, :] += p_weights[i] * coarse[aggregate[i], :]."""
+    width = coarse.shape[1]
+    for row in prange(len(aggregate)):
+        w = p_weights[row]
+        agg = aggregate[row]
+        for column in range(width):
+            solution[row, column] += w * coarse[agg, column]
+
+
+@njit(parallel=True, cache=True)
+def _galerkin_contract_pass1(
+    r_indptr, r_indices, r_data,
+    a_indptr, a_indices, a_data,
+    aggregate, p_weights, n_coarse,
+    stamp, touched,
+):
+    """Count unique nonzeros per coarse row of R @ A @ T using per-thread stamps."""
+    counts = np.empty(n_coarse, dtype=np.int64)
+    for a in prange(n_coarse):
+        tid = numba.get_thread_id()
+        st = stamp[tid]
+        cur = a + 1
+        cnt = 0
+        for rp in range(r_indptr[a], r_indptr[a + 1]):
+            i = r_indices[rp]
+            for ap in range(a_indptr[i], a_indptr[i + 1]):
+                b = aggregate[a_indices[ap]]
+                if st[b] != cur:
+                    st[b] = cur
+                    cnt += 1
+        counts[a] = cnt
+    return counts
+
+
+@njit(parallel=True, cache=True)
+def _galerkin_contract_pass2(
+    r_indptr, r_indices, r_data,
+    a_indptr, a_indices, a_data,
+    aggregate, p_weights, n_coarse,
+    c_indptr, c_indices, c_data,
+    acc, stamp, touched,
+):
+    """Fill sorted coarse CSR rows of R @ A @ T in one parallel pass."""
+    for a in prange(n_coarse):
+        tid = numba.get_thread_id()
+        st = stamp[tid]
+        ac = acc[tid]
+        tc = touched[tid]
+        cur = a + 1
+        nt = 0
+        for rp in range(r_indptr[a], r_indptr[a + 1]):
+            i = r_indices[rp]
+            wi = r_data[rp]
+            for ap in range(a_indptr[i], a_indptr[i + 1]):
+                j = a_indices[ap]
+                b = aggregate[j]
+                val = wi * a_data[ap] * p_weights[j]
+                if st[b] != cur:
+                    st[b] = cur
+                    ac[b] = val
+                    tc[nt] = b
+                    nt += 1
+                else:
+                    ac[b] += val
+        # Sort touched coarse column indices ascending.
+        gap = 1
+        while gap < nt // 3:
+            gap = gap * 3 + 1
+        while gap > 0:
+            for idx in range(gap, nt):
+                key = tc[idx]
+                pos = idx - gap
+                while pos >= 0 and tc[pos] > key:
+                    tc[pos + gap] = tc[pos]
+                    pos -= gap
+                tc[pos + gap] = key
+            gap //= 3
+        base = c_indptr[a]
+        for k in range(nt):
+            col = tc[k]
+            c_indices[base + k] = col
+            c_data[base + k] = ac[col]
 
 
 @njit(parallel=True, cache=True)
@@ -255,15 +376,32 @@ class _BlockVCycle:
     collector.
     """
 
-    def __init__(self, products, weights, prolongators, restrictions, coarsest):
+    def __init__(self, products, weights, prolongators, restrictions, coarsest, *, level_csrs=None):
         self.products = products
         self.weights = weights
         self.prolongators = prolongators
         self.restrictions = restrictions
         self.coarsest = coarsest
+        self._fast_levels = None
+        if NUMBA_AVAILABLE and level_csrs is not None:
+            fast = []
+            for csr, w, P, R in zip(level_csrs, weights, prolongators, restrictions):
+                fast.append((
+                    csr.indptr.astype(np.int64),
+                    csr.indices,
+                    csr.data,
+                    np.ascontiguousarray(w.ravel(), dtype=np.float64),
+                    P.indices,
+                    P.data,
+                    R.indptr.astype(np.int64),
+                    R.indices,
+                    R.data,
+                    R.shape[0],
+                ))
+            self._fast_levels = fast
 
     def __call__(self, x):
-        block = np.asarray(x, dtype=np.float64)
+        block = np.ascontiguousarray(x, dtype=np.float64)
         flat = block.ndim == 1
         result = self._cycle(0, block.reshape(-1, 1) if flat else block)
         return result.reshape(-1) if flat else result
@@ -271,6 +409,18 @@ class _BlockVCycle:
     def _cycle(self, depth, rhs):
         if depth == len(self.products):
             return self.coarsest @ rhs
+        if self._fast_levels is not None:
+            a_indptr, a_indices, a_data, w1d, p_agg, p_w, r_indptr, r_indices, r_data, n_coarse = self._fast_levels[depth]
+            solution = self.weights[depth] * rhs
+            residual = np.empty_like(rhs)
+            _csr_residual(a_indptr, a_indices, a_data, rhs, solution, residual)
+            coarse_rhs = np.empty((n_coarse, rhs.shape[1]), dtype=np.float64)
+            _csr_rows_product(r_indptr, r_indices, r_data, residual, coarse_rhs)
+            coarse_sol = self._cycle(depth + 1, coarse_rhs)
+            _prolongate_add(p_agg, p_w, coarse_sol, solution)
+            out = np.empty_like(solution)
+            _csr_jacobi_post_smooth(a_indptr, a_indices, a_data, w1d, rhs, solution, out)
+            return out
         product, weight = self.products[depth], self.weights[depth]
         solution = weight * rhs
         residual = rhs - product.matmat(solution)
@@ -298,6 +448,52 @@ def _tentative_prolongator(aggregate, count, candidate):
     return prolongator, norms
 
 
+def _galerkin_contract(matrix, prolongator, restriction, aggregate, count):
+    """Compute sorted CSR ``restriction @ matrix @ prolongator`` in one parallel pass."""
+    import scipy.sparse as sp
+
+    if not NUMBA_AVAILABLE or count == 0:
+        coarse = (restriction @ matrix @ prolongator).tocsr()
+        coarse.sort_indices()
+        return coarse
+
+    n_threads = numba.config.NUMBA_NUM_THREADS
+    r_indptr = restriction.indptr.astype(np.int64)
+    r_indices = restriction.indices
+    r_data = restriction.data
+    a_indptr = matrix.indptr.astype(np.int64)
+    a_indices = matrix.indices
+    a_data = matrix.data
+    p_weights = prolongator.data
+
+    stamp = np.zeros((n_threads, count), dtype=np.int32)
+    touched = np.empty((n_threads, count), dtype=np.int32)
+    counts = _galerkin_contract_pass1(
+        r_indptr, r_indices, r_data,
+        a_indptr, a_indices, a_data,
+        aggregate, p_weights, count,
+        stamp, touched,
+    )
+    c_indptr = np.empty(count + 1, dtype=np.int64)
+    c_indptr[0] = 0
+    np.cumsum(counts, out=c_indptr[1:])
+    nnz = int(c_indptr[count])
+    c_indices = np.empty(nnz, dtype=np.int32)
+    c_data = np.empty(nnz, dtype=np.float64)
+    stamp.fill(0)
+    acc = np.zeros((n_threads, count), dtype=np.float64)
+    _galerkin_contract_pass2(
+        r_indptr, r_indices, r_data,
+        a_indptr, a_indices, a_data,
+        aggregate, p_weights, count,
+        c_indptr, c_indices, c_data,
+        acc, stamp, touched,
+    )
+    coarse = sp.csr_matrix((c_data, c_indices, c_indptr), shape=(count, count))
+    coarse.has_sorted_indices = True
+    return coarse
+
+
 def aggregation_levels(csr, candidate):
     """The aggregation hierarchy for ``csr`` with near-null vector ``candidate``.
 
@@ -315,8 +511,7 @@ def aggregation_levels(csr, candidate):
             break
         prolongator, coarse_candidate = _tentative_prolongator(aggregate, count, candidate)
         restriction = prolongator.T.tocsr()
-        coarse = (restriction @ matrix @ prolongator).tocsr()
-        coarse.sort_indices()
+        coarse = _galerkin_contract(matrix, prolongator, restriction, aggregate, count)
         levels.append((matrix, prolongator, restriction))
         matrix, candidate = coarse, coarse_candidate
     if matrix.shape[0] > AMG_COARSEST_LIMIT:
@@ -344,6 +539,7 @@ def amg_preconditioner(csr, root_degree):
         prolongators=[prolongator for _, prolongator, _ in levels],
         restrictions=[restriction for _, _, restriction in levels],
         coarsest=_deflated_inverse(coarsest_matrix.toarray(), candidate),
+        level_csrs=[matrix for matrix, _, _ in levels],
     )
     return LinearOperator(csr.shape, matvec=cycle, matmat=cycle, dtype=np.float64)
 
@@ -361,8 +557,11 @@ def _deflated_inverse(matrix, candidate):
     from scipy.linalg import pinvh
 
     unit = candidate / np.linalg.norm(candidate)
-    outside = np.eye(len(unit)) - np.outer(unit, unit)
-    return outside @ pinvh(matrix + np.outer(unit, unit)) @ outside
+    inv = pinvh(matrix + np.outer(unit, unit))
+    # Apply (I - u u^T) @ inv @ (I - u u^T) in O(m^2) instead of two O(m^3) matmuls.
+    inv -= np.outer(unit, unit @ inv)
+    inv -= np.outer(inv @ unit, unit)
+    return inv
 
 
 def _lobpcg_axes(csr, root_degree, dimensions, start, amg=False):
