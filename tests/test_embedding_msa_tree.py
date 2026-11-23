@@ -594,9 +594,10 @@ class BuilderGuideTreeTests(unittest.TestCase):
         )
         self.assertRegex(
             checked,
-            rf"^Regression-imputed from embedding distances; checked on 6 held-out calibration "
-            rf"pairs: Spearman {number}, MAE {number}, R\^2 {number}; \d+\.\d% of missing pairs "
-            rf"outside the fit's range$",
+            rf"^Imputed from embedding similarity and chains of computed pairs \(calibrated\); checked on 6 "
+            rf"held-out calibration pairs: Spearman {number}, MAE {number}, R\^2 {number}; \d+\.\d% of missing "
+            rf"pairs had a chain; coefficients \(constant, similarity fit, chain, no chain\) "
+            rf"{number}, {number}, {number}, {number}; \d+\.\d% of missing pairs outside the fit's range$",
         )
         self.assertEqual(dense, "None. Every pair is in the network.")
 

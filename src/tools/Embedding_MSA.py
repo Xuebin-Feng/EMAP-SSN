@@ -107,6 +107,7 @@ from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import open_embeddings_shared, read_embedding_manifest
 from utilities.Guide_Tree_File import guide_tree_path_for_alignment, newick_label, nexus_string
 from utilities import Prefilter_Calibration
+from utilities import Chain_Fill
 from utilities import Align_Library
 from tools.tool_helpers import Tool_Charts
 import warnings
@@ -1742,6 +1743,20 @@ class ImputationFit:
     calibration_y: np.ndarray = None
     check: CalibrationCheck = None
     uniform: bool = True
+    # With a sample: the weights of its pairs, and each pair's prediction by a fit made without its
+    # half (even positions predicted without the odd ones and the reverse), which the chain fill reads.
+    calibration_weights: np.ndarray = None
+    out_of_fold: np.ndarray = None
+
+
+@dataclass
+class ChainSummary:
+    """What a run records about a chain fill: its held-out check, the share of missing pairs that had a chain, its coefficients."""
+
+    check: CalibrationCheck
+    covered: float
+    coefficients: tuple
+    calibration_coverage: float
 
 
 @dataclass
@@ -1755,6 +1770,10 @@ class ImputationSummary:
     uniform_value: float = None
     # Why no calibration sample was used ("" when one was): a short phrase for the notes and the log.
     calibration: str = ""
+    # Set once the missing pairs are filled with the chain fill; chain_skipped says why a run with a
+    # calibration sample was filled from the calibrated isotonic fit alone instead ("" when it was not).
+    chain: ChainSummary = None
+    chain_skipped: str = ""
 
 
 def held_out_check(predicted, actual):
@@ -1866,12 +1885,18 @@ def fit_imputation(x, y, calibration_positions=None, calibration_weights=None,
         )
 
     held = np.arange(1, calibration_x.size, 2)
-    check = held_out_check(
-        fit_with_sample(np.arange(0, calibration_x.size, 2)).predict(calibration_x[held]),
-        calibration_y[held],
-    )
+    even = np.arange(0, calibration_x.size, 2)
+    from_even = fit_with_sample(even).predict(calibration_x[held])
+    check = held_out_check(from_even, calibration_y[held])
+    # Each calibration pair predicted by a fit made without its half (the chain fill's c_oof).
+    out_of_fold = np.empty(calibration_x.size, dtype=np.float64)
+    out_of_fold[held] = from_even
+    out_of_fold[even] = fit_with_sample(held).predict(calibration_x[even])
     iso = fit_with_sample(np.arange(calibration_x.size))
-    return ImputationFit(iso, fit_x, fit_y, calibration_x, calibration_y, check, uniform=False)
+    return ImputationFit(
+        iso, fit_x, fit_y, calibration_x, calibration_y, check, uniform=False,
+        calibration_weights=weights, out_of_fold=out_of_fold,
+    )
 
 
 def uniform_fill_value(iso):
@@ -1906,12 +1931,26 @@ def missing_pairs_note(imputed, summary=None):
     text = "Regression-imputed from embedding distances"
     if summary is None:
         return text
+    if summary.chain is not None:
+        check = summary.chain.check
+        c = summary.chain.coefficients
+        covered = "" if summary.chain.covered is None else f"{100.0 * summary.chain.covered:.1f}"
+        return (
+            "Imputed from embedding similarity and chains of computed pairs (calibrated); "
+            f"checked on {check.pairs:,} held-out calibration pairs: Spearman "
+            f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}; "
+            f"{covered}% of missing pairs had a chain; coefficients (constant, similarity fit, chain, no chain) "
+            f"{c[0]:.4f}, {c[1]:.4f}, {c[2]:.4f}, {c[3]:.4f}; "
+            f"{100.0 * summary.outside:.1f}% of missing pairs outside the fit's range"
+        )
     if summary.check is not None:
         check = summary.check
         text += (
             f"; checked on {check.pairs:,} held-out calibration pairs: Spearman "
             f"{check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}"
         )
+        if summary.chain_skipped:
+            text += f"; chain fill not used: {summary.chain_skipped}"
     else:
         reason = summary.calibration or "no calibration sample was used"
         text += f"; {reason}, so the estimates are unchecked"
@@ -1939,6 +1978,24 @@ def report_imputation(fit, summary):
             f"Spearman rho {check.spearman:.4f}, MAE {check.mae:.4f}, R^2 {check.r2:.4f}"
         )
         print(outside)
+        if summary.chain is not None:
+            chain = summary.chain
+            c = chain.coefficients
+            print(
+                "Chain fill: the missing pairs are estimated from the calibrated isotonic fit and from chains of computed pairs."
+            )
+            print(
+                f"  > Chain + calibration fill, checked on the same {chain.check.pairs:,} pairs: "
+                f"Spearman rho {chain.check.spearman:.4f}, MAE {chain.check.mae:.4f}, R^2 {chain.check.r2:.4f}"
+            )
+            print(
+                "  > Coefficients (constant, isotonic fit, chain, no chain): "
+                f"{c[0]:.6f}, {c[1]:.6f}, {c[2]:.6f}, {c[3]:.6f}"
+            )
+            print(f"  > Calibration pairs with a chain: {100.0 * chain.calibration_coverage:.1f}%")
+        elif summary.chain_skipped:
+            print(f"⚠️ Chain fill not used: {summary.chain_skipped}")
+            print("  > The missing pairs are filled from the calibrated isotonic fit alone.")
         return
     print(outside)
     print(
@@ -1947,6 +2004,49 @@ def report_imputation(fit, summary):
     )
     reason = summary.calibration or "no calibration sample was used"
     print(f"⚠️ {reason[:1].upper()}{reason[1:]}, so the imputed scores are unchecked.")
+
+
+def chain_memory_reason(verdict):
+    """The reason a chain fill is not used when its arrays do not fit in the free memory (see Chain_Fill.memory_verdict)."""
+    def size(count):
+        return f"{count / 1024 ** 3:.1f} GB" if count >= 0.1 * 1024 ** 3 else f"{count / 1024 ** 2:.1f} MB"
+
+    return (
+        f"it needs about {size(verdict.need)} and {size(verdict.usable)} of memory is free "
+        f"beyond a reserve of {size(verdict.reserve)}"
+    )
+
+
+def prepare_chain_fill(num_seqs, edge_i, edge_j, y, calibration_positions, imputation, summary):
+    """Prepare the chain fill of a run whose fit used a calibration sample; return a Chain_Fill.ChainPlan or None.
+
+    None (and summary.chain_skipped says why) when the plan's arrays do not fit in the memory free now minus
+    the reserve; the missing pairs are then filled from the calibrated isotonic fit alone, as before. Otherwise
+    summary.chain gets the held-out check of the chain + calibration estimates, its coefficients and the share
+    of calibration pairs that had a chain.
+
+    The check's scheme is parity halves of the calibration pairs, with c_oof taken from the existing
+    out-of-fold isotonic fits (ImputationFit.out_of_fold): the four coefficients are fitted on the even half
+    and applied to the odd half, the pairs the isotonic check scores, so the two checks compare. It has one
+    small indirect leak: the half the coefficients are fitted on uses c_oof values from isotonic fits that
+    saw the other half's scores, so the evaluated half's targets reach the four coefficients indirectly
+    (small with four parameters and thousands of pairs). No nested scheme removes it.
+    """
+    verdict = Chain_Fill.memory_verdict(num_seqs, len(edge_i))
+    if not verdict.fits:
+        summary.chain_skipped = chain_memory_reason(verdict)
+        return None
+    plan = Chain_Fill.prepare(
+        num_seqs, edge_i, edge_j, y, calibration_positions,
+        imputation.out_of_fold, imputation.calibration_weights,
+    )
+    summary.chain = ChainSummary(
+        check=held_out_check(plan.held_out, imputation.calibration_y[1::2]),
+        covered=None,
+        coefficients=tuple(float(c) for c in plan.coefficients),
+        calibration_coverage=plan.calibration_coverage,
+    )
+    return plan
 
 
 # ==========================================
@@ -2866,6 +2966,7 @@ def run_msa_builder():
 
     iso_reg = None
     imputation_summary = None
+    chain_plan = None
 
     # Invert scores to distances
     if is_sparse:
@@ -2916,6 +3017,11 @@ def run_msa_builder():
             uniform_value=uniform_fill_value(iso_reg),
             calibration="" if sample is not None or calibration is None else calibration.reason,
         )
+        if not imputation.uniform:
+            # A fit made with a calibration sample: the chain fill replaces the plain isotonic fill.
+            chain_plan = prepare_chain_fill(
+                num_seqs, edge_i, edge_j, Y_align, calibration_positions, imputation, imputation_summary,
+            )
         report_imputation(imputation, imputation_summary)
 
         if SHOW_REGRESSION_PLOT:
@@ -2938,7 +3044,17 @@ def run_msa_builder():
     tree_building_started = time.perf_counter()
     condensed_size = int(num_seqs * (num_seqs - 1) / 2)
     
-    if is_sparse and iso_reg is not None and cos_sim_mat is not None:
+    if chain_plan is not None and cos_sim_mat is not None:
+        print("Applying chain + calibration imputation for final master tree...")
+        D_final_cond = np.empty(condensed_size, dtype=np.float32)
+        covered, missing = Chain_Fill.fill_distances(chain_plan, D_final_cond, cos_sim_mat, iso_reg, max_norm_score)
+        # The score matrix, lists and bit rows are not read again: free them before the replicates start.
+        chain_plan.release()
+        del chain_plan, cos_sim_mat
+        share = covered / missing if missing else 0.0
+        imputation_summary.chain.covered = share
+        print(f"  > Missing pairs with a chain: {100.0 * share:.1f}% of {missing:,}")
+    elif is_sparse and iso_reg is not None and cos_sim_mat is not None:
         print("Applying hybrid adjusted similarity-alignment imputation for final master tree...")
         dense_scores = iso_reg.predict(cos_sim_mat.ravel()).reshape(num_seqs, num_seqs)
         del cos_sim_mat
