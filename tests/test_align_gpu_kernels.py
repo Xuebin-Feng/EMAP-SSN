@@ -5,9 +5,12 @@
 """Unit tests for runtime-compiled fused GPU alignment and SSEARCH kernels."""
 
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import h5py
 import numpy as np

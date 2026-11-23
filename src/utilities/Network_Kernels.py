@@ -1736,86 +1736,95 @@ else:
     )
 
 
+def _converged_mcl_flow_numba(matrix, inflation, threshold, progress):
+    """Fused parallel Gustavson MCL expand-inflate-normalize-prune loop."""
+    import scipy.sparse as sp
+
+    n = matrix.shape[0]
+    matrix.sum_duplicates()
+    matrix.sort_indices()
+    indptr = np.ascontiguousarray(matrix.indptr, dtype=np.int64)
+    indices = np.ascontiguousarray(matrix.indices, dtype=np.int32)
+    data = np.ascontiguousarray(matrix.data, dtype=np.float64)
+    cap = min(n, int(1.0 / threshold) + 4)
+    batch_cols = min(n, 512)
+    with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+        n_threads = numba.config.NUMBA_NUM_THREADS
+        acc = np.zeros((n_threads, n), dtype=np.float64)
+        stamp = np.zeros((n_threads, n), dtype=np.int32)
+        touched = np.empty((n_threads, n), dtype=np.int32)
+        out_idx_buf = np.empty((batch_cols, cap), dtype=np.int32)
+        out_val_buf = np.empty((batch_cols, cap), dtype=np.float64)
+        out_cnt = np.empty(batch_cols, dtype=np.int32)
+        base_stamp = 1
+        inflation_f = float(inflation)
+
+        for _iteration in range(100):
+            if progress is not None:
+                progress(f"MCL iteration {_iteration + 1}")
+            if base_stamp + n >= 2_000_000_000:
+                stamp.fill(0)
+                base_stamp = 1
+            next_indptr = np.empty(n + 1, dtype=np.int64)
+            next_indptr[0] = 0
+            idx_chunks = []
+            val_chunks = []
+            nnz_total = 0
+
+            for c0 in range(0, n, batch_cols):
+                c1 = min(n, c0 + batch_cols)
+                b_len = c1 - c0
+                _mcl_step_batch_kernel(
+                    indptr, indices, data,
+                    c0, c1, inflation_f, threshold, base_stamp,
+                    acc, stamp, touched,
+                    out_idx_buf, out_val_buf, out_cnt,
+                )
+                base_stamp += b_len
+                chunk_nnz = int(out_cnt[:b_len].sum())
+                chunk_idx = np.empty(chunk_nnz, dtype=np.int32)
+                chunk_val = np.empty(chunk_nnz, dtype=np.float64)
+                _mcl_pack_batch_kernel(
+                    out_idx_buf, out_val_buf, out_cnt, b_len,
+                    next_indptr, c0, nnz_total, chunk_idx, chunk_val,
+                )
+                nnz_total += chunk_nnz
+                idx_chunks.append(chunk_idx)
+                val_chunks.append(chunk_val)
+
+            next_indices = (
+                idx_chunks[0] if len(idx_chunks) == 1 else np.concatenate(idx_chunks)
+            )
+            next_data = (
+                val_chunks[0] if len(val_chunks) == 1 else np.concatenate(val_chunks)
+            )
+            done = _mcl_sparse_allclose_kernel(
+                next_indptr, next_indices, next_data,
+                indptr, indices, data,
+                1e-5, 1e-8,
+            )
+            indptr, indices, data = next_indptr, next_indices, next_data
+            if done:
+                break
+    return sp.csc_matrix((data, indices, indptr), shape=matrix.shape)
+
+
 def _converged_mcl_flow(matrix, inflation, progress):
     """The flow matrix ``run_mcl`` converges to; see markov_clusters."""
-    import scipy.sparse as sp
     from markov_clustering import mcl
 
     matrix = mcl.normalize(_mcl_add_self_loops(matrix))
     n = matrix.shape[0]
     threshold = 0.001
+    # Engage parallel Gustavson fused MCL above the tiny-graph regime where
+    # Numba disk-cache load (~120 ms) exceeds total SciPy compute (<40 ms).
     if (
         NUMBA_AVAILABLE
-        and n > 0
+        and (n >= 1000 or matrix.nnz >= 40000)
         and inflation > 0
         and matrix.format == "csc"
     ):
-        matrix.sum_duplicates()
-        matrix.sort_indices()
-        indptr = np.ascontiguousarray(matrix.indptr, dtype=np.int64)
-        indices = np.ascontiguousarray(matrix.indices, dtype=np.int32)
-        data = np.ascontiguousarray(matrix.data, dtype=np.float64)
-        cap = min(n, int(1.0 / threshold) + 4)
-        batch_cols = min(n, 512)
-        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
-            n_threads = numba.config.NUMBA_NUM_THREADS
-            acc = np.zeros((n_threads, n), dtype=np.float64)
-            stamp = np.zeros((n_threads, n), dtype=np.int32)
-            touched = np.empty((n_threads, n), dtype=np.int32)
-            out_idx_buf = np.empty((batch_cols, cap), dtype=np.int32)
-            out_val_buf = np.empty((batch_cols, cap), dtype=np.float64)
-            out_cnt = np.empty(batch_cols, dtype=np.int32)
-            base_stamp = 1
-            inflation_f = float(inflation)
-
-            for _iteration in range(100):
-                if progress is not None:
-                    progress(f"MCL iteration {_iteration + 1}")
-                if base_stamp + n >= 2_000_000_000:
-                    stamp.fill(0)
-                    base_stamp = 1
-                next_indptr = np.empty(n + 1, dtype=np.int64)
-                next_indptr[0] = 0
-                idx_chunks = []
-                val_chunks = []
-                nnz_total = 0
-
-                for c0 in range(0, n, batch_cols):
-                    c1 = min(n, c0 + batch_cols)
-                    b_len = c1 - c0
-                    _mcl_step_batch_kernel(
-                        indptr, indices, data,
-                        c0, c1, inflation_f, threshold, base_stamp,
-                        acc, stamp, touched,
-                        out_idx_buf, out_val_buf, out_cnt,
-                    )
-                    base_stamp += b_len
-                    chunk_nnz = int(out_cnt[:b_len].sum())
-                    chunk_idx = np.empty(chunk_nnz, dtype=np.int32)
-                    chunk_val = np.empty(chunk_nnz, dtype=np.float64)
-                    _mcl_pack_batch_kernel(
-                        out_idx_buf, out_val_buf, out_cnt, b_len,
-                        next_indptr, c0, nnz_total, chunk_idx, chunk_val,
-                    )
-                    nnz_total += chunk_nnz
-                    idx_chunks.append(chunk_idx)
-                    val_chunks.append(chunk_val)
-
-                next_indices = (
-                    idx_chunks[0] if len(idx_chunks) == 1 else np.concatenate(idx_chunks)
-                )
-                next_data = (
-                    val_chunks[0] if len(val_chunks) == 1 else np.concatenate(val_chunks)
-                )
-                done = _mcl_sparse_allclose_kernel(
-                    next_indptr, next_indices, next_data,
-                    indptr, indices, data,
-                    1e-5, 1e-8,
-                )
-                indptr, indices, data = next_indptr, next_indices, next_data
-                if done:
-                    break
-        return sp.csc_matrix((data, indices, indptr), shape=matrix.shape)
+        return _converged_mcl_flow_numba(matrix, inflation, threshold, progress)
 
     for _iteration in range(100):
         if progress is not None:

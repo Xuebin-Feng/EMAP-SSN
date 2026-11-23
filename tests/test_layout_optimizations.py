@@ -167,6 +167,14 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
                 ref_clusters = nk._mcl_get_clusters(ref_m, with_attractors=True)
                 got_clusters = nk.markov_clusters_and_attractors(mat, inflation)
                 self.assertEqual(got_clusters, ref_clusters)
+                # Also exercise the parallel Gustavson Numba path directly on small graphs
+                numba_flow = nk._converged_mcl_flow_numba(
+                    mcl.normalize(nk._mcl_add_self_loops(mat)), inflation, 0.001, None
+                )
+                self.assertEqual(
+                    nk._mcl_get_clusters(numba_flow, with_attractors=True),
+                    ref_clusters,
+                )
 
     def test_umap_csr_topk_matches_pandas_for_small_and_large_k(self):
         import pandas as pd

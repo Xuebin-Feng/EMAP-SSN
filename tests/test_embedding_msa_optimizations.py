@@ -135,7 +135,7 @@ class Track3MSAOptimizationTests(unittest.TestCase):
                 active_widths[2 * n_seq - 2],
             )
             with open(out_path, "rb") as handle:
-            actual_fasta = handle.read()
+                actual_fasta = handle.read()
 
         self.assertEqual(actual_fasta, expected_fasta)
         # Also verify root float16 profile is bit-identical!
