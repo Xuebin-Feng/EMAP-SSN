@@ -157,7 +157,7 @@ class HandleTests(PanelTestCase):
         self.assertAlmostEqual(state["handleLeft"], state["cardRight"], delta=0.5)
         self.assertGreater(state["handleHeight"], 300)
         # Tab reaches it, between the canvas and the panel's cards.
-        self.script("document.getElementById('seq-toggle').focus(); return 1")
+        self.script("document.getElementById('t-seq').focus(); return 1")
         self.assertEqual(self.script("return [...document.querySelectorAll('[tabindex=\"0\"]')].includes(document.getElementById('side-resizer'))"), True)
 
     def test_the_limits_follow_the_window_half_of_it_and_never_more_than_640(self):

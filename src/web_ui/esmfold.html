@@ -223,7 +223,7 @@
         /* Reduced motion stops what moves (the chevrons' turn, the drawer's slide) and slows the spinner; the fades of colour stay. */
         @media (prefers-reduced-motion: reduce) {
             .icon-spin { animation-duration: 4s; }
-            .more-toggle .icon, .legend .src .chev, .srow .exp-btn .icon, .seq-head .btn .icon, .side { transition: none !important; }
+            .more-toggle .icon, .legend .src .chev, .srow .exp-btn .icon, .side { transition: none !important; }
         }
 
         .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -333,18 +333,22 @@
             box-shadow: var(--shadow-card);
             overflow: hidden;
         }
+        /* The title row holds the title and, at its right, the view's toolbar and (in the drawer layout) the Scene button, on one
+           row at every width it is shown at. The minimum height is what a row with a toolbar has, so the canvas does not move when
+           the toolbar goes (Advanced, a failed start). */
         .pane-header {
-            padding: 9px 12px 9px 16px;
+            padding: 4px 12px 4px 16px;
+            min-height: 39px;
             border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             gap: 8px;
             flex-shrink: 0;
         }
         .pane-title { font-size: 14px; font-weight: 600; white-space: nowrap; }
-        .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
         #panel-toggle { display: none; }
 
         /* The stage holds Mol*'s canvas (#viewer) and what the page draws over it. */
@@ -361,21 +365,17 @@
         body:not([data-adv="1"]) .msp-logo,
         body:not([data-adv="1"]) .msp-highlight-toast-wrapper { display: none; }
 
-        /* Toolbar over the canvas */
-        .view-toolbar {
-            position: absolute; top: 10px; right: 10px; z-index: 5;
-            display: flex; gap: 2px; padding: 3px;
-            background: color-mix(in srgb, var(--bg-card) 94%, transparent);
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            box-shadow: var(--shadow-card);
-        }
+        /* The toolbar: flat, in the title row, at its right. On a phone (700 px and narrower) there is no title row, and the same
+           toolbar is a pill over the canvas (the rules for it are in that layout's block below). */
+        .view-toolbar { display: flex; gap: 2px; }
         .view-toolbar .sep { width: 1px; border-left: 1px solid var(--border-color); margin: 4px 3px; }
         .view-toolbar .btn { border-color: transparent; box-shadow: none; background: transparent; color: var(--text-secondary); }
         .view-toolbar .btn:hover { background: var(--bg-muted); color: var(--text-primary); }
         .view-toolbar .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
         .view-toolbar .btn:focus-visible { border-color: var(--accent); }
         body:not([data-view="ready"]) .view-toolbar .seg-view { display: none; }
+        /* The Sequence button (and the separator before it) is there only while there is a strip to show: with no structure, no. */
+        .stage-card:has(.seqbar[data-empty="1"]) .view-toolbar .seq-only { display: none; }
         body[data-view="empty"] .view-toolbar .sep, body[data-view="restoring"] .view-toolbar .sep,
         body[data-view="starting"] .view-toolbar .sep, body[data-view="webgl"] .view-toolbar .sep,
         body[data-view="folding"] .view-toolbar .sep { display: none; }
@@ -671,15 +671,19 @@
 
         /* The sequence strip: residues in blocks of ten, each with a bar in its color in 3D */
         .seqbar { flex: none; border-top: 1px solid var(--border-color); background: var(--bg-card); }
-        .seqbar[data-empty="1"] { display: none; }
-        .seq-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; min-height: 36px; }
-        .seq-head .btn { padding: 0 6px 0 4px; font-weight: 600; color: var(--text-primary); }
-        .seq-head .btn .icon { transition: transform 0.2s ease; }
-        .seqbar[data-open="0"] .seq-head .btn .icon { transform: rotate(-90deg); }
-        .seq-select { width: auto; max-width: 260px; min-height: 26px; font-size: 12px; margin-left: auto; }
-        .seq-select[hidden] { display: none; }
-        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px 6px 10px 14px; max-height: 132px; overflow-y: auto; scrollbar-gutter: stable; font-family: var(--font-mono); }
-        .seqbar[data-open="0"] .seq-body { display: none; }
+        /* No structure, or switched off by the Sequence button in the toolbar: the strip takes no room, and the canvas has it. */
+        .seqbar[data-empty="1"], .seqbar[data-open="0"] { display: none; }
+        /* The structure and chain the strip shows, when there is a choice: over the canvas, at the top right where the toolbar was,
+           drawn as a pill so that it reads over the canvas. It is there only while the strip is open, in the simple view of a
+           structure (not Advanced), and wider than a phone, which has no strip. */
+        .seq-select {
+            display: none; position: absolute; top: 10px; right: 10px; z-index: 5;
+            width: auto; max-width: 260px; min-height: 26px; font-size: 12px;
+            background-color: color-mix(in srgb, var(--bg-card) 94%, transparent);
+            border-color: var(--border-color); border-radius: 10px; box-shadow: var(--shadow-card);
+        }
+        body[data-view="ready"]:not([data-adv="1"]) .stage-card:has(.seqbar[data-open="1"]) .seq-select:not([hidden]) { display: block; }
+        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 10px 6px 10px 14px; max-height: 132px; overflow-y: auto; scrollbar-gutter: stable; font-family: var(--font-mono); }
         .seq-block { display: flex; flex-direction: column; }
         .seq-num { font-size: 9.5px; color: var(--text-subtle); line-height: 1.1; min-height: 11px; padding-left: 1px; }
         .seq-letters { display: flex; }
@@ -766,8 +770,20 @@
             header h1 { font-size: 14px; gap: 6px; }
             .header-actions { gap: 2px; }
             .stage-container { padding: 8px 8px 0; }
-            .pane-header { display: none; }
-            .view-toolbar { top: 8px; right: 8px; }
+            /* No title row on a phone: its title is not drawn, and the row and the box round the toolbar stop being boxes, so that the
+               toolbar (one element, in the row in the wider layouts) is a pill over the canvas, 8 px in from the card's top right. */
+            .stage-card { position: relative; }
+            .pane-header, .header-controls { display: contents; }
+            .pane-title { display: none; }
+            .view-toolbar {
+                position: absolute; top: 8px; right: 8px; z-index: 5; padding: 3px;
+                background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                box-shadow: var(--shadow-card);
+            }
+            .view-toolbar .seq-only { display: none !important; }
+            .seq-select { display: none !important; }
             .workspace { flex-direction: column; }
             .side { position: relative; inset: auto; z-index: 1; width: 100%; height: 46%; flex: none; border-left: 0; border-top: 1px solid var(--border-color); border-radius: 16px 16px 0 0; transform: none; box-shadow: 0 -6px 18px rgba(9, 9, 11, 0.06); transition: none; }
             body[data-panel="0"] .side { height: 38px; }
@@ -883,6 +899,21 @@
                     <div class="pane-header">
                         <span class="pane-title" data-i18n>Structure View</span>
                         <div class="header-controls">
+                            <div class="view-toolbar" role="toolbar" focusgroup="toolbar wrap" aria-label="View tools">
+                                <button class="btn btn-icon seg-view" id="t-reset" type="button" title="Reset view" aria-label="Reset view"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg></button>
+                                <button class="btn btn-icon seg-view" id="t-zoom" type="button" title="Zoom to the pinned residue" aria-label="Zoom to the pinned residue" aria-disabled="true"><svg class="icon" aria-hidden="true"><use href="#i-crosshair"/></svg></button>
+                                <span class="sep seg-view" role="separator" aria-orientation="vertical"></span>
+                                <button class="btn btn-icon seg-view" id="t-measure" type="button" aria-pressed="false" title="Measure a distance" aria-label="Measure a distance"><svg class="icon" aria-hidden="true"><use href="#i-ruler"/></svg></button>
+                                <button class="btn btn-icon seg-view narrow-hide" id="t-label" type="button" aria-pressed="false" title="Label residues" aria-label="Label residues"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg></button>
+                                <button class="btn btn-icon seg-view" id="t-clear" type="button" title="Clear measurements and labels" aria-label="Clear measurements and labels" hidden><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+                                <span class="sep seg-view" role="separator" aria-orientation="vertical"></span>
+                                <button class="btn btn-icon seg-view" id="t-image" type="button" title="Save an image" aria-label="Save an image"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg></button>
+                                <button class="btn btn-icon seg-view narrow-hide" id="t-full" type="button" aria-pressed="false" title="Full screen" aria-label="Full screen"><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg></button>
+                                <span class="sep seg-view seq-only" role="separator" aria-orientation="vertical"></span>
+                                <button class="btn btn-icon seg-view seq-only" id="t-seq" type="button" aria-pressed="true" aria-controls="seqbar" title="Sequence" aria-label="Sequence"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg></button>
+                                <span class="sep" role="separator" aria-orientation="vertical"></span>
+                                <button class="btn btn-icon" id="t-adv" type="button" aria-pressed="false" title="Advanced: Mol*'s own panels" aria-label="Advanced: Mol*'s own panels"><svg class="icon" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></button>
+                            </div>
                             <button class="btn" id="panel-toggle" type="button" aria-expanded="true" aria-controls="side"><svg class="icon" aria-hidden="true"><use href="#i-panel-right-open"/></svg><span data-i18n>Scene</span></button>
                         </div>
                     </div>
@@ -890,19 +921,7 @@
                         <div id="viewer"></div>
                         <span class="sr-only" id="viewer-help" data-i18n>Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</span>
                         <div class="adv-banner"><span data-i18n>Advanced view: Mol*'s own panels (English only). The same scene, the same session.</span><button class="btn btn-sm" id="adv-back" type="button"><svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg><span data-i18n>Back to simple view</span></button></div>
-                        <div class="view-toolbar" role="toolbar" focusgroup="toolbar wrap" aria-label="View tools">
-                            <button class="btn btn-icon seg-view" id="t-reset" type="button" title="Reset view" aria-label="Reset view"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg></button>
-                            <button class="btn btn-icon seg-view" id="t-zoom" type="button" title="Zoom to the pinned residue" aria-label="Zoom to the pinned residue" aria-disabled="true"><svg class="icon" aria-hidden="true"><use href="#i-crosshair"/></svg></button>
-                            <span class="sep seg-view" role="separator" aria-orientation="vertical"></span>
-                            <button class="btn btn-icon seg-view" id="t-measure" type="button" aria-pressed="false" title="Measure a distance" aria-label="Measure a distance"><svg class="icon" aria-hidden="true"><use href="#i-ruler"/></svg></button>
-                            <button class="btn btn-icon seg-view narrow-hide" id="t-label" type="button" aria-pressed="false" title="Label residues" aria-label="Label residues"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg></button>
-                            <button class="btn btn-icon seg-view" id="t-clear" type="button" title="Clear measurements and labels" aria-label="Clear measurements and labels" hidden><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
-                            <span class="sep seg-view" role="separator" aria-orientation="vertical"></span>
-                            <button class="btn btn-icon seg-view" id="t-image" type="button" title="Save an image" aria-label="Save an image"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg></button>
-                            <button class="btn btn-icon seg-view narrow-hide" id="t-full" type="button" aria-pressed="false" title="Full screen" aria-label="Full screen"><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg></button>
-                            <span class="sep" role="separator" aria-orientation="vertical"></span>
-                            <button class="btn btn-icon" id="t-adv" type="button" aria-pressed="false" title="Advanced: Mol*'s own panels" aria-label="Advanced: Mol*'s own panels"><svg class="icon" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></button>
-                        </div>
+                        <select class="select seq-select" id="seq-structure" aria-label="Structure and chain of the sequence" hidden></select>
                         <div class="canvas-legend" id="canvas-legend" aria-hidden="true"></div>
                         <div class="toast" id="toast"></div>
                         <div class="tip" id="tip" role="tooltip"></div>
@@ -950,10 +969,6 @@
                         </div></div>
                     </div>
                     <div class="seqbar" id="seqbar" data-open="1" data-empty="1">
-                        <div class="seq-head">
-                            <button class="btn btn-ghost btn-sm" id="seq-toggle" type="button" aria-expanded="true" aria-controls="seq-body"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg><span data-i18n>Sequence</span></button>
-                            <select class="select seq-select" id="seq-structure" aria-label="Structure and chain of the sequence" hidden></select>
-                        </div>
                         <div class="seq-body" id="seq-body" role="group"></div>
                     </div>
                 </div>

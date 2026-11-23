@@ -90,6 +90,12 @@ function renderSequence() {
     if (!plugin || !loadedStructures().length) {
         sequenceSignature = '';
         bar.dataset.empty = '1';
+        // The Sequence button goes with the strip, and the focus on it goes to the toolbar's last button, not to the page.
+        if (document.activeElement === byId('t-seq')) {
+            toolbarStop = byId('t-adv');
+            syncToolbarStop();
+            byId('t-adv').focus();
+        }
         return;
     }
     bar.dataset.empty = '0';
@@ -246,11 +252,13 @@ byId('seq-structure').addEventListener('change', event => {
     renderSequence();
 });
 
-byId('seq-toggle').addEventListener('click', () => {
+// The Sequence button of the toolbar switches the strip on and off (a toggle, as Measure is). Off, the strip takes no room, and
+// the canvas is told it has the height. The button keeps the focus, so that nothing is lost as the strip goes.
+byId('t-seq').addEventListener('click', () => {
     sequenceOpen = !sequenceOpen;
     byId('seqbar').dataset.open = sequenceOpen ? '1' : '0';
-    byId('seq-toggle').setAttribute('aria-expanded', sequenceOpen ? 'true' : 'false');
-    if (plugin) setTimeout(() => viewerInstance.handleResize(), 220);
+    byId('t-seq').setAttribute('aria-pressed', sequenceOpen ? 'true' : 'false');
+    if (plugin) setTimeout(() => viewerInstance.handleResize(), 50);
 });
 
 // ---- Stepping with the keyboard on the canvas ----------------------------------------------------------------

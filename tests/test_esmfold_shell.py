@@ -330,7 +330,7 @@ class ShellTests(PageTestCase):
                     sep: [...document.querySelectorAll('.view-toolbar [role=separator]')].map(node => node.getAttribute('aria-orientation'))};
             """)
         self.assertEqual(found, {"main": 1, "stage": True, "seq": True, "header": False, "side": False, "sections": [False] * 3,
-                                 "headings": [True] * 3, "sep": ["vertical"] * 3})
+                                 "headings": [True] * 3, "sep": ["vertical"] * 4})
 
     def test_the_advanced_door_shows_mol_stars_panels_and_comes_back_with_escape(self):
         self.open_with_two()
@@ -652,10 +652,10 @@ class MarkupTests(PageTestCase):
         self.assertNotIn("* {", text)
         self.assertIn("animation-duration: 4s", text)
         self.assertNotIn("animation: none", text)
-        for selector in (".more-toggle .icon", ".legend .src .chev", ".srow .exp-btn .icon", ".seq-head .btn .icon", ".side"):
+        for selector in (".more-toggle .icon", ".legend .src .chev", ".srow .exp-btn .icon", ".side"):
             self.assertIn(selector, text)
         # The colour fades (the buttons', the resizer's) are not in it.
-        self.assertNotIn(".btn", text.replace(".seq-head .btn .icon", ""))
+        self.assertNotIn(".btn", text)
 
     def test_the_view_toolbar_is_a_focusgroup_and_its_script_is_the_fallback_only(self):
         self.open_page()
