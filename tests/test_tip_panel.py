@@ -1721,9 +1721,16 @@ class ToolsWindowTipTests(WithApplication):
         patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # The free room on a drive moves between two readings: the window's tooltips are made when it is built and
+        # the tests read the live notes again later, so every reading in this class sees one fixed value.
+        patcher = mock.patch("EMAPSSN_Tools.free_bytes", return_value=self.FREE_ROOM)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.window = EMAPSSN_Tools.ToolsGUI()
         self.addCleanup(self._close)
         self.panel = self.window.tip_panel
+
+    FREE_ROOM = 12 * 1024 ** 3
 
     def _close(self):
         self.window.close()
@@ -1953,6 +1960,11 @@ class ToolsWindowTipTests(WithApplication):
                 self.assertEqual(entry.field.key, key)
                 self.assertEqual(self.window.tip_db[field.parentWidget()], entry)
                 self.assertEqual(field.parentWidget().toolTip(), tip_plain(entry))
+                # The folders that get large files say how much room is free; the others say nothing of it.
+                self.assertEqual(
+                    "12.0 GiB free on its drive." in field.parentWidget().toolTip(),
+                    key in ("REPORT_DIR", "STRUCTURE_DIR", "SETTING_EXPORT_DIR"),
+                )
                 self.enter(field)
                 text = re.sub(r"\s+", " ", plain_text(self.shown()))
                 self.assertTrue(text.startswith(entry.field.title()), text)
