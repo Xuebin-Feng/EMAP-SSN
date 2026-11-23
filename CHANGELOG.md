@@ -43,6 +43,10 @@ still change before version 1.0.0.
 - A sparse network with more than 100,000 pairs is now fitted on up to 500,000 of them
   (see Changed). Its imputed values differ a little from before, and its uniform fill
   value, used when Calibrated Imputation is off or not available, can differ clearly.
+- With Calibrated Imputation on, Embedding MSA now estimates a sparse network's missing
+  pairs from chains of computed pairs as well as from their similarity (see Changed).
+  Such a run gets another guide tree and alignment than before. The uniform fill is
+  not touched by this.
 - An Embedding MSA whose embeddings are of another model than its sparse network's needs
   the network's own embeddings for that calibration: choose them in Network Embeddings
   (see Changed). Without them the missing pairs get the uniform fill, and the log says
@@ -594,6 +598,57 @@ still change before version 1.0.0.
   the held-out check is the same to three decimals. The larger pick costs no measurable
   time or memory: choosing the pairs takes the time, about 6 s on that network at either
   size, not fitting them.
+- **With Calibrated Imputation on, Embedding MSA fills a sparse network's missing pairs
+  from chains of computed pairs as well as from their similarity.** The calibrated fit
+  (the entries above) estimates a missing pair from its embedding similarity alone. Two
+  sequences can also be compared through a third one that has a computed score with
+  both of them.
+  - **The chain value.** For a missing pair, each such third sequence gives the lower of
+    its two scores, and the highest of these is the pair's chain value. The sampled
+    pairs count as computed pairs. A pair's own score is never used for itself.
+  - **The estimate.** A missing pair with a chain gets c0 + c1 × its similarity estimate
+    + c2 × its chain value. A pair without one gets c0 + (c1 + c2) × its similarity
+    estimate + c3. The four weights are fitted on the calibration sample by weighted
+    least squares. There each pair's similarity estimate comes from a fit made without
+    its half of the sample.
+  - **The check.** The half of the sample that the similarity fit's check holds back
+    also scores this estimate, with weights fitted on the other half. Both checks are
+    printed and saved in the guide tree's `MISSING_PAIRS` note, with the share of
+    missing pairs that had a chain and the four weights.
+  - **Exact, and it stops early.** Each sequence's computed pairs are kept sorted by
+    score, so the search for a pair ends at the first score that cannot raise its chain
+    value. The result is that of a scan over every third sequence, bit for bit. On the
+    12,927-sequence fold-type IV PLP-dependent enzyme set (E1 embeddings, 18 CPU
+    threads) the step took 14 s with 75% of pairs kept and 28 s
+    with 25%.
+  - **Memory.** The step holds a table of n × n scores, lists of the computed pairs and
+    a bit table, and frees them before the replicate trees: 1.6 GB at 12,927
+    sequences with 75% of pairs kept, and 7.7 GB for the table alone at 44,000. When
+    they do not fit in the free memory less a reserve (a tenth of the computer's
+    memory, at least 2 GB), the run says so and fills from the similarity fit alone.
+  - **Every sparse fill is now written in blocks of rows**, straight into the distances
+    the tree is built from. The uniform fill and the similarity-only fill used to go
+    through an n × n table of 8-byte scores and one of 4-byte distances (15.5 GB and
+    7.7 GB at 44,000 sequences). Their values are the same bit for bit.
+  - **Checked against the method's reference**, the test harness in which the fill was
+    developed. From the same inputs, on two HomFam networks (DEATH and kringle, 881 and
+    829 sequences, Ankh base, 75% of pairs kept), the chain values of all 178,712
+    missing pairs come out bit for bit, and the weights and estimates exactly. A whole
+    run of the tool aligns the sample again: there the sample is the reference's pair
+    for pair, the numbers of pairs with a chain are equal (99.8% and 99.5% of the
+    missing pairs), the weights agree within 0.0000002 and the filled distances within
+    0.00013.
+  - **Why:** the estimated scores of skipped pairs match their computed scores far
+    better. The R² of the check rose from 0.45 to 0.85 on that DEATH network and from
+    0.75 to 0.94 on kringle. On the 12,927-sequence set it rose from 0.14 to 0.79 with
+    75% of pairs kept and from 0.18 to 0.74 with 25%, where 99.98% and 99.5% of the
+    missing pairs had a chain. In the test harness, on 18 HomFam families (Ankh base)
+    at three shares of kept pairs (one seed), alignments scored the same as with the
+    calibrated fit (mean TC +0.002, no difference shown) and better than with the
+    uniform fill of that build (+0.016). On the 12,927-sequence set (three seeds) TC
+    was 0.009, 0.012 and 0.049 higher than with the calibrated fit at 75, 50 and 25% of
+    pairs kept. These alignment scores were measured with the harness on an earlier
+    build, not with this one.
 - **Network Injection chooses a sparse network's pairs by Edge Pre-filtering's similarity
   and keeps the network's share of pairs.** It used to cut on another similarity (the
   cosine of mean-pooled embeddings, without the length ratio), at the lowest value among
