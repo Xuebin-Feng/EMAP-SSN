@@ -280,6 +280,27 @@ def _recover_model_on_cpu(plugin, model_name, model_obj):
         return plugin.load_model(model_name, cpu)
 
 
+from tools.tool_helpers.Embedding_Batching import (
+    pack_length_sorted_batches,
+    run_batched_embeddings,
+)
+
+
+def _stratified_benchmark_items(pending, max_items=16):
+    """Select evenly spaced length-quantile items from ``pending`` for batched benchmarking."""
+    ordered = sorted(pending, key=lambda pair: (len(pair[1]), pair[0]))
+    if len(ordered) <= max_items:
+        return ordered
+    indices = [round(i * (len(ordered) - 1) / (max_items - 1)) for i in range(max_items)]
+    seen = set()
+    chosen = []
+    for idx in indices:
+        if idx not in seen:
+            seen.add(idx)
+            chosen.append(ordered[idx])
+    return chosen
+
+
 def _benchmark_embedding_devices(
     plugin,
     model_name,
@@ -290,53 +311,116 @@ def _benchmark_embedding_devices(
     candidates,
 ):
     samples = _representative_sequences(pending)
+    supports_batch = callable(getattr(plugin, "get_embeddings_batch", None)) and len(pending) >= 4
+    bench_items = _stratified_benchmark_items(pending, max_items=16) if supports_batch else []
+    saving_mode_label = "float16" if target_dtype == np.dtype(np.float16) else "float32"
     results = []
     print(
         "[Hardware] Benchmarking local embedding inference on "
         f"{len(candidates)} available device(s) using lengths "
-        f"{[len(sequence) for sequence in samples]}..."
+        f"{[len(sequence) for sequence in samples]}"
+        + (f" (batched sample of {len(bench_items)})" if supports_batch else "")
+        + "..."
     )
     print("Device/backend                 Move (s)   Predicted job (s)   Status")
 
+    current_device_spec = "cpu"
     for candidate in candidates:
         move_seconds = 0.0
         free_memory = Hardware_Utils.begin_gpu_trial(candidate)
         try:
-            model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+            if current_device_spec != "cpu":
+                model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+                current_device_spec = "cpu"
             Hardware_Utils.release_device_cache(candidate)
-            move_started = time.perf_counter()
-            model_obj = _move_model_object(model_obj, candidate.device)
-            Hardware_Utils.synchronize_device(candidate)
-            move_seconds = time.perf_counter() - move_started
-
-            warmup = samples[0][: min(64, len(samples[0]))]
-            plugin.get_embedding(
-                warmup, model_obj, candidate.device, target_dtype
-            )
-
-            sample_times = {}
-            for sequence in samples:
+            if candidate.spec != current_device_spec:
+                move_started = time.perf_counter()
+                model_obj = _move_model_object(model_obj, candidate.device)
                 Hardware_Utils.synchronize_device(candidate)
-                started = time.perf_counter()
-                embedding = plugin.get_embedding(
-                    sequence, model_obj, candidate.device, target_dtype
+                move_seconds = time.perf_counter() - move_started
+                current_device_spec = candidate.spec
+
+            if supports_batch:
+                # Warm up with a representative multi-sequence batch containing the longest
+                # sample so cuBLAS/SDPA/JIT kernels compile before timing begins.
+                warmup_seqs = [samples[-1], samples[0]] if len(samples) > 1 else [samples[-1]]
+                plugin.get_embeddings_batch(
+                    warmup_seqs, model_obj, candidate.device, target_dtype
                 )
                 Hardware_Utils.synchronize_device(candidate)
-                sample_times[sequence] = max(
-                    time.perf_counter() - started, 1e-9
-                )
-                validate_embedding_array(
-                    embedding,
-                    sequence,
-                    "float16" if target_dtype == np.dtype(np.float16) else "float32",
-                    feature_dimension=feature_dimension,
-                    require_finite=True,
-                    header="hardware benchmark",
-                )
 
-            predicted = _predicted_embedding_seconds(
-                pending, samples, sample_times, move_seconds
-            )
+                batches = pack_length_sorted_batches(
+                    bench_items,
+                    device=candidate.device,
+                    model_obj=model_obj,
+                )
+                pass_times = []
+                validated_once = False
+                for _attempt in range(2):
+                    Hardware_Utils.synchronize_device(candidate)
+                    started = time.perf_counter()
+                    for batch in batches:
+                        b_seqs = [seq for _, seq in batch]
+                        embs = plugin.get_embeddings_batch(
+                            b_seqs, model_obj, candidate.device, target_dtype
+                        )
+                        if not validated_once:
+                            for (hdr, seq), emb in zip(batch, embs):
+                                validate_embedding_array(
+                                    emb,
+                                    seq,
+                                    saving_mode_label,
+                                    feature_dimension=feature_dimension,
+                                    require_finite=True,
+                                    header="hardware benchmark",
+                                )
+                    Hardware_Utils.synchronize_device(candidate)
+                    elapsed = max(time.perf_counter() - started, 1e-9)
+                    pass_times.append(elapsed)
+                    validated_once = True
+                    # If the first pass already took >= 0.5 s, one pass is stable enough.
+                    if elapsed >= 0.5:
+                        break
+                best_sample_time = min(pass_times)
+                sample_residues = max(1, sum(len(seq) for _, seq in bench_items))
+                total_residues = max(1, sum(len(seq) for _, seq in pending))
+                predicted = float(move_seconds) + best_sample_time * (total_residues / sample_residues)
+            else:
+                # Warm up on the longest representative sample so cold-shape kernel JIT does
+                # not distort single-sequence timing.
+                plugin.get_embedding(
+                    samples[-1], model_obj, candidate.device, target_dtype
+                )
+                Hardware_Utils.synchronize_device(candidate)
+
+                sample_times = {}
+                for sequence in samples:
+                    best = None
+                    for attempt in range(2):
+                        Hardware_Utils.synchronize_device(candidate)
+                        started = time.perf_counter()
+                        embedding = plugin.get_embedding(
+                            sequence, model_obj, candidate.device, target_dtype
+                        )
+                        Hardware_Utils.synchronize_device(candidate)
+                        elapsed = max(time.perf_counter() - started, 1e-9)
+                        if attempt == 0:
+                            validate_embedding_array(
+                                embedding,
+                                sequence,
+                                saving_mode_label,
+                                feature_dimension=feature_dimension,
+                                require_finite=True,
+                                header="hardware benchmark",
+                            )
+                        best = elapsed if best is None else min(best, elapsed)
+                        if elapsed >= 0.5:
+                            break
+                    sample_times[sequence] = best
+
+                predicted = _predicted_embedding_seconds(
+                    pending, samples, sample_times, move_seconds
+                )
             result = Hardware_Utils.BenchmarkResult(candidate, predicted)
             print(
                 f"{candidate.display_name[:30]:30}  {move_seconds:>8.3f}   "
@@ -359,6 +443,7 @@ def _benchmark_embedding_devices(
             for line in detail_lines:
                 print(line)
             model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+            current_device_spec = "cpu"
         results.append(result)
 
     ranked = Hardware_Utils.rank_benchmark_results(
@@ -380,9 +465,12 @@ def _benchmark_embedding_devices(
         key=lambda result: float(result.value),
     )
     tie_applied = winner.candidate.spec != fastest.candidate.spec
-    model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
-    model_obj = _move_model_object(model_obj, winner.candidate.device)
-    Hardware_Utils.synchronize_device(winner.candidate)
+    if current_device_spec != winner.candidate.spec:
+        if current_device_spec != "cpu":
+            model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+        if winner.candidate.spec != "cpu":
+            model_obj = _move_model_object(model_obj, winner.candidate.device)
+        Hardware_Utils.synchronize_device(winner.candidate)
     print(
         f"[Hardware] Selected {winner.candidate.display_name} for embeddings; "
         f"3% tie preference {'applied' if tie_applied else 'not applied'}."
@@ -619,6 +707,63 @@ def generate_embeddings(
             return len(pending)
 
         active_rank = 0
+        if (
+            execution_mode == "local"
+            and callable(getattr(plugin, "get_embeddings_batch", None))
+            and len(pending) > 1
+        ):
+            with tqdm(total=len(pending), desc="Embedding") as progress:
+                def on_batch_complete(batch_items, embeddings):
+                    nonlocal feature_dimension
+                    for (header, sequence), embedding in zip(batch_items, embeddings):
+                        feature_dimension = validate_embedding_array(
+                            embedding,
+                            sequence,
+                            saving_mode,
+                            feature_dimension=feature_dimension,
+                            require_finite=True,
+                            header=header,
+                        )
+                        emb_group.create_dataset(header, data=embedding)
+                    hf.flush()
+                    progress.update(len(batch_items))
+
+                def on_single_failure(header, error):
+                    nonlocal active_rank, model_obj, device
+                    if not isinstance(error, (RuntimeError, NotImplementedError, MemoryError)):
+                        raise error
+                    if manual_candidate is not None:
+                        raise RuntimeError(
+                            f"Embedding '{header}' failed on manually selected "
+                            f"device '{manual_candidate.spec}': {error}"
+                        ) from error
+                    active_rank += 1
+                    if active_rank >= len(ranked_devices):
+                        raise RuntimeError(
+                            f"Every benchmarked device failed while embedding '{header}'."
+                        ) from error
+                    fallback = ranked_devices[active_rank].candidate
+                    print(
+                        f"[Hardware] {type(error).__name__} on {device}; "
+                        f"retrying '{header}' on {fallback.display_name}."
+                    )
+                    model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+                    model_obj = _move_model_object(model_obj, fallback.device)
+                    device = fallback.device
+                    return model_obj, device
+
+                model_obj, device = run_batched_embeddings(
+                    pending,
+                    plugin=plugin,
+                    model_obj=model_obj,
+                    device=device,
+                    target_dtype=target_dtype,
+                    on_batch_complete=on_batch_complete,
+                    on_single_failure=on_single_failure,
+                )
+            mark_generation_complete(hf)
+            return len(pending)
+
         for header, sequence in tqdm(pending, desc="Embedding"):
             while True:
                 try:

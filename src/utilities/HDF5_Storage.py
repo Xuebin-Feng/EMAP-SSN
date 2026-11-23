@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import re
 
@@ -368,7 +368,7 @@ def mark_generation_complete(hf):
         )
     hf.attrs["generation_complete"] = True
     hf.flush()
-    return read_embedding_manifest(hf, require_complete=True)
+    return replace(manifest, generation_complete=True)
 
 
 def validate_model_label(label):

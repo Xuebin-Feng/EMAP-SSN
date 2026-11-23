@@ -82,17 +82,45 @@ def get_embedding(seq, model_obj, device, target_dtype):
     Generates embedding for a sequence using the loaded ESMC model.
     """
     import torch
+    from tools.tool_helpers.Embedding_Batching import extract_single_embedding
+
     tokenizer, model = model_obj
 
     seq = _clean_sequence(seq)
     if not seq:
         raise ValueError("Sequence contains no supported amino-acid characters.")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         # ESMC takes continuous unspaced sequences
         inputs = tokenizer(seq, return_tensors="pt").to(device)
         outputs = model(**inputs)
         # The ESMC tokenizer wraps every sequence in <cls> ... <eos>, so we
         # slice 1:-1. The encoder runs in float32, so no upcast is needed
         # before NumPy; only the selected storage dtype is applied.
-        return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
+        return extract_single_embedding(outputs.last_hidden_state[0, 1:-1], target_dtype)
+
+
+def get_embeddings_batch(sequences, model_obj, device, target_dtype):
+    """Generate strict FP32 embeddings for a batch of sequences."""
+    import torch
+    from tools.tool_helpers.Embedding_Batching import extract_batch_embeddings
+
+    if not sequences:
+        return []
+    tokenizer, model = model_obj
+
+    cleaned = []
+    lengths = []
+    for seq in sequences:
+        clean = _clean_sequence(seq)
+        if not clean:
+            raise ValueError("Sequence contains no supported amino-acid characters.")
+        cleaned.append(clean)
+        lengths.append(len(clean))
+
+    non_blocking = getattr(device, "type", "") == "cuda"
+    with torch.inference_mode():
+        inputs = tokenizer(cleaned, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device, non_blocking=non_blocking) for k, v in inputs.items()}
+        outputs = model(**inputs)
+        return extract_batch_embeddings(outputs.last_hidden_state, lengths, 1, target_dtype)

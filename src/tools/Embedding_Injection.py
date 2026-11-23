@@ -54,6 +54,7 @@ except ModuleNotFoundError:
 import numpy as np
 import h5py
 from tqdm import tqdm
+from tools.tool_helpers.Embedding_Batching import run_batched_embeddings
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import (
@@ -298,6 +299,7 @@ def inject_embeddings(input_hdf5, input_fasta, output_hdf5=None):
     generated_count = 0
     feature_dimension = source_manifest.feature_dimension
     with h5py.File(input_hdf5, "r") as hf_in, h5py.File(output_hdf5, "w") as hf_out:
+        emb_group_in = hf_in["embeddings"]
         emb_group_out = create_metadata_first_file(
             hf_out,
             new_headers,
@@ -305,36 +307,95 @@ def inject_embeddings(input_hdf5, input_fasta, output_hdf5=None):
             source_manifest.model_name,
             source_manifest.saving_mode,
         )
-        for header, sequence in tqdm(
-            zip(new_headers, new_sequences),
-            total=len(new_headers),
-            desc="Writing",
-        ):
-            is_new = header not in old_sequences
-            if is_new:
-                embedding = get_embedding(
-                    sequence,
-                    model_obj,
-                    device,
-                    model_plugin,
-                    target_dtype,
+        existing_items = [
+            (header, sequence)
+            for header, sequence in zip(new_headers, new_sequences)
+            if header in old_sequences
+        ]
+        addition_items = [
+            (header, sequence)
+            for header, sequence in zip(new_headers, new_sequences)
+            if header not in old_sequences
+        ]
+        with tqdm(total=len(new_headers), desc="Writing") as progress:
+            # 1. Zero-deserialization raw HDF5 dataset copy for unchanged embeddings
+            for copy_idx, (header, sequence) in enumerate(existing_items, 1):
+                ds_in = emb_group_in[header]
+                if ds_in.ndim != 2 or ds_in.shape[0] != len(sequence):
+                    raise ValueError(
+                        f"Embedding '{header}' has shape {ds_in.shape}, expected "
+                        f"({len(sequence)}, {feature_dimension or 'D'})."
+                    )
+                if np.dtype(ds_in.dtype) != target_dtype:
+                    raise ValueError(
+                        f"Embedding '{header}' has dtype {ds_in.dtype}, expected {target_dtype}."
+                    )
+                if feature_dimension is None:
+                    feature_dimension = int(ds_in.shape[1])
+                elif int(ds_in.shape[1]) != feature_dimension:
+                    raise ValueError(
+                        f"Embedding '{header}' feature dimension {ds_in.shape[1]} "
+                        f"does not match {feature_dimension}."
+                    )
+                hf_in.copy(ds_in, emb_group_out, name=header)
+                copied_count += 1
+                progress.update(1)
+                if copy_idx % 256 == 0:
+                    hf_out.flush()
+            if existing_items:
+                hf_out.flush()
+
+            # 2. Generate new additions (length-sorted batched when plugin supports it)
+            if (
+                addition_items
+                and callable(getattr(model_plugin, "get_embeddings_batch", None))
+                and len(addition_items) > 1
+            ):
+                def on_batch_complete(batch_items, embeddings):
+                    nonlocal feature_dimension, generated_count
+                    for (header, sequence), embedding in zip(batch_items, embeddings):
+                        feature_dimension = validate_embedding_array(
+                            embedding,
+                            sequence,
+                            source_manifest.saving_mode,
+                            feature_dimension=feature_dimension,
+                            require_finite=True,
+                            header=header,
+                        )
+                        emb_group_out.create_dataset(header, data=embedding)
+                        generated_count += 1
+                    hf_out.flush()
+                    progress.update(len(batch_items))
+
+                run_batched_embeddings(
+                    addition_items,
+                    plugin=model_plugin,
+                    model_obj=model_obj,
+                    device=device,
+                    target_dtype=target_dtype,
+                    on_batch_complete=on_batch_complete,
                 )
             else:
-                embedding = hf_in["embeddings"][header][:]
-            feature_dimension = validate_embedding_array(
-                embedding,
-                sequence,
-                source_manifest.saving_mode,
-                feature_dimension=feature_dimension,
-                require_finite=is_new,
-                header=header,
-            )
-            emb_group_out.create_dataset(header, data=embedding)
-            hf_out.flush()
-            if is_new:
-                generated_count += 1
-            else:
-                copied_count += 1
+                for header, sequence in addition_items:
+                    embedding = get_embedding(
+                        sequence,
+                        model_obj,
+                        device,
+                        model_plugin,
+                        target_dtype,
+                    )
+                    feature_dimension = validate_embedding_array(
+                        embedding,
+                        sequence,
+                        source_manifest.saving_mode,
+                        feature_dimension=feature_dimension,
+                        require_finite=True,
+                        header=header,
+                    )
+                    emb_group_out.create_dataset(header, data=embedding)
+                    hf_out.flush()
+                    generated_count += 1
+                    progress.update(1)
         mark_generation_complete(hf_out)
 
     return output_hdf5, generated_count, copied_count

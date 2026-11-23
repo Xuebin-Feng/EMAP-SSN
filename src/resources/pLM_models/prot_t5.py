@@ -82,18 +82,46 @@ def get_embedding(seq, model_obj, device, target_dtype):
     Generates embedding for a sequence using the loaded ProtT5 encoder.
     """
     import torch
+    from tools.tool_helpers.Embedding_Batching import extract_single_embedding
+
     tokenizer, model = model_obj
 
     seq = _clean_sequence(seq)
     if not seq:
         raise ValueError("Sequence contains no supported amino-acid characters.")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         # The vocabulary holds each residue as a word ("▁M"), so residues are
         # separated by spaces; an unspaced sequence would encode as <unk>.
-        spaced_seq = " ".join(list(seq))
+        spaced_seq = " ".join(seq)
         inputs = tokenizer(spaced_seq, return_tensors="pt").to(device)
         outputs = model(**inputs)
         # ProtT5 adds no start token, only the trailing </s>: slicing :-1 keeps
         # one row per residue. Convert to the target precision.
-        return outputs.last_hidden_state[0, :-1].cpu().numpy().astype(target_dtype)
+        return extract_single_embedding(outputs.last_hidden_state[0, :-1], target_dtype)
+
+
+def get_embeddings_batch(sequences, model_obj, device, target_dtype):
+    """Generate strict FP32 embeddings for a batch of sequences."""
+    import torch
+    from tools.tool_helpers.Embedding_Batching import extract_batch_embeddings
+
+    if not sequences:
+        return []
+    tokenizer, model = model_obj
+
+    spaced = []
+    lengths = []
+    for seq in sequences:
+        clean = _clean_sequence(seq)
+        if not clean:
+            raise ValueError("Sequence contains no supported amino-acid characters.")
+        spaced.append(" ".join(clean))
+        lengths.append(len(clean))
+
+    non_blocking = getattr(device, "type", "") == "cuda"
+    with torch.inference_mode():
+        inputs = tokenizer(spaced, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device, non_blocking=non_blocking) for k, v in inputs.items()}
+        outputs = model(**inputs)
+        return extract_batch_embeddings(outputs.last_hidden_state, lengths, 0, target_dtype)

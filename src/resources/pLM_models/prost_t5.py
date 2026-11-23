@@ -68,6 +68,7 @@ def load_model(model_name, device):
     with safetensors_conversion_disabled():
         model = T5EncoderModel.from_pretrained(hf_id, dtype=torch.float32)
     model = model.to(device)
+    model.eval()
     return tokenizer, model
 
 def get_embedding(seq, model_obj, device, target_dtype):
@@ -75,16 +76,44 @@ def get_embedding(seq, model_obj, device, target_dtype):
     Generates embedding for a sequence using the loaded ProstT5 model.
     """
     import torch
+    from tools.tool_helpers.Embedding_Batching import extract_single_embedding
+
     tokenizer, model = model_obj
 
     seq = _clean_sequence(seq)
     if not seq:
         raise ValueError("Sequence contains no supported amino-acid characters.")
 
-    with torch.no_grad():
-        spaced_seq = " ".join(list(seq))
+    with torch.inference_mode():
+        spaced_seq = " ".join(seq)
         input_seq = "<AA2fold> " + spaced_seq
         inputs = tokenizer(input_seq, return_tensors="pt").to(device)
         outputs = model(**inputs)
         # Slice out start/end special tokens and convert to target precision
-        return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
+        return extract_single_embedding(outputs.last_hidden_state[0, 1:-1], target_dtype)
+
+
+def get_embeddings_batch(sequences, model_obj, device, target_dtype):
+    """Generate strict FP32 embeddings for a batch of sequences."""
+    import torch
+    from tools.tool_helpers.Embedding_Batching import extract_batch_embeddings
+
+    if not sequences:
+        return []
+    tokenizer, model = model_obj
+
+    prefixed = []
+    lengths = []
+    for seq in sequences:
+        clean = _clean_sequence(seq)
+        if not clean:
+            raise ValueError("Sequence contains no supported amino-acid characters.")
+        prefixed.append("<AA2fold> " + " ".join(clean))
+        lengths.append(len(clean))
+
+    non_blocking = getattr(device, "type", "") == "cuda"
+    with torch.inference_mode():
+        inputs = tokenizer(prefixed, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device, non_blocking=non_blocking) for k, v in inputs.items()}
+        outputs = model(**inputs)
+        return extract_batch_embeddings(outputs.last_hidden_state, lengths, 1, target_dtype)

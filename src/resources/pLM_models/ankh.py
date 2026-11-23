@@ -159,15 +159,43 @@ def get_embedding(seq, model_obj, device, target_dtype):
     Generates embedding for a sequence using the loaded Ankh model.
     """
     import torch
+    from tools.tool_helpers.Embedding_Batching import extract_single_embedding
+
     tokenizer, model = model_obj
 
     seq = _clean_sequence(seq)
     if not seq:
         raise ValueError("Sequence contains no supported amino-acid characters.")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         # Ankh tokenizer takes unspaced sequences and appends only </s> at the end.
         inputs = tokenizer(seq, return_tensors="pt").to(device)
         outputs = model(**inputs)
         # Slicing :-1 drops the trailing </s> and retains the exact residue representations.
-        return outputs.last_hidden_state[0, :-1].cpu().numpy().astype(target_dtype)
+        return extract_single_embedding(outputs.last_hidden_state[0, :-1], target_dtype)
+
+
+def get_embeddings_batch(sequences, model_obj, device, target_dtype):
+    """Generate strict FP32 embeddings for a batch of sequences."""
+    import torch
+    from tools.tool_helpers.Embedding_Batching import extract_batch_embeddings
+
+    if not sequences:
+        return []
+    tokenizer, model = model_obj
+
+    cleaned = []
+    lengths = []
+    for seq in sequences:
+        clean = _clean_sequence(seq)
+        if not clean:
+            raise ValueError("Sequence contains no supported amino-acid characters.")
+        cleaned.append(clean)
+        lengths.append(len(clean))
+
+    non_blocking = getattr(device, "type", "") == "cuda"
+    with torch.inference_mode():
+        inputs = tokenizer(cleaned, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device, non_blocking=non_blocking) for k, v in inputs.items()}
+        outputs = model(**inputs)
+        return extract_batch_embeddings(outputs.last_hidden_state, lengths, 0, target_dtype)
