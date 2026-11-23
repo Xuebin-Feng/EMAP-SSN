@@ -458,6 +458,25 @@ still change before version 1.0.0.
   - **Every reader** that refuses an embedding file in another format now names Embedding
     Import instead of calling the file legacy, and the help page describes the format in a
     new section, Embedding File Format.
+- **The Fold View colors structures by solvent accessibility, hydrophobicity and charge.**
+  A new Properties group in the Color by card, always shown between Model and Layers,
+  holds the three together with Secondary structure, which moves there from More
+  colorings. Mol* works each of them out from the structure, in its own colors.
+  - **Solvent accessibility** is how much of a residue the solvent can reach, as a share
+    of the most a residue of its kind can expose, with a water probe of 1.4 Å. Each
+    structure is worked out on its own, and only the atoms of the chains are in the way,
+    not ligands or water.
+  - **Hydrophobicity** is one value for each kind of residue, from the Wimley and White
+    scale for membrane interfaces, the same wherever the residue sits. Red is hydrophilic
+    and green is hydrophobic, a pair that red-green color-blind readers find hard to tell
+    apart.
+  - **Charge** goes by the residue's name, not by pH or surroundings: arginine and lysine
+    are positive, aspartate and glutamate negative, histidine has a color of its own, and
+    every other residue is neutral.
+  - The legend over the canvas, the bars of the sequence strip and the legend of a saved
+    picture follow each of them, a saved session brings its coloring back, and the card
+    says in a sentence or two what the colors mean. The hover box and the Residue card do
+    not give a residue's value for these three: Mol* does not hand the values out.
 
 ### Changed
 
@@ -802,6 +821,40 @@ still change before version 1.0.0.
     in Word and the positions of a table's column bars were measured. The new form is
     shown as Consolas 10 pt with every bar at the same position on every line. A paste
     from the clipboard itself, Word on macOS and other programs were not checked.
+- **The Fold View's toolbar is in the "Structure View" title row,** at its right, where it
+  floated over the canvas. In a window 700 px wide or narrower, which has no title row, it
+  floats over the canvas as before.
+  - **Sequence is a button of the toolbar** (the DNA icon, between Full screen and
+    Advanced) that switches the sequence strip on and off. The strip has no title row of
+    its own any more, and switched off it takes no room, so the canvas gets its height.
+    The strip is on when the page opens.
+  - **The choice of structure and chain for the strip** is over the canvas at its top
+    right, where the toolbar was. It is shown only while the strip is on and there is more
+    than one to choose from.
+- **The Fold View draws a coloring's colors in one place, the legend over the canvas.**
+  The Color by card repeated them. It now keeps only the texts: pLDDT's description and
+  the caution for opened files, a layer's source and description and its no-data warning,
+  and the note of Structure color. Secondary structure and Residue position have no box
+  there.
+  - The legend over the canvas names pLDDT's band limits (50, 70 and 90) above its bar,
+    shows a "No data" key for a layer that covers a structure in part, keeps the two end
+    labels of a bar at least 12 px apart, and can be read by a screen reader. The legend
+    drawn into a saved picture has the same limits, key and spacing.
+  - pLDDT's four band names (Very high, Confident, Low, Very low) are no longer listed in
+    the card. A residue's band is in the hover box and the Residue card, as before.
+- **Structure color is under More colorings** in the Fold View's Color by card, with
+  Residue position, and the Model group holds pLDDT alone. A structure's own row still
+  offers it.
+- **The Fold View's hover box follows the color mode:** light in the light theme and dark
+  in the dark one, where it was dark in both. Its color square has a thin edge, so that a
+  white one shows on a light box. The status line keeps its dark look.
+- **The Fold View's Residue card shows a residue's secondary structure as an icon and a
+  word** (helix, strand or turn) on one line, as the hover box now does, where a long
+  structure name used to squeeze the word. Zoom to and Clear are icon buttons in the
+  card's title row, greyed out unless a residue is pinned.
+- **The small titles of the Fold View are written as their texts are,** with a capital at
+  the start only. "Model" and "Layers" in the Color by card and the headings of the Help
+  dialog were drawn in capitals.
 
 ### Fixed
 
