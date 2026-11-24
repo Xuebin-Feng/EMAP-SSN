@@ -386,6 +386,20 @@ class ParentEndedAloneTests(StandInCase):
         survivors = _survivors([processes["child"], processes["grandchild"]], 8.0)
         self.assertEqual([], [p.pid for p in survivors], "A process of the tool outlived its parent.")
 
+    @unittest.skipIf(WINDOWS, "a tool ended by a signal is a POSIX case; Windows has exit codes only")
+    def test_a_tool_ended_by_kill_ends_the_watcher_by_kill_too(self):
+        popen, processes = self.start("sleep")
+        watcher, tool = processes["parent"], processes["child"]
+        self.assertEqual(watcher.pid, popen.pid)
+        self.assertNotEqual(watcher.pid, tool.pid)
+        tool.send_signal(signal.SIGKILL)
+        try:
+            returncode = popen.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            returncode = None  # the cleanup ends what is left
+        self.assertEqual(returncode, -signal.SIGKILL)
+        self.assertEqual([], [p.pid for p in _survivors([watcher, tool], 5.0)])
+
     def test_the_watcher_ignores_a_parent_that_is_alive(self):
         ended = []
         thread = Tool_Supervisor._watch_parent(os.getpid(), interval=0.05, on_gone=lambda: ended.append(1))
@@ -1108,6 +1122,21 @@ class SignalOfExitTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as stop:
                 Tool_Supervisor._pass_on(-number)
         return stop.exception.code
+
+    def test_a_refused_handler_reset_does_not_stop_the_watcher_from_raising_the_signal(self):
+        # Python refuses any handler for SIGKILL (OSError 22); the signal must still be raised.
+        def refuse(number, handler):
+            raise OSError(22, "Invalid argument")
+
+        with mock.patch.object(Tool_Supervisor.os, "name", "posix"), \
+                mock.patch.object(Tool_Supervisor.os, "kill") as kill, \
+                mock.patch.object(Tool_Supervisor.signal, "signal", side_effect=refuse), \
+                mock.patch.object(Tool_Supervisor, "_STOP_SIGNALS", self.STOPS), \
+                mock.patch.object(Tool_Supervisor.time, "sleep"):
+            with self.assertRaises(SystemExit) as stop:
+                Tool_Supervisor._pass_on(-9)
+        kill.assert_called_once_with(os.getpid(), 9)
+        self.assertEqual(stop.exception.code, 128 + 9)  # reached only when the raised signal did not end it
 
     def test_it_is_the_inverse_of_what_pass_on_does_for_every_signal_number(self):
         real = {int(item) for item in signal.Signals}

@@ -409,7 +409,10 @@ def _pass_on(code):
     if code < 0:
         if -code in _STOP_SIGNALS:
             try:
-                signal.signal(-code, signal.SIG_DFL)
+                try:
+                    signal.signal(-code, signal.SIG_DFL)
+                except (ValueError, OSError):
+                    pass  # Python refuses a handler for SIGKILL; the signal needs none, so still raise it
                 os.kill(os.getpid(), -code)
                 time.sleep(1.0)
             except (ValueError, OSError):
