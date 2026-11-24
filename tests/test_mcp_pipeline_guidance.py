@@ -183,6 +183,79 @@ class PipelineGuideTests(unittest.TestCase):
                 before, directory_snapshot((str(msa), str(msa / "Full_Alignments")), 1))}
             self.assertEqual(changes, {"a.fasta": "created", "a_sparse.h5": "created"})
 
+    def test_every_gui_file_input_is_listed_in_guide_inputs(self):
+        import ast
+
+        gui_tree = ast.parse((SRC / "EMAPSSN_Tools.py").read_text(encoding="utf-8"))
+        by_script = {spec.script_name: spec.tool_id for spec in list_tool_specs()}
+        gui_file_inputs = {spec.tool_id: {} for spec in list_tool_specs()}
+        for node in ast.walk(gui_tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if not (isinstance(key, ast.Constant) and key.value in by_script and isinstance(value, ast.List)):
+                    continue
+                tool_id = by_script[key.value]
+                for field in value.elts:
+                    if not isinstance(field, ast.Dict):
+                        continue
+                    entry = {}
+                    for k, v in zip(field.keys, field.values):
+                        if isinstance(k, ast.Constant) and isinstance(v, ast.Constant):
+                            entry[k.value] = v.value
+                    if entry.get("type") in {"dropdown_from_folder", "file_browse"} and "var_name" in entry:
+                        gui_file_inputs[tool_id][entry["var_name"]] = entry.get("dir_key")
+
+        for spec in list_tool_specs():
+            with self.subTest(tool=spec.tool_id):
+                guide_inputs = Pipeline_Guide.tool_guide(spec.tool_id)["inputs"]
+                self.assertEqual(set(guide_inputs), set(gui_file_inputs[spec.tool_id]))
+                for field, dir_key in gui_file_inputs[spec.tool_id].items():
+                    if dir_key is not None:
+                        self.assertEqual(guide_inputs[field]["directory"], dir_key, field)
+                    self.assertTrue(guide_inputs[field]["content"], field)
+
+    def test_embedding_msa_input_network_embed_resolves_in_embed_dir(self):
+        entry = Pipeline_Guide.tool_guide("embedding_msa")["inputs"]["INPUT_NETWORK_EMBED"]
+        self.assertEqual(entry["directory"], "EMBED_DIR")
+        self.assertTrue(entry["content"])
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            custom_embed_dir = root / "custom_embeds"
+            document = {
+                "DIRECTORIES": {"EMBED_DIR": str(custom_embed_dir)},
+                "Embedding_MSA.py": {"INPUT_NETWORK_EMBED": "net_model_embeddings.h5"},
+            }
+            self.assertEqual(
+                Pipeline_Guide.input_path("embedding_msa", "INPUT_NETWORK_EMBED", document, root),
+                str(custom_embed_dir / "net_model_embeddings.h5"),
+            )
+            default_doc = {
+                "DIRECTORIES": {},
+                "Embedding_MSA.py": {"INPUT_NETWORK_EMBED": "net_model_embeddings.h5"},
+            }
+            self.assertEqual(
+                Pipeline_Guide.input_path("embedding_msa", "INPUT_NETWORK_EMBED", default_doc, root),
+                str(root / "Embeddings" / "net_model_embeddings.h5"),
+            )
+            elsewhere = root / "elsewhere" / "net_model_embeddings.h5"
+            abs_doc = {
+                "DIRECTORIES": {"EMBED_DIR": str(custom_embed_dir)},
+                "Embedding_MSA.py": {"INPUT_NETWORK_EMBED": str(elsewhere)},
+            }
+            self.assertEqual(
+                Pipeline_Guide.input_path("embedding_msa", "INPUT_NETWORK_EMBED", abs_doc, root),
+                str(elsewhere),
+            )
+            for blank in ("", "   ", None):
+                blank_doc = {
+                    "DIRECTORIES": {"EMBED_DIR": str(custom_embed_dir)},
+                    "Embedding_MSA.py": {"INPUT_NETWORK_EMBED": blank},
+                }
+                self.assertIsNone(
+                    Pipeline_Guide.input_path("embedding_msa", "INPUT_NETWORK_EMBED", blank_doc, root)
+                )
+
     def test_the_embedding_msa_guide_tree_is_in_the_guide_trees_subfolder(self):
         outputs = Pipeline_Guide.tool_guide("embedding_msa")["outputs"]
         tree = [output for output in outputs if "guide_tree.nex" in output["name"]]

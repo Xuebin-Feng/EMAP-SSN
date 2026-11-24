@@ -200,6 +200,7 @@
       "inputs": {
         "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "embedding database"},
         "INPUT_NETWORK": {"directory": "NETWORK_DIR", "content": "network covering the same sequences (alignment or BLAST; missing pairs are imputed)"},
+        "INPUT_NETWORK_EMBED": {"directory": "EMBED_DIR", "content": "optional embedding database of the network's own model, used for calibrated imputation of a sparse network when INPUT_EMBED is of another model"},
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "optional subset filter, used only when USE_SEQUENCE_FILTER is true"}
       },
       "outputs": [
