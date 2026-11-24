@@ -290,7 +290,7 @@ class LegendNoteTests(LongNameTestCase):
     """The notes and legends of the Colors tab say a file's name and a structure's: they stay inside the card."""
 
     COLORINGS = ("plddt", "builtin:structure", "information_content", "same_residue_pct", "builtin:secondary-structure",
-                 "builtin:residue-position")
+                 "builtin:residue-position", "builtin:element-symbol")
 
     def test_the_source_note_breaks_anywhere_inside_its_card_and_keeps_the_whole_file_name(self):
         self.scene(USER_NAME, SECOND_NAME)
@@ -352,7 +352,12 @@ class LegendNoteTests(LongNameTestCase):
         card = self.script("return card()")
         self.assertIn(NAME_120, card["noData"])
         self.assertIn(OPENED_NAME, card["noData"])
+        self.assertEqual(card["layerNote"], "1 structure has no extra layers.")
         self.assertTrue(any(NAME_120 in note for note in card["layerNotes"]), card["layerNotes"])
+        # Opening the missing-layers disclosure also wraps the 120-character name cleanly inside the card.
+        self.script("document.querySelector('#color-body details.empty-layers').open = true; return 1")
+        self.assertEqual(self.overflowing("section[data-tab=color]"), [])
+        self.script("document.querySelector('#color-body details.empty-layers').open = false; return 1")
         self.choose("plddt")
         self.assertIn(OPENED_NAME, self.script("return card().caution"))
         self.assertEqual(self.console_errors(), [])
@@ -593,7 +598,7 @@ class LegendNoteDisclosureTests(LongNameTestCase):
                 if layout[1]:
                     self.panel(layout[1])
             for coloring in ("plddt", "builtin:structure", "information_content", "same_residue_pct", "short_note", "long_note", "only_source",
-                             "builtin:secondary-structure", "builtin:residue-position"):
+                             "builtin:secondary-structure", "builtin:residue-position", "builtin:element-symbol"):
                 with self.subTest(layout=layout, coloring=coloring):
                     self.choose(coloring)
                     self.settle(150)

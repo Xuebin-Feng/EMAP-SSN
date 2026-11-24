@@ -393,7 +393,8 @@ window.card = function () {
         caution: legend ? text(legend.querySelector('.caution')) : null,
         source: legend ? text(legend.querySelector('.src summary span')) : null,
         description: legend ? text(legend.querySelector('.src p')) : null,
-        layerNotes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent),
+        layerNote: text(body.querySelector('.empty-layers > summary > span, .empty-layers > span')),
+        layerNotes: [...body.querySelectorAll('.empty-layers .empty-layer-list > div')].map(n => n.textContent),
         compact: {shown: compact.dataset.shown, title: text(compact.querySelector('.t')), ends: [...compact.querySelectorAll('.ticks span:not(.tick-mark)')].map(s => s.textContent)}
     };
 };

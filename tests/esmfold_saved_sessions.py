@@ -56,11 +56,11 @@ def saved_scene(name):
     scene = json.loads(zlib.decompress(base64.b64decode("".join(PACKED[name]))))
     # The frozen scenes were saved when the card had a Model group with pLDDT (and Structure color) and the layers after it. The card
     # lists now pLDDT first with the layers, then the Properties group (Secondary structure and the three Mol* works out, which
-    # the oldest scenes lack), then "More colorings" (open in a page that has just opened): Structure color and Residue position.
+    # the oldest scenes lack), then "More colorings" (open in a page that has just opened): Structure color, Residue position and Atoms.
     chips = scene["expected"].get("card", {}).get("chips")
     if chips:
         properties = ["builtin:secondary-structure", "builtin:accessible-surface-area", "builtin:hydrophobicity", "builtin:residue-charge"]
-        more = ["builtin:structure", "builtin:residue-position"]
+        more = ["builtin:structure", "builtin:residue-position", "builtin:element-symbol"]
         layers = [chip for chip in chips if chip not in properties and chip not in more]
         chips[:] = layers + properties + more
     return scene

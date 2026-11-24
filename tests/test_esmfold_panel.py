@@ -466,6 +466,33 @@ class LayoutTests(PanelTestCase):
         self.press("Home")
         self.assertEqual(self.script("return document.getElementById('color-body').clientWidth"), narrow)
 
+    def test_representation_and_color_sit_on_one_row_when_the_panel_is_wide_enough(self):
+        self.open_two()
+        self.open_details(1)
+        measure = """
+            const body = document.querySelector('#struct-list .srow:nth-child(1) .srow-body');
+            const rep = body.querySelector('select[id^="rep-"]').getBoundingClientRect();
+            const col = body.querySelector('select[id^="col-"]').getBoundingClientRect();
+            return {rep: [rep.left, rep.right, rep.top, rep.bottom, rep.width],
+                    col: [col.left, col.right, col.top, col.bottom, col.width],
+                    bodyWidth: body.clientWidth};"""
+        # Default narrow panel (340 px): Representation and Color stay stacked.
+        narrow = self.script(measure)
+        self.assertGreater(narrow["col"][2], narrow["rep"][3] + 4, narrow)
+        self.assertAlmostEqual(narrow["rep"][4], narrow["col"][4], delta=1)
+        # Widened panel (540 px via Shift+ArrowLeft twice): side-by-side in one row with equal widths and no overflow.
+        self.press("ArrowLeft", shiftKey=True)
+        self.press("ArrowLeft", shiftKey=True)
+        wide = self.script(measure)
+        self.assertAlmostEqual(wide["rep"][2], wide["col"][2], delta=1, msg=wide)
+        self.assertGreater(wide["col"][0], wide["rep"][1] + 4, wide)
+        self.assertAlmostEqual(wide["rep"][4], wide["col"][4], delta=1, msg=wide)
+        self.assertEqual(self.overflowing("#struct-list"), [])
+        # Restored to default width: stacked again.
+        self.press("Home")
+        restored = self.script(measure)
+        self.assertGreater(restored["col"][2], restored["rep"][3] + 4, restored)
+
     def test_the_help_dialog_has_a_line_for_the_handle_in_each_table(self):
         self.open_two()
         rows = self.script("""

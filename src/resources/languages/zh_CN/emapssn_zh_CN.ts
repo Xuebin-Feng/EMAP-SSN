@@ -3251,7 +3251,7 @@ Command-line usage:
         <translation type="unfinished">{file} 没有图层 {layer}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="+118"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="+123"/>
         <source>Structure color</source>
         <translation type="unfinished">结构颜色</translation>
     </message>
@@ -3265,6 +3265,11 @@ Command-line usage:
         <location line="+1"/>
         <source>Residue position</source>
         <translation type="unfinished">残基位置</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Atoms</source>
+        <translation type="unfinished">原子</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3283,16 +3288,16 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location line="+468"/>
+        <location line="+475"/>
         <location filename="../../../web_ui/esmfold_image.js" line="+69"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
         <location line="+199"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="+445"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+447"/>
         <source>No data</source>
         <translation type="unfinished">无数据</translation>
     </message>
     <message>
-        <location line="-407"/>
+        <location line="-414"/>
         <source>Could not color {file} by that layer.</source>
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
@@ -3347,6 +3352,31 @@ Command-line usage:
         <location line="+0"/>
         <source>C-terminus</source>
         <translation type="unfinished">C 端</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Carbon (C)</source>
+        <translation type="unfinished">碳（C）</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Nitrogen (N)</source>
+        <translation type="unfinished">氮（N）</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Oxygen (O)</source>
+        <translation type="unfinished">氧（O）</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Sulfur (S)</source>
+        <translation type="unfinished">硫（S）</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Each atom is colored by chemical element (CPK); all-atom views show N, O, and S.</source>
+        <translation type="unfinished">按化学元素（CPK）为每个原子着色；全原子显示下可见 N、O、S。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -3414,7 +3444,22 @@ Command-line usage:
         <translation type="unfinished">无数据：{names}。此图层对它们没有数值。</translation>
     </message>
     <message>
-        <location line="+321"/>
+        <location line="+219"/>
+        <source>No extra layers. Fold with an alignment loaded.</source>
+        <translation type="unfinished">无额外图层。加载比对后再折叠即可生成。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>1 structure has no extra layers.</source>
+        <translation type="unfinished">1 个结构无额外图层。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{n} structures have no extra layers.</source>
+        <translation type="unfinished">{n} 个结构无额外图层。</translation>
+    </message>
+    <message>
+        <location line="+107"/>
         <source>The chain as a ribbon: helices as coils, strands as arrows.</source>
         <translation type="unfinished">链以飘带形式显示：螺旋为线圈，β 链为箭头。</translation>
     </message>
@@ -3457,7 +3502,7 @@ Command-line usage:
         <translation type="obsolete">模型</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-163"/>
         <location line="+3"/>
         <source>Properties</source>
         <translation type="unfinished">性质</translation>
@@ -3485,17 +3530,16 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../../../web_ui/esmfold.html" line="+1089"/>
+        <location filename="../../../web_ui/esmfold.html" line="+1101"/>
         <source>Colors</source>
         <translation type="unfinished">颜色</translation>
     </message>
     <message>
-        <location line="+26"/>
         <source>Layers such as conservation need an alignment: fold with one loaded in the Viewer.</source>
-        <translation type="unfinished">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
+        <translation type="obsolete">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+51"/>
         <location line="+11"/>
         <source>More colorings</source>
         <translation type="unfinished">更多着色方式</translation>
@@ -3660,7 +3704,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+19"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="-407"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="-409"/>
         <source>Structure</source>
         <translation type="unfinished">结构</translation>
     </message>
@@ -3701,7 +3745,7 @@ Command-line usage:
         <translation type="unfinished">与场景相同</translation>
     </message>
     <message>
-        <location line="+125"/>
+        <location line="+127"/>
         <source>Pivot</source>
         <translation type="unfinished">基准</translation>
     </message>
@@ -3717,7 +3761,7 @@ Command-line usage:
         <translation type="unfinished">RMSD {rmsd} Å</translation>
     </message>
     <message>
-        <location line="-357"/>
+        <location line="-359"/>
         <source>Cartoon</source>
         <translation type="unfinished">卡通</translation>
     </message>
@@ -3767,14 +3811,14 @@ Command-line usage:
         <translation type="unfinished">无法完成该操作：{reason}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="+109"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="+108"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+57"/>
         <location filename="../../../web_ui/esmfold.html" line="+13"/>
         <source>Representation</source>
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location line="-710"/>
+        <location line="-725"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -3785,7 +3829,7 @@ Command-line usage:
         <translation type="unfinished">不透明度</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>Mean pLDDT</source>
         <translation type="unfinished">平均 pLDDT</translation>
     </message>
@@ -3998,8 +4042,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-949"/>
-        <location line="+944"/>
+        <location filename="../../../web_ui/esmfold.html" line="-961"/>
+        <location line="+956"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -5103,7 +5147,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+74"/>
-        <location filename="../../../commands/cluster.py" line="+584"/>
+        <location filename="../../../commands/cluster.py" line="+568"/>
         <location filename="../../../commands/color.py" line="+578"/>
         <location filename="../../../commands/console.py" line="+64"/>
         <location filename="../../../commands/distribution.py" line="+42"/>
@@ -5123,7 +5167,7 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+229"/>
-        <location filename="../../../commands/subcluster.py" line="+248"/>
+        <location filename="../../../commands/subcluster.py" line="+231"/>
         <location filename="../../../commands/tree.py" line="+130"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>

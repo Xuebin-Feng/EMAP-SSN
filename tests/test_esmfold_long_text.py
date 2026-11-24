@@ -139,23 +139,23 @@ class LongTextSweepTests(LongNameTestCase):
                 self.assertGreater(aligned[0][1], 1)
                 self.assertEqual(self.overflowing("#struct-list"), [])
 
-    def test_a_name_too_long_for_its_row_is_cut_with_an_ellipsis_whole_on_hover_and_whole_in_the_open_row(self):
+    def test_a_name_too_long_for_its_row_stays_on_one_line_with_an_ellipsis_open_or_closed_and_whole_on_hover(self):
         self.scene(USER_NAME, SECOND_NAME)
         self.at(1300, "structures")
-        first = self.script("""
+        measure = """
             const name = document.querySelector('#struct-list .srow:nth-child(1) .srow-name');
             return {title: name.title, text: name.textContent, cut: name.scrollWidth > name.clientWidth, ellipsis: getComputedStyle(name).textOverflow,
-                    lines: Math.round(name.getBoundingClientRect().height / parseFloat(getComputedStyle(name).lineHeight))};""")
+                    lines: Math.round(name.getBoundingClientRect().height / parseFloat(getComputedStyle(name).lineHeight))};"""
+        first = self.script(measure)
         self.assertEqual((first["title"], first["text"], first["ellipsis"], first["lines"]), (USER_NAME, USER_NAME, "ellipsis", 1))
         self.assertTrue(first["cut"])
-        # Open, the row has the whole name, breaking anywhere.
+        # Open, the row keeps the name on one truncated line too, with the full name on hover.
         self.script("document.querySelector('#struct-list .srow:nth-child(1) .exp-btn').click(); return 1")
         self.settle(200)
-        opened = self.script("""
-            const name = document.querySelector('#struct-list .srow:nth-child(1) .srow-name');
-            return {text: name.textContent, cut: name.scrollWidth > name.clientWidth, lines: Math.round(name.getBoundingClientRect().height / parseFloat(getComputedStyle(name).lineHeight))};""")
-        self.assertEqual((opened["text"], opened["cut"]), (USER_NAME, False))
-        self.assertGreater(opened["lines"], 1)
+        opened = self.script(measure)
+        self.assertEqual((opened["title"], opened["text"], opened["ellipsis"], opened["lines"]), (USER_NAME, USER_NAME, "ellipsis", 1))
+        self.assertTrue(opened["cut"])
+        self.assertEqual(self.overflowing("#struct-list"), [])
 
     def test_a_failure_row_keeps_its_chip_beside_a_name_that_breaks_anywhere_and_shows_the_whole_reason(self):
         self.open_page()

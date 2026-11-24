@@ -526,7 +526,15 @@
         /* The card's legend holds texts only now (the colors are on the canvas): its first text has nothing above it to part from. */
         .legend > :first-child { margin-top: 0; }
         .legend > .src:first-child { padding-top: 0; border-top: 0; }
-        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
+        .empty-layers { margin-top: 6px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
+        details.empty-layers > summary { list-style: none; display: flex; align-items: flex-start; gap: 4px; cursor: pointer; border-radius: 6px; outline: 2px solid transparent; }
+        details.empty-layers > summary::-webkit-details-marker { display: none; }
+        details.empty-layers > summary:hover { color: var(--text-secondary); }
+        details.empty-layers > summary:focus-visible { box-shadow: var(--focus-ring); }
+        details.empty-layers > summary > span { flex: 1; min-width: 0; }
+        details.empty-layers > summary .chev { width: 13px; height: 13px; margin-top: 2px; flex: none; transition: transform 0.2s ease; }
+        details.empty-layers[open] > summary .chev { transform: rotate(180deg); }
+        .empty-layer-list { margin-top: 5px; padding-left: 10px; border-left: 2px solid var(--border-color); display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; }
         .filter { min-height: 28px; margin: 0 0 8px; width: 100%; padding: 0 10px; border: 1px solid var(--field-border); border-radius: var(--radius); background: var(--input-bg); color: var(--input-text); font-size: 12.5px; outline: 2px solid transparent; }
         .filter:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
         .chip.warn { background: var(--warning-soft); color: var(--warning); }
@@ -599,7 +607,6 @@
         .srow-swatch { width: 10px; height: 26px; border-radius: 4px; flex: none; margin: 0 4px 0 2px; background: var(--sw, var(--border-color)); }
         .srow-text { flex: 1; min-width: 0; line-height: 1.3; padding: 2px 0; }
         .srow-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .srow.expanded .srow-name { white-space: normal; overflow-wrap: anywhere; }
         .srow-sub { font-size: 11.5px; color: var(--text-subtle); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; margin-top: 1px; }
         .srow.hidden-structure .srow-text { opacity: 0.55; }
         .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 18px; padding: 0 7px; border-radius: 9999px; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; flex: none; }
@@ -609,7 +616,12 @@
         /* A row's details */
         .srow .exp-btn .icon { transition: transform 0.2s ease; }
         .srow.expanded .exp-btn .icon { transform: rotate(180deg); }
-        .srow-body { padding: 4px 8px 10px 20px; display: flex; flex-direction: column; gap: 10px; }
+        .srow-body { padding: 4px 8px 10px 20px; display: flex; flex-direction: column; gap: 10px; container: srow-body / inline-size; }
+        .srow-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+        .srow-fields > div { min-width: 0; }
+        @container srow-body (inline-size >= 340px) {
+            .srow-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
         .field-label { font-size: 12px; font-weight: 600; color: var(--text-soft); margin-bottom: 4px; display: block; }
         .field-value { font-weight: 400; color: var(--text-subtle); }
         .select {

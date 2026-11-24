@@ -228,12 +228,18 @@ class ColorsTabTests(CardTabsTestCase):
             const body = document.getElementById('color-body');
             const group = body.querySelector('.seg-group');
             const empty = body.querySelector('.empty-layers');
-            return {chips: [...group.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), advice: empty.firstElementChild.firstElementChild.textContent,
+            return {chips: [...group.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
+                    tag: empty.tagName, open: !!empty.open,
+                    advice: empty.querySelector('summary > span, :scope > span').textContent,
+                    reasons: [...empty.querySelectorAll('.empty-layer-list > div')].map(n => n.textContent),
                     after: !!(group.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING),
                     beforeProperties: !!(empty.compareDocumentPosition(body.querySelector('.properties')) & Node.DOCUMENT_POSITION_FOLLOWING)};
             """)
-        self.assertEqual(state, {"chips": ["plddt"], "after": True, "beforeProperties": True,
-                                 "advice": "Layers such as conservation need an alignment: fold with one loaded in the Viewer."})
+        self.assertEqual(state["chips"], ["plddt"])
+        self.assertEqual((state["tag"], state["open"], state["after"], state["beforeProperties"]), ("DETAILS", False, True, True))
+        self.assertEqual(state["advice"], "No extra layers. Fold with an alignment loaded.")
+        self.assertEqual(len(state["reasons"]), 1)
+        self.assertTrue(state["reasons"][0].startswith("11: "), state["reasons"])
 
 
 class RepresentationTabTests(CardTabsTestCase):

@@ -2002,6 +2002,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Atoms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Solvent accessibility</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2063,6 +2067,26 @@ Command-line usage:
     </message>
     <message>
         <source>C-terminus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Carbon (C)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nitrogen (N)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Oxygen (O)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sulfur (S)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each atom is colored by chemical element (CPK); all-atom views show N, O, and S.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2142,7 +2166,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Layers such as conservation need an alignment: fold with one loaded in the Viewer.</source>
+        <source>No extra layers. Fold with an alignment loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>1 structure has no extra layers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{n} structures have no extra layers.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -348,7 +348,9 @@ function structureDetails(structure, pivot) {
         applyOpacity(ref, Number(slider.value));
     });
     opacity.append(opacityLabel, slider);
-    body.append(kind, coloring, opacity);
+    const fields = make('div', 'srow-fields');
+    fields.append(kind, coloring);
+    body.append(fields, opacity);
 
     // What is known about the structure and its alignment
     const facts = make('dl', 'kv');
@@ -427,7 +429,7 @@ function structureRow(structure, index, pivot) {
     const text = make('div', 'srow-text');
     text.addEventListener('click', () => toggleRow(ref));
     const nameLine = make('div', 'srow-name', name);
-    // A name too long for the row is cut with an ellipsis; the whole of it is on hover, and in the row when it is open.
+    // A name too long for the row is cut with an ellipsis, open or closed; the whole of it is on hover.
     nameLine.title = name;
     text.append(nameLine);
     const sub = make('div', 'srow-sub');

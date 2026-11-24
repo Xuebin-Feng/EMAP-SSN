@@ -39,7 +39,8 @@ PROPERTY_CHIPS = [["builtin:secondary-structure", "Secondary structure", ""], ["
                   ["builtin:hydrophobicity", "Hydrophobicity", ""], ["builtin:residue-charge", "Charge", ""]]
 PROPERTY_IDS = [chip[0] for chip in PROPERTY_CHIPS]
 # "More colorings", which is open at the start: its chips come last in a card.
-MORE_CHIPS = [["builtin:structure", "Structure color", ""], ["builtin:residue-position", "Residue position", ""]]
+MORE_CHIPS = [["builtin:structure", "Structure color", ""], ["builtin:residue-position", "Residue position", ""],
+              ["builtin:element-symbol", "Atoms", ""]]
 MORE_IDS = [chip[0] for chip in MORE_CHIPS]
 SEQUENCE = fixtures.FIRST_SEQUENCE
 
@@ -110,7 +111,8 @@ class SceneColoringTests(ColorTestCase):
             ["plddt", "pLDDT", ""], ["information_content", "Information Content", "2 of 3"], ["hydro", "Hydrophobicity", "1 of 3"],
             *PROPERTY_CHIPS, *MORE_CHIPS])
         self.assertEqual(card["selected"], "plddt")
-        # The structure with no residue data says why, in the Viewer's words.
+        # The structure with no residue data is summarized in one line, with the Viewer's reason tucked inside.
+        self.assertEqual(card["layerNote"], "1 structure has no extra layers.")
         self.assertEqual(len(card["layerNotes"]), 1)
         self.assertTrue(card["layerNotes"][0].startswith("33: "), card["layerNotes"])
         # The colors of pLDDT are on the canvas's legend (its bar, with its ends and band limits); the card has none of them.
@@ -225,9 +227,9 @@ class SceneColoringTests(ColorTestCase):
         self.assertNotEqual(shown[0]["value"], shown[1]["value"])
         self.assertEqual(card["selected"], "builtin:structure")
         self.assertEqual(card["compact"]["shown"], "0")
-        # (Structure color is behind "More colorings", with Residue position, in this order.)
+        # (Structure color is behind "More colorings", with Residue position and Atoms, in this order.)
         opened = self.script("return await cardNow()")
-        self.assertEqual([chip[0] for chip in opened["chips"]][-2:], ["builtin:structure", "builtin:residue-position"])
+        self.assertEqual([chip[0] for chip in opened["chips"]][-3:], MORE_IDS)
         secondary = self.choose("builtin:secondary-structure")
         self.assertEqual([item["theme"] for item in self.shown()], ["secondary-structure"] * 2)
         self.assertEqual(secondary["legendTitle"], "Secondary structure")
@@ -237,6 +239,11 @@ class SceneColoringTests(ColorTestCase):
         self.assertEqual([item["theme"] for item in self.shown()], ["sequence-id"] * 2)
         self.assertEqual(position["ends"], ["N-terminus", "C-terminus"])
         self.assertTrue(position["bar"])
+        atoms = self.choose("builtin:element-symbol")
+        self.assertEqual([item["theme"] for item in self.shown()], ["element-symbol"] * 2)
+        self.assertEqual(atoms["legendTitle"], "Atoms")
+        self.assertEqual(atoms["keys"], ["Carbon (C)", "Nitrogen (N)", "Oxygen (O)", "Sulfur (S)"])
+        self.assertEqual(atoms["compact"]["shown"], "1")
         # And from there to a layer: it attaches again.
         self.choose("information_content")
         self.assertEqual([item["layer"] for item in self.shown()], ["information_content"] * 2)
@@ -332,7 +339,7 @@ class CardTests(ColorTestCase):
             return {filter: !!body.querySelector('.filter'), scroll: !!body.querySelector('.seg.scroll'),
                     chips: body.querySelectorAll('.seg-btn').length};
             """)
-        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 17})
+        self.assertEqual(many, {"filter": True, "scroll": True, "chips": 18})
         # Typing narrows the buttons, and the filter keeps the focus.
         self.script("""
             const filter = document.querySelector('#color-body .filter');
@@ -360,12 +367,17 @@ class CardTests(ColorTestCase):
         self.settle(200)
         none = self.script("""
             const body = document.getElementById('color-body');
+            const empty = body.querySelector('.empty-layers');
             return {filter: !!body.querySelector('.filter'), chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
-                    notes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent)};
+                    tag: empty.tagName, open: !!empty.open,
+                    summary: empty.querySelector('summary > span, :scope > span').textContent,
+                    notes: [...empty.querySelectorAll('.empty-layer-list > div')].map(n => n.textContent)};
             """)
         self.assertFalse(none["filter"])
         self.assertEqual(none["chips"], ["plddt", *PROPERTY_IDS, *MORE_IDS])
-        self.assertEqual(none["notes"][0], "Layers such as conservation need an alignment: fold with one loaded in the Viewer.")
+        self.assertEqual((none["tag"], none["open"]), ("DETAILS", False))
+        self.assertEqual(none["summary"], "No extra layers. Fold with an alignment loaded.")
+        self.assertTrue(none["notes"] and none["notes"][0].startswith("22: "), none["notes"])
 
     def test_the_layer_filter_stays_the_same_field_and_waits_for_an_ime_to_finish_its_word(self):
         fixtures.write_structure(self.directory, A, SEQUENCE, sidecar=False)
@@ -428,7 +440,7 @@ class CardTests(ColorTestCase):
         self.assertEqual(group, {
             "groups": ["Colors", "Properties", "More colorings"],
             "names": {"coloring": ["plddt", "information_content", "same_residue_pct"], "coloring-properties": PROPERTY_IDS,
-                      "coloring-more": ["builtin:structure", "builtin:residue-position"]},
+                      "coloring-more": MORE_IDS},
             "checked": ["plddt"], "roles": 0, "labelled": True})
         # The browser's own keys: Right and Left move along the group (round its ends) and choose, as radio buttons do.
         widget = self.view.focusProxy() or self.view
@@ -451,7 +463,7 @@ class CardTests(ColorTestCase):
             return {chips: [...body.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), more: body.querySelector('.more-toggle').getAttribute('aria-expanded')};
             """)
         # Open at the start.
-        self.assertEqual(closed, {"chips": ["plddt", "information_content", *PROPERTY_IDS, "builtin:structure", "builtin:residue-position"],
+        self.assertEqual(closed, {"chips": ["plddt", "information_content", *PROPERTY_IDS, *MORE_IDS],
                                   "more": "true"})
         opened = self.script("""
             const body = document.getElementById('color-body');
@@ -460,13 +472,13 @@ class CardTests(ColorTestCase):
             radio('plddt').focus();
             return {model: [...body.querySelector('.seg').querySelectorAll('.seg-btn')].map(c => c.dataset.coloring),
                     more: [...more.querySelectorAll('.seg-btn')].map(c => c.dataset.coloring), moreName: more.getAttribute('aria-label'),
-                    names: ['builtin:structure', 'builtin:residue-position'].map(id => radio(id).name),
+                    names: ['builtin:structure', 'builtin:residue-position', 'builtin:element-symbol'].map(id => radio(id).name),
                     reachable: document.activeElement === radio('plddt'), group: radio('plddt').closest('[role=radiogroup]').getAttribute('aria-label'),
                     label: radio('builtin:structure').labels[0].textContent.trim()};
             """)
         self.assertEqual(opened["model"], ["plddt", "information_content"])
-        self.assertEqual(opened["more"], ["builtin:structure", "builtin:residue-position"])
-        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 2, "Colors"))
+        self.assertEqual(opened["more"], MORE_IDS)
+        self.assertEqual((opened["moreName"], opened["names"], opened["group"]), ("More colorings", ["coloring-more"] * 3, "Colors"))
         self.assertTrue(opened["reachable"])
         self.assertIn("Structure color", opened["label"])
 
@@ -507,7 +519,7 @@ class CardTests(ColorTestCase):
     def test_it_opens_by_itself_when_a_coloring_inside_it_becomes_the_drawn_one_and_the_focus_stays_where_it_was(self):
         self.write_with(A, "information_content")
         self.open_scene(A)
-        for coloring in ("builtin:residue-position", "builtin:structure"):
+        for coloring in ("builtin:residue-position", "builtin:structure", "builtin:element-symbol"):
             with self.subTest(route="the page's own call", coloring=coloring):
                 self.script("await setColorMode('plddt'); await structureQueue; return await cardNow()")
                 self.close_by_hand()
@@ -549,7 +561,8 @@ class CardTests(ColorTestCase):
 class LegendPlaceTests(ColorTestCase):
     """The colors of the chosen coloring are drawn once, in the legend over the canvas; the Colors tab keeps only the texts."""
 
-    COLORINGS = ("plddt", "information_content", "same_residue_pct", "builtin:structure", "builtin:secondary-structure", "builtin:residue-position")
+    COLORINGS = ("plddt", "information_content", "same_residue_pct", "builtin:structure", "builtin:secondary-structure", "builtin:residue-position",
+                 "builtin:element-symbol")
 
     def open_layers(self):
         self.write_with(A, "information_content", "same_residue_pct")
@@ -571,6 +584,8 @@ class LegendPlaceTests(ColorTestCase):
                          (True, [], ["0 %", "100 %"]))
         self.assertEqual((found["builtin:secondary-structure"]["keys"], found["builtin:secondary-structure"]["bar"]), (["Helix", "Strand", "Coil"], False))
         self.assertEqual((found["builtin:residue-position"]["bar"], found["builtin:residue-position"]["ends"]), (True, ["N-terminus", "C-terminus"]))
+        self.assertEqual((found["builtin:element-symbol"]["keys"], found["builtin:element-symbol"]["bar"]),
+                         (["Carbon (C)", "Nitrogen (N)", "Oxygen (O)", "Sulfur (S)"], False))
         self.assertEqual((found["builtin:structure"]["compact"]["shown"], found["builtin:structure"]["legendTitle"]), ("0", None))
 
     def test_a_layer_that_covers_part_of_a_structure_has_the_no_data_key_on_the_canvas(self):
@@ -831,6 +846,61 @@ class PropertyColoringTests(ColorTestCase):
             return {label: label.color, subtle: probe('--text-subtle'), transform: label.textTransform, chip: chip.color, accent: probe('--accent')};""")
         self.assertEqual((colors["label"], colors["transform"], colors["chip"]), (colors["subtle"], "none", colors["accent"]))
         self.assertEqual(card["keys"], ["Positive", "Negative", "Histidine", "Neutral"])
+
+    def test_atoms_coloring_uses_cpk_element_colors_restores_from_session_and_translates(self):
+        from desktop.Desktop_App import install_translations
+
+        self.open_two()
+        card = self.choose("builtin:element-symbol")
+        self.assertEqual(card["selected"], "builtin:element-symbol")
+        self.assertEqual(card["legendTitle"], "Atoms")
+        self.assertEqual(card["keys"], ["Carbon (C)", "Nitrogen (N)", "Oxygen (O)", "Sulfur (S)"])
+        self.assertEqual(card["legendNote"], "Each atom is colored by chemical element (CPK); all-atom views show N, O, and S.")
+        atoms = self.script("""
+            const s = loadedStructures()[0];
+            const themeParams = colorThemeOf(s);
+            const data = (s.transform || s).cell.obj.data;
+            const theme = plugin.representation.structure.themes.colorThemeRegistry.create(themeParams.name, { structure: data }, themeParams.params);
+            const L = molstar.lib.structure;
+            const loc = L.StructureElement.Location.create(data);
+            const seen = {};
+            for (const unit of data.units) {
+                loc.unit = unit;
+                for (let i = 0; i < unit.elements.length; i++) {
+                    loc.element = unit.elements[i];
+                    const sym = L.StructureProperties.atom.type_symbol(loc);
+                    if (!(sym in seen)) seen[sym] = '#' + theme.color(loc, false).toString(16).padStart(6, '0');
+                }
+            }
+            const swatches = [...document.querySelectorAll('#canvas-legend .band i')].map(i => i.style.getPropertyValue('--bc'));
+            return {carbonMode: themeParams.params?.carbonColor?.name, seen, swatches};""")
+        self.assertEqual(atoms["carbonMode"], "element-symbol")
+        # C, N, O actual 3D colors match the first three canvas legend swatches (C grey, N blue, O red).
+        self.assertEqual([atoms["seen"]["C"], atoms["seen"]["N"], atoms["seen"]["O"]], atoms["swatches"][:3])
+        # Session save & restore brings back Atoms checked and More colorings open.
+        self.settle(1800)
+        self.assertTrue(self.saved)
+        session = json.loads(json.dumps(self.saved[-1]))
+        del self.saved[:]
+        self.session = session
+        self.open_page()
+        self.settle(500)
+        restored = self.script("return await cardNow()")
+        self.assertEqual(restored["selected"], "builtin:element-symbol")
+        self.assertEqual([item["coloring"] for item in self.shown()], ["builtin:element-symbol"] * 2)
+        # Simplified Chinese translates Atoms, element legend keys, and missing-layer notices.
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.session = None
+        self.write_with(A)
+        self.write_with(B, shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+        zh = self.choose("builtin:element-symbol")
+        self.assertNotEqual(zh["legendTitle"], "Atoms")
+        self.assertTrue(all(key not in ("Carbon (C)", "Nitrogen (N)", "Oxygen (O)", "Sulfur (S)") for key in zh["keys"]), zh["keys"])
+        self.assertNotEqual(zh["layerNote"], "No extra layers. Fold with an alignment loaded.")
+        # (Navigating away to restore the session and to reload in zh_CN closes the previous page's SSE stream.)
+        self.assertEqual([err for err in self.console_errors() if "SSE Connection Error" not in err[1]], [])
 
 
 class LegendEndTests(ColorTestCase):

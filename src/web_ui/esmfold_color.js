@@ -25,14 +25,15 @@ const BUILTIN_PREFIX = 'builtin:';
 const STRUCTURE_COLORING = 'builtin:structure';
 const SECONDARY_COLORING = 'builtin:secondary-structure';
 const POSITION_COLORING = 'builtin:residue-position';
+const ATOM_COLORING = 'builtin:element-symbol';
 // The properties Mol* works out from the structure itself (themes of its own, in their default parameters).
 const ASA_COLORING = 'builtin:accessible-surface-area';
 const HYDROPHOBICITY_COLORING = 'builtin:hydrophobicity';
 const CHARGE_COLORING = 'builtin:residue-charge';
 // The Mol* color theme of each built-in that is one of Mol*'s own, and the other way round.
 const BUILTIN_THEMES = {
-    [SECONDARY_COLORING]: 'secondary-structure', [POSITION_COLORING]: 'sequence-id', [ASA_COLORING]: 'accessible-surface-area',
-    [HYDROPHOBICITY_COLORING]: 'hydrophobicity', [CHARGE_COLORING]: 'residue-charge'
+    [SECONDARY_COLORING]: 'secondary-structure', [POSITION_COLORING]: 'sequence-id', [ATOM_COLORING]: 'element-symbol',
+    [ASA_COLORING]: 'accessible-surface-area', [HYDROPHOBICITY_COLORING]: 'hydrophobicity', [CHARGE_COLORING]: 'residue-charge'
 };
 const BUILTIN_OF_THEME = Object.fromEntries(Object.entries(BUILTIN_THEMES).map(([id, name]) => [name, id]));
 // What a structure shows when it has no values for the chosen layer: not a choice, a state.
@@ -51,7 +52,7 @@ let colorFilter = '';
 // itself when the scene's coloring becomes one that is inside it, however that came about (a session restored, a fall-back, the page's own
 // calls); closed by hand while such a coloring is drawn, it stays closed until the scene's coloring next changes to one inside it.
 let moreColorings = true;
-const MORE_COLORINGS = [STRUCTURE_COLORING, POSITION_COLORING];
+const MORE_COLORINGS = [STRUCTURE_COLORING, POSITION_COLORING, ATOM_COLORING];
 let lastColorMode = colorMode;
 let colorRenderId = 0;
 let renderedColors = '';
@@ -93,7 +94,7 @@ function coloringOf(structure) {
     switch (theme.name) {
         case 'mvs-annotation': return activeLayerId(structure);
         case 'plddt-confidence': return PLDDT_LAYER;
-        case 'secondary-structure': case 'sequence-id': case 'accessible-surface-area': case 'hydrophobicity': case 'residue-charge':
+        case 'secondary-structure': case 'sequence-id': case 'element-symbol': case 'accessible-surface-area': case 'hydrophobicity': case 'residue-charge':
             return BUILTIN_OF_THEME[theme.name];
         case 'uniform': {
             const value = theme.params?.value;
@@ -108,6 +109,10 @@ function themeFor(structure, id) {
     if (id === STRUCTURE_COLORING) {
         return { color: 'uniform', colorParams: { value: hexToInt(structureColor(structure.cell.transform.ref)) } };
     }
+    if (id === ATOM_COLORING) {
+        // Color carbons by element symbol (CPK grey) rather than chain ID so every element matches the legend.
+        return { color: 'element-symbol', colorParams: { carbonColor: { name: 'element-symbol', params: {} } } };
+    }
     if (BUILTIN_THEMES[id]) return { color: BUILTIN_THEMES[id] };
     return { color: 'uniform', colorParams: { value: noDataColor } };
 }
@@ -118,6 +123,7 @@ function coloringLabel(id, layers = []) {
     if (id === STRUCTURE_COLORING) return t("Structure color");
     if (id === SECONDARY_COLORING) return t("Secondary structure");
     if (id === POSITION_COLORING) return t("Residue position");
+    if (id === ATOM_COLORING) return t("Atoms");
     if (id === ASA_COLORING) return t("Solvent accessibility");
     if (id === HYDROPHOBICITY_COLORING) return t("Hydrophobicity");
     if (id === CHARGE_COLORING) return t("Charge");
@@ -307,6 +313,13 @@ function legendOf(model) {
     if (id === POSITION_COLORING) {
         const colors = (themeLegend('sequence-id')?.colors ?? []).map(intToHex);
         return { heading: coloringLabel(id), unit: '', kind: 'scale', colors, low: t("N-terminus"), high: t("C-terminus") };
+    }
+    if (id === ATOM_COLORING) {
+        const table = new Map((themeLegend('element-symbol')?.table ?? []).map(([name, color]) => [name, intToHex(color)]));
+        const bands = [['C', t("Carbon (C)")], ['N', t("Nitrogen (N)")], ['O', t("Oxygen (O)")], ['S', t("Sulfur (S)")]]
+            .filter(([key]) => table.has(key)).map(([key, label]) => ({ color: table.get(key), label }));
+        return { heading: coloringLabel(id), unit: '', kind: 'table', bands,
+                 note: t("Each atom is colored by chemical element (CPK); all-atom views show N, O, and S.") };
     }
     if (id === ASA_COLORING) {
         // Mol*'s scale runs from the first color (buried: a relative area of 0) to the last (exposed: 1 or more).
@@ -693,18 +706,27 @@ function renderColorBody(model) {
         .map(id => colorChip(id, coloringLabel(id), model, '', PROPERTY_CHIPS)));
 
     if (model.count && (!model.layers.length || model.unavailable.length)) {
-        const empty = make('div', 'empty-layers');
-        const lines = make('div');
-        if (!model.layers.length) {
-            const advice = make('div', undefined, t("Layers such as conservation need an alignment: fold with one loaded in the Viewer."));
-            lines.append(advice);
+        const summaryText = !model.layers.length
+            ? t("No extra layers. Fold with an alignment loaded.")
+            : model.unavailable.length === 1
+                ? t("1 structure has no extra layers.")
+                : t("{n} structures have no extra layers.", {n: model.unavailable.length});
+        if (model.unavailable.length) {
+            const empty = make('details', 'empty-layers');
+            const summary = make('summary');
+            const label = make('span', undefined, summaryText);
+            summary.append(label, icon("chevron-down", 'chev'));
+            const list = make('div', 'empty-layer-list');
+            for (const item of model.unavailable) {
+                list.append(make('div', undefined, item.name + ': ' + item.reason));
+            }
+            empty.append(summary, list);
+            nodes.push(empty);
+        } else {
+            const empty = make('div', 'empty-layers');
+            empty.append(make('span', undefined, summaryText));
+            nodes.push(empty);
         }
-        for (const item of model.unavailable) {
-            const reason = make('div', undefined, item.name + ': ' + item.reason);
-            lines.append(reason);
-        }
-        empty.append(lines);
-        nodes.push(empty);
     }
     nodes.push(propertiesLabel, propertyChips);
 
@@ -724,8 +746,7 @@ function renderColorBody(model) {
         const more = make('div', 'seg more-colorings');
         more.setAttribute('role', 'radiogroup');
         more.setAttribute('aria-label', t("More colorings"));
-        more.append(colorChip(STRUCTURE_COLORING, coloringLabel(STRUCTURE_COLORING), model, '', MORE_CHIPS),
-                    colorChip(POSITION_COLORING, coloringLabel(POSITION_COLORING), model, '', MORE_CHIPS));
+        more.append(...MORE_COLORINGS.map(id => colorChip(id, coloringLabel(id), model, '', MORE_CHIPS)));
         nodes.push(more);
     }
     const legendBox = model.legend ? cardLegend(model) : null;
