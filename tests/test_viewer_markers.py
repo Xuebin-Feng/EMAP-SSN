@@ -830,6 +830,11 @@ _PICK_SCRIPT = textwrap.dedent(
     shapes = ["disc", "square", "diamond", "triangle_up", "triangle_down", "star", "ring", "cross",
               "x", "vbar", "hbar", "arrow", "tailed_arrow", "clobber", "cross_lines"]
     contexts = []
+    if len(sys.argv) > 2:
+        # A driver with a point limit, stood in for through the probe the Viewer reads it with: no
+        # environment variable, so the limit is learned at the first draw, as on a Mac.
+        stand_in = float(sys.argv[2])
+        V.read_point_size_limit = lambda: stand_in
 
     def scene_viewer(kind):
         rng = np.random.default_rng(42)
@@ -858,6 +863,7 @@ _PICK_SCRIPT = textwrap.dedent(
         v.view.camera = scene.PanZoomCamera(aspect=1)
         v._update_hud_elements = lambda *args, **kwargs: None
         v.markers = scene.visuals.Markers(parent=v.view.scene)
+        v._install_point_limit_probe()    # as the Viewer does once: the first draw learns the limit
         v.update_nodes()
         v.view.camera.rect = (-20, -16, 40, 32)
         return v
@@ -894,12 +900,16 @@ _PICK_SCRIPT = textwrap.dedent(
     first = True
     for kind in ("mixed", "discs"):
         v = scene_viewer(kind)
+        # Each scene draws once before anything reads its markers: that first draw learns the driver's limit
+        # and sends the nodes again, so id_image and the picks see the sizes the driver draws.
+        drawn = v.canvas.render()
         if first:
-            if (v.canvas.render()[..., 0] < 250).sum() == 0:
+            if (drawn[..., 0] < 250).sum() == 0:
                 sys.exit(3)
             print("CONTEXT OK", flush=True)
             print("SCALE", v.canvas.pixel_scale, flush=True)
             first = False
+        print("LIMIT", kind, getattr(v, "_point_size_limit", None), flush=True)
         scale = v.canvas.pixel_scale
         under = id_image(v)
         height, width = under.shape
@@ -1307,7 +1317,8 @@ class FirstDrawLimitTests(unittest.TestCase):
 
 class PointLimitPixelTests(unittest.TestCase):
     """A driver that draws no point beyond 64 device pixels, stood in for by
-    SSN_MARKER_POINT_LIMIT=64, on a real canvas at display scales 1 and 2.
+    SSN_MARKER_POINT_LIMIT=64, on a real canvas at display scales 1 and 2
+    (pixel scales 1 and 2 on Windows and Linux, 2 and 4 on a Retina Mac).
 
     A node of half the size the limit allows, one of that size, one and a half
     times it and four times it are drawn. Below the limit the picture is the
@@ -1337,7 +1348,10 @@ class PointLimitPixelTests(unittest.TestCase):
                             self.assertEqual(unchanged, "1", output)
                         else:
                             self.assertEqual(unchanged, "0", output)   # the clamp acted
-                self.assertGreaterEqual(int(draws["at"][0]), 38, output)
+                # VisPy centres the outline on the shape's edge, so a node at the limit is room*s + edge*s wide
+                # with room*s = 64 - 4*(2*s + 1.5): 58 - 6*s device pixels (52, 46, 34 at s = 1, 2, 4).
+                pixel_scale = float(scale * native_display_scale())
+                self.assertGreaterEqual(int(draws["at"][0]), 58 - 6 * pixel_scale - 2, output)
                 self.assertLess(int(draws["below"][0]), int(draws["at"][0]), output)
                 self.assertEqual(draws["above"][:2], draws["at"][:2], output)
                 self.assertIn("SAME 1 1", output)
@@ -1366,14 +1380,15 @@ class DragPickPixelTests(unittest.TestCase):
                 self.assertEqual(values["pick_rotated"], "8", output)
 
 
-def run_gl_script(test, script, scale):
+def run_gl_script(test, script, scale, arguments=()):
+    """Run a GL script in a fresh process at a display scale; ``arguments`` follow the source folder in argv."""
     environment = dict(os.environ)
     environment.pop("QT_QPA_PLATFORM", None)
     environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
                        QT_SCALE_FACTOR=str(scale))
     try:
         result = subprocess.run(
-            [sys.executable, "-c", script, SRC_DIR],
+            [sys.executable, "-c", script, SRC_DIR, *map(str, arguments)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=environment, timeout=300,
         )
@@ -1404,36 +1419,57 @@ class HoverPixelTests(unittest.TestCase):
 
 
 class PickPixelTests(unittest.TestCase):
-    """The hover pick against what is drawn, at display scales 1 and 2.
+    """The hover pick against what is drawn, at display scales 1 and 2, and
+    with a driver's point limit of 64 at pixel scales 2 and 4.
 
     Overlapping nodes of five sizes, fifteen shapes and two outline widths,
     a click ring, raised selected nodes and hidden nodes, then plain discs, are
-    drawn once more as an ID image (each pixel holding the topmost node whose
+    drawn once (the first draw learns the driver's limit, as in the Viewer) and
+    once more as an ID image (each pixel holding the topmost node whose
     drawn shape covers it). On a grid of cursor positions, over a node the pick
     is that node, but where the pixel's centre lies on a shape's very edge
     (within 0.01 px, where the GPU's float32 and NumPy's float64 can differ);
     over no node it is no node or one drawn within the hover margin.
     """
 
+    def check_the_pick(self, output, pixel_scale):
+        self.assertIn(f"SCALE {float(pixel_scale)}", output)
+        grids = [line.split()[1:] for line in output.splitlines() if line.startswith("GRID ")]
+        self.assertEqual([grid[0] for grid in grids], ["mixed", "discs"], output)
+        for kind, points, on_nodes, wrong, ties, background_picks, far in grids:
+            with self.subTest(scene=kind):
+                # Measured: 733 and 826 pixels on nodes at pixel scale 4 under a limit of 64 (the clamped
+                # nodes are smaller), 2100 or more otherwise; 500 leaves room below the smallest.
+                self.assertGreater(int(on_nodes), 500, output)
+                self.assertEqual(int(wrong), 0, output)
+                self.assertLessEqual(int(ties), int(on_nodes) // 1000, output)
+                self.assertEqual(int(far), 0, output)
+        clicks = [line.split()[1:] for line in output.splitlines() if line.startswith("CLICKS ")]
+        self.assertEqual(len(clicks), 2, output)
+        for kind, count, mismatches in clicks:
+            with self.subTest(scene=kind, clicks=True):
+                self.assertGreater(int(count), 1000, output)
+                self.assertEqual(int(mismatches), 0, output)
+
     def test_the_pick_is_the_topmost_node_drawn_under_the_cursor(self):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 output = run_gl_script(self, _PICK_SCRIPT, scale)
-                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
-                grids = [line.split()[1:] for line in output.splitlines() if line.startswith("GRID ")]
-                self.assertEqual([grid[0] for grid in grids], ["mixed", "discs"], output)
-                for kind, points, on_nodes, wrong, ties, background_picks, far in grids:
-                    with self.subTest(scene=kind):
-                        self.assertGreater(int(on_nodes), 1000, output)
-                        self.assertEqual(int(wrong), 0, output)
-                        self.assertLessEqual(int(ties), int(on_nodes) // 1000, output)
-                        self.assertEqual(int(far), 0, output)
-                clicks = [line.split()[1:] for line in output.splitlines() if line.startswith("CLICKS ")]
-                self.assertEqual(len(clicks), 2, output)
-                for kind, count, mismatches in clicks:
-                    with self.subTest(scene=kind, clicks=True):
-                        self.assertGreater(int(count), 1000, output)
-                        self.assertEqual(int(mismatches), 0, output)
+                self.check_the_pick(output, scale * native_display_scale())
+
+    def test_the_pick_follows_the_nodes_a_limited_driver_draws(self):
+        # A driver that draws no point beyond 64 device pixels, learned through the probe at the first
+        # draw (not the environment), on any PC: at pixel scale 2 the mixed scene's larger nodes are
+        # clamped, at 4 the plain discs too.
+        for pixel_scale in (2, 4):
+            scale = pixel_scale / native_display_scale()
+            with self.subTest(pixel_scale=pixel_scale):
+                if scale < 1 or scale != int(scale):
+                    self.skipTest(f"no display scale gives pixel scale {pixel_scale} here")
+                output = run_gl_script(self, _PICK_SCRIPT, int(scale), arguments=(64,))
+                self.assertIn("LIMIT mixed 64.0", output)
+                self.assertIn("LIMIT discs 64.0", output)
+                self.check_the_pick(output, pixel_scale)
 
 
 if __name__ == "__main__":
