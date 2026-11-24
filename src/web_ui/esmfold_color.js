@@ -715,16 +715,20 @@ function renderColorBody(model) {
             const empty = make('details', 'empty-layers');
             const summary = make('summary');
             const label = make('span', undefined, summaryText);
-            summary.append(label, icon("chevron-down", 'chev'));
+            const chevron = icon("chevron-down", 'chev');
+            summary.append(label, chevron);
             const list = make('div', 'empty-layer-list');
             for (const item of model.unavailable) {
-                list.append(make('div', undefined, item.name + ': ' + item.reason));
+                // The reason arrives already in the Viewer's language (residue_layers.layer_listing); the name is the structure's.
+                const line = make('div', undefined, item.name + ': ' + item.reason);
+                list.append(line);
             }
             empty.append(summary, list);
             nodes.push(empty);
         } else {
             const empty = make('div', 'empty-layers');
-            empty.append(make('span', undefined, summaryText));
+            const note = make('span', undefined, summaryText);
+            empty.append(note);
             nodes.push(empty);
         }
     }
