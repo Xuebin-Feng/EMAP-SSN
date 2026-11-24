@@ -217,7 +217,7 @@
       "DEVICE_SELECTION": {
         "type": "string",
         "default": "auto",
-        "description": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
+        "description": "Device: Hardware compute device used for pairwise residue alignment.\nAuto benchmarks CPU and accelerators; tiled CUDA/ROCm runs fuse Z-score normalization and dynamic programming on GPU (set SSN_ALIGN_GPU_KERNELS=0 to disable), while XPU, MPS, scalar, and CPU-only runs fall back to CPU dynamic programming.",
         "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
       },
       "ACCELERATOR_PRECISION": {
@@ -600,7 +600,7 @@
       "DEVICE_SELECTION": {
         "type": "string",
         "default": "auto",
-        "description": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
+        "description": "Device: Hardware used for new residue alignments. TF32 source networks require NVIDIA CUDA; tiled CUDA/ROCm runs fuse Z-score normalization and dynamic programming on GPU (set SSN_ALIGN_GPU_KERNELS=0 to disable), while XPU, MPS, scalar, and CPU-only runs fall back to CPU dynamic programming.",
         "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
       },
       "EXECUTION_MODE": {

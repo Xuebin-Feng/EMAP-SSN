@@ -59,7 +59,7 @@
         {"directory": "NETWORK_DIR", "name": "<set>_[<model>]_network_temp/ (batch files)", "existing": "reused to resume an interrupted run; kept after success"}
       ],
       "next": ["network_statistics", "start_layout_job", "embedding_msa", "network_injection (later, to add sequences)"],
-      "requirements": "A GPU, when available, computes each pair's residue score matrix; the dynamic-programming alignment itself always runs on CPU workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
+      "requirements": "On CUDA/ROCm GPUs, tiled execution uses runtime-compiled fused GPU kernels (Align_GPU_Kernels.py) to run similarity scoring, exact two-pass Z-score normalization, and global+local dynamic programming end-to-end on the GPU (set SSN_ALIGN_GPU_KERNELS=0 to opt out); XPU, Apple MPS, scalar GPU, and CPU-only runs fall back to PyTorch score matrices with CPU dynamic-programming workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
       "notes": [
         "Layouts of this network choose ALIGNMENT_SCORE (global or local) and NORM_MODE; scores are normalized alignment scores, not identities.",
         "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. Only the kept pairs are aligned and stored; embedding_msa draws and aligns its own calibration sample of the missing pairs when it needs one.",

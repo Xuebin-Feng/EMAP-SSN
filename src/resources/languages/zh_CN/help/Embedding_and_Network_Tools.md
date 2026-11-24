@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_and_Network_Tools.md, sha256 fff98eb40826bfbc121934b96fc94fcaaf297d01603de477db35f134d84f7048 -->
+<!-- Translation of Embedding_and_Network_Tools.md, sha256 df702f375d3f88f7dbceffe5a4745dbfd5896bba584eb4d73a408dac2473fd40 -->
 # Embedding 注入 (`Embedding_Injection.py`)
 
 该脚本把新序列的 embedding 注入（injection）到已有的 HDF5 embedding 数据库中。它扫描传入的 FASTA 序列列表，对已有的匹配项直接从数据库中取出预先计算的 embedding，只为新增的序列计算 embedding，以节省计算时间。
@@ -128,8 +128,8 @@
 | 空位罚分 | 直接从输入网络（`OLD_NETWORK`）自动继承。 |
 | CPU 工作进程数 **`WORKERS`** | CPU 处理方案使用的工作进程数，也是调优加速器方案时的并发参数。该工具会在具有代表性的待计算序列对上对可用的 CPU/加速器方案做基准测试，必要时依次回退到其他成功的方案。 |
 | 处理批大小 **`BATCH_SIZE`** | 每个写入块计算的序列比对数量，可降低内存占用并优化文件写入性能。 |
-| 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体设备来计算新的残基（residue）得分矩阵。 |
-| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块（tile）方案。`Scalar`（标量）将调优和正式计算限制为一次处理一个矩阵的方案。`Tiled`（分块）强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会提前失败。 |
+| 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体设备来计算新的残基（residue）比对。在 CUDA/ROCm 上，分块运行会在 GPU 上融合执行 z-score 归一化与动态规划（设为 `SSN_ALIGN_GPU_KERNELS=0` 可禁用）；XPU、MPS、标量与 CPU 运行则回退到 CPU 动态规划。 |
+| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块（tile）方案。`Scalar`（标量）将调优和正式计算限制为一次处理一个矩阵的方案。`Tiled`（分块）使用内存受限的 embedding 分块，在 CUDA/ROCm 上使用融合 GPU 比对内核（在 XPU 上或设为 `SSN_ALIGN_GPU_KERNELS=0` 时使用填充后的 PyTorch 微批次（microbatch））；若没有兼容的加速器，会提前失败。 |
 | 主机缓存 **`HOST_CACHE_GB`** | 跨批次（batch）保留打包 embedding 所用的最大内存（GiB）；`auto` 使用一个安全的内存预算，上限为 128 GiB，`0` 则停用缓存。 |
 | 矩阵乘法精度 | 继承自 `OLD_NETWORK`。旧版网络为 IEEE FP32；TF32 网络需要 NVIDIA CUDA，以免复制的边（edge）与新计算的边混用精度。BF16 网络需要具备相应能力的加速器。计算新边之前，网络注入会打印低精度警告，并在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计；只要数值差异是有限值，就不会拒绝 BF16。 |
 | 内存 | 完整的输入网络不需要计算相似度。稀疏网络需要计算新序列集中每个序列对的相似度，其峰值内存为序列数平方的 12 字节；之后保留相似度矩阵（每个序列数平方 8 字节），并为确定截断值保留上三角的取值（每个序列数平方 4 字节）：44,000 条序列时约 23 GB，与 Align Similarity Matrix 中的边预过滤同一数量级。选定序列对后相似度即被释放。 |
@@ -155,7 +155,7 @@
      - **情形 3（旧网络稀疏）**：设 $s(u, v)$ 为边预过滤使用的最大池化、经长度调整的余弦相似度，$K$ 为旧网络保留的全部旧序列对的比例（已记录的校准序列对不计），$s_{\min}$ 为仍留在新序列集内的旧边中最低的 $s$（校准序列对不计），$t'$ 为新序列集的序列对上 $s$ 的第 $100\,(1-K)$ 百分位数。截断值为 $\min(s_{\min}, t')$。每个 $s \ge$ 截断值且不是旧边的序列对都会被安排比对，包括旧–旧序列对；所有旧边都保留。当 $s_{\min} < t'$ 时，保留比例会高于 $K$；否则保持为 $K$。新序列集中没有旧边时，截断值取 $t'$；完全没有旧边时，涉及新序列的每个序列对都会被比对，旧–旧序列对不比对。
 
 3. **增量比对**：
-     对可用的 CPU/加速器处理方案进行基准测试，并把安排好的新序列对交给成功方案中最优的一个处理。CUDA/ROCm 和 XPU 共享持久的归一化（normalization）embedding 分块、按长度分桶、填充量有界的目标序列，并在执行前预检设备内存。每个序列对都会：
+     对可用的 CPU/加速器处理方案进行基准测试，并把安排好的新序列对交给成功方案中最优的一个处理。在 CUDA/ROCm 上（除非设为 `SSN_ALIGN_GPU_KERNELS=0`），分块运行使用运行时编译的融合 GPU 内核（`Align_GPU_Kernels.py`），在 GPU 上端到端完成相似度打分、精确的两遍 z-score 归一化以及全局和局部动态规划，无需将得分矩阵传回主机内存。在 XPU、MPS、标量 GPU、CPU 或禁用融合内核时，分块/标量方案计算得分矩阵（在支持分块的加速器上共享持久的归一化（normalization）embedding 分块、按长度分桶且填充量有界的目标序列以及执行前的设备内存预检），并由 CPU 工作进程求解动态规划。每个序列对都会：
      - 从 HDF5 数据库中取出残基 embedding。
      - 计算归一化得分矩阵：
        $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$

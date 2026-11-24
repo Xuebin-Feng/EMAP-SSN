@@ -1972,7 +1972,7 @@ class ToolsGUI(QMainWindow):
                         TipOption("auto", translate("Tools", "Benchmarks CPU and accelerators.")),
                     ),
                     notes=(
-                        TipNote("info", translate("Tools", "Dynamic programming alignment scoring always runs on CPU.")),
+                        TipNote("info", translate("Tools", "On CUDA/ROCm, tiled execution fuses Z-score normalization and dynamic programming on GPU (set `SSN_ALIGN_GPU_KERNELS=0` to opt out); XPU, MPS, and CPU runs use CPU DP.")),
                     ),
                     live=_detected_devices_note,
                 ),
@@ -2277,7 +2277,7 @@ class ToolsGUI(QMainWindow):
                 "DEVICE_SELECTION": Tip(
                     translate("Tools", "Hardware used for new residue score matrices."),
                     notes=(
-                        TipNote("info", translate("Tools", "TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.")),
+                        TipNote("info", translate("Tools", "TF32 source networks require NVIDIA CUDA. Tiled CUDA/ROCm runs fuse Z-score normalization and dynamic programming on GPU (`SSN_ALIGN_GPU_KERNELS=0` disables); XPU, MPS, and CPU runs use CPU DP.")),
                     ),
                     live=_detected_devices_note,
                 ),

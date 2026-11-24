@@ -89,7 +89,7 @@ This script queries a single sequence against an entire database using residue-l
 | Manual Query String **`QUERY_SEQUENCE`** | Used only while `MANUAL_QUERY_SEQ` is ON, then sanitized in memory and embedded with the database model's pLM plugin. |
 | Output Spreadsheet Prefix **`OUTPUT_NAME`** | The prefix for the exported search results spreadsheet and optional FASTA files. |
 | Max Database Hits **`TOP_K`** | The maximum number of top-scoring database hits to include in the output report. |
-| Normalized Score Cutoff **`NORM_THRESHOLD`** | A filter to exclude hits scoring below a normalized similarity cutoff. Set to 'None' to disable. |
+| Normalized Score Cutoff **`NORM_THRESHOLD`** | A filter to exclude hits scoring below a normalized similarity cutoff. Leave blank (or JSON `null`) to disable. |
 | Alignment Mode **`ALIGNMENT_MODE`** | The search alignment mode (either 'global (Needleman-Wunsch)' or 'local (Smith-Waterman)'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
@@ -119,11 +119,11 @@ This script queries a single sequence against an entire database using residue-l
 2. **Database Alignment Queue**:
      Iterates through all database sequences $j$ in the HDF5 file. On automatic device selection, a short benchmark on a sample of the targets first chooses how to run them:
      - A serial CPU run on a few targets estimates the whole search and sets the tuning budget, 5% of that estimate and at most 5 s. A search estimated at 1 s or less runs on the CPU without further tuning.
-     - Each accelerator is then timed with scalar execution, with the variant it is expected to run fastest, with the CPU worker pool, and, while the budget lasts, with more lanes and, on NVIDIA GPUs, TF32. On CUDA that variant is tiled execution: the query is normalized and uploaded once while targets are read once, grouped by length, and scored in VRAM-bounded batches. A reader thread prefetches the next targets while the device scores the current ones, and one CPU task aligns a whole batch. Its first measurement is made whatever the budget says, unless the search is too short for the trial to pay for itself.
+     - Each accelerator is then timed with scalar execution, with the variant it is expected to run fastest, with the CPU worker pool, and, while the budget lasts, with more lanes and, on NVIDIA GPUs, TF32. On CUDA/ROCm that variant is tiled execution: the query is normalized and uploaded once while targets are read once, grouped by length, and scored in VRAM-bounded batches. When the runtime-compiled fused GPU SSEARCH kernels (`Align_GPU_Kernels.py`) pass self-check and the sequence lengths and gap penalty fit the kernel (unless `SSN_ALIGN_GPU_KERNELS=0`), scoring, exact two-pass Z-score normalization, and dynamic programming run end-to-end on the GPU with zero padding and without transferring score matrices to host memory; otherwise, a reader thread prefetches the next targets while the device scores the current ones and one CPU task aligns a whole batch. Its first measurement is made whatever the budget says, unless the search is too short for the trial to pay for itself.
      - A plan's total time is its sample's speed scaled to the whole search, plus its start-up time. A tiled plan is timed on targets of one tile block, after an untimed warm-up pass, so that its per-block costs are not counted for every few targets. The fastest plan runs the search and reuses the results already computed for its sample; a simpler plan within 5% of it (serial CPU, then fewer lanes, then not tiled) is preferred, and the next plan runs if it fails.
 
-3. **Multithreaded dynamic programming**:
-     Allocates alignments to multiprocessing workers. Each worker:
+3. **Dynamic programming alignment**:
+     Runs end-to-end in the fused CUDA/ROCm GPU SSEARCH kernel when eligible, or allocates alignments to multiprocessing CPU workers in tiled fallback, scalar, and CPU plans. For each target sequence, the solver:
      - Computes the residue-level normalized similarity matrix:
        $$\text{Score}_j(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
      - Solves alignment scores:
@@ -153,7 +153,7 @@ This script queries a single sequence against an entire database using residue-l
 
 # Predict Structures (`Predict_Structures.py`)
 
-This script predicts the 3D structure of protein sequences with ESM3 and saves each as a PDB file. It needs no Viewer, no similarity-network file and no embeddings: only the sequences. Give it one sequence, typed or pasted in, or a FASTA file.
+This script predicts the 3D structure of protein sequences using the local ESM3 model or remote Biohub ESMFold 2 and saves each as a PDB file. It needs no Viewer, no similarity-network file and no embeddings: only the sequences. Give it one sequence, typed or pasted in, or a FASTA file.
 
 ### Input
 

@@ -3485,7 +3485,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location filename="../../../web_ui/esmfold.html" line="+1065"/>
+        <location filename="../../../web_ui/esmfold.html" line="+1089"/>
         <source>Colors</source>
         <translation type="unfinished">颜色</translation>
     </message>
@@ -3998,8 +3998,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-925"/>
-        <location line="+920"/>
+        <location filename="../../../web_ui/esmfold.html" line="-949"/>
+        <location line="+944"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -5117,7 +5117,7 @@ Command-line usage:
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
-        <location filename="../../../commands/offset.py" line="+110"/>
+        <location filename="../../../commands/offset.py" line="+111"/>
         <location filename="../../../commands/print.py" line="-152"/>
         <location filename="../../../commands/query.py" line="-251"/>
         <location filename="../../../commands/reset.py" line="-9"/>
@@ -5358,22 +5358,22 @@ Command-line usage:
     <message>
         <location line="+14"/>
         <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so &apos;{expression}&apos; gets two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{bare}”被读作颜色（灰度值），因此“{expression}”获得了两个颜色“{other}”和“{bare}”。不透明度请写成百分数，例如 50%。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Error: &apos;{bare}&apos; is read as a color (a gray level), so the selected nodes get two colors, &apos;{other}&apos; and &apos;{bare}&apos;. Write an alpha as a percent, e.g. 50%.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{bare}”被读作颜色（灰度值），因此所选节点获得了两个颜色“{other}”和“{bare}”。不透明度请写成百分数，例如 50%。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Error: &apos;{expression}&apos; gets two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{expression}”有两个同类项“{first}”和“{second}”。每个目标最多接受一个颜色、一个不透明度、一个缩放倍数和一个形状；下一个目标请以表达式开头。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Error: The selected nodes get two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A target takes at most one color, one alpha, one scale and one shape; start the next target with an expression.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：所选节点有两个同类项“{first}”和“{second}”。每个目标最多接受一个颜色、一个不透明度、一个缩放倍数和一个形状；下一个目标请以表达式开头。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -5388,7 +5388,7 @@ Command-line usage:
     <message>
         <location line="+20"/>
         <source>Error: With several targets, every target needs its own expression, but &apos;{words}&apos; has none. Write $sele$ for the selected nodes, e.g. color $sele$ red #noise# 20%.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：指定多个目标时，每个目标都需要各自的表达式，但“{words}”没有。请用 $sele$ 表示所选节点，例如 color $sele$ red #noise# 20%。</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -6229,41 +6229,41 @@ Command-line usage:
     <message>
         <location filename="../../../commands/identity.py" line="-111"/>
         <source>Error: Give one output filename; found a second one: &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：只能给出一个输出文件名；发现第二个：“{argument}”。</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Error: identity takes one or two expressions; found %n expression(s): {expressions}. Expressions have no spaces inside.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：identity 接受一个或两个表达式；检测到 %n 个表达式：{expressions}。表达式内部不能包含空格。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Error: Unrecognized identity argument &apos;{argument}&apos;. A filename must end in .xlsx, .csv or .tsv.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 identity 参数“{argument}”。文件名必须以 .xlsx、.csv 或 .tsv 结尾。</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+140"/>
         <source>Identity</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列一致性</translation>
     </message>
     <message>
         <location line="-107"/>
         <source>Error: None of the requested positions is in the active alignment mapping.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：所请求的位置均不在当前的比对编号映射中。</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>Error: identity summary prints its figures and writes no file; leave out &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：identity summary 只输出统计结果而不写入文件；请去掉“{argument}”。</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Error: identity summary takes one expression; found %n expression(s): {expressions}.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：identity summary 只接受一个表达式；检测到 %n 个表达式：{expressions}。</numerusform>
         </translation>
     </message>
     <message>
@@ -6276,86 +6276,86 @@ Command-line usage:
     <message>
         <location line="+12"/>
         <source>No nodes are selected; give an expression or select nodes. Nothing was written.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未选中任何节点；请给出表达式或先选择节点。未写入任何文件。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No nodes are selected; give an expression or select nodes.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未选中任何节点；请给出表达式或先选择节点。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>No sequences matched the expression &apos;{expression}&apos;. Nothing was written.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有序列符合表达式“{expression}”。未写入任何文件。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No sequences matched the expression &apos;{expression}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有序列符合表达式“{expression}”。</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Error: The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：表达式“{expression}”匹配了 %n 个节点，但它们均不在比对中。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+79"/>
         <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n random pair(s) of {sequences} sequences; the minimum may be above the true one.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{expression}：在 {sequences} 条序列的 %n 个随机序列对中，平均一致性为 {mean}%，最低为 {minimum}%；该最低值可能高于真实最低值。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>{expression}: mean {mean}% and minimum {minimum}% identity over %n pair(s) of {sequences} sequences.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{expression}：在 {sequences} 条序列的 %n 个序列对中，平均一致性为 {mean}%，最低为 {minimum}%。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>{expression}: no pair of its %n aligned sequence(s) has an identity value.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{expression}：其 %n 条已比对序列中没有任何序列对具有一致性数值。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+41"/>
         <source>at most {cells} cells</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">最多 {cells} 个单元格</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>at most {cells} cells and {columns} columns</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">最多 {cells} 个单元格和 {columns} 列</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Error: A {rows} x {columns} matrix ({cells} cells) is too large for a {format} file, which holds {limit}. Narrow an expression, or use .csv or .tsv.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{rows} x {columns} 的矩阵（{cells} 个单元格）对于 {format} 文件过大，该格式可容纳{limit}。请缩小表达式范围，或改用 .csv 或 .tsv。</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Identity failed: the background job scheduler is unavailable.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列一致性计算失败：后台任务调度器不可用。</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+18"/>
         <source>Identity failed: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列一致性计算失败：{error}</translation>
     </message>
     <message>
         <location line="+231"/>
         <source>Saved the pairwise identity of {rows} x {columns} sequences to {file}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已将 {rows} x {columns} 条序列的两两一致性保存至 {file}</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>(mean {mean}%).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">（平均 {mean}%）。</translation>
     </message>
     <message>
         <location filename="../../../commands/logo.py" line="+111"/>
@@ -9535,7 +9535,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2462"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2168"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -12045,12 +12045,11 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">会对 CPU 和加速器进行基准测试。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Dynamic programming alignment scoring always runs on CPU.</source>
-        <translation type="unfinished">动态规划比对评分始终在 CPU 上运行。</translation>
+        <translation type="obsolete">动态规划比对评分始终在 CPU 上运行。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+8"/>
         <location line="+305"/>
         <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished">两两得分矩阵的处理方式。</translation>
@@ -12664,12 +12663,11 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">计算新的残基得分矩阵时使用的硬件。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
-        <translation type="unfinished">以 TF32 生成的源网络需要 NVIDIA CUDA；动态规划仍在 CPU 上运行。</translation>
+        <translation type="obsolete">以 TF32 生成的源网络需要 NVIDIA CUDA；动态规划仍在 CPU 上运行。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+11"/>
         <source>Uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.</source>
         <translation type="unfinished">在 CUDA/ROCm 或 XPU 上使用加速器 embedding 分块和填充后的微批次。</translation>
     </message>
@@ -13386,7 +13384,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">只能使用小写字母、数字、`_` 和 `-`。它不能是 EMAP-SSN 自己计算的模型的标识符（例如 `prot_t5`）：请使用你自己的标签，例如 `uniprot_prot_t5`。</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+52"/>
+        <source>On CUDA/ROCm, tiled execution fuses Z-score normalization and dynamic programming on GPU (set `SSN_ALIGN_GPU_KERNELS=0` to opt out); XPU, MPS, and CPU runs use CPU DP.</source>
+        <translation type="unfinished">在 CUDA/ROCm 上，分块执行会在 GPU 上融合运行 z-score 归一化与动态规划（设置 `SSN_ALIGN_GPU_KERNELS=0` 可关闭）；XPU、MPS 和 CPU 运行则使用 CPU 动态规划。</translation>
+    </message>
+    <message>
+        <location line="+48"/>
         <source>The EFI-EST alignment score: the bit score times log10(2), minus the log10 of the product of the two full sequence lengths; saved as `&lt;set&gt;_[BLAST-EFI]_EValue.h5`.</source>
         <translation type="unfinished">EFI-EST 比对得分：比特得分乘以 log10(2)，再减去两条完整序列长度之积的 log10；保存为 `&lt;set&gt;_[BLAST-EFI]_EValue.h5`。</translation>
     </message>
@@ -13482,7 +13485,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">会折叠更多序列的运行在折叠之前即被拒绝。已存在的结构不计入。调大该值或改用更小的 FASTA 文件即可折叠更多。</translation>
     </message>
     <message>
-        <location line="+342"/>
+        <location line="+34"/>
+        <source>TF32 source networks require NVIDIA CUDA. Tiled CUDA/ROCm runs fuse Z-score normalization and dynamic programming on GPU (`SSN_ALIGN_GPU_KERNELS=0` disables); XPU, MPS, and CPU runs use CPU DP.</source>
+        <translation type="unfinished">以 TF32 生成的源网络需要 NVIDIA CUDA。分块 CUDA/ROCm 运行会在 GPU 上融合执行 z-score 归一化与动态规划（`SSN_ALIGN_GPU_KERNELS=0` 可禁用）；XPU、MPS 和 CPU 运行则使用 CPU 动态规划。</translation>
+    </message>
+    <message>
+        <location line="+308"/>
         <source>Embedding Import Settings:</source>
         <translation type="unfinished">Embedding 导入设置：</translation>
     </message>

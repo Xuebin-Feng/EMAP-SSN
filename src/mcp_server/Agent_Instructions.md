@@ -118,7 +118,7 @@ A nonempty reference with an empty MSA_FILE remains invalid.
 
 Both execution formats require schema_version=2 and the matching kind. Layout
 sections are inputs, network, layout, simulation, physics, packing, and output.
-Viewer sections are inputs, alignment, visualization, and directories. Never add
+Viewer sections are inputs, alignment, embedding, visualization, and directories. Never add
 network, layout, physics, BOX_SCALE, or cache_fallback to Viewer JSON: verified
 cache provenance supplies score mode, normalization, edge filters, UMAP/PaCMAP settings,
 and box scale internally. Input FASTA/network paths remain explicit because cache

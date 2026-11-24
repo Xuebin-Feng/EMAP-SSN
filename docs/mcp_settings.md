@@ -298,7 +298,7 @@ The example filenames are chosen destinations, not pre-existing files. CLI expor
 writes a JSON result to stdout; diagnostics go to stderr. Runtime calculation logs
 remain in the MCP job's private log files.
 
-Use `emapssn_pipeline(action="list_tools")` to choose one of the 15 pipeline IDs, then
+Use `emapssn_pipeline(action="list_tools")` to choose one of the 16 pipeline IDs, then
 `emapssn_pipeline(action="get_tool_schema")` with `{"tool_id": "sanitize_sequences"}` to discover
 accepted parameters, descriptions, native JSON types, defaults, allowed choices,
 conditional inputs, directory semantics, and an example. Discovery reads static
@@ -651,7 +651,7 @@ before `LAYOUT_METHOD` existed are UMAP or physics ones and open as before.
 
 ## Structure prediction
 
-`emapssn_pipeline(action="predict_structure")` predicts 3D structures with ESM3 in one call, with no Viewer
+`emapssn_pipeline(action="predict_structure")` predicts 3D structures using local ESM3 or remote Biohub ESMFold 2 in one call, with no Viewer
 and no settings document. It starts the pipeline tool `predict_structures` as a job (so `wait_job`, `get_job`,
 `read_log`, `cancel_job` and `list_jobs` work on it) and waits up to `wait_seconds` (default and maximum 50)
 like `wait_job`:
@@ -959,7 +959,7 @@ command in the queue, and an `undo` sent through `execute_commands` waits its tu
 stop one; the user can, by typing `undo` in the Viewer, pressing Ctrl+Z or clicking its Undo button.
 
 Agent batches are sequential and stop after failure/cancellation; completed effects
-are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Viewer's
+are not rolled back. Label/logo/identity/print jobs and ESMFold folds are jobs of the Viewer's
 background job scheduler and are tracked to their final result. The file jobs share one
 line and the folds a line of their own, so a fold never waits for a label and the
 other way round; a fold requested while another runs is queued, not refused, and its
@@ -1072,13 +1072,13 @@ Older Viewers require restart after upgrade (`commands_v1` capability).
 General `get_command_catalog` entries include `summary`, `arguments` (each with
 `name`, `description`, and `choices`), `requires`, and existing `syntax`/effect fields.
 `requires` lists the optional inputs a command cannot run without: `alignment`
-(`logo`, `query`, `label`) or `embedding`; compare it with the snapshot summary's
+(`distribution`, `identity`, `label`, `logo`, `query`) or `embedding`; compare it with the snapshot summary's
 `alignment` and `embedding` blocks before submitting.
 Each entry also says what the command may do: `writes_files`, `opens_interface` (a dialog, page or
 window of its own, which needs a visible Viewer) and `background_work`. The first two are declared in the
 command's `CATALOG_ENTRY`; `background_work` is read from the command's source for every command: true when
 it computes on the command queue's worker thread, queues a file job, or starts a tracked worker or script
-(print, cluster, subcluster, label, logo, esmfold and run today). A command module dropped into
+(print, cluster, subcluster, label, logo, identity, esmfold and run today). A command module dropped into
 `src/commands` without a `CATALOG_ENTRY` is still listed: its `summary` is the first line of its module
 docstring, else the Description or Usage line of its help; `arguments` and `requires` are empty; `writes_files`
 and `opens_interface` are true because nothing says otherwise; `agent_policy` waits for approval, like any

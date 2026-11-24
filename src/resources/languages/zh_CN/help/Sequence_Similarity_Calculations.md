@@ -1,9 +1,9 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 2b36750c245b395eb4330cec6ebcaee63a354c378713e88a30e2cea39cfa829b -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 30ef66d074d8c18eb19a8078aee546964482866c2b0bd7119fa0c4e9d67335d6 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
 
-它使用以优化的 Numba JIT 函数实现的动态规划（局部比对用 Smith-Waterman，全局比对用 Needleman-Wunsch）为序列比对（alignment）打分。为加快大型数据集的计算，它提供一个可选的预过滤步骤：根据池化后的序列 embedding 计算全局余弦相似度（默认最大池化；内部也支持平均池化），并跳过得分最低的序列对的完整比对。
+它使用动态规划（局部比对用 Smith-Waterman，全局比对用 Needleman-Wunsch）为序列比对（alignment）打分。在 CUDA 和 ROCm GPU 上，分块执行使用运行时编译的融合 GPU 内核（`Align_GPU_Kernels.py`），在 GPU 上端到端完成相似度变换、精确的两遍 z-score 归一化以及全局和局部动态规划（设置 `SSN_ALIGN_GPU_KERNELS=0` 可关闭）；XPU、Apple MPS、标量 GPU 以及仅 CPU 运行则回退到 PyTorch 得分矩阵配合优化的 Numba JIT CPU 动态规划。为加快大型数据集的计算，它提供一个可选的预过滤步骤：根据池化后的序列 embedding 计算全局余弦相似度（默认最大池化；内部也支持平均池化），并跳过得分最低的序列对的完整比对。
 
 ### 输入
 
@@ -22,8 +22,8 @@
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）使用的空位罚分（gap penalty）值。数值越负，对空位（gap）的惩罚越重，产生的空位越少。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对（global alignment）使用的空位罚分值。 |
 | 处理批大小 **`BATCH_SIZE`** | 每个分块（tile）中处理、随后写入磁盘的序列对数量（整数）。批次（batch）越大，资源利用率可能越高，但内存占用也越大。 |
-| 计算设备 **`DEVICE_SELECTION`** | 为构建残基得分矩阵选择 `auto` 或某个可用的 CPU、CUDA、XPU 或 MPS 设备。自动选择设备时会估算工作内存，在最多 256 个按成本分层的序列对上调优安全的并行通道数，并在最多 2,048 个按正式计算顺序排列的序列对上确认候选方案。动态规划（dynamic programming）打分始终在 CPU 上进行。 |
-| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块方案。`Scalar`（标量）在每个加速器通道（lane）上一次处理一个双序列得分矩阵，在 CPU 和受支持的加速器上始终可用。`Tiled`（分块）强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会在处理序列对之前失败。 |
+| 计算设备 **`DEVICE_SELECTION`** | 为残基比对选择 `auto` 或某个可用的 CPU、CUDA、XPU 或 MPS 设备。自动选择设备时会估算工作内存，在最多 256 个按成本分层的序列对上调优安全的并行通道数，并在最多 2,048 个按正式计算顺序排列的序列对上确认候选方案。在 CUDA/ROCm 上，分块运行会在 GPU 上融合执行 z-score 归一化与动态规划（dynamic programming）打分（设置 `SSN_ALIGN_GPU_KERNELS=0` 可禁用）；XPU、MPS、标量及仅 CPU 运行则回退到 CPU 动态规划。 |
+| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块方案。`Scalar`（标量）在每个加速器通道（lane）上一次处理一个双序列得分矩阵，在 CPU 和受支持的加速器上始终可用。`Tiled`（分块）使用内存受限的 embedding 分块，并在 CUDA/ROCm 上使用运行时编译的融合 GPU 比对内核（设为 `SSN_ALIGN_GPU_KERNELS=0` 时，或在 XPU 和受支持的 Apple MPS 运行时上，则使用填充后的 PyTorch 微批次（microbatch）配合 CPU 动态规划）；若没有兼容的加速器，会在处理序列对之前失败。 |
 | 主机缓存 **`HOST_CACHE_GB`** | 打包 embedding 缓存可使用的主机内存上限（GiB）。`auto` 至少保留 8 GiB 或物理内存的 25%，并将缓存上限设为 128 GiB；`0` 则只使用有界的 HDF5 分块。 |
 | 加速器精度 **`ACCELERATOR_PRECISION`** | `automatic_32bit` 会在最多 2,048 个按正式计算顺序排列的序列对上，用 `EXECUTION_MODE` 允许的每种执行模式测试 IEEE FP32 和 TF32。只有当这些方案保持比对长度不变、通过逐残基的得分容差检查、结果均为有限值，且最快的 TF32 方案比最快的 FP32 方案至少快 10% 时，才会选用 TF32。`bf16` 表示明确的低精度执行：归一化（normalization）和得分后处理仍用 FP32，而归一化后的矩阵乘法操作数使用 BF16。它需要具备相应能力的加速器，会打印低精度警告，并针对每种设备/执行变体，在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计。有限的数值差异仅供参考，不会导致拒绝 BF16。旧的输入别名 `auto` 会被当作 `automatic_32bit`。 |
 
@@ -73,7 +73,7 @@
      其中 $v_i(a)$ 是序列 $i$ 中残基 $a$ 的 embedding 向量。该距离再被转换为相似性矩阵：
      $$S(a, b) = \exp(-D(a, b))$$
 
-     在 CUDA/ROCm 或 XPU 上，待计算的序列对会重新分组为内存受限的源/目标分块。归一化 embedding、流和即时张量工作区在各输出批次之间保持复用。长度相近的目标序列最多填充 15%，多个矩阵通过一次批量乘法完成计算。填充部分不计入任何统计，也不进入 CPU 上的比对矩阵。原有的逐序列对路径仍作为经过基准测试的后备方案保留。
+     在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上，待计算的序列对会重新分组为内存受限的源/目标分块，归一化 embedding 和工作区在各输出批次之间保持复用。在 CUDA/ROCm 上（除非设为 `SSN_ALIGN_GPU_KERNELS=0`），稠密分块矩阵乘法（block-GEMM）或零填充按行打包矩阵乘法会将结果直接送入运行时编译的融合 GPU 内核（`Align_GPU_Kernels.py`），在 GPU 上完成指数相似度变换、精确的两遍 z-score 归一化以及全局和局部动态规划，无需将得分矩阵传回主机内存。在 XPU、Apple MPS 或禁用融合 GPU 内核时，长度相近的目标序列最多填充 15%，多个矩阵通过批量乘法完成计算，填充部分不计入任何统计，也不进入 CPU 上的比对矩阵。原有的逐序列对路径仍作为经过基准测试的后备方案保留。
 
 4. **双重 z-score 归一化**：
      对相似性矩阵按行和按列分别归一化，以校正残基特有的背景相似度：

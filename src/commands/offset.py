@@ -34,7 +34,7 @@ AGENT_PROMPT = """
 - With no integer, reports the configured alignment offset and whether reference numbering is active.
 - With one positive, negative, or zero integer, changes reference-anchored numbering for the current viewer session. Displayed position equals reference position plus offset; insertion suffixes are preserved.
 - Requires a loaded MSA and a resolved reference. It changes displayed numbering only, and the new value is not saved to the viewer settings.
-- The updated numbering is immediately used by `query`, `label`, `logo`, and amino-acid expressions handled by `color`, `select`, `group`, `hide`, and `spectrum`.
+- The updated numbering is immediately used by `query`, `label`, `logo`, `distribution`, `identity`, and amino-acid expressions handled by `color`, `select`, `group`, `hide`, and `spectrum`.
 """
 
 # An optional sign and ASCII digits only; int() would also take "1_0" and
@@ -72,8 +72,9 @@ def print_help():
 
     Affected Commands:
       The updated numbering is used immediately by position-aware commands,
-      including query, label, logo, color, select, group, hide, and spectrum.
-      Existing alignment columns and sequence data are not modified.
+      including query, label, logo, distribution, identity, color, select,
+      group, hide, and spectrum. Existing alignment columns and sequence data
+      are not modified.
 
     Notes:
       Positive and negative integers are accepted. Changes made with this

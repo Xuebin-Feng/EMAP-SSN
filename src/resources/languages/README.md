@@ -15,7 +15,7 @@ This folder holds the catalogs the program's windows take their text from, and o
 | `<language>/docs/<page>.html` | Optional: translated documentation pages, one for each `docs/<page>.html` (see "Documentation pages"). |
 | `<language>/docs/language.css` | The font of those pages, made from `language.json` by `Docs_Translation.py generate`. Present when the language names a font. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, Console and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent, metadata and Fold View pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages. Mol*'s own panels, which the Fold View page shows only in its Advanced view, stay English: Mol* has no translations. The first language is Simplified Chinese (`zh_CN`): every text and every help page is a machine-assisted draft, and a native speaker's review is pending; corrections are welcome (see "Review a language").
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, Console and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent, metadata, Fold View and Tree View pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages. Mol*'s own panels, which the Fold View page shows only in its Advanced view, stay English: Mol* has no translations. The first language is Simplified Chinese (`zh_CN`): every text and every help page is a machine-assisted draft, and a native speaker's review is pending; corrections are welcome (see "Review a language").
 
 ## Choose the language
 
@@ -34,7 +34,7 @@ The choice is saved in `app_settings.json` in the project folder, and every wind
 The bundled fonts cover Latin, Greek and Cyrillic. Simplified Chinese brings a
 font of its own, which its `language.json` names and which loads only while it
 shows (see `src/resources/fonts/desktop/README.md`): the Qt windows, the
-Viewer's canvas and the browser views (the Agent, metadata and Fold View pages and the
+Viewer's canvas and the browser views (the Agent, metadata, Fold View and Tree View pages and the
 Tools help panel) all draw Chinese in it. In other scripts, Qt windows fall back
 to the system's fonts. The Viewer's canvas can't, since it draws each text in
 a single face, so a new language in another script needs a bundled font too
@@ -117,8 +117,6 @@ The update command checks every `language.json` and fails while one can't be use
 
 A translation must keep these parts exactly as the English text has them:
 
-A translation must keep these parts exactly as the English text has them:
-
 - placeholders such as `{count}`, `%n` and `%1`
 - markup such as `<b>`
 - text in backticks, such as `grey` or `-k 0`: a value the user types, which a tip shows as a code chip (keep it, and its backticks, as written)
@@ -191,7 +189,7 @@ A text has one count. A message with two counts its first with `%n` and fills in
 
 ## Web pages
 
-The Viewer's browser pages take their text from the same catalogs, each page under a context of its own: `AgentPage`, `MetadataPage` and `EsmfoldPage` (the Fold View page). `PAGE_CONTEXTS` in `src/web_ui/Page_Texts.py` lists each page's files. A page marks its texts three ways:
+The Viewer's browser pages take their text from the same catalogs, each page under a context of its own: `AgentPage`, `MetadataPage`, `EsmfoldPage` (the Fold View page) and `TreePage` (the Tree View page). `PAGE_CONTEXTS` in `src/web_ui/Page_Texts.py` is derived from the `src/web_ui/plugins/*.py` manifests (`i18n` entries) and lists each page's files. A page marks its texts three ways:
 
 | Text | How to mark it |
 |---|---|

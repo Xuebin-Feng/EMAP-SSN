@@ -8300,7 +8300,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Dynamic programming alignment scoring always runs on CPU.</source>
+        <source>On CUDA/ROCm, tiled execution fuses Z-score normalization and dynamic programming on GPU (set `SSN_ALIGN_GPU_KERNELS=0` to opt out); XPU, MPS, and CPU runs use CPU DP.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8832,7 +8832,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
+        <source>TF32 source networks require NVIDIA CUDA. Tiled CUDA/ROCm runs fuse Z-score normalization and dynamic programming on GPU (`SSN_ALIGN_GPU_KERNELS=0` disables); XPU, MPS, and CPU runs use CPU DP.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
