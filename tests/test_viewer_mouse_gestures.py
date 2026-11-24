@@ -3245,6 +3245,9 @@ for kind in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButton
 print("SEEN", json.dumps(seen))
 """
 
+    @unittest.skipIf(sys.platform == "darwin",
+                     "off screen on macOS the child process would crash (the press reaches OpenGL with no GL context) "
+                     "and leave a crash report in ~/Library/Logs/DiagnosticReports")
     def test_qt_sends_the_second_press_of_a_double_click_as_a_double_click_instead_of_a_press(self):
         # Why the Viewer reads mouse_double_click: the second click of a Shift double click never
         # arrives as a press. A VisPy canvas is made in a process of its own, as the GL probes are.
