@@ -1442,7 +1442,9 @@ class PickPixelTests(unittest.TestCase):
                 # nodes are smaller), 2100 or more otherwise; 500 leaves room below the smallest.
                 self.assertGreater(int(on_nodes), 500, output)
                 self.assertEqual(int(wrong), 0, output)
-                self.assertLessEqual(int(ties), int(on_nodes) // 1000, output)
+                # One tie per thousand pixels on nodes; under a limit of 64 at pixel scale 4 a scene has 733 to 826
+                # of them, and whole thousands would allow none.
+                self.assertLessEqual(int(ties), max(1, int(on_nodes) // 1000), output)
                 self.assertEqual(int(far), 0, output)
         clicks = [line.split()[1:] for line in output.splitlines() if line.startswith("CLICKS ")]
         self.assertEqual(len(clicks), 2, output)
