@@ -353,15 +353,25 @@ def inject_embeddings(input_hdf5, input_fasta, output_hdf5=None):
             ):
                 def on_batch_complete(batch_items, embeddings):
                     nonlocal feature_dimension, generated_count
+                    if not isinstance(embeddings, (list, tuple)):
+                        embeddings = list(embeddings)
+                    if len(embeddings) != len(batch_items):
+                        raise ValueError(
+                            f"Model plugin returned {len(embeddings)} embeddings for "
+                            f"a batch of {len(batch_items)} sequences."
+                        )
+                    validated_dim = feature_dimension
                     for (header, sequence), embedding in zip(batch_items, embeddings):
-                        feature_dimension = validate_embedding_array(
+                        validated_dim = validate_embedding_array(
                             embedding,
                             sequence,
                             source_manifest.saving_mode,
-                            feature_dimension=feature_dimension,
+                            feature_dimension=validated_dim,
                             require_finite=True,
                             header=header,
                         )
+                    feature_dimension = validated_dim
+                    for (header, _sequence), embedding in zip(batch_items, embeddings):
                         emb_group_out.create_dataset(header, data=embedding)
                         generated_count += 1
                     hf_out.flush()

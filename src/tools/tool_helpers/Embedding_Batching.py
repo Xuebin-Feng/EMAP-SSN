@@ -38,11 +38,11 @@ def _torch_storage_dtype(target_dtype, device=None):
         return torch.float32
     if dtype == np.dtype(np.float64):
         dev_type = (
-            getattr(device, "type", str(device).split(":", 1)[0])
+            getattr(device, "type", str(device).split(":", 1)[0]).lower()
             if device is not None
             else ""
         )
-        if dev_type == "mps":
+        if dev_type != "cpu":
             return None
         return torch.float64
     return None
@@ -141,15 +141,35 @@ def _available_activation_bytes(device):
     if dtype_str == "cuda":
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info(dev)
+            reusable = 0
+            try:
+                if hasattr(torch.cuda, "memory_reserved") and hasattr(torch.cuda, "memory_allocated"):
+                    reusable = max(
+                        0,
+                        int(torch.cuda.memory_reserved(dev)) - int(torch.cuda.memory_allocated(dev)),
+                    )
+            except Exception:
+                reusable = 0
+            effective_free = min(int(total_bytes), int(free_bytes) + reusable)
             reserve = max(512 * 1024 ** 2, int(total_bytes * 0.18))
-            return max(128 * 1024 ** 2, int(max(0, free_bytes - reserve) * 0.50))
+            return max(128 * 1024 ** 2, int(max(0, effective_free - reserve) * 0.50))
         except Exception:
             return 1024 * 1024 ** 2
     if dtype_str == "xpu":
         try:
             free_bytes, total_bytes = torch.xpu.mem_get_info(dev)
+            reusable = 0
+            try:
+                if hasattr(torch.xpu, "memory_reserved") and hasattr(torch.xpu, "memory_allocated"):
+                    reusable = max(
+                        0,
+                        int(torch.xpu.memory_reserved(dev)) - int(torch.xpu.memory_allocated(dev)),
+                    )
+            except Exception:
+                reusable = 0
+            effective_free = min(int(total_bytes), int(free_bytes) + reusable)
             reserve = max(512 * 1024 ** 2, int(total_bytes * 0.20))
-            return max(128 * 1024 ** 2, int(max(0, free_bytes - reserve) * 0.50))
+            return max(128 * 1024 ** 2, int(max(0, effective_free - reserve) * 0.50))
         except Exception:
             return 1024 * 1024 ** 2
     if dtype_str == "mps":
@@ -311,8 +331,6 @@ def run_batched_embeddings(
             embeddings = plugin.get_embeddings_batch(
                 sequences, model_obj, device, target_dtype
             )
-            on_batch_complete(batch, embeddings)
-            idx += 1
         except Exception as error:
             if len(batch) > 1 and is_oom_error(error):
                 clear_device_cache(device)
@@ -363,5 +381,8 @@ def run_batched_embeddings(
                 )
                 continue
             raise
+        else:
+            on_batch_complete(batch, embeddings)
+            idx += 1
 
     return model_obj, device

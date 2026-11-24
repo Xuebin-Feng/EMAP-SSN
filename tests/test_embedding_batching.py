@@ -15,15 +15,70 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 import h5py
 import numpy as np
 import torch
-from transformers import BertConfig, BertModel, EsmConfig, EsmModel, T5Config, T5EncoderModel
+from transformers import (
+    BatchEncoding,
+    BertConfig,
+    BertModel,
+    EsmConfig,
+    EsmModel,
+    T5Config,
+    T5EncoderModel,
+)
 
+from resources.pLM_models import ankh as ankh_plugin
 from resources.pLM_models import esm2 as esm2_plugin
 from resources.pLM_models import esmc as esmc_plugin
 from resources.pLM_models import prost_t5 as prost_t5_plugin
+from resources.pLM_models import prot_bert as prot_bert_plugin
+from resources.pLM_models import prot_t5 as prot_t5_plugin
 from tools import Embedding_Injection as inject_tool
 from tools import Generate_Embeddings as gen_tool
 from tools.tool_helpers import Embedding_Batching as batching
 from utilities import HDF5_Storage
+
+
+class _SyntheticTokenizer:
+    """Minimal in-memory tokenizer matching HF BatchEncoding contract with zero downloads."""
+
+    _VOCAB = {ch: idx + 5 for idx, ch in enumerate("ACDEFGHIKLMNPQRSTVWYXBZUO.-")}
+
+    def __init__(self, *, spaced=False, bos_id=None, eos_id=2, pad_id=0):
+        self.spaced = spaced
+        self.bos_id = bos_id
+        self.eos_id = eos_id
+        self.pad_id = pad_id
+        self.vocab = dict(self._VOCAB)
+        self.vocab["<AA2fold>"] = 4
+
+    def _encode_one(self, text):
+        tokens = text.split() if self.spaced else list(text)
+        ids = []
+        if self.bos_id is not None:
+            ids.append(self.bos_id)
+        for tok in tokens:
+            ids.append(self.vocab.get(tok, 3))
+        if self.eos_id is not None:
+            ids.append(self.eos_id)
+        return ids
+
+    def __call__(self, texts, return_tensors="pt", padding=False):
+        if isinstance(texts, str):
+            batch = [self._encode_one(texts)]
+        else:
+            batch = [self._encode_one(t) for t in texts]
+        max_len = max(len(row) for row in batch) if padding else len(batch[0])
+        input_ids = []
+        attention_mask = []
+        for row in batch:
+            pad_n = max_len - len(row)
+            input_ids.append(row + [self.pad_id] * pad_n)
+            attention_mask.append([1] * len(row) + [0] * pad_n)
+        return BatchEncoding(
+            {
+                "input_ids": torch.tensor(input_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            }
+        )
 
 
 class EmbeddingBatchingTests(unittest.TestCase):
@@ -97,6 +152,7 @@ class EmbeddingBatchingTests(unittest.TestCase):
     def test_batched_esm_t5_bert_esmc_match_single_sequence_fp32(self):
         from esm.models.esmc import EsmcConfig, EsmcModel, EsmcTokenizer
 
+        torch.manual_seed(0)
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         seqs = ["ACDEFGHIKLMNPQRSTVWY", "MKTACDEFG"]
 
@@ -105,11 +161,68 @@ class EmbeddingBatchingTests(unittest.TestCase):
         esmc_mod = EsmcModel(
             EsmcConfig(vocab_size=64, hidden_size=64, num_hidden_layers=2, num_attention_heads=4, pad_token_id=1)
         ).to(device=device, dtype=torch.float32).eval()
-        ref = [esmc_plugin.get_embedding(s, (esmc_tok, esmc_mod), device, np.float32) for s in seqs]
-        bat = esmc_plugin.get_embeddings_batch(seqs, (esmc_tok, esmc_mod), device, np.float32)
-        for a, b in zip(ref, bat):
-            self.assertEqual(a.shape, b.shape)
-            self.assertLess(float(np.max(np.abs(a - b))), 1e-4)
+
+        # ESM-2 synthetic check (unspaced, <cls> + <eos>)
+        esm2_tok = _SyntheticTokenizer(spaced=False, bos_id=1, eos_id=2, pad_id=0)
+        esm2_mod = EsmModel(
+            EsmConfig(
+                vocab_size=40,
+                hidden_size=32,
+                num_hidden_layers=2,
+                num_attention_heads=4,
+                intermediate_size=64,
+                pad_token_id=0,
+            ),
+            add_pooling_layer=False,
+        ).to(device=device, dtype=torch.float32).eval()
+
+        # ProtBERT synthetic check (spaced, [CLS] + [SEP])
+        bert_tok = _SyntheticTokenizer(spaced=True, bos_id=1, eos_id=2, pad_id=0)
+        bert_mod = BertModel(
+            BertConfig(
+                vocab_size=40,
+                hidden_size=32,
+                num_hidden_layers=2,
+                num_attention_heads=4,
+                intermediate_size=64,
+                pad_token_id=0,
+            )
+        ).to(device=device, dtype=torch.float32).eval()
+
+        # Shared tiny T5 encoder for ProtT5, ProstT5, and Ankh
+        t5_mod = T5EncoderModel(
+            T5Config(
+                vocab_size=40,
+                d_model=32,
+                d_kv=8,
+                d_ff=64,
+                num_layers=2,
+                num_heads=4,
+                pad_token_id=0,
+            )
+        ).to(device=device, dtype=torch.float32).eval()
+        prot_t5_tok = _SyntheticTokenizer(spaced=True, bos_id=None, eos_id=2, pad_id=0)
+        prost_t5_tok = _SyntheticTokenizer(spaced=True, bos_id=None, eos_id=2, pad_id=0)
+        ankh_tok = _SyntheticTokenizer(spaced=False, bos_id=None, eos_id=2, pad_id=0)
+
+        cases = [
+            ("esmc", esmc_plugin, (esmc_tok, esmc_mod)),
+            ("esm2", esm2_plugin, (esm2_tok, esm2_mod)),
+            ("prot_bert", prot_bert_plugin, (bert_tok, bert_mod)),
+            ("prot_t5", prot_t5_plugin, (prot_t5_tok, t5_mod)),
+            ("prost_t5", prost_t5_plugin, (prost_t5_tok, t5_mod)),
+            ("ankh", ankh_plugin, (ankh_tok, t5_mod)),
+        ]
+        for label, plugin, model_obj in cases:
+            with self.subTest(plugin=label):
+                ref = [plugin.get_embedding(s, model_obj, device, np.float32) for s in seqs]
+                bat = plugin.get_embeddings_batch(seqs, model_obj, device, np.float32)
+                self.assertEqual(len(ref), len(bat))
+                for a, b in zip(ref, bat):
+                    self.assertEqual(a.shape, b.shape)
+                    self.assertEqual(a.dtype, np.dtype(np.float32))
+                    self.assertEqual(b.dtype, np.dtype(np.float32))
+                    self.assertLess(float(np.max(np.abs(a - b))), 1e-4)
 
     def test_prost_t5_load_model_sets_eval_mode(self):
         fake_model = mock.Mock()
@@ -190,10 +303,404 @@ class EmbeddingBatchingTests(unittest.TestCase):
         self.assertLessEqual(sum(calls), 2)
 
     def test_mps_skips_device_float64_storage_cast(self):
-        self.assertIs(batching._torch_storage_dtype(np.float16, device="mps"), torch.float16)
-        self.assertIs(batching._torch_storage_dtype(np.float32, device="mps"), torch.float32)
-        self.assertIsNone(batching._torch_storage_dtype(np.float64, device="mps"))
+        for dev in ("mps", "xpu", "xpu:0", "cuda", "cuda:0", torch.device("cuda:0")):
+            with self.subTest(device=dev):
+                self.assertIs(batching._torch_storage_dtype(np.float16, device=dev), torch.float16)
+                self.assertIs(batching._torch_storage_dtype(np.float32, device=dev), torch.float32)
+                self.assertIsNone(batching._torch_storage_dtype(np.float64, device=dev))
+        self.assertIsNone(batching._torch_storage_dtype(np.float64, device=None))
         self.assertIs(batching._torch_storage_dtype(np.float64, device="cpu"), torch.float64)
+        self.assertIs(
+            batching._torch_storage_dtype(np.float64, device=torch.device("cpu")),
+            torch.float64,
+        )
+
+    def test_stratified_benchmark_items_handles_small_and_zero_max_items(self):
+        items = [(f"s{i}", "ACDE" * (i + 1)) for i in range(6)]
+        self.assertEqual(gen_tool._stratified_benchmark_items(items, max_items=0), [])
+        self.assertEqual(gen_tool._stratified_benchmark_items(items, max_items=-3), [])
+        self.assertEqual(gen_tool._stratified_benchmark_items([], max_items=4), [])
+        ordered = sorted(items, key=lambda pair: (len(pair[1]), pair[0]))
+        self.assertEqual(
+            gen_tool._stratified_benchmark_items(items, max_items=1),
+            [ordered[len(ordered) // 2]],
+        )
+        self.assertEqual(
+            gen_tool._stratified_benchmark_items(items[:1], max_items=1),
+            items[:1],
+        )
+
+    def test_benchmark_handles_four_or_more_identical_sequences(self):
+        pending = [(f"s{i}", "ACDEFGHIKLMN") for i in range(6)]
+
+        class FastCpuPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        cpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu", 0, False
+        )
+        _model_obj, ranked = gen_tool._benchmark_embedding_devices(
+            FastCpuPlugin(),
+            "fake_model",
+            None,
+            pending,
+            np.dtype(np.float16),
+            4,
+            [cpu_cand],
+        )
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0].candidate.spec, "cpu")
+
+    def test_gpu_benchmark_warms_up_with_packed_batch_and_halves_on_oom(self):
+        pending = [(f"s{i}", "ACDEFGHIKL" * (10 + i)) for i in range(8)]
+        cpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu", None, False
+        )
+        gpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Fake GPU (CUDA)", torch.device("cuda:0"), "cuda", 0, True
+        )
+
+        # Case 1: Packed budget limits batch 0 to size 1; warmup must NOT force batch size 2.
+        gpu_warmup_sizes = []
+
+        class TightBudgetPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                if getattr(device, "type", "") == "cuda":
+                    gpu_warmup_sizes.append(len(seqs))
+                    if len(seqs) > 1:
+                        raise RuntimeError("CUDA out of memory")
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        # Force pack_length_sorted_batches to pack batch_size=1 on GPU via tiny available bytes.
+        with mock.patch.object(gen_tool.Hardware_Utils, "begin_gpu_trial", return_value=None), \
+                mock.patch.object(gen_tool.Hardware_Utils, "synchronize_device"), \
+                mock.patch.object(gen_tool.Hardware_Utils, "release_device_cache"), \
+                mock.patch.object(batching, "_available_activation_bytes", return_value=1024):
+            _m, ranked = gen_tool._benchmark_embedding_devices(
+                TightBudgetPlugin(),
+                "fake_model",
+                None,
+                pending,
+                np.dtype(np.float16),
+                4,
+                [cpu_cand, gpu_cand],
+            )
+        self.assertTrue(any(r.candidate.spec == "cuda:0" and r.succeeded for r in ranked))
+        self.assertTrue(gpu_warmup_sizes)
+        self.assertEqual(gpu_warmup_sizes[0], 1)
+
+        # Case 2: Initial packed batch > 1 hits OOM during warmup; GPU halves down to 1 and wins.
+        seen_gpu_sizes = []
+        clock = [0.0]
+
+        class WarmupOomPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                if getattr(device, "type", "") == "cuda":
+                    seen_gpu_sizes.append(len(seqs))
+                    if len(seqs) > 1:
+                        raise RuntimeError("CUDA out of memory")
+                    clock[0] += 0.005 * len(seqs)
+                else:
+                    clock[0] += 0.30 * len(seqs)
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        with mock.patch.object(gen_tool.Hardware_Utils, "begin_gpu_trial", return_value=None), \
+                mock.patch.object(gen_tool.Hardware_Utils, "synchronize_device"), \
+                mock.patch.object(gen_tool.Hardware_Utils, "release_device_cache"), \
+                mock.patch.object(batching, "_available_activation_bytes", return_value=4 * 1024 ** 3), \
+                mock.patch.object(gen_tool.time, "perf_counter", side_effect=lambda: clock[0]):
+            _m, ranked = gen_tool._benchmark_embedding_devices(
+                WarmupOomPlugin(),
+                "fake_model",
+                None,
+                pending,
+                np.dtype(np.float16),
+                4,
+                [cpu_cand, gpu_cand],
+            )
+        self.assertEqual(ranked[0].candidate.spec, "cuda:0")
+        self.assertTrue(any(sz > 1 for sz in seen_gpu_sizes))
+        self.assertIn(1, seen_gpu_sizes)
+
+        # Case 3: Warmup succeeds on batch 0 (size 2), timed batch 1 (size 4) OOMs -> halves & succeeds.
+        timed_oom_pending = (
+            [(f"long{i}", "A" * 400) for i in range(2)]
+            + [(f"short{i}", "A" * 100) for i in range(6)]
+        )
+        timed_seen_sizes = []
+        clock2 = [0.0]
+
+        class TimedOomPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                if getattr(device, "type", "") == "cuda":
+                    timed_seen_sizes.append(len(seqs))
+                    if len(seqs) > 2:
+                        raise RuntimeError("CUDA out of memory")
+                    clock2[0] += 0.005 * len(seqs)
+                else:
+                    clock2[0] += 0.30 * len(seqs)
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        with mock.patch.object(gen_tool.Hardware_Utils, "begin_gpu_trial", return_value=None), \
+                mock.patch.object(gen_tool.Hardware_Utils, "synchronize_device"), \
+                mock.patch.object(gen_tool.Hardware_Utils, "release_device_cache"), \
+                mock.patch.object(batching, "_available_activation_bytes", return_value=4 * 1024 ** 3), \
+                mock.patch.object(gen_tool.time, "perf_counter", side_effect=lambda: clock2[0]):
+            _m, ranked = gen_tool._benchmark_embedding_devices(
+                TimedOomPlugin(),
+                "fake_model",
+                None,
+                timed_oom_pending,
+                np.dtype(np.float16),
+                4,
+                [cpu_cand, gpu_cand],
+            )
+        self.assertEqual(ranked[0].candidate.spec, "cuda:0")
+        self.assertTrue(any(sz > 2 for sz in timed_seen_sizes))
+        self.assertLessEqual(timed_seen_sizes[-1], 2)
+
+        # Case 4: Unrecoverable OOM even at batch_size=1 disqualifies GPU and falls back to CPU.
+        class AlwaysOomGpuPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                if getattr(device, "type", "") == "cuda":
+                    raise RuntimeError("CUDA out of memory")
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        with mock.patch.object(gen_tool.Hardware_Utils, "begin_gpu_trial", return_value=None), \
+                mock.patch.object(gen_tool.Hardware_Utils, "synchronize_device"), \
+                mock.patch.object(gen_tool.Hardware_Utils, "release_device_cache"), \
+                mock.patch.object(batching, "_available_activation_bytes", return_value=4 * 1024 ** 3):
+            _m, ranked = gen_tool._benchmark_embedding_devices(
+                AlwaysOomGpuPlugin(),
+                "fake_model",
+                None,
+                pending,
+                np.dtype(np.float16),
+                4,
+                [cpu_cand, gpu_cand],
+            )
+        self.assertEqual([r.candidate.spec for r in ranked], ["cpu"])
+
+    def test_on_batch_complete_validation_error_leaves_no_partial_hdf5_or_failover(self):
+        with tempfile.TemporaryDirectory() as td:
+            fasta = os.path.join(td, "in.fasta")
+            out_h5 = os.path.join(td, "out.h5")
+            with open(fasta, "w", encoding="utf-8") as f:
+                f.write(">s0\nACDEFG\n>s1\nACDEFH\n>s2\nACDEFI\n>s3\nACDEFK\n")
+
+            calls = []
+
+            class BadSecondItemPlugin:
+                SUPPORTED_MODELS = ["bad_model"]
+                MODEL_EXECUTION_MODES = {"bad_model": "local"}
+
+                def load_model(self, model_name, device):
+                    return object()
+
+                def get_embedding(self, seq, model_obj, device, target_dtype):
+                    raise AssertionError("Should not fall back to single-sequence path")
+
+                def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                    calls.append((str(device), len(seqs)))
+                    embs = [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+                    if len(embs) >= 2:
+                        embs[1] = np.full((len(seqs[1]), 4), np.nan, dtype=target_dtype)
+                    return embs
+
+            cpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+                "cpu", "CPU", torch.device("cpu"), "cpu", None, False
+            )
+            gpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+                "cuda:0", "Fake GPU (CUDA)", torch.device("cuda:0"), "cuda", 0, True
+            )
+            ranked = [
+                gen_tool.Hardware_Utils.BenchmarkResult(gpu_cand, 0.1),
+                gen_tool.Hardware_Utils.BenchmarkResult(cpu_cand, 1.0),
+            ]
+            plugin = BadSecondItemPlugin()
+            with mock.patch.object(gen_tool, "DEVICE_SELECTION", "auto"), \
+                    mock.patch.object(
+                        gen_tool.Hardware_Utils, "get_available_devices", return_value=[cpu_cand, gpu_cand]
+                    ), \
+                    mock.patch.object(
+                        gen_tool, "_benchmark_embedding_devices", return_value=(object(), ranked)
+                    ), \
+                    mock.patch.object(batching, "_available_activation_bytes", return_value=4 * 1024 ** 3):
+                with self.assertRaisesRegex(ValueError, "NaN or infinite"):
+                    gen_tool.generate_embeddings(
+                        fasta, out_h5, "bad_model", "float16", plugin_loader=lambda _: plugin
+                    )
+
+            # Inference ran once on cuda:0: no batch splitting, no duplicate-key mask, no CPU failover.
+            self.assertEqual(calls, [("cuda:0", 4)])
+            with h5py.File(out_h5, "r") as hf:
+                self.assertEqual(list(hf["embeddings"].keys()), [])
+
+            # Also verify batch length mismatch creates zero datasets.
+            out_h5_mismatch = os.path.join(td, "out_mismatch.h5")
+
+            class ShortBatchPlugin(BadSecondItemPlugin):
+                def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                    return [np.ones((len(seqs[0]), 4), dtype=target_dtype)]
+
+            with mock.patch.object(gen_tool, "DEVICE_SELECTION", "cpu"), \
+                    mock.patch.object(
+                        gen_tool.Hardware_Utils, "get_available_devices", return_value=[cpu_cand]
+                    ):
+                with self.assertRaisesRegex(ValueError, "returned 1 embeddings for a batch of 4"):
+                    gen_tool.generate_embeddings(
+                        fasta, out_h5_mismatch, "bad_model", "float16",
+                        plugin_loader=lambda _: ShortBatchPlugin(),
+                    )
+            with h5py.File(out_h5_mismatch, "r") as hf:
+                self.assertEqual(list(hf["embeddings"].keys()), [])
+
+    def test_on_batch_complete_runtime_error_skips_retry_and_failover(self):
+        items = [("h0", "ACDE"), ("h1", "ACDE"), ("h2", "ACDE")]
+        infer_calls = []
+        failover_calls = []
+
+        class OkPlugin:
+            def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                infer_calls.append(len(seqs))
+                return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+        def failing_write(_batch, _embs):
+            raise RuntimeError("simulated HDF5 disk full")
+
+        def unexpected_failover(header, err):
+            failover_calls.append((header, err))
+            return None, torch.device("cpu")
+
+        with self.assertRaisesRegex(RuntimeError, "simulated HDF5 disk full"):
+            batching.run_batched_embeddings(
+                items,
+                plugin=OkPlugin(),
+                model_obj=None,
+                device=torch.device("cpu"),
+                target_dtype=np.dtype(np.float16),
+                on_batch_complete=failing_write,
+                on_single_failure=unexpected_failover,
+            )
+        self.assertEqual(infer_calls, [3])
+        self.assertEqual(failover_calls, [])
+
+    def test_embedding_injection_validation_failure_creates_no_partial_datasets(self):
+        with tempfile.TemporaryDirectory() as td:
+            old_h5 = os.path.join(td, "old.h5")
+            new_fasta = os.path.join(td, "new.fasta")
+            out_h5 = os.path.join(td, "out.h5")
+
+            with h5py.File(old_h5, "w") as hf:
+                grp = HDF5_Storage.create_metadata_first_file(
+                    hf, ["s0"], ["ACDE"], "fake_model", "float16"
+                )
+                grp.create_dataset("s0", data=np.ones((4, 8), dtype=np.float16))
+                HDF5_Storage.mark_generation_complete(hf)
+
+            with open(new_fasta, "w", encoding="utf-8") as f:
+                f.write(">s0\nACDE\n>s1\nFGHIK\n>s2\nLMNPQ\n")
+
+            class BadBatchPlugin:
+                def get_embedding(self, seq, model_obj, device, target_dtype):
+                    return np.ones((len(seq), 8), dtype=target_dtype)
+
+                def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                    return [
+                        np.ones((len(seqs[0]), 8), dtype=target_dtype),
+                        np.full((len(seqs[1]), 8), np.nan, dtype=target_dtype),
+                    ]
+
+            with mock.patch.object(
+                inject_tool, "load_model", return_value=(None, torch.device("cpu"), BadBatchPlugin())
+            ):
+                with self.assertRaisesRegex(ValueError, "NaN or infinite"):
+                    inject_tool.inject_embeddings(old_h5, new_fasta, out_h5)
+
+            with h5py.File(out_h5, "r") as hf:
+                # Existing s0 was copied, but neither s1 nor s2 from the invalid batch was created.
+                self.assertEqual(sorted(hf["embeddings"].keys()), ["s0"])
+
+    def test_available_activation_bytes_includes_reusable_cached_memory(self):
+        gib = 1024 ** 3
+        total = 8 * gib
+        free = int(1.5 * gib)
+        reserved = int(6.5 * gib)
+        allocated = int(3.0 * gib)
+        expected_cuda = int(((free + (reserved - allocated)) - int(total * 0.18)) * 0.50)
+
+        with mock.patch.object(torch.cuda, "mem_get_info", return_value=(free, total)), \
+                mock.patch.object(torch.cuda, "memory_reserved", return_value=reserved), \
+                mock.patch.object(torch.cuda, "memory_allocated", return_value=allocated):
+            budget = batching._available_activation_bytes(torch.device("cuda:0"))
+        self.assertEqual(budget, expected_cuda)
+
+        expected_xpu = int(((free + (reserved - allocated)) - int(total * 0.20)) * 0.50)
+        fake_xpu = mock.Mock()
+        fake_xpu.mem_get_info.return_value = (free, total)
+        fake_xpu.memory_reserved.return_value = reserved
+        fake_xpu.memory_allocated.return_value = allocated
+        with mock.patch.object(torch, "xpu", fake_xpu, create=True):
+            xpu_budget = batching._available_activation_bytes(torch.device("xpu:0"))
+        self.assertEqual(xpu_budget, expected_xpu)
+
+    def test_benchmark_releases_gpu_cache_on_gpu_win_and_cpu_win(self):
+        pending = [(f"s{i}", "ACDEFGHIKL" * (5 + i)) for i in range(6)]
+        cpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu", None, False
+        )
+        gpu_cand = gen_tool.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Fake GPU (CUDA)", torch.device("cuda:0"), "cuda", 0, True
+        )
+
+        for gpu_faster in (True, False):
+            with self.subTest(gpu_faster=gpu_faster):
+                events = []
+                clock = [0.0]
+
+                class TimedPlugin:
+                    def get_embeddings_batch(self, seqs, model_obj, device, target_dtype):
+                        dev_type = getattr(device, "type", "")
+                        events.append(("infer", dev_type))
+                        if dev_type == "cuda":
+                            clock[0] += 0.01 if gpu_faster else 2.0
+                        else:
+                            clock[0] += 1.0 if gpu_faster else 0.01
+                        return [np.ones((len(s), 4), dtype=target_dtype) for s in seqs]
+
+                def record_release(cand):
+                    events.append(("release", getattr(cand, "spec", str(cand))))
+
+                with mock.patch.object(gen_tool.Hardware_Utils, "begin_gpu_trial", return_value=None), \
+                        mock.patch.object(gen_tool.Hardware_Utils, "synchronize_device"), \
+                        mock.patch.object(
+                            gen_tool.Hardware_Utils, "release_device_cache", side_effect=record_release
+                        ), \
+                        mock.patch.object(batching, "_available_activation_bytes", return_value=4 * 1024 ** 3), \
+                        mock.patch.object(gen_tool.time, "perf_counter", side_effect=lambda: clock[0]):
+                    _m, ranked = gen_tool._benchmark_embedding_devices(
+                        TimedPlugin(),
+                        "fake_model",
+                        None,
+                        pending,
+                        np.dtype(np.float16),
+                        4,
+                        [cpu_cand, gpu_cand],
+                    )
+                expected_winner = "cuda:0" if gpu_faster else "cpu"
+                self.assertEqual(ranked[0].candidate.spec, expected_winner)
+                last_cuda_infer = max(
+                    idx for idx, ev in enumerate(events) if ev == ("infer", "cuda")
+                )
+                post_infer_releases = [
+                    ev for idx, ev in enumerate(events)
+                    if idx > last_cuda_infer and ev == ("release", "cuda:0")
+                ]
+                self.assertTrue(
+                    post_infer_releases,
+                    f"Expected release_device_cache('cuda:0') after CUDA benchmark, got {events}",
+                )
 
 
 if __name__ == "__main__":
