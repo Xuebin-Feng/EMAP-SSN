@@ -1230,6 +1230,8 @@ class KernelRepulsion:
         self._steps_since_sort = None
 
     def _sort(self, pos):
+        if not (self._cutoff > 0.0 and math.isfinite(self._cutoff)):
+            return
         cell = float(self._cutoff) / (8.0 if self.dims == 2 else 4.0)
         points = pos.index_select(0, self.run_index)
         limit = 65535 if self.dims == 2 else 1023

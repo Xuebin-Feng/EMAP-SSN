@@ -354,6 +354,8 @@ def _inverse_absolute_row_sums(csr):
         _absolute_row_sums(csr.indptr.astype(np.int64), csr.data, sums)
     else:
         sums = np.asarray(abs(csr).sum(axis=1), dtype=np.float64).ravel()
+    if not (np.isfinite(sums).all() and (sums > 0.0).all()):
+        raise ValueError("AMG smoothing requires positive finite absolute row sums.")
     return 1.0 / sums
 
 
@@ -386,6 +388,16 @@ class _BlockVCycle:
         if NUMBA_AVAILABLE and level_csrs is not None:
             fast = []
             for csr, w, P, R in zip(level_csrs, weights, prolongators, restrictions):
+                n_rows = P.shape[0]
+                if (
+                    getattr(P, "format", None) != "csr"
+                    or P.nnz != n_rows
+                    or P.indptr.size != n_rows + 1
+                    or int(P.indptr[-1]) != n_rows
+                    or not np.array_equal(P.indptr, np.arange(n_rows + 1))
+                ):
+                    fast = None
+                    break
                 fast.append((
                     csr.indptr.astype(np.int64),
                     csr.indices,

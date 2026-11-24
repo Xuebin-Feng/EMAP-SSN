@@ -1741,6 +1741,8 @@ def _converged_mcl_flow_numba(matrix, inflation, threshold, progress):
     import scipy.sparse as sp
 
     n = matrix.shape[0]
+    if n == 0:
+        return matrix.copy()
     matrix.sum_duplicates()
     matrix.sort_indices()
     indptr = np.ascontiguousarray(matrix.indptr, dtype=np.int64)
@@ -1823,6 +1825,10 @@ def _converged_mcl_flow(matrix, inflation, progress):
         and (n >= 1000 or matrix.nnz >= 40000)
         and inflation > 0
         and matrix.format == "csc"
+        and (
+            matrix.nnz == 0
+            or (np.isfinite(matrix.data).all() and not (matrix.data < 0.0).any())
+        )
     ):
         return _converged_mcl_flow_numba(matrix, inflation, threshold, progress)
 
@@ -2043,10 +2049,9 @@ if NUMBA_AVAILABLE:
 
             kept = 0
             if col_sum > 0.0:
-                inv_sum = 1.0 / col_sum
                 for t in range(nt):
                     row = touched_t[t]
-                    val = acc_t[row] * inv_sum
+                    val = acc_t[row] / col_sum
                     if val >= threshold or row == max_row:
                         if kept < cap:
                             out_idx_buf[local_c, kept] = row
@@ -2105,32 +2110,32 @@ if NUMBA_AVAILABLE:
                 if ra == rb:
                     va = a_data[pa]
                     vb = b_data[pb]
-                    if abs(va - vb) - rtol * abs(vb) > atol:
+                    if not (abs(va - vb) - rtol * abs(vb) <= atol):
                         bad = 1
                         break
                     pa += 1
                     pb += 1
                 elif ra < rb:
-                    if abs(a_data[pa]) > atol:
+                    if not (abs(a_data[pa]) <= atol):
                         bad = 1
                         break
                     pa += 1
                 else:
                     vb = b_data[pb]
-                    if abs(vb) - rtol * abs(vb) > atol:
+                    if not (abs(vb) - rtol * abs(vb) <= atol):
                         bad = 1
                         break
                     pb += 1
             if bad == 0:
                 while pa < ea:
-                    if abs(a_data[pa]) > atol:
+                    if not (abs(a_data[pa]) <= atol):
                         bad = 1
                         break
                     pa += 1
             if bad == 0:
                 while pb < eb:
                     vb = b_data[pb]
-                    if abs(vb) - rtol * abs(vb) > atol:
+                    if not (abs(vb) - rtol * abs(vb) <= atol):
                         bad = 1
                         break
                     pb += 1

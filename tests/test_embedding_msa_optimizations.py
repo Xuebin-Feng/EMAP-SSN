@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
@@ -143,6 +144,119 @@ class Track3MSAOptimizationTests(unittest.TestCase):
             final_eager.embedding.view(np.uint16),
             active_profiles[2 * n_seq - 2].view(np.uint16),
         )
+
+    def test_compact_nj_edge_cases_empty_singleton_nan_and_extreme_values(self):
+        # N = 0 and N = 1 must return empty linkage/branch arrays cleanly.
+        for n in (0, 1):
+            z, bl = msa.neighbor_joining_compact_kernel(np.zeros((n, n), dtype=np.float64))
+            self.assertEqual(z.shape, (0, 4))
+            self.assertEqual(bl.shape, (0, 2))
+
+        def assert_valid_merges(z, n):
+            self.assertEqual(z.shape, (n - 1, 4))
+            active = set(range(n))
+            for step in range(n - 1):
+                c1, c2 = int(z[step, 0]), int(z[step, 1])
+                self.assertLess(c1, c2)
+                self.assertIn(c1, active)
+                self.assertIn(c2, active)
+                active.remove(c1)
+                active.remove(c2)
+                active.add(n + step)
+            self.assertEqual(active, {2 * n - 2})
+
+        # N = 5 with all-NaN, partial-NaN, and extreme > 1e15 distances (no self-merge).
+        d_nan5 = np.full((5, 5), np.nan, dtype=np.float64)
+        z, bl = msa.neighbor_joining_compact_kernel(d_nan5.copy())
+        assert_valid_merges(z, 5)
+        self.assertEqual(bl.shape, (4, 2))
+
+        d_big5 = np.full((5, 5), 1e20, dtype=np.float64)
+        np.fill_diagonal(d_big5, 0.0)
+        d_big5[1, 3] = d_big5[3, 1] = 1e19
+        z_big5, _ = msa.neighbor_joining_compact_kernel(d_big5.copy())
+        assert_valid_merges(z_big5, 5)
+
+        # N = 80 (k >= 64): all-NaN, sparse finite (< 4 finite rows so n_top < 4!), and extreme 1e20.
+        d_nan80 = np.full((80, 80), np.nan, dtype=np.float64)
+        z_nan80, _ = msa.neighbor_joining_compact_kernel(d_nan80.copy())
+        assert_valid_merges(z_nan80, 80)
+
+        d_sparse_nan80 = np.full((80, 80), np.nan, dtype=np.float64)
+        d_sparse_nan80[0, :] = 1.0
+        d_sparse_nan80[:, 0] = 1.0
+        d_sparse_nan80[1, :] = 2.0
+        d_sparse_nan80[:, 1] = 2.0
+        np.fill_diagonal(d_sparse_nan80, 0.0)
+        z_sparse80, _ = msa.neighbor_joining_compact_kernel(d_sparse_nan80.copy())
+        assert_valid_merges(z_sparse80, 80)
+
+        d_big80 = np.full((80, 80), 1e20, dtype=np.float64)
+        np.fill_diagonal(d_big80, 0.0)
+        z_big80, _ = msa.neighbor_joining_compact_kernel(d_big80.copy())
+        assert_valid_merges(z_big80, 80)
+
+    def test_populate_condensed_matrix_ignores_self_loops(self):
+        n = 5
+        sentinel = np.float32(99.0)
+        cond = np.full(n * (n - 1) // 2, sentinel, dtype=np.float32)
+        edge_i = np.array([0, 0, 2, 4, 3], dtype=np.int32)
+        edge_j = np.array([0, 1, 2, 4, 1], dtype=np.int32)
+        edge_d = np.array([7.0, 1.5, 8.0, 9.0, 2.5], dtype=np.float32)
+
+        msa.populate_condensed_matrix(cond, n, edge_i, edge_j, edge_d)
+        expected = np.full(n * (n - 1) // 2, sentinel, dtype=np.float32)
+        # (0, 1) -> idx 0; (1, 3) -> 5*1 - 1 + 3 - 1 - 1 = 5
+        expected[0] = np.float32(1.5)
+        expected[5] = np.float32(2.5)
+        np.testing.assert_array_equal(cond, expected)
+        # Specifically ensure self-loop (0, 0) did not wrap around to cond[-1].
+        self.assertEqual(cond[-1], sentinel)
+
+    def test_neighbor_joining_kernel_does_not_mutate_caller_matrix(self):
+        rng = np.random.default_rng(55)
+        n = 12
+        d = np.ascontiguousarray(squareform(rng.uniform(0.1, 2.0, n * (n - 1) // 2)), dtype=np.float64)
+        d_orig = d.copy()
+        z, bl = msa.neighbor_joining_kernel(d, n)
+        np.testing.assert_array_equal(d, d_orig)
+        z_ref, bl_ref = msa.neighbor_joining_compact_kernel(d_orig.copy())
+        np.testing.assert_array_equal(z, z_ref)
+        np.testing.assert_array_equal(bl, bl_ref)
+
+    def test_consensus_accumulation_uses_limited_threads(self):
+        from utilities import Numba_Threads
+
+        rng = np.random.default_rng(101)
+        num_seqs = 10
+        m = num_seqs * (num_seqs - 1) // 2
+        z = sch.linkage(rng.random(m), method="average")
+        acc = np.zeros(m, dtype=np.float32)
+
+        with mock.patch.object(Numba_Threads, "limited_threads", wraps=Numba_Threads.limited_threads) as spy:
+            msa.accumulate_full_cophenetic(z, num_seqs, acc, threads=2)
+            msa.add_replicates_batch_to_consensus([(z, None)], num_seqs, acc, threads=2)
+        self.assertEqual(spy.call_count, 2)
+        self.assertEqual([call.args[0] for call in spy.call_args_list], [2, 2])
+
+    def test_msa_kernels_module_alias_and_readonly_cache_fallback(self):
+        from utilities import MSA_Kernels as mk
+
+        self.assertIs(sys.modules["MSA_Kernels"], sys.modules["utilities.MSA_Kernels"])
+        calls = []
+
+        def fake_jit(*args, **kwargs):
+            calls.append(kwargs.get("cache"))
+            if kwargs.get("cache"):
+                def fail(fn):
+                    raise RuntimeError("cannot cache function 'sample': no locator available")
+                return fail
+            return lambda fn: fn
+
+        with mock.patch.object(mk, "jit", side_effect=fake_jit):
+            fn = mk._compile_cached(lambda x: x + 1)
+        self.assertEqual(calls, [True, False])
+        self.assertEqual(fn(2), 3)
 
 
 if __name__ == "__main__":

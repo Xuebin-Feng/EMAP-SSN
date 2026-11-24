@@ -873,39 +873,45 @@ def map_network_indices(indices, net_old_to_new):
     return mapped
 
 
-def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator):
+def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator, threads=None):
     """Add float32 cophenetic distances for every condensed pair in place."""
     if num_seqs <= 1:
         return
     par, sib, ml, mh, ss, se, leaves = _prep_tree_euler(Z, num_seqs)
-    _accumulate_cophenetic_batch_kernel(
-        par[None, :], sib[None, :], ml[None, :], mh[None, :],
-        ss[None, :], se[None, :], leaves[None, :], num_seqs, coph_accumulator,
-    )
+    if threads is None:
+        threads = Numba_Threads.default_thread_count()
+    with Numba_Threads.limited_threads(threads):
+        _accumulate_cophenetic_batch_kernel(
+            par[None, :], sib[None, :], ml[None, :], mh[None, :],
+            ss[None, :], se[None, :], leaves[None, :], num_seqs, coph_accumulator,
+        )
 
 
-def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator):
+def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator, threads=None):
     """Add float32 leaf-to-leaf path lengths for every condensed pair in place."""
     if num_seqs <= 1:
         return
     par, sib, ml, rd, ss, se, leaves = _prep_tree_euler_nj(Z, num_seqs, node_length)
-    _accumulate_path_lengths_batch_kernel(
-        par[None, :], sib[None, :], ml[None, :], rd[None, :],
-        ss[None, :], se[None, :], leaves[None, :], num_seqs, path_accumulator,
-    )
+    if threads is None:
+        threads = Numba_Threads.default_thread_count()
+    with Numba_Threads.limited_threads(threads):
+        _accumulate_path_lengths_batch_kernel(
+            par[None, :], sib[None, :], ml[None, :], rd[None, :],
+            ss[None, :], se[None, :], leaves[None, :], num_seqs, path_accumulator,
+        )
 
 
-def add_replicate_to_consensus(Z, nj_branch_lengths, num_seqs, accumulator):
+def add_replicate_to_consensus(Z, nj_branch_lengths, num_seqs, accumulator, threads=None):
     """Add one replicate tree's distance for every pair to the consensus, in place."""
     if nj_branch_lengths is None:
-        accumulate_full_cophenetic(Z, num_seqs, accumulator)
+        accumulate_full_cophenetic(Z, num_seqs, accumulator, threads=threads)
         return
 
     _, node_length = guide_tree_branches(Z, num_seqs, nj_branch_lengths)
-    accumulate_full_path_lengths(Z, num_seqs, node_length, accumulator)
+    accumulate_full_path_lengths(Z, num_seqs, node_length, accumulator, threads=threads)
 
 
-def add_replicates_batch_to_consensus(replicates, num_seqs, accumulator):
+def add_replicates_batch_to_consensus(replicates, num_seqs, accumulator, threads=None):
     """Add a batch of replicate trees in exact order using one sequential DRAM pass.
 
     Bit-for-bit identical to calling ``add_replicate_to_consensus`` on each tree
@@ -914,36 +920,40 @@ def add_replicates_batch_to_consensus(replicates, num_seqs, accumulator):
     """
     if num_seqs <= 1 or not replicates:
         return
+    if threads is None:
+        threads = Numba_Threads.default_thread_count()
     is_nj = replicates[0][1] is not None
     if not is_nj:
         prepped = [_prep_tree_euler(Z, num_seqs) for Z, _ in replicates]
-        _accumulate_cophenetic_batch_kernel(
-            np.stack([p[0] for p in prepped]),
-            np.stack([p[1] for p in prepped]),
-            np.stack([p[2] for p in prepped]),
-            np.stack([p[3] for p in prepped]),
-            np.stack([p[4] for p in prepped]),
-            np.stack([p[5] for p in prepped]),
-            np.stack([p[6] for p in prepped]),
-            num_seqs,
-            accumulator,
-        )
+        with Numba_Threads.limited_threads(threads):
+            _accumulate_cophenetic_batch_kernel(
+                np.stack([p[0] for p in prepped]),
+                np.stack([p[1] for p in prepped]),
+                np.stack([p[2] for p in prepped]),
+                np.stack([p[3] for p in prepped]),
+                np.stack([p[4] for p in prepped]),
+                np.stack([p[5] for p in prepped]),
+                np.stack([p[6] for p in prepped]),
+                num_seqs,
+                accumulator,
+            )
     else:
         prepped = []
         for Z, bl in replicates:
             _, node_length = guide_tree_branches(Z, num_seqs, bl)
             prepped.append(_prep_tree_euler_nj(Z, num_seqs, node_length))
-        _accumulate_path_lengths_batch_kernel(
-            np.stack([p[0] for p in prepped]),
-            np.stack([p[1] for p in prepped]),
-            np.stack([p[2] for p in prepped]),
-            np.stack([p[3] for p in prepped]),
-            np.stack([p[4] for p in prepped]),
-            np.stack([p[5] for p in prepped]),
-            np.stack([p[6] for p in prepped]),
-            num_seqs,
-            accumulator,
-        )
+        with Numba_Threads.limited_threads(threads):
+            _accumulate_path_lengths_batch_kernel(
+                np.stack([p[0] for p in prepped]),
+                np.stack([p[1] for p in prepped]),
+                np.stack([p[2] for p in prepped]),
+                np.stack([p[3] for p in prepped]),
+                np.stack([p[4] for p in prepped]),
+                np.stack([p[5] for p in prepped]),
+                np.stack([p[6] for p in prepped]),
+                num_seqs,
+                accumulator,
+            )
 
 
 def finalize_cophenetic_consensus(distance_matrix, num_trees):
@@ -956,7 +966,7 @@ def finalize_cophenetic_consensus(distance_matrix, num_trees):
 
 def neighbor_joining_kernel(D, N):
     """Compatibility entry point delegating to the compact (N, N) NJ kernel."""
-    D_sub = np.ascontiguousarray(D[:N, :N], dtype=np.float64)
+    D_sub = np.array(D[:N, :N], dtype=np.float64, copy=True, order="C")
     return neighbor_joining_compact_kernel(D_sub)
 
 
@@ -2541,8 +2551,10 @@ def run_msa_builder():
     del arr_i
     edge_j = map_network_indices(arr_j, net_old_to_new)
     del arr_j
-    if edge_i.size and (edge_i.min() < 0 or edge_j.min() < 0):
-        keep = (edge_i >= 0) & (edge_j >= 0)
+    if edge_i.size and (
+        edge_i.min() < 0 or edge_j.min() < 0 or np.any(edge_i == edge_j)
+    ):
+        keep = (edge_i >= 0) & (edge_j >= 0) & (edge_i != edge_j)
         edge_i = edge_i[keep]
         edge_j = edge_j[keep]
         target_score = target_score[keep]
@@ -2844,7 +2856,9 @@ def run_msa_builder():
                 split_keys.append(replicate_split_keys(Z, num_seqs, leaf_keys))
                 consensus_batch.append((Z, replicate_lengths))
                 if len(consensus_batch) >= consensus_batch_size:
-                    add_replicates_batch_to_consensus(consensus_batch, num_seqs, D_final_cond)
+                    add_replicates_batch_to_consensus(
+                        consensus_batch, num_seqs, D_final_cond, threads=worker_threads
+                    )
                     consensus_batch.clear()
         if consensus_batch:
             add_replicates_batch_to_consensus(consensus_batch, num_seqs, D_final_cond)

@@ -23,25 +23,48 @@ imported as ``tools.Embedding_MSA``, or loaded dynamically in tests.
 
 from __future__ import annotations
 
+import sys
 import numpy as np
 from numba import jit, prange
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+# Module aliasing to prevent duplicate JIT caches in long-running processes
+_THIS_MODULE = sys.modules[__name__]
+if __name__ == "MSA_Kernels":
+    sys.modules.setdefault("utilities.MSA_Kernels", _THIS_MODULE)
+else:
+    sys.modules.setdefault("MSA_Kernels", _THIS_MODULE)
+
+
+def _compile_cached(func=None, *, parallel=False, fastmath=False):
+    def decorator(fn):
+        try:
+            return jit(nopython=True, fastmath=fastmath, parallel=parallel, cache=True)(fn)
+        except RuntimeError as exc:
+            if "cannot cache" not in str(exc).lower():
+                raise
+            return jit(nopython=True, fastmath=fastmath, parallel=parallel, cache=False)(fn)
+    return decorator(func) if func is not None else decorator
+
+
+@_compile_cached(fastmath=False)
 def populate_condensed_matrix(D_condensed, num_seqs, edge_i, edge_j, edge_dists):
     """Blazing fast population of the 1D condensed array from sparse data."""
+    n = np.int64(num_seqs)
     for k in range(len(edge_i)):
-        i = edge_i[k]
-        j = edge_j[k]
+        i = np.int64(edge_i[k])
+        j = np.int64(edge_j[k])
+        if i == j:
+            continue
         if i > j:
             temp = i
             i = j
             j = temp
-        idx = int(num_seqs * i - i * (i + 1) / 2 + j - i - 1)
+        idx = n * i - (i * (i + 1)) // 2 + j - i - 1
         D_condensed[idx] = edge_dists[k]
 
 
-@jit(nopython=True, cache=True)
+@_compile_cached(fastmath=False)
 def _prep_tree_euler(Z, num_seqs):
     """Build O(N) Euler-tour leaf spans, parent, sibling, max_leaf, and merge heights."""
     total_nodes = 2 * num_seqs - 1
@@ -109,7 +132,7 @@ def _prep_tree_euler(Z, num_seqs):
     return parent, sibling, max_leaf, merge_h, sub_start, sub_end, dfs_leaves
 
 
-@jit(nopython=True, cache=True)
+@_compile_cached(fastmath=False)
 def _prep_tree_euler_nj(Z, num_seqs, node_length):
     """Build O(N) Euler-tour spans + float64 distance-to-root for NJ path lengths."""
     parent, sibling, max_leaf, _mh, sub_start, sub_end, dfs_leaves = _prep_tree_euler(
@@ -127,7 +150,7 @@ def _prep_tree_euler_nj(Z, num_seqs, node_length):
     return parent, sibling, max_leaf, root_dist, sub_start, sub_end, dfs_leaves
 
 
-@jit(nopython=True, parallel=True, cache=True)
+@_compile_cached(parallel=True, fastmath=False)
 def _accumulate_cophenetic_batch_kernel(
     parents,
     siblings,
@@ -183,7 +206,7 @@ def _accumulate_cophenetic_batch_kernel(
                 coph_accumulator[row_off + c] = buf[c]
 
 
-@jit(nopython=True, parallel=True, cache=True)
+@_compile_cached(parallel=True, fastmath=False)
 def _accumulate_path_lengths_batch_kernel(
     parents,
     siblings,
@@ -240,21 +263,25 @@ def _accumulate_path_lengths_batch_kernel(
                 path_accumulator[row_off + c] = buf[c]
 
 
-@jit(nopython=True, fastmath=True, parallel=True, cache=True)
+@_compile_cached(parallel=True, fastmath=False)
 def _nj_dense_row_minima(D, slot_node_id, r_slot, row_dmin, k, row_min, row_arg):
     """Unit-stride SIMD row-minimum Q search on shrinking k x k active matrix."""
-    r_max = -1e300
+    r_max = -np.inf
     for s in range(k):
-        if r_slot[s] > r_max:
-            r_max = r_slot[s]
+        rv = r_slot[s]
+        if rv > r_max:
+            r_max = rv
 
-    global_ub = 1e15
+    global_ub = np.inf
     if k >= 64:
-        top_s = np.empty(4, dtype=np.int64)
-        top_v = np.full(4, -1e300, dtype=np.float64)
+        top_s = np.zeros(4, dtype=np.int64)
+        top_v = np.full(4, -np.inf, dtype=np.float64)
+        n_top = 0
         for s in range(k):
             rv = r_slot[s]
             if rv > top_v[3]:
+                if n_top < 4:
+                    n_top += 1
                 pos = 3
                 while pos > 0 and rv > top_v[pos - 1]:
                     top_v[pos] = top_v[pos - 1]
@@ -262,7 +289,7 @@ def _nj_dense_row_minima(D, slot_node_id, r_slot, row_dmin, k, row_min, row_arg)
                     pos -= 1
                 top_v[pos] = rv
                 top_s[pos] = s
-        for ti in range(4):
+        for ti in range(n_top):
             su = top_s[ti]
             ru = r_slot[su]
             for sv in range(k):
@@ -274,11 +301,11 @@ def _nj_dense_row_minima(D, slot_node_id, r_slot, row_dmin, k, row_min, row_arg)
     for su in prange(k):
         ru = r_slot[su]
         if k >= 64 and row_dmin[su] - (ru + r_max) > global_ub + 1e-9:
-            row_min[su] = 1e15
+            row_min[su] = np.inf
             row_arg[su] = -1
             continue
         u_id = slot_node_id[su]
-        best_q = 1e15
+        best_q = np.inf
         best_sv = -1
         best_vid = 2147483647
         for sv in range(k):
@@ -293,7 +320,33 @@ def _nj_dense_row_minima(D, slot_node_id, r_slot, row_dmin, k, row_min, row_arg)
         row_arg[su] = best_sv
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@_compile_cached(fastmath=False)
+def _nj_select_min_pair(row_min, row_arg, slot_node_id, k):
+    """Select global minimum (su, sv) pair with strict IEEE NaN/Inf handling."""
+    min_Q = np.inf
+    su = -1
+    sv = -1
+    best_uid = 2147483647
+    for s in range(k):
+        arg = row_arg[s]
+        if arg < 0:
+            continue
+        q = row_min[s]
+        uid = slot_node_id[s]
+        if su < 0 or q < min_Q or (q == min_Q and uid < best_uid):
+            min_Q = q
+            su = s
+            sv = arg
+            best_uid = uid
+    if su < 0 or sv < 0:
+        if slot_node_id[0] < slot_node_id[1]:
+            su, sv = 0, 1
+        else:
+            su, sv = 1, 0
+    return su, sv
+
+
+@_compile_cached(fastmath=True)
 def neighbor_joining_compact_kernel(D_compact):
     """Exact Saitou-Nei NJ in a compact shrinking (k x k) submatrix of (N, N) float64.
 
@@ -302,6 +355,8 @@ def neighbor_joining_compact_kernel(D_compact):
     uses O(1) row lower-bound pruning, and preserves exact ascending (u, v) tie order.
     """
     N = D_compact.shape[0]
+    if N <= 1:
+        return np.zeros((0, 4), dtype=np.float64), np.zeros((0, 2), dtype=np.float64)
     Z = np.zeros((N - 1, 4), dtype=np.float64)
     branch_lengths = np.zeros((N - 1, 2), dtype=np.float64)
 
@@ -336,18 +391,7 @@ def neighbor_joining_compact_kernel(D_compact):
             _nj_dense_row_minima(
                 D_compact, slot_node_id, r_slot, row_dmin, k, row_min, row_arg
             )
-            min_Q = 1e15
-            su = -1
-            sv = -1
-            best_uid = 2147483647
-            for s in range(k):
-                q = row_min[s]
-                uid = slot_node_id[s]
-                if q < min_Q or (q == min_Q and uid < best_uid):
-                    min_Q = q
-                    su = s
-                    sv = row_arg[s]
-                    best_uid = uid
+            su, sv = _nj_select_min_pair(row_min, row_arg, slot_node_id, k)
         else:
             if slot_node_id[0] < slot_node_id[1]:
                 su, sv = 0, 1
@@ -416,7 +460,7 @@ def neighbor_joining_compact_kernel(D_compact):
     return Z, branch_lengths
 
 
-@jit(nopython=True, cache=True)
+@_compile_cached(fastmath=False)
 def linkage_split_keys(Z, num_seqs, leaf_keys):
     """Return a 64-bit key for each non-trivial split of a linkage tree.
 
@@ -441,7 +485,7 @@ def linkage_split_keys(Z, num_seqs, leaf_keys):
     return keys[:count]
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@_compile_cached(fastmath=True)
 def calculate_normalized_scores_kernel(
     edge_i, edge_j, raw_scores, align_lens, seq_lens, is_evalue, mode_int
 ):
@@ -479,7 +523,7 @@ def calculate_normalized_scores_kernel(
     return norm_scores, max_norm_score
 
 
-@jit(nopython=True, fastmath=True, cache=True)
+@_compile_cached(fastmath=True)
 def run_global_traceback(score_matrix, gap_open, gap_extend):
     """3-state Gotoh affine global alignment using 2-row L1 DP + 1 B/cell packed pointers."""
     N, M = score_matrix.shape

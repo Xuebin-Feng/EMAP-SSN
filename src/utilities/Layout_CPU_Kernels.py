@@ -13,6 +13,7 @@ equivalence with the serial all-pairs physics formulas in 2D and 3D.
 from __future__ import annotations
 
 import math
+import sys
 import numpy as np
 
 try:
@@ -25,6 +26,14 @@ except ImportError:
     prange = range
 
 
+# Module aliasing to prevent duplicate JIT caches in long-running processes
+_THIS_MODULE = sys.modules[__name__]
+if __name__ == "Layout_CPU_Kernels":
+    sys.modules.setdefault("utilities.Layout_CPU_Kernels", _THIS_MODULE)
+else:
+    sys.modules.setdefault("Layout_CPU_Kernels", _THIS_MODULE)
+
+
 # Every fastmath flag except 'contract' so Euler updates keep separate
 # multiply and add roundings (matching slice arithmetic bit-for-bit).
 _UNFUSED_FASTMATH = {"nnan", "ninf", "nsz", "arcp", "afn", "reassoc"}
@@ -33,7 +42,12 @@ _UNFUSED_FASTMATH = {"nnan", "ninf", "nsz", "arcp", "afn", "reassoc"}
 def _compile_cached(func=None, *, parallel=False, fastmath=True):
     def decorator(fn):
         if NUMBA_AVAILABLE:
-            return jit(nopython=True, fastmath=fastmath, parallel=parallel, cache=True)(fn)
+            try:
+                return jit(nopython=True, fastmath=fastmath, parallel=parallel, cache=True)(fn)
+            except RuntimeError as exc:
+                if "cannot cache" not in str(exc).lower():
+                    raise
+                return jit(nopython=True, fastmath=fastmath, parallel=parallel, cache=False)(fn)
         return fn
     return decorator(func) if func is not None else decorator
 
@@ -215,7 +229,7 @@ def repulsion_direct_range_2d(
         acc[node, 1] += repulsion[node, 1]
 
 
-@_compile_cached
+@_compile_cached(fastmath=False)
 def accumulate_repulsion_grouped_2d(
     pos, acc, repulsion, run_pos, members, run_starts, run_ends, n_threads,
     k_coul, max_f, max_total_repulsion, cutoff_dist,
@@ -241,15 +255,15 @@ def accumulate_repulsion_grouped_2d(
             break
         p = end
 
-    if not has_large or cutoff_dist <= 0.0 or not math.isfinite(cutoff_dist):
+    h = cutoff_dist * 1.0001
+    inv_h = 1.0 / h if (cutoff_dist > 0.0 and math.isfinite(h)) else 0.0
+    if not has_large or cutoff_dist <= 0.0 or not math.isfinite(cutoff_dist) or not math.isfinite(inv_h) or inv_h <= 0.0:
         repulsion_direct_range_2d(
             run_pos, members, run_starts, run_ends, acc, repulsion, 0, n_active,
             k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
         )
         return
 
-    h = cutoff_dist * 1.0001
-    inv_h = 1.0 / h
     p = 0
     direct_lo = -1
     while p < n_active:
@@ -259,79 +273,93 @@ def accumulate_repulsion_grouped_2d(
         if m >= 512:
             min_x = float(run_pos[p, 0]); max_x = min_x
             min_y = float(run_pos[p, 1]); max_y = min_y
-            for idx in range(p + 1, end):
-                vx = float(run_pos[idx, 0])
-                vy = float(run_pos[idx, 1])
-                if vx < min_x: min_x = vx
-                elif vx > max_x: max_x = vx
-                if vy < min_y: min_y = vy
-                elif vy > max_y: max_y = vy
-            span_x = max_x - min_x
-            span_y = max_y - min_y
-            if (
-                math.isfinite(span_x) and math.isfinite(span_y)
-                and span_x * inv_h < 1e4 and span_y * inv_h < 1e4
-            ):
-                nx = int(math.floor(span_x * inv_h)) + 1
-                ny = int(math.floor(span_y * inv_h)) + 1
-                n_cells = nx * ny
-                if 36 <= n_cells <= 262144:
-                    cell_cx = np.empty(m, dtype=np.int32)
-                    cell_cy = np.empty(m, dtype=np.int32)
-                    counts = np.zeros(n_cells, dtype=np.int32)
-                    for local in range(m):
-                        cx = int(math.floor((float(run_pos[p + local, 0]) - min_x) * inv_h))
-                        cy = int(math.floor((float(run_pos[p + local, 1]) - min_y) * inv_h))
-                        cell_cx[local] = cx
-                        cell_cy[local] = cy
-                        counts[cx * ny + cy] += 1
-                    cand_pairs = np.int64(0)
-                    for cx_i in range(nx):
-                        cx_lo = cx_i - 1 if cx_i > 0 else 0
-                        cx_hi = cx_i + 1 if cx_i + 1 < nx else nx - 1
-                        row_off = cx_i * ny
-                        for cy_i in range(ny):
-                            c_here = counts[row_off + cy_i]
-                            if c_here == 0:
-                                continue
-                            cy_lo = cy_i - 1 if cy_i > 0 else 0
-                            cy_hi = cy_i + 1 if cy_i + 1 < ny else ny - 1
-                            nb = np.int64(0)
-                            for nx_i in range(cx_lo, cx_hi + 1):
-                                n_off = nx_i * ny
-                                for ny_i in range(cy_lo, cy_hi + 1):
-                                    nb += counts[n_off + ny_i]
-                            cand_pairs += np.int64(c_here) * nb
-                    if cand_pairs * 7 < np.int64(m) * np.int64(m):
-                        cell_ptr = np.empty(n_cells + 1, dtype=np.int32)
-                        acc_cnt = 0
-                        for cid in range(n_cells):
-                            cell_ptr[cid] = acc_cnt
-                            acc_cnt += counts[cid]
-                        cell_ptr[n_cells] = acc_cnt
-                        fill = cell_ptr[:-1].copy()
-                        cell_nodes = np.empty(m, dtype=np.int32)
-                        cell_pos = np.empty((m, 2), dtype=pos.dtype)
+            all_finite = math.isfinite(min_x) and math.isfinite(min_y)
+            if all_finite:
+                for idx in range(p + 1, end):
+                    vx = float(run_pos[idx, 0])
+                    vy = float(run_pos[idx, 1])
+                    if not (math.isfinite(vx) and math.isfinite(vy)):
+                        all_finite = False
+                        break
+                    if vx < min_x: min_x = vx
+                    elif vx > max_x: max_x = vx
+                    if vy < min_y: min_y = vy
+                    elif vy > max_y: max_y = vy
+            if all_finite:
+                span_x = max_x - min_x
+                span_y = max_y - min_y
+                if (
+                    math.isfinite(span_x) and math.isfinite(span_y)
+                    and span_x * inv_h < 1e4 and span_y * inv_h < 1e4
+                ):
+                    nx = int(math.floor(span_x * inv_h)) + 1
+                    ny = int(math.floor(span_y * inv_h)) + 1
+                    n_cells = nx * ny
+                    if 36 <= n_cells <= 262144:
+                        cell_cx = np.empty(m, dtype=np.int32)
+                        cell_cy = np.empty(m, dtype=np.int32)
+                        counts = np.zeros(n_cells, dtype=np.int32)
                         for local in range(m):
-                            cid = cell_cx[local] * ny + cell_cy[local]
-                            dst = fill[cid]
-                            fill[cid] = dst + 1
-                            cell_nodes[dst] = local
-                            cell_pos[dst, 0] = run_pos[p + local, 0]
-                            cell_pos[dst, 1] = run_pos[p + local, 1]
-                        hit_bufs = np.empty((n_threads, m), dtype=np.int32)
-                        if direct_lo != -1:
-                            repulsion_direct_range_2d(
-                                run_pos, members, run_starts, run_ends, acc, repulsion, direct_lo, p,
+                            cx = int(math.floor((float(run_pos[p + local, 0]) - min_x) * inv_h))
+                            if cx < 0:
+                                cx = 0
+                            elif cx >= nx:
+                                cx = nx - 1
+                            cy = int(math.floor((float(run_pos[p + local, 1]) - min_y) * inv_h))
+                            if cy < 0:
+                                cy = 0
+                            elif cy >= ny:
+                                cy = ny - 1
+                            cell_cx[local] = cx
+                            cell_cy[local] = cy
+                            counts[cx * ny + cy] += 1
+                        cand_pairs = np.int64(0)
+                        for cx_i in range(nx):
+                            cx_lo = cx_i - 1 if cx_i > 0 else 0
+                            cx_hi = cx_i + 1 if cx_i + 1 < nx else nx - 1
+                            row_off = cx_i * ny
+                            for cy_i in range(ny):
+                                c_here = counts[row_off + cy_i]
+                                if c_here == 0:
+                                    continue
+                                cy_lo = cy_i - 1 if cy_i > 0 else 0
+                                cy_hi = cy_i + 1 if cy_i + 1 < ny else ny - 1
+                                nb = np.int64(0)
+                                for nx_i in range(cx_lo, cx_hi + 1):
+                                    n_off = nx_i * ny
+                                    for ny_i in range(cy_lo, cy_hi + 1):
+                                        nb += counts[n_off + ny_i]
+                                cand_pairs += np.int64(c_here) * nb
+                        if cand_pairs * 7 < np.int64(m) * np.int64(m):
+                            cell_ptr = np.empty(n_cells + 1, dtype=np.int32)
+                            acc_cnt = 0
+                            for cid in range(n_cells):
+                                cell_ptr[cid] = acc_cnt
+                                acc_cnt += counts[cid]
+                            cell_ptr[n_cells] = acc_cnt
+                            fill = cell_ptr[:-1].copy()
+                            cell_nodes = np.empty(m, dtype=np.int32)
+                            cell_pos = np.empty((m, 2), dtype=pos.dtype)
+                            for local in range(m):
+                                cid = cell_cx[local] * ny + cell_cy[local]
+                                dst = fill[cid]
+                                fill[cid] = dst + 1
+                                cell_nodes[dst] = local
+                                cell_pos[dst, 0] = run_pos[p + local, 0]
+                                cell_pos[dst, 1] = run_pos[p + local, 1]
+                            hit_bufs = np.empty((n_threads, m // 5 + 1), dtype=np.int32)
+                            if direct_lo != -1:
+                                repulsion_direct_range_2d(
+                                    run_pos, members, run_starts, run_ends, acc, repulsion, direct_lo, p,
+                                    k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
+                                )
+                                direct_lo = -1
+                            repulsion_grid_run_2d(
+                                run_pos, members, acc, repulsion, p, m,
+                                cell_cx, cell_cy, ny, nx, cell_ptr, cell_nodes, cell_pos, hit_bufs,
                                 k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
                             )
-                            direct_lo = -1
-                        repulsion_grid_run_2d(
-                            run_pos, members, acc, repulsion, p, m,
-                            cell_cx, cell_cy, ny, nx, cell_ptr, cell_nodes, cell_pos, hit_bufs,
-                            k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
-                        )
-                        used_grid = True
+                            used_grid = True
         if not used_grid and direct_lo == -1:
             direct_lo = p
         p = end
@@ -561,7 +589,7 @@ def repulsion_direct_range_3d(
         acc[node, 2] += repulsion[node, 2]
 
 
-@_compile_cached
+@_compile_cached(fastmath=False)
 def accumulate_repulsion_grouped_3d(
     pos, acc, repulsion, run_pos, members, run_starts, run_ends, n_threads,
     k_coul, max_f, max_total_repulsion, cutoff_dist,
@@ -588,15 +616,15 @@ def accumulate_repulsion_grouped_3d(
             break
         p = end
 
-    if not has_large or cutoff_dist <= 0.0 or not math.isfinite(cutoff_dist):
+    h = cutoff_dist * 1.0001
+    inv_h = 1.0 / h if (cutoff_dist > 0.0 and math.isfinite(h)) else 0.0
+    if not has_large or cutoff_dist <= 0.0 or not math.isfinite(cutoff_dist) or not math.isfinite(inv_h) or inv_h <= 0.0:
         repulsion_direct_range_3d(
             run_pos, members, run_starts, run_ends, acc, repulsion, 0, n_active,
             k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
         )
         return
 
-    h = cutoff_dist * 1.0001
-    inv_h = 1.0 / h
     p = 0
     direct_lo = -1
     while p < n_active:
@@ -607,92 +635,110 @@ def accumulate_repulsion_grouped_3d(
             min_x = float(run_pos[p, 0]); max_x = min_x
             min_y = float(run_pos[p, 1]); max_y = min_y
             min_z = float(run_pos[p, 2]); max_z = min_z
-            for idx in range(p + 1, end):
-                vx = float(run_pos[idx, 0])
-                vy = float(run_pos[idx, 1])
-                vz = float(run_pos[idx, 2])
-                if vx < min_x: min_x = vx
-                elif vx > max_x: max_x = vx
-                if vy < min_y: min_y = vy
-                elif vy > max_y: max_y = vy
-                if vz < min_z: min_z = vz
-                elif vz > max_z: max_z = vz
-            span_x = max_x - min_x
-            span_y = max_y - min_y
-            span_z = max_z - min_z
-            if (
-                math.isfinite(span_x) and math.isfinite(span_y) and math.isfinite(span_z)
-                and span_x * inv_h < 256.0 and span_y * inv_h < 256.0 and span_z * inv_h < 256.0
-            ):
-                nx = int(math.floor(span_x * inv_h)) + 1
-                ny = int(math.floor(span_y * inv_h)) + 1
-                nz = int(math.floor(span_z * inv_h)) + 1
-                n_cells = nx * ny * nz
-                if 125 <= n_cells <= 262144:
-                    cell_cx = np.empty(m, dtype=np.int32)
-                    cell_cy = np.empty(m, dtype=np.int32)
-                    cell_cz = np.empty(m, dtype=np.int32)
-                    counts = np.zeros(n_cells, dtype=np.int32)
-                    for local in range(m):
-                        cx = int(math.floor((float(run_pos[p + local, 0]) - min_x) * inv_h))
-                        cy = int(math.floor((float(run_pos[p + local, 1]) - min_y) * inv_h))
-                        cz = int(math.floor((float(run_pos[p + local, 2]) - min_z) * inv_h))
-                        cell_cx[local] = cx
-                        cell_cy[local] = cy
-                        cell_cz[local] = cz
-                        counts[(cx * ny + cy) * nz + cz] += 1
-                    cand_pairs = np.int64(0)
-                    for cx_i in range(nx):
-                        cx_lo = cx_i - 1 if cx_i > 0 else 0
-                        cx_hi = cx_i + 1 if cx_i + 1 < nx else nx - 1
-                        for cy_i in range(ny):
-                            cy_lo = cy_i - 1 if cy_i > 0 else 0
-                            cy_hi = cy_i + 1 if cy_i + 1 < ny else ny - 1
-                            base_xy = (cx_i * ny + cy_i) * nz
-                            for cz_i in range(nz):
-                                c_here = counts[base_xy + cz_i]
-                                if c_here == 0:
-                                    continue
-                                cz_lo = cz_i - 1 if cz_i > 0 else 0
-                                cz_hi = cz_i + 1 if cz_i + 1 < nz else nz - 1
-                                nb = np.int64(0)
-                                for nx_i in range(cx_lo, cx_hi + 1):
-                                    for ny_i in range(cy_lo, cy_hi + 1):
-                                        n_base = (nx_i * ny + ny_i) * nz
-                                        for nz_i in range(cz_lo, cz_hi + 1):
-                                            nb += counts[n_base + nz_i]
-                                cand_pairs += np.int64(c_here) * nb
-                    if cand_pairs * 7 < np.int64(m) * np.int64(m):
-                        cell_ptr = np.empty(n_cells + 1, dtype=np.int32)
-                        acc_cnt = 0
-                        for cid in range(n_cells):
-                            cell_ptr[cid] = acc_cnt
-                            acc_cnt += counts[cid]
-                        cell_ptr[n_cells] = acc_cnt
-                        fill = cell_ptr[:-1].copy()
-                        cell_nodes = np.empty(m, dtype=np.int32)
-                        cell_pos = np.empty((m, 3), dtype=pos.dtype)
+            all_finite = math.isfinite(min_x) and math.isfinite(min_y) and math.isfinite(min_z)
+            if all_finite:
+                for idx in range(p + 1, end):
+                    vx = float(run_pos[idx, 0])
+                    vy = float(run_pos[idx, 1])
+                    vz = float(run_pos[idx, 2])
+                    if not (math.isfinite(vx) and math.isfinite(vy) and math.isfinite(vz)):
+                        all_finite = False
+                        break
+                    if vx < min_x: min_x = vx
+                    elif vx > max_x: max_x = vx
+                    if vy < min_y: min_y = vy
+                    elif vy > max_y: max_y = vy
+                    if vz < min_z: min_z = vz
+                    elif vz > max_z: max_z = vz
+            if all_finite:
+                span_x = max_x - min_x
+                span_y = max_y - min_y
+                span_z = max_z - min_z
+                if (
+                    math.isfinite(span_x) and math.isfinite(span_y) and math.isfinite(span_z)
+                    and span_x * inv_h < 256.0 and span_y * inv_h < 256.0 and span_z * inv_h < 256.0
+                ):
+                    nx = int(math.floor(span_x * inv_h)) + 1
+                    ny = int(math.floor(span_y * inv_h)) + 1
+                    nz = int(math.floor(span_z * inv_h)) + 1
+                    n_cells = nx * ny * nz
+                    if 125 <= n_cells <= 262144:
+                        cell_cx = np.empty(m, dtype=np.int32)
+                        cell_cy = np.empty(m, dtype=np.int32)
+                        cell_cz = np.empty(m, dtype=np.int32)
+                        counts = np.zeros(n_cells, dtype=np.int32)
                         for local in range(m):
-                            cid = (cell_cx[local] * ny + cell_cy[local]) * nz + cell_cz[local]
-                            dst = fill[cid]
-                            fill[cid] = dst + 1
-                            cell_nodes[dst] = local
-                            cell_pos[dst, 0] = run_pos[p + local, 0]
-                            cell_pos[dst, 1] = run_pos[p + local, 1]
-                            cell_pos[dst, 2] = run_pos[p + local, 2]
-                        hit_bufs = np.empty((n_threads, m), dtype=np.int32)
-                        if direct_lo != -1:
-                            repulsion_direct_range_3d(
-                                run_pos, members, run_starts, run_ends, acc, repulsion, direct_lo, p,
+                            cx = int(math.floor((float(run_pos[p + local, 0]) - min_x) * inv_h))
+                            if cx < 0:
+                                cx = 0
+                            elif cx >= nx:
+                                cx = nx - 1
+                            cy = int(math.floor((float(run_pos[p + local, 1]) - min_y) * inv_h))
+                            if cy < 0:
+                                cy = 0
+                            elif cy >= ny:
+                                cy = ny - 1
+                            cz = int(math.floor((float(run_pos[p + local, 2]) - min_z) * inv_h))
+                            if cz < 0:
+                                cz = 0
+                            elif cz >= nz:
+                                cz = nz - 1
+                            cell_cx[local] = cx
+                            cell_cy[local] = cy
+                            cell_cz[local] = cz
+                            counts[(cx * ny + cy) * nz + cz] += 1
+                        cand_pairs = np.int64(0)
+                        for cx_i in range(nx):
+                            cx_lo = cx_i - 1 if cx_i > 0 else 0
+                            cx_hi = cx_i + 1 if cx_i + 1 < nx else nx - 1
+                            for cy_i in range(ny):
+                                cy_lo = cy_i - 1 if cy_i > 0 else 0
+                                cy_hi = cy_i + 1 if cy_i + 1 < ny else ny - 1
+                                base_xy = (cx_i * ny + cy_i) * nz
+                                for cz_i in range(nz):
+                                    c_here = counts[base_xy + cz_i]
+                                    if c_here == 0:
+                                        continue
+                                    cz_lo = cz_i - 1 if cz_i > 0 else 0
+                                    cz_hi = cz_i + 1 if cz_i + 1 < nz else nz - 1
+                                    nb = np.int64(0)
+                                    for nx_i in range(cx_lo, cx_hi + 1):
+                                        for ny_i in range(cy_lo, cy_hi + 1):
+                                            n_base = (nx_i * ny + ny_i) * nz
+                                            for nz_i in range(cz_lo, cz_hi + 1):
+                                                nb += counts[n_base + nz_i]
+                                    cand_pairs += np.int64(c_here) * nb
+                        if cand_pairs * 7 < np.int64(m) * np.int64(m):
+                            cell_ptr = np.empty(n_cells + 1, dtype=np.int32)
+                            acc_cnt = 0
+                            for cid in range(n_cells):
+                                cell_ptr[cid] = acc_cnt
+                                acc_cnt += counts[cid]
+                            cell_ptr[n_cells] = acc_cnt
+                            fill = cell_ptr[:-1].copy()
+                            cell_nodes = np.empty(m, dtype=np.int32)
+                            cell_pos = np.empty((m, 3), dtype=pos.dtype)
+                            for local in range(m):
+                                cid = (cell_cx[local] * ny + cell_cy[local]) * nz + cell_cz[local]
+                                dst = fill[cid]
+                                fill[cid] = dst + 1
+                                cell_nodes[dst] = local
+                                cell_pos[dst, 0] = run_pos[p + local, 0]
+                                cell_pos[dst, 1] = run_pos[p + local, 1]
+                                cell_pos[dst, 2] = run_pos[p + local, 2]
+                            hit_bufs = np.empty((n_threads, m // 5 + 1), dtype=np.int32)
+                            if direct_lo != -1:
+                                repulsion_direct_range_3d(
+                                    run_pos, members, run_starts, run_ends, acc, repulsion, direct_lo, p,
+                                    k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
+                                )
+                                direct_lo = -1
+                            repulsion_grid_run_3d(
+                                run_pos, members, acc, repulsion, p, m,
+                                cell_cx, cell_cy, cell_cz, nx, ny, nz, cell_ptr, cell_nodes, cell_pos, hit_bufs,
                                 k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
                             )
-                            direct_lo = -1
-                        repulsion_grid_run_3d(
-                            run_pos, members, acc, repulsion, p, m,
-                            cell_cx, cell_cy, cell_cz, nx, ny, nz, cell_ptr, cell_nodes, cell_pos, hit_bufs,
-                            k_coul, max_f, max_total_repulsion, cutoff_dist, cutoff_sq, taper_start, taper_width,
-                        )
-                        used_grid = True
+                            used_grid = True
         if not used_grid and direct_lo == -1:
             direct_lo = p
         p = end

@@ -49,6 +49,8 @@ if _NUMBA_AVAILABLE:
         for e in range(n_edges):
             u = sources[e]
             v = targets[e]
+            if u < 0 or u >= n_nodes or v < 0 or v >= n_nodes:
+                raise ValueError("Edge endpoint index out of bounds.")
             if u != v:
                 indptr[u + 1] += 1
                 indptr[v + 1] += 1
@@ -96,6 +98,8 @@ if _NUMBA_AVAILABLE:
                 for p in range(start, end):
                     v = adj_v[p]
                     d = adj_d[p]
+                    if not np.isfinite(d):
+                        continue
                     if taken == real_neighbors:
                         wd = best_d[taken - 1]
                         if d > wd or (d == wd and v >= best_v[taken - 1]):
@@ -140,14 +144,24 @@ if _NUMBA_AVAILABLE:
             else:
                 # General K > 64: sort node u's row by (v, d) to deduplicate, then by (d, v).
                 deg = end - start
-                rv = adj_v[start:end].copy()
-                rd = adj_d[start:end].copy()
+                rv = np.empty(deg, dtype=np.int32)
+                rd = np.empty(deg, dtype=np.float32)
+                n_fin = 0
+                for p in range(start, end):
+                    d = adj_d[p]
+                    if not np.isfinite(d):
+                        continue
+                    rv[n_fin] = adj_v[p]
+                    rd[n_fin] = d
+                    n_fin += 1
+                if n_fin == 0:
+                    continue
                 # Shell sort by (v, d) to collapse duplicates to min distance.
                 gap = 1
-                while gap < deg // 3:
+                while gap < n_fin // 3:
                     gap = gap * 3 + 1
                 while gap > 0:
-                    for i in range(gap, deg):
+                    for i in range(gap, n_fin):
                         kv = rv[i]
                         kd = rd[i]
                         j = i - gap
@@ -159,7 +173,7 @@ if _NUMBA_AVAILABLE:
                         rd[j + gap] = kd
                     gap //= 3
                 uniq = 0
-                for i in range(deg):
+                for i in range(n_fin):
                     if uniq == 0 or rv[i] != rv[uniq - 1]:
                         rv[uniq] = rv[i]
                         rd[uniq] = rd[i]
@@ -190,13 +204,33 @@ if _NUMBA_AVAILABLE:
 
 def build_precomputed_knn(sources, targets, distances, n_nodes, real_neighbors):
     """Build exact deduplicated UMAP (knn_indices, knn_dists) arrays."""
+    sources = np.asarray(sources)
+    targets = np.asarray(targets)
+    distances = np.asarray(distances)
+    n_nodes = int(n_nodes)
+    real_neighbors = int(real_neighbors)
+    if n_nodes < 0:
+        raise ValueError(f"n_nodes must be non-negative, got {n_nodes}.")
+    if sources.size != targets.size or sources.size != distances.size:
+        raise ValueError(
+            f"sources ({sources.size}), targets ({targets.size}), and "
+            f"distances ({distances.size}) must have the same length."
+        )
+    if sources.size > 0:
+        src_min, src_max = int(sources.min()), int(sources.max())
+        dst_min, dst_max = int(targets.min()), int(targets.max())
+        if src_min < 0 or src_max >= n_nodes or dst_min < 0 or dst_max >= n_nodes:
+            raise ValueError(
+                f"Edge endpoints must lie in [0, {n_nodes}); got "
+                f"sources in [{src_min}, {src_max}], targets in [{dst_min}, {dst_max}]."
+            )
     if _NUMBA_AVAILABLE:
         with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
             indptr, adj_v, adj_d = _build_symmetric_csr(
-                sources, targets, distances, int(n_nodes)
+                sources, targets, distances, n_nodes
             )
             return _csr_topk_dedup(
-                indptr, adj_v, adj_d, int(n_nodes), int(real_neighbors)
+                indptr, adj_v, adj_d, n_nodes, real_neighbors
             )
     import pandas as pd
 
@@ -205,7 +239,7 @@ def build_precomputed_knn(sources, targets, distances, n_nodes, real_neighbors):
     all_v = np.concatenate([targets, sources])
     all_d = np.concatenate([distances, distances])
     df = pd.DataFrame({'u': all_u, 'v': all_v, 'd': all_d})
-    df = df[df['u'] != df['v']]
+    df = df[(df['u'] != df['v']) & np.isfinite(df['d'])]
     df = df.sort_values(['u', 'd', 'v'], ascending=[True, True, True])
     df = df.drop_duplicates(subset=['u', 'v'])
     top = df.groupby('u').head(real_neighbors)
