@@ -570,8 +570,8 @@ class AlignGPUKernelsTests(unittest.TestCase):
 
                 def spy_launch(name, grid, block, args, stream=None):
                     if name == expected_kernel:
-                        # args[12..15] are sc_g, sc_gl, sc_l, sc_ll
-                        seen_scratch_numels.append(int(args[12].numel()))
+                        # args[13..16] are sc_g, sc_gl, sc_l, sc_ll
+                        seen_scratch_numels.append(int(args[13].numel()))
                     return real_launch(name, grid, block, args, stream=stream)
 
                 with mock.patch.object(kernels, "launch", side_effect=spy_launch), \
@@ -623,7 +623,7 @@ class AlignGPUKernelsTests(unittest.TestCase):
 
             def spy_short(name, grid, block, args, stream=None):
                 if name == "align_dp_f32_k4":
-                    short_scratch_numels.append(int(args[12].numel()))
+                    short_scratch_numels.append(int(args[13].numel()))
                 return real_launch(name, grid, block, args, stream=stream)
 
             with mock.patch.object(kernels, "launch", side_effect=spy_short):
@@ -699,6 +699,401 @@ class AlignGPUKernelsTests(unittest.TestCase):
             self.assertGreaterEqual(len(recorded_streams), 1)
             self.assertTrue(all(s is not None for s in recorded_streams))
             self.assertGreaterEqual(len(synced_events), 1)
+
+    @staticmethod
+    def _make_global_and_pos_tie_matrix(rows, cols, global_gap):
+        """Construct a float32 score matrix where M vs M.T differs in both g_len and l_len.
+
+        - Top-left 2x2 gadget creates a global DP up == left > diag tie with differing
+          path lengths (orig_up has length 3 vs orig_left length 4).
+        - Two equal-scoring local peaks at (2, cols - 2) [len 1, score 6.0] and
+          (rows - 2, 3) [len 2, score 6.0] satisfy r1 < r2 and c1 > c2, so canonical
+          row-major order selects len 1 while naive transposed order selects len 2.
+        """
+        mat = np.full((rows, cols), -5.0, dtype=np.float32)
+        mat[0, 1] = np.float32(2.0 * global_gap)
+        mat[2, cols - 2] = np.float32(8.0)
+        mat[rows - 3, 2] = np.float32(5.0)
+        mat[rows - 2, 3] = np.float32(5.0)
+        return mat
+
+    @staticmethod
+    def _make_local_up_left_tie_matrix(rows, cols, local_gap):
+        """Construct a float32 score matrix where local DP hits up == left > max(0, diag).
+
+        Path A reaches (r0+1, c0+2) with score 10 + 3*local_gap in 3 steps; Path B reaches
+        (r0+2, c0+1) with the same score in 4 steps. At (r0+2, c0+2) both gap transitions
+        tie and beat diag, and a strong match at (r0+3, c0+3) carries the winner into
+        max_local_length (5 canonical vs 6 transposed).
+        """
+        mat = np.full((rows, cols), -5.0, dtype=np.float32)
+        r0 = 2
+        c0 = min(cols - 5, 130 if cols > 128 else 2)
+        mat[r0, c0] = np.float32(12.0)
+        mat[r0 + 1, c0 + 2] = np.float32(2.0 + 2.0 * local_gap)
+        mat[r0 + 3, c0 + 3] = np.float32(22.0)
+        return mat
+
+    @staticmethod
+    def _run_dp_kernel_batch(kernels, matrices, transposed_flags, global_gap, local_gap, use_f64_gap):
+        """Launch align_dp_f32_k4 or align_dp_f64gap_k4 directly on arbitrary float32 matrices."""
+        dev = kernels.device
+        num_p = len(matrices)
+        max_c = max(int(m.shape[1]) for m in matrices)
+        r_lens = [int(m.shape[0]) for m in matrices]
+        c_lens = [int(m.shape[1]) for m in matrices]
+        r_offs = np.cumsum([0] + r_lens[:-1], dtype=np.int32)
+        total_r = int(sum(r_lens))
+        total_c = int(sum(c_lens))
+
+        packed_mat = np.zeros((total_r, max_c), dtype=np.float32)
+        for off, m in zip(r_offs.tolist(), matrices):
+            packed_mat[off:off + m.shape[0], :m.shape[1]] = m
+
+        d_mat = torch.from_numpy(packed_mat).to(dev)
+        d_r_off = torch.from_numpy(r_offs).to(dev)
+        d_r_len = torch.tensor(r_lens, dtype=torch.int32, device=dev)
+        d_c_off = torch.zeros(num_p, dtype=torch.int32, device=dev)
+        d_c_len = torch.tensor(c_lens, dtype=torch.int32, device=dev)
+        d_rs_off = torch.from_numpy(r_offs).to(dev)
+        cs_offs = np.cumsum([0] + c_lens[:-1], dtype=np.int32)
+        d_cs_off = torch.from_numpy(cs_offs).to(dev)
+        d_trans = torch.tensor(transposed_flags, dtype=torch.int32, device=dev)
+
+        # rm=0, rhis=0.5, cm=0, chis=0.5 makes cell == sim == packed_mat[r, c] bit-exact.
+        d_rm = torch.zeros(total_r, dtype=torch.float32, device=dev)
+        d_rs = torch.full((total_r,), 0.5, dtype=torch.float32, device=dev)
+        d_cm = torch.zeros(total_c, dtype=torch.float32, device=dev)
+        d_cs = torch.full((total_c,), 0.5, dtype=torch.float32, device=dev)
+
+        sc_sz = total_r if max_c > 128 else 1
+        sc_g = torch.empty(sc_sz, dtype=torch.float32, device=dev)
+        sc_gl = torch.empty(sc_sz, dtype=torch.int32, device=dev)
+        sc_l = torch.empty(sc_sz, dtype=torch.float32, device=dev)
+        sc_ll = torch.empty(sc_sz, dtype=torch.int32, device=dev)
+        out_gs = torch.empty(num_p, dtype=torch.float32, device=dev)
+        out_gl = torch.empty(num_p, dtype=torch.int32, device=dev)
+        out_ls = torch.empty(
+            num_p, dtype=torch.float64 if use_f64_gap else torch.float32, device=dev
+        )
+        out_ll = torch.empty(num_p, dtype=torch.int32, device=dev)
+
+        dp_name = "align_dp_f64gap_k4" if use_f64_gap else "align_dp_f32_k4"
+        kernels.launch(
+            dp_name,
+            ((num_p + 3) // 4, 1, 1),
+            (128, 1, 1),
+            [
+                d_mat, max_c, d_r_off, d_r_len, d_c_off, d_c_len, d_rs_off, d_cs_off, d_trans,
+                d_rm, d_rs, d_cm, d_cs, sc_g, sc_gl, sc_l, sc_ll,
+                out_gs, out_gl, out_ls, out_ll, num_p,
+                float(global_gap), float(local_gap), 2.0,
+            ],
+        )
+        torch.cuda.synchronize(dev)
+        return (
+            out_gs.cpu().numpy(),
+            out_gl.cpu().numpy().view(np.uint32),
+            out_ls.cpu().numpy(),
+            out_ll.cpu().numpy().view(np.uint32),
+        )
+
+    def test_transposed_dp_tie_breaking_matches_cpu_cuda_and_hip(self):
+        # M1: Orientation-canonical tie-breaking must produce identical (g_score, g_len,
+        # l_score, l_len) for M (transposed=0) and M.T (transposed=1) across:
+        #   - align_dp_f32_k4 and align_dp_f64gap_k4
+        #   - C <= 128 single-swath, C > 128 multi-swath, and asymmetric cross-swath shapes
+        #   - global up==left>diag, local up==left>max(0,diag), and local best_pos ties
+        #   - both CUDA warp-shuffle and AMD HIP shared-memory lockstep kernel paths.
+        dev = torch.device("cuda:0")
+        cuda_kernels = Align_GPU_Kernels.align_kernels(dev)
+        self.assertIsNotNone(cuda_kernels)
+        hip_source = "#define __HIP_PLATFORM_AMD__ 1\n" + Align_GPU_Kernels.KERNEL_SOURCE
+        with mock.patch.object(Align_GPU_Kernels, "KERNEL_SOURCE", hip_source):
+            hip_kernels = Align_GPU_Kernels.AlignKernels(dev, read_cache=False)
+
+        shapes = [(12, 20), (20, 12), (30, 150), (150, 30), (140, 160), (160, 140)]
+        gap_configs = [
+            (0.0, -2.0, False, True),
+            (-0.5, -1.5, True, True),
+            (-0.7, -1.3, True, False),
+        ]
+
+        for backend_label, kernels in (("cuda", cuda_kernels), ("hip", hip_kernels)):
+            for global_gap, local_gap, use_f64, exact_dyadic in gap_configs:
+                batch_mats = []
+                batch_flags = []
+                batch_meta = []
+
+                for rows, cols in shapes:
+                    m_gp = self._make_global_and_pos_tie_matrix(rows, cols, global_gap)
+                    ref_gp = global_local_scores(m_gp, global_gap, local_gap)
+                    ref_gp_t = global_local_scores(np.ascontiguousarray(m_gp.T), global_gap, local_gap)
+                    if exact_dyadic:
+                        # Prove the test matrix genuinely breaks naive transpose on both lengths.
+                        self.assertNotEqual(
+                            int(ref_gp[1]), int(ref_gp_t[1]),
+                            f"Expected g_len transpose diff for {(rows, cols)} gaps={(global_gap, local_gap)}",
+                        )
+                    self.assertNotEqual(
+                        int(ref_gp[3]), int(ref_gp_t[3]),
+                        f"Expected l_len best_pos transpose diff for {(rows, cols)} gaps={(global_gap, local_gap)}",
+                    )
+                    # Include canonical (M, tr=0), fixed transposed (M.T, tr=1), and unfixed (M.T, tr=0)
+                    # in the SAME multi-warp batch to exercise mixed orientations per block.
+                    batch_mats.extend([m_gp, np.ascontiguousarray(m_gp.T), np.ascontiguousarray(m_gp.T)])
+                    batch_flags.extend([0, 1, 0])
+                    batch_meta.extend([
+                        ("gp_canon", (rows, cols), ref_gp),
+                        ("gp_trans1", (rows, cols), ref_gp),
+                        ("gp_trans0_control", (rows, cols), ref_gp_t),
+                    ])
+
+                    m_lu = self._make_local_up_left_tie_matrix(rows, cols, local_gap)
+                    ref_lu = global_local_scores(m_lu, global_gap, local_gap)
+                    ref_lu_t = global_local_scores(np.ascontiguousarray(m_lu.T), global_gap, local_gap)
+                    if exact_dyadic:
+                        self.assertNotEqual(
+                            int(ref_lu[3]), int(ref_lu_t[3]),
+                            f"Expected local up/left transpose diff for {(rows, cols)} gaps={(global_gap, local_gap)}",
+                        )
+                    batch_mats.extend([m_lu, np.ascontiguousarray(m_lu.T), np.ascontiguousarray(m_lu.T)])
+                    batch_flags.extend([0, 1, 0])
+                    batch_meta.extend([
+                        ("lu_canon", (rows, cols), ref_lu),
+                        ("lu_trans1", (rows, cols), ref_lu),
+                        ("lu_trans0_control", (rows, cols), ref_lu_t),
+                    ])
+
+                gs, gl, ls, ll = self._run_dp_kernel_batch(
+                    kernels, batch_mats, batch_flags, global_gap, local_gap, use_f64
+                )
+                for idx, (tag, shape, ref) in enumerate(batch_meta):
+                    rgs, rgl, rls, rll = ref
+                    ctx = f"{backend_label} {tag} shape={shape} gaps={(global_gap, local_gap)}"
+                    self.assertEqual(int(gl[idx]), int(rgl), f"g_len mismatch: {ctx}")
+                    self.assertEqual(int(ll[idx]), int(rll), f"l_len mismatch: {ctx}")
+                    if exact_dyadic:
+                        self.assertEqual(float(gs[idx]), float(rgs), f"g_score mismatch: {ctx}")
+                        self.assertEqual(float(ls[idx]), float(rls), f"l_score mismatch: {ctx}")
+                    else:
+                        self.assertLess(
+                            abs(float(gs[idx]) - float(rgs)) / max(1, int(rgl)), 1e-5, ctx
+                        )
+                        self.assertLess(
+                            abs(float(ls[idx]) - float(rls)) / max(1, int(rll)), 1e-5, ctx
+                        )
+
+    def test_transposed_dense_and_sparse_pipelines_match_cpu_on_tied_embeddings(self):
+        # M1 end-to-end: Force dynamic transposition in BOTH dense blk_pairs (short block
+        # paired against long block) AND sparse slabs (short low-degree si paired against
+        # longer/higher-degree sj) on homopolymer and repeated-block embeddings, covering
+        # C <= 128 and C > 128 and both f32-exact and f64-gap kernels, plus _score_pairs_direct.
+        dev = torch.device("cuda:0")
+        kernels = Align_GPU_Kernels.align_kernels(dev)
+        self.assertIsNotNone(kernels)
+
+        dim = 16
+        c_mid = float(1.0 + np.log(0.5 * (1.0 + np.exp(-1.0))))
+        s_mid = float(np.sqrt(1.0 - 2.0 * c_mid * c_mid))
+        basis = np.zeros((4, dim), dtype=np.float32)
+        basis[0, 0] = 1.0
+        basis[1, 1] = 1.0
+        basis[2, 0] = c_mid
+        basis[2, 1] = c_mid
+        basis[2, 2] = s_mid
+        basis[3, 3] = 1.0
+
+        def make_cmid_pair(la, lb):
+            ha = (la - 2) // 2
+            hb = (lb - 2) // 2
+            ta = [0, 3] + [0] * (ha - 1) + [1] * ha + [2]
+            tb = [1, 2] + [1] * (hb - 2) + [0] * hb + [2, 3]
+            return basis[ta].copy(), basis[tb].copy()
+
+        def make_repeated_block_emb(length, block_pattern):
+            arr = np.zeros((length, dim), dtype=np.float32)
+            for idx in range(length):
+                arr[idx, block_pattern[idx % len(block_pattern)]] = 1.0
+            return arr
+
+        # 1. Verify _score_pairs_direct directly with transposed=1 vs transposed=0 on a tied
+        #    short embedding pair where untransposed M.T diverges in g_len.
+        ea_tie, eb_tie = make_cmid_pair(16, 32)
+        with torch.cuda.device(dev), torch.inference_mode():
+            ta_g = torch.nn.functional.normalize(torch.from_numpy(ea_tie).to(dev), p=2, dim=-1)
+            tb_g = torch.nn.functional.normalize(torch.from_numpy(eb_tie).to(dev), p=2, dim=-1)
+            z1 = torch.zeros(1, dtype=torch.int32, device=dev)
+            r32 = torch.tensor([32], dtype=torch.int32, device=dev)
+            c16 = torch.tensor([16], dtype=torch.int32, device=dev)
+            r16 = torch.tensor([16], dtype=torch.int32, device=dev)
+            c32 = torch.tensor([32], dtype=torch.int32, device=dev)
+
+            gs_c, gl_c, ls_c, ll_c, nf_c = kernels._score_pairs_direct(
+                torch.mm(ta_g, tb_g.T), z1, r16, z1, c32, z1, z1, 16, 32,
+                0.0, -2.0, use_f64_gap=False, transposed=[0],
+            )
+            gs_t1, gl_t1, ls_t1, ll_t1, nf_t1 = kernels._score_pairs_direct(
+                torch.mm(tb_g, ta_g.T), z1, r32, z1, c16, z1, z1, 32, 16,
+                0.0, -2.0, use_f64_gap=False, transposed=[1],
+            )
+            _gs_t0, gl_t0, _ls_t0, _ll_t0, _nf_t0 = kernels._score_pairs_direct(
+                torch.mm(tb_g, ta_g.T), z1, r32, z1, c16, z1, z1, 32, 16,
+                0.0, -2.0, use_f64_gap=False, transposed=[0],
+            )
+            self.assertEqual((nf_c, nf_t1), (0, 0))
+            # Untransposed M.T disagrees with canonical M, while transposed=1 restores exact parity.
+            self.assertNotEqual(int(gl_t0[0]), int(gl_c[0]))
+            self.assertEqual(int(gl_t1[0]), int(gl_c[0]))
+            self.assertEqual(int(ll_t1[0]), int(ll_c[0]))
+            self.assertAlmostEqual(float(gs_t1[0]), float(gs_c[0]), places=4)
+            self.assertAlmostEqual(float(ls_t1[0]), float(ls_c[0]), places=4)
+
+        # 2. Build a multi-block embedding store containing:
+        #    - Block 0 (64 short seqs of length 16 -> 1024 rows = 1 full block under
+        #      block_res=1024, blk_maxlen=16): includes ea_tie (idx 0) and repeated-block
+        #      embeddings over basis {0, 1, 2, 3}.
+        #    - Block 1+ (longer seqs of lengths 32..220, blk_maxlen=220): includes eb_tie
+        #      (idx 64, len 32) and multi-swath (>128) repeated-block embeddings over {0..3}.
+        #    Pairing short si (block 0) with long sj (block 1+) forces blk_maxlen[bi] <
+        #    blk_maxlen[bj] in dense mode AND lengths[si] < lengths[sj] in sparse mode,
+        #    guaranteeing transposed == 1 on BOTH (ea_tie, eb_tie) and multi-swath (>128)
+        #    pairs!
+        short_patterns = [
+            [0, 0, 1, 2, 1, 3],
+            [0, 1, 1, 2, 0, 3],
+            [1, 0, 2, 3, 1, 2],
+            [2, 1, 0, 3, 2, 0],
+        ]
+        short_embs = [ea_tie] + [
+            make_repeated_block_emb(16, short_patterns[i % len(short_patterns)])
+            for i in range(63)
+        ]  # 0..63: 64 * 16 = 1024 rows -> fills block 0 cleanly (blk_maxlen = 16)
+        long_embs = [
+            eb_tie,                                            # 64: len 32 (pairs with ea_tie!)
+            make_repeated_block_emb(82, [0, 1, 2, 3, 1, 0]),   # 65: len 82 (sum=1024 -> exact block 0)
+            make_repeated_block_emb(150, [0, 1, 2, 3, 0, 1]),  # 66: len 150 (>128)
+            make_repeated_block_emb(160, [0, 1, 2, 2, 3, 1]),  # 67: len 160 (>128)
+            make_repeated_block_emb(180, [1, 0, 0, 2, 3, 1]),  # 68: len 180 (>128)
+            make_repeated_block_emb(200, [0, 2, 1, 1, 3, 0]),  # 69: len 200 (>128)
+            make_repeated_block_emb(220, [2, 1, 0, 3, 0, 1]),  # 70: len 220 (>128)
+        ]
+        # Dedicated homopolymer pair (exact cos=1.0 -> sim=1.0 -> cell=0.0 everywhere,
+        # short 16 vs long 150) tested in sparse mode as well.
+        homo_short_idx = len(short_embs) + len(long_embs)
+        homo_long_idx = homo_short_idx + 1
+        all_embs = short_embs + long_embs + [
+            np.ones((16, dim), dtype=np.float32),
+            np.ones((150, dim), dtype=np.float32),
+        ]
+        lengths = [int(e.shape[0]) for e in all_embs]
+        headers = [f"tied_seq_{i}" for i in range(len(all_embs))]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "tied_embs.h5")
+            with h5py.File(path, "w") as hf:
+                grp = hf.create_group("embeddings")
+                for header, emb in zip(headers, all_embs):
+                    grp.create_dataset(header, data=emb)
+            store = engine.EmbeddingTileStore(path, headers, host_cache_setting="auto")
+
+            short_ids = list(range(len(short_embs)))
+            long_ids = list(range(len(short_embs), len(short_embs) + len(long_embs)))
+
+            # Dense bipartite workload: every short sequence in block 0 paired with every
+            # long sequence in block 1+ (cross-block density = 1.0 >= 0.20 -> dense blk_pairs
+            # with transposed == 1, including the tie-sensitive (0, 64) pair).
+            dense_tasks = [
+                (si, sj, headers[si], headers[sj])
+                for si in short_ids
+                for sj in long_ids
+            ]
+            # Sparse workload: low-density (<20%) subset pairing short si with longer sj
+            # (every sequence has degree 1 so lengths[si] < lengths[sj] forces sj as row
+            # and si as col -> transposed == 1 on every pair, including (0, 64), >128, and homopolymer).
+            sparse_tasks = [
+                (0, 64, headers[0], headers[64]),
+                (5, 66, headers[5], headers[66]),
+                (1, 67, headers[1], headers[67]),
+                (2, 68, headers[2], headers[68]),
+                (3, 69, headers[3], headers[69]),
+                (4, 70, headers[4], headers[70]),
+                (homo_short_idx, homo_long_idx, headers[homo_short_idx], headers[homo_long_idx]),
+            ]
+
+            def cpu_reference_for_tasks(task_list, g_gap, l_gap):
+                ref_map = {}
+                for si, sj, _, _ in task_list:
+                    ti = torch.nn.functional.normalize(
+                        torch.from_numpy(all_embs[si]).double(), p=2, dim=-1
+                    )
+                    tj = torch.nn.functional.normalize(
+                        torch.from_numpy(all_embs[sj]).double(), p=2, dim=-1
+                    )
+                    cos = torch.mm(ti, tj.T).clamp(-1.0, 1.0)
+                    sim = torch.exp(-(1.0 - cos))
+                    rm = sim.mean(dim=1, keepdim=True)
+                    rs = sim.std(dim=1, keepdim=True, correction=0)
+                    cm = sim.mean(dim=0, keepdim=True)
+                    cs = sim.std(dim=0, keepdim=True, correction=0)
+                    sc = ((((sim - rm) / (rs + 1e-8)) + ((sim - cm) / (cs + 1e-8))) / 2.0).float().numpy()
+                    rgs, rgl, rls, rll = global_local_scores(sc, g_gap, l_gap)
+                    ref_map[(si, sj)] = (float(rls), int(rll), float(rgs), int(rgl))
+                return ref_map
+
+            for mode_name, task_list in (("dense", dense_tasks), ("sparse", sparse_tasks)):
+                for global_gap, local_gap, expected_kernel in (
+                    (0.0, -2.0, "align_dp_f32_k4"),
+                    (-0.5, -1.5, "align_dp_f64gap_k4"),
+                    (-0.7, -1.3, "align_dp_f64gap_k4"),
+                ):
+                    seen_transposed_flags = []
+                    real_launch = kernels.launch
+
+                    def spy_launch(name, grid, block, args, stream=None):
+                        if name == expected_kernel:
+                            # Synchronize before reading device metadata arg[8] (pair_transposed).
+                            torch.cuda.synchronize(dev)
+                            seen_transposed_flags.extend(args[8].cpu().tolist())
+                        return real_launch(name, grid, block, args, stream=stream)
+
+                    with mock.patch.object(kernels, "launch", side_effect=spy_launch):
+                        fused = Align_GPU_Kernels.run_fused_gpu_alignment_pipeline(
+                            task_list,
+                            store=store,
+                            lengths=lengths,
+                            device=dev,
+                            lanes=2,
+                            global_gap=global_gap,
+                            local_gap=local_gap,
+                            precision="float32",
+                            matrix_budget_override=4 * 1024 * 1024,  # block_res=1024 -> multi-block
+                            cuda_matmul_precision_ctx=engine.cuda_matmul_precision,
+                            precision_compute_dtype_fn=engine.precision_compute_dtype,
+                            precision_element_bytes_fn=engine.precision_element_bytes,
+                            accelerator_memory_plan_fn=engine.accelerator_memory_plan,
+                            partition_tiles_fn=engine._partition_tiles,
+                        )
+
+                    self.assertEqual(len(seen_transposed_flags), len(task_list))
+                    self.assertTrue(
+                        all(flag == 1 for flag in seen_transposed_flags),
+                        f"Expected all pairs dynamically transposed (transposed=1) in "
+                        f"{mode_name} {expected_kernel}, got {seen_transposed_flags[:16]}",
+                    )
+                    ref_map = cpu_reference_for_tasks(task_list, global_gap, local_gap)
+                    self.assertEqual(len(fused), len(task_list))
+                    for si, sj, l_s, l_l, g_s, g_l in fused:
+                        rls, rll, rgs, rgl = ref_map[(si, sj)]
+                        ctx = f"{mode_name} {expected_kernel} pair=({si},{sj}) gaps={(global_gap, local_gap)}"
+                        self.assertEqual(int(g_l), rgl, f"g_len mismatch: {ctx}")
+                        self.assertEqual(int(l_l), rll, f"l_len mismatch: {ctx}")
+                        self.assertLess(
+                            abs(float(g_s) - rgs) / max(1, rgl), 1e-4, f"g_score drift: {ctx}"
+                        )
+                        self.assertLess(
+                            abs(float(l_s) - rls) / max(1, rll), 1e-4, f"l_score drift: {ctx}"
+                        )
 
 
 if __name__ == "__main__":

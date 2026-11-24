@@ -210,6 +210,7 @@ extern "C" __global__ void align_dp_f32_k4(
     const int* __restrict__ pair_col_len,
     const int* __restrict__ pair_rstat_off,
     const int* __restrict__ pair_cstat_off,
+    const int* __restrict__ pair_transposed,
     const float* __restrict__ row_mean,
     const float* __restrict__ row_his,
     const float* __restrict__ col_mean,
@@ -253,6 +254,7 @@ extern "C" __global__ void align_dp_f32_k4(
     const int R  = active_pair ? pair_row_len[p] : 0;
     const int c0 = active_pair ? pair_col_off[p] : 0;
     const int C  = active_pair ? pair_col_len[p] : 0;
+    const int transposed = active_pair ? pair_transposed[p] : 0;
     const long long rs_off = active_pair ? (long long)pair_rstat_off[p] : 0ll;
     const float* rm_ptr   = active_pair ? (row_mean + rs_off) : row_mean;
     const float* rhis_ptr = active_pair ? (row_his  + rs_off) : row_his;
@@ -378,24 +380,40 @@ extern "C" __global__ void align_dp_f32_k4(
                         float bg = dg + cell;
                         unsigned int bgl = dgl + 1u;
                         float gd = ug + g_gap;
-                        if (gd > bg) { bg = gd; bgl = ugl + 1u; }
                         float gi = lg + g_gap;
-                        if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                        if (transposed) {
+                            if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                            if (gd > bg) { bg = gd; bgl = ugl + 1u; }
+                        } else {
+                            if (gd > bg) { bg = gd; bgl = ugl + 1u; }
+                            if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                        }
 
                         float lm = dl + (cell - l_shift);
                         float bl = 0.0f;
                         unsigned int bll = 0u;
                         if (lm > 0.0f) { bl = lm; bll = dll + 1u; }
                         float ld = ul + l_gap;
-                        if (ld > bl) { bl = ld; bll = ull + 1u; }
                         float li = ll + l_gap;
-                        if (li > bl) { bl = li; bll = lll + 1u; }
+                        if (transposed) {
+                            if (li > bl) { bl = li; bll = lll + 1u; }
+                            if (ld > bl) { bl = ld; bll = ull + 1u; }
+                        } else {
+                            if (ld > bl) { bl = ld; bll = ull + 1u; }
+                            if (li > bl) { bl = li; bll = lll + 1u; }
+                        }
 
                         if (bl > best_l) {
+                            const int c = c_start + k;
                             best_l = bl; best_ll = bll;
-                            best_pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)(c_start + k);
+                            best_pos = transposed
+                                ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                         } else if (bl == best_l && bl > 0.0f) {
-                            unsigned long long pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)(c_start + k);
+                            const int c = c_start + k;
+                            unsigned long long pos = transposed
+                                ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                             if (pos < best_pos) { best_ll = bll; best_pos = pos; }
                         }
 
@@ -423,24 +441,38 @@ extern "C" __global__ void align_dp_f32_k4(
                             float bg = dg + cell;
                             unsigned int bgl = dgl + 1u;
                             float gd = ug + g_gap;
-                            if (gd > bg) { bg = gd; bgl = ugl + 1u; }
                             float gi = lg + g_gap;
-                            if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                            if (transposed) {
+                                if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                                if (gd > bg) { bg = gd; bgl = ugl + 1u; }
+                            } else {
+                                if (gd > bg) { bg = gd; bgl = ugl + 1u; }
+                                if (gi > bg) { bg = gi; bgl = lgl + 1u; }
+                            }
 
                             float lm = dl + (cell - l_shift);
                             float bl = 0.0f;
                             unsigned int bll = 0u;
                             if (lm > 0.0f) { bl = lm; bll = dll + 1u; }
                             float ld = ul + l_gap;
-                            if (ld > bl) { bl = ld; bll = ull + 1u; }
                             float li = ll + l_gap;
-                            if (li > bl) { bl = li; bll = lll + 1u; }
+                            if (transposed) {
+                                if (li > bl) { bl = li; bll = lll + 1u; }
+                                if (ld > bl) { bl = ld; bll = ull + 1u; }
+                            } else {
+                                if (ld > bl) { bl = ld; bll = ull + 1u; }
+                                if (li > bl) { bl = li; bll = lll + 1u; }
+                            }
 
                             if (bl > best_l) {
                                 best_l = bl; best_ll = bll;
-                                best_pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)c;
+                                best_pos = transposed
+                                    ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                    : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                             } else if (bl == best_l && bl > 0.0f) {
-                                unsigned long long pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)c;
+                                unsigned long long pos = transposed
+                                    ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                    : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                                 if (pos < best_pos) { best_ll = bll; best_pos = pos; }
                             }
 
@@ -526,6 +558,7 @@ extern "C" __global__ void align_dp_f64gap_k4(
     const int* __restrict__ pair_col_len,
     const int* __restrict__ pair_rstat_off,
     const int* __restrict__ pair_cstat_off,
+    const int* __restrict__ pair_transposed,
     const float* __restrict__ row_mean,
     const float* __restrict__ row_his,
     const float* __restrict__ col_mean,
@@ -566,6 +599,7 @@ extern "C" __global__ void align_dp_f64gap_k4(
     const int R  = active_pair ? pair_row_len[p] : 0;
     const int c0 = active_pair ? pair_col_off[p] : 0;
     const int C  = active_pair ? pair_col_len[p] : 0;
+    const int transposed = active_pair ? pair_transposed[p] : 0;
     const long long rs_off = active_pair ? (long long)pair_rstat_off[p] : 0ll;
     const float* rm_ptr   = active_pair ? (row_mean + rs_off) : row_mean;
     const float* rhis_ptr = active_pair ? (row_his  + rs_off) : row_his;
@@ -690,9 +724,14 @@ extern "C" __global__ void align_dp_f64gap_k4(
                         double bg_d = (double)dg + (double)cell;
                         unsigned int bgl = dgl + 1u;
                         double gd_d = (double)ug + g_gap_d;
-                        if (gd_d > bg_d) { bg_d = gd_d; bgl = ugl + 1u; }
                         double gi_d = (double)lg + g_gap_d;
-                        if (gi_d > bg_d) { bg_d = gi_d; bgl = lgl + 1u; }
+                        if (transposed) {
+                            if (gi_d > bg_d) { bg_d = gi_d; bgl = lgl + 1u; }
+                            if (gd_d > bg_d) { bg_d = gd_d; bgl = ugl + 1u; }
+                        } else {
+                            if (gd_d > bg_d) { bg_d = gd_d; bgl = ugl + 1u; }
+                            if (gi_d > bg_d) { bg_d = gi_d; bgl = lgl + 1u; }
+                        }
                         float bg = (float)bg_d;
 
                         float shifted = (float)((double)cell - l_shift_d);
@@ -701,16 +740,25 @@ extern "C" __global__ void align_dp_f64gap_k4(
                         unsigned int bll = 0u;
                         if (lm_d > bl_d) { bl_d = lm_d; bll = dll + 1u; }
                         double ld_d = (double)ul + l_gap_d;
-                        if (ld_d > bl_d) { bl_d = ld_d; bll = ull + 1u; }
                         double li_d = (double)ll + l_gap_d;
-                        if (li_d > bl_d) { bl_d = li_d; bll = lll + 1u; }
+                        if (transposed) {
+                            if (li_d > bl_d) { bl_d = li_d; bll = lll + 1u; }
+                            if (ld_d > bl_d) { bl_d = ld_d; bll = ull + 1u; }
+                        } else {
+                            if (ld_d > bl_d) { bl_d = ld_d; bll = ull + 1u; }
+                            if (li_d > bl_d) { bl_d = li_d; bll = lll + 1u; }
+                        }
                         float bl = (float)bl_d;
 
                         if (bl_d > best_l) {
                             best_l = bl_d; best_ll = bll;
-                            best_pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)c;
+                            best_pos = transposed
+                                ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                         } else if (bl_d == best_l && bl_d > 0.0) {
-                            unsigned long long pos = ((unsigned long long)(unsigned int)r << 32) | (unsigned int)c;
+                            unsigned long long pos = transposed
+                                ? (((unsigned long long)(unsigned int)c << 32) | (unsigned int)r)
+                                : (((unsigned long long)(unsigned int)r << 32) | (unsigned int)c);
                             if (pos < best_pos) { best_ll = bll; best_pos = pos; }
                         }
 
@@ -1190,10 +1238,24 @@ class AlignKernels:
         local_gap,
         *,
         use_f64_gap=False,
+        transposed=None,
     ):
         num_p = int(r_off.shape[0])
         max_c = int(c_len.max().item()) if num_p else 0
         sc_sz = max(1, total_r) if max_c > 128 else 1
+        if transposed is None:
+            d_transposed = torch.zeros(num_p, dtype=torch.int32, device=self.device)
+        elif (
+            isinstance(transposed, torch.Tensor)
+            and transposed.device == self.device
+            and transposed.dtype == torch.int32
+            and transposed.is_contiguous()
+        ):
+            d_transposed = transposed
+        else:
+            d_transposed = torch.as_tensor(
+                transposed, dtype=torch.int32, device=self.device
+            ).contiguous()
         d_rm = torch.empty(max(1, total_r), dtype=torch.float32, device=self.device)
         d_rs = torch.empty(max(1, total_r), dtype=torch.float32, device=self.device)
         d_cm = torch.empty(max(1, total_c), dtype=torch.float32, device=self.device)
@@ -1228,7 +1290,7 @@ class AlignKernels:
             ((num_p + 3) // 4, 1, 1),
             (128, 1, 1),
             [
-                mat, stride, r_off, r_len, c_off, c_len, rs_off, cs_off,
+                mat, stride, r_off, r_len, c_off, c_len, rs_off, cs_off, d_transposed,
                 d_rm, d_rs, d_cm, d_cs, sc_g, sc_gl, sc_l, sc_ll,
                 out_gs, out_gl, out_ls, out_ll, num_p,
                 float(global_gap), float(local_gap), 2.0,
@@ -1324,6 +1386,53 @@ class AlignKernels:
             )
             if nf_bad == 0:
                 raise RuntimeError("self-check failed to detect NaN in cosine matrix")
+
+            # Test orientation-canonical tie-breaking when transposed == 1
+            for g_gap, l_gap, use_f64 in ((0.0, -2.0, False), (-0.5, -1.5, True)):
+                tr_r, tr_c = 12, 20
+                adv_m = np.full((tr_r, tr_c), -5.0, dtype=np.float32)
+                adv_m[0, 1] = np.float32(2.0 * g_gap)
+                adv_m[2, tr_c - 2] = np.float32(8.0)
+                adv_m[tr_r - 3, 2] = np.float32(5.0)
+                adv_m[tr_r - 2, 3] = np.float32(5.0)
+                rgs, rgl, rls, rll = global_local_scores(adv_m, g_gap, l_gap)
+
+                d_mat_t = torch.from_numpy(np.ascontiguousarray(adv_m.T)).to(self.device)
+                z1 = torch.zeros(1, dtype=torch.int32, device=self.device)
+                d_rlen = torch.tensor([tr_c], dtype=torch.int32, device=self.device)
+                d_clen = torch.tensor([tr_r], dtype=torch.int32, device=self.device)
+                d_tr = torch.ones(1, dtype=torch.int32, device=self.device)
+                d_rm0 = torch.zeros(tr_c, dtype=torch.float32, device=self.device)
+                d_rs0 = torch.full((tr_c,), 0.5, dtype=torch.float32, device=self.device)
+                d_cm0 = torch.zeros(tr_r, dtype=torch.float32, device=self.device)
+                d_cs0 = torch.full((tr_r,), 0.5, dtype=torch.float32, device=self.device)
+                sc_1f = torch.empty(1, dtype=torch.float32, device=self.device)
+                sc_1i = torch.empty(1, dtype=torch.int32, device=self.device)
+                o_gs = torch.empty(1, dtype=torch.float32, device=self.device)
+                o_gl = torch.empty(1, dtype=torch.int32, device=self.device)
+                o_ls = torch.empty(
+                    1, dtype=torch.float64 if use_f64 else torch.float32, device=self.device
+                )
+                o_ll = torch.empty(1, dtype=torch.int32, device=self.device)
+                dp_name = "align_dp_f64gap_k4" if use_f64 else "align_dp_f32_k4"
+                self.launch(
+                    dp_name,
+                    (1, 1, 1),
+                    (128, 1, 1),
+                    [
+                        d_mat_t, tr_r, z1, d_rlen, z1, d_clen, z1, z1, d_tr,
+                        d_rm0, d_rs0, d_cm0, d_cs0, sc_1f, sc_1i, sc_1f, sc_1i,
+                        o_gs, o_gl, o_ls, o_ll, 1, float(g_gap), float(l_gap), 2.0,
+                    ],
+                )
+                torch.cuda.synchronize(self.device)
+                got_gl = int(o_gl.cpu().numpy().view(np.uint32)[0])
+                got_ll = int(o_ll.cpu().numpy().view(np.uint32)[0])
+                if got_gl != int(rgl) or got_ll != int(rll):
+                    raise RuntimeError(
+                        f"self-check transposed tie-break mismatch (gaps={g_gap},{l_gap}): "
+                        f"got ({got_gl},{got_ll}) vs ({int(rgl)},{int(rll)})"
+                    )
 
             # Test fixed-query search kernel (both local and global)
             q_idx = 4  # length 145
@@ -1756,8 +1865,8 @@ def run_fused_gpu_alignment_pipeline(
                             sz, dtype=torch.float64 if use_f64_always else torch.float32, pin_memory=True
                         )
                         ws["h_ll"] = torch.empty(sz, dtype=torch.int32, pin_memory=True)
-                        ws["h_meta"] = torch.empty((6, sz), dtype=torch.int32, pin_memory=True)
-                        ws["d_meta"] = torch.empty((6, sz), dtype=torch.int32, device=device)
+                        ws["h_meta"] = torch.empty((7, sz), dtype=torch.int32, pin_memory=True)
+                        ws["d_meta"] = torch.empty((7, sz), dtype=torch.int32, device=device)
 
                 def run_phase(phase_tasks):
                     phase_tiles = [list(tile) for tile in partition_tiles_fn(phase_tasks, block_ids)]
@@ -1879,7 +1988,7 @@ def run_fused_gpu_alignment_pipeline(
                             ]
                             emit_results(rows)
 
-                        def submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len):
+                        def submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len, transposed):
                             nonlocal stream_cursor
                             num_p = len(pair_ids)
                             if active_trial is not None:
@@ -1913,6 +2022,7 @@ def run_fused_gpu_alignment_pipeline(
                                 h_meta_np[3] = c_len
                                 h_meta_np[4] = rs_off
                                 h_meta_np[5] = cs_off
+                                h_meta_np[6] = transposed
                                 meta_d = ws["d_meta"][:, :num_p]
                                 meta_d.copy_(h_meta, non_blocking=True)
                                 mat = ws["mat"][:M * N].view(M, N)
@@ -1938,7 +2048,7 @@ def run_fused_gpu_alignment_pipeline(
                                     (128, 1, 1),
                                     [
                                         mat, N, meta_d[0], meta_d[1], meta_d[2], meta_d[3],
-                                        meta_d[4], meta_d[5], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
+                                        meta_d[4], meta_d[5], meta_d[6], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
                                         ws["sc_g"], ws["sc_gl"], ws["sc_l"], ws["sc_ll"],
                                         ws["ogs"], ws["ogl"], ws["ols"], ws["oll"],
                                         num_p, float(global_gap), float(local_gap), 2.0,
@@ -1977,8 +2087,9 @@ def run_fused_gpu_alignment_pipeline(
                             r_len = np.empty(num_p, dtype=np.int32)
                             c_off = np.empty(num_p, dtype=np.int32)
                             c_len = np.empty(num_p, dtype=np.int32)
+                            transposed = np.empty(num_p, dtype=np.int32)
                             pos = 0
-                            for y0, x0, row_L, _c_cols, _ri, c_targets in slab_chunks:
+                            for y0, x0, row_L, _c_cols, ri, c_targets in slab_chunks:
                                 cx = x0
                                 for si, sj, cj in c_targets:
                                     L_j = int(lengths[cj])
@@ -1987,6 +2098,7 @@ def run_fused_gpu_alignment_pipeline(
                                     r_len[pos] = row_L
                                     c_off[pos] = cx
                                     c_len[pos] = L_j
+                                    transposed[pos] = 1 if ri != si else 0
                                     cx += L_j
                                     pos += 1
 
@@ -2026,6 +2138,7 @@ def run_fused_gpu_alignment_pipeline(
                                 h_meta_np[3] = c_len
                                 h_meta_np[4] = rs_off
                                 h_meta_np[5] = cs_off
+                                h_meta_np[6] = transposed
                                 meta_d = ws["d_meta"][:, :num_p]
                                 meta_d.copy_(h_meta, non_blocking=True)
                                 mat = ws["mat"][:slab_M * slab_N].view(slab_M, slab_N)
@@ -2067,7 +2180,7 @@ def run_fused_gpu_alignment_pipeline(
                                     (128, 1, 1),
                                     [
                                         mat, slab_N, meta_d[0], meta_d[1], meta_d[2], meta_d[3],
-                                        meta_d[4], meta_d[5], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
+                                        meta_d[4], meta_d[5], meta_d[6], ws["rm"], ws["rs"], ws["cm"], ws["cs"],
                                         ws["sc_g"], ws["sc_gl"], ws["sc_l"], ws["sc_ll"],
                                         ws["ogs"], ws["ogl"], ws["ols"], ws["oll"],
                                         num_p, float(global_gap), float(local_gap), 2.0,
@@ -2100,7 +2213,11 @@ def run_fused_gpu_alignment_pipeline(
                                     pair_ids = [(si, sj) for si, sj, _, _ in pair_quads]
                                     r_off = np.array([starts[ri] - a_base for _, _, ri, _ in pair_quads], dtype=np.int32)
                                     c_off = np.array([starts[cj] - b_base for _, _, _, cj in pair_quads], dtype=np.int32)
-                                    submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len)
+                                    transposed = np.array(
+                                        [1 if ri != si else 0 for si, _, ri, _ in pair_quads],
+                                        dtype=np.int32,
+                                    )
+                                    submit_gpu_job(A_ten, B_ten, pair_ids, r_off, r_len, c_off, c_len, transposed)
                                 else:
                                     sparse_pairs.extend(pair_quads)
 
