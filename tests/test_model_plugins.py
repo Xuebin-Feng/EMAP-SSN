@@ -203,6 +203,10 @@ class ModelDisplayNameTests(unittest.TestCase):
     SHIPPED = {
         "ankh_base": "Ankh Base",
         "ankh_large": "Ankh Large",
+        "ankh3_large": "Ankh3 Large",
+        "ankh3_large_s2s": "Ankh3 Large (S2S)",
+        "ankh3_xl": "Ankh3 XL",
+        "ankh3_xl_s2s": "Ankh3 XL (S2S)",
         "esm2_t6_8m": "ESM-2 8M",
         "esm2_t12_35m": "ESM-2 35M",
         "esm2_t30_150m": "ESM-2 150M",

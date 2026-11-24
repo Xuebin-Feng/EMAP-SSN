@@ -28,6 +28,10 @@ class EmbeddingInjectionPluginTests(unittest.TestCase):
     EXPECTED_PLUGINS = {
         "ankh_base": "ankh",
         "ankh_large": "ankh",
+        "ankh3_large": "ankh3",
+        "ankh3_large_s2s": "ankh3",
+        "ankh3_xl": "ankh3",
+        "ankh3_xl_s2s": "ankh3",
         "esm2_t6_8m": "esm2",
         "esm2_t12_35m": "esm2",
         "esm2_t30_150m": "esm2",

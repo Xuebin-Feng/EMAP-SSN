@@ -437,6 +437,7 @@ that acknowledgement is not a sublicense or a substitute for reading the terms.
 | ProtT5-XL-U50 | [`Rostlab/prot_t5_xl_uniref50`](https://huggingface.co/Rostlab/prot_t5_xl_uniref50) | Academic Free License 3.0 (AFL-3.0), as for ProtBERT: the Hugging Face repository has no license tag, and the official [`ProtTrans`](https://github.com/agemagician/ProtTrans#license) project releases its pretrained models under AFL-3.0. |
 | ProstT5 | [`Rostlab/ProstT5`](https://huggingface.co/Rostlab/ProstT5) | MIT (declared by the model repository) |
 | Ankh Base, Ankh Large | [`ElnaggarLab/ankh-base`](https://huggingface.co/ElnaggarLab/ankh-base), [`ankh-large`](https://huggingface.co/ElnaggarLab/ankh-large) | CC-BY-NC-SA-4.0 — non-commercial, attribution, and ShareAlike terms; explicit application acknowledgement required before access |
+| Ankh3 Large, Ankh3 XL (`[NLU]` / `[S2S]`) | [`ElnaggarLab/ankh3-large`](https://huggingface.co/ElnaggarLab/ankh3-large), [`ankh3-xl`](https://huggingface.co/ElnaggarLab/ankh3-xl) | CC-BY-NC-SA-4.0 — non-commercial, attribution, and ShareAlike terms; explicit application acknowledgement required before access |
 
 > **Note on the `esm` package licensing history.** EvolutionaryScale's PyPI
 > releases through 3.2.3 carry the bespoke Cambrian license. The upstream MIT

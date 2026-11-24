@@ -27,6 +27,7 @@ class ModelSequenceCleaningTests(unittest.TestCase):
             name: load_plugin(name)
             for name in (
                 "ankh",
+                "ankh3",
                 "esm2",
                 "esmc",
                 "esmc_6b_api",
@@ -45,10 +46,12 @@ class ModelSequenceCleaningTests(unittest.TestCase):
                 self.assertEqual(self.plugins[name]._clean_sequence(source), expected)
 
     def test_ankh_preserves_native_ambiguity_codes_but_not_gap_or_j(self):
-        self.assertEqual(
-            self.plugins["ankh"]._clean_sequence("**A-BJXUZOC**"),
-            "AXBXXUZOC",
-        )
+        for name in ("ankh", "ankh3"):
+            with self.subTest(plugin=name):
+                self.assertEqual(
+                    self.plugins[name]._clean_sequence("**A-BJXUZOC**"),
+                    "AXBXXUZOC",
+                )
 
     def test_prottrans_models_apply_their_published_ambiguity_mapping(self):
         source = "**A-BJXUZOC**"

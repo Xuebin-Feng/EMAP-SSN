@@ -9,7 +9,8 @@
   "model_embedding_widths": {
     "esm2_t6_8m": 320, "esm2_t12_35m": 480, "esm2_t30_150m": 640, "esm2_t33_650m": 1280,
     "esmc_300m": 960, "esmc_600m": 1152, "esmc_6b": 2560,
-    "prot_bert": 1024, "prot_t5": 1024, "prost_t5": 1024, "ankh_base": 768, "ankh_large": 1536
+    "prot_bert": 1024, "prot_t5": 1024, "prost_t5": 1024, "ankh_base": 768, "ankh_large": 1536,
+    "ankh3_large": 1536, "ankh3_large_s2s": 1536, "ankh3_xl": 2560, "ankh3_xl_s2s": 2560
   },
   "tools": {
     "sanitize_sequences": {

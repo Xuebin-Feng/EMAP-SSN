@@ -26,6 +26,7 @@ from transformers import (
 )
 
 from resources.pLM_models import ankh as ankh_plugin
+from resources.pLM_models import ankh3 as ankh3_plugin
 from resources.pLM_models import esm2 as esm2_plugin
 from resources.pLM_models import esmc as esmc_plugin
 from resources.pLM_models import prost_t5 as prost_t5_plugin
@@ -49,9 +50,20 @@ class _SyntheticTokenizer:
         self.pad_id = pad_id
         self.vocab = dict(self._VOCAB)
         self.vocab["<AA2fold>"] = 4
+        self.vocab["[NLU]"] = 35
+        self.vocab["[S2S]"] = 36
 
     def _encode_one(self, text):
-        tokens = text.split() if self.spaced else list(text)
+        if self.spaced:
+            tokens = text.split()
+        else:
+            tokens = []
+            for prefix in ("[NLU]", "[S2S]"):
+                if text.startswith(prefix):
+                    tokens.append(prefix)
+                    text = text[len(prefix):]
+                    break
+            tokens.extend(list(text))
         ids = []
         if self.bos_id is not None:
             ids.append(self.bos_id)
@@ -212,6 +224,8 @@ class EmbeddingBatchingTests(unittest.TestCase):
             ("prot_t5", prot_t5_plugin, (prot_t5_tok, t5_mod)),
             ("prost_t5", prost_t5_plugin, (prost_t5_tok, t5_mod)),
             ("ankh", ankh_plugin, (ankh_tok, t5_mod)),
+            ("ankh3_nlu", ankh3_plugin, (ankh_tok, t5_mod, "[NLU]")),
+            ("ankh3_s2s", ankh3_plugin, (ankh_tok, t5_mod, "[S2S]")),
         ]
         for label, plugin, model_obj in cases:
             with self.subTest(plugin=label):
