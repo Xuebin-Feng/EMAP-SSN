@@ -332,6 +332,7 @@ modules = [
 description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
 seconds = 25
 modules = [
+    "test_ankh3",
     "test_chain_fill",
     "test_embedding_batching",
     "test_embedding_hdf5_metadata",
