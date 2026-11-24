@@ -17,14 +17,13 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
-from desktop.Node_Colors import NOISE_COLOR, declare_categories
+from desktop.Node_Colors import NOISE_COLOR, cluster_colors, declare_categories
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import importlib.util
 import sys
 import textwrap
 import os
-import colorsys
 import math
 try:
     import commands.group as group_cmd
@@ -96,22 +95,7 @@ def get_colored_cluster_name(cid, name_str, color_map=None):
     return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 
 def get_combined_colors(n_clusters):
-    if n_clusters <= 0:
-        return []
-    shades_per_hue = math.ceil(n_clusters / 12)
-    n_hues = math.ceil(n_clusters / shades_per_hue)
-    colors = []
-    for s_idx in range(shades_per_hue):
-        for h_idx in range(n_hues):
-            hue = h_idx / n_hues
-            if shades_per_hue == 1:
-                lightness = 0.65
-            else:
-                lightness = 0.58 + (s_idx / (shades_per_hue - 1)) * 0.27
-            saturation = 0.65
-            rgb = colorsys.hls_to_rgb(hue, lightness, saturation)
-            colors.append(rgb)
-    return colors
+    return cluster_colors(n_clusters)
 
 def get_cluster_color_map(cluster_ids):
     sorted_clusters = sorted([cid for cid in cluster_ids if cid != -1])

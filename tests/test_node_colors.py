@@ -626,5 +626,124 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(viewer.color_key_layers[0]["title"]["template"], "Clusters")
 
 
+class CategoricalPaletteTests(unittest.TestCase):
+    """Perceptual distinguishability, contrast, CVD safety and dynamic extension of cluster/subcluster palettes."""
+
+    DEUTERANOPIA = (
+        (0.367322, 0.860646, -0.227968),
+        (0.280085, 0.672501, 0.047413),
+        (-0.011820, 0.042940, 0.968881),
+    )
+    PROTANOPIA = (
+        (0.152286, 1.052583, -0.204868),
+        (0.114503, 0.786281, 0.099216),
+        (-0.003882, -0.048116, 1.051998),
+    )
+    TRITANOPIA = (
+        (1.255528, -0.076749, -0.178779),
+        (-0.078411, 0.930809, 0.147602),
+        (0.004733, 0.691367, 0.303900),
+    )
+
+    @staticmethod
+    def _min_pairwise_de00(rgbs):
+        labs = Node_Colors._rgb_to_lab(np.asarray(rgbs, dtype=np.float64))
+        return min(
+            float(Node_Colors._ciede2000_to_many(labs[i], labs[i + 1:]).min())
+            for i in range(len(labs) - 1)
+        )
+
+    @staticmethod
+    def _sim_cvd(rgbs, matrix):
+        lin = Node_Colors._srgb_to_linear(np.asarray(rgbs, dtype=np.float64))
+        out = np.clip(lin @ np.asarray(matrix, dtype=np.float64).T, 0.0, 1.0)
+        return np.where(out <= 0.0031308, 12.92 * out, 1.055 * (out ** (1.0 / 2.4)) - 0.055)
+
+    @staticmethod
+    def _contrast(rgbs, bg_lum):
+        lin = Node_Colors._srgb_to_linear(np.asarray(rgbs, dtype=np.float64))
+        lum = 0.2126 * lin[:, 0] + 0.7152 * lin[:, 1] + 0.0722 * lin[:, 2]
+        light = np.maximum(lum, bg_lum)
+        dark = np.minimum(lum, bg_lum)
+        return (light + 0.05) / (dark + 0.05)
+
+    def test_counts_bounds_and_prefix_stability(self):
+        from commands import cluster, subcluster
+
+        for fn, cmd_fn in (
+            (Node_Colors.cluster_colors, cluster.get_combined_colors),
+            (Node_Colors.subcluster_colors, subcluster.get_subcluster_colors),
+        ):
+            self.assertEqual(fn(0), [])
+            self.assertEqual(fn(-3), [])
+            full = fn(100)
+            self.assertEqual(len(full), 100)
+            self.assertEqual(cmd_fn(24), full[:24])
+            for count in (1, 7, 12, 24, 64, 80):
+                subset = fn(count)
+                self.assertEqual(len(subset), count)
+                self.assertEqual(subset, full[:count])
+            for rgb in full:
+                self.assertEqual(len(rgb), 3)
+                self.assertTrue(all(isinstance(c, float) and 0.0 <= c <= 1.0 for c in rgb))
+
+    def test_cluster_palette_perceptual_separation_contrast_and_4bit_uniqueness(self):
+        colors = Node_Colors.cluster_colors(100)
+        for count, floor in ((7, 24.0), (12, 20.0), (24, 14.0), (48, 11.0), (64, 10.0), (100, 8.0)):
+            with self.subTest(count=count):
+                self.assertGreaterEqual(self._min_pairwise_de00(colors[:count]), floor)
+
+        # Readable on both white Viewer canvas/legend and dark Console background.
+        self.assertGreaterEqual(float(self._contrast(colors, 1.0).min()), 2.2)
+        self.assertGreaterEqual(float(self._contrast(colors, 0.009).min()), 2.0)
+
+        # Well separated from opaque and white-composited NOISE_COLOR.
+        labs = Node_Colors._rgb_to_lab(np.asarray(colors, dtype=np.float64))
+        for noise_rgb in ((0.8, 0.8, 0.8), (0.92, 0.92, 0.92)):
+            noise_lab = Node_Colors._rgb_to_lab(np.asarray(noise_rgb, dtype=np.float64))
+            self.assertGreaterEqual(float(Node_Colors._ciede2000_to_many(noise_lab, labs).min()), 18.0)
+
+        # Distinct 4-bit color classes in Tree View (web_ui/tree_color.js).
+        u8 = np.clip(np.rint(np.asarray(colors) * 255.0), 0, 255).astype(int)
+        class_keys = ((u8[:, 0] >> 4) << 8) | ((u8[:, 1] >> 4) << 4) | (u8[:, 2] >> 4)
+        self.assertEqual(len(set(class_keys.tolist())), len(colors))
+
+    def test_top_cluster_colors_stay_distinguishable_under_cvd(self):
+        top7 = Node_Colors.cluster_colors(7)
+        for name, matrix in (
+            ("deuteranopia", self.DEUTERANOPIA),
+            ("protanopia", self.PROTANOPIA),
+            ("tritanopia", self.TRITANOPIA),
+        ):
+            with self.subTest(cvd=name):
+                self.assertGreaterEqual(self._min_pairwise_de00(self._sim_cvd(top7, matrix)), 12.0)
+
+    def test_subcluster_palette_stays_distinct_internally_and_from_top_clusters(self):
+        sub = Node_Colors.subcluster_colors(100)
+        for count, floor in ((6, 25.0), (12, 18.0), (24, 14.0), (64, 10.0), (100, 8.0)):
+            with self.subTest(count=count):
+                self.assertGreaterEqual(self._min_pairwise_de00(sub[:count]), floor)
+
+        top8_cluster = Node_Colors._rgb_to_lab(np.asarray(Node_Colors.cluster_colors(8), dtype=np.float64))
+        top8_sub = Node_Colors._rgb_to_lab(np.asarray(sub[:8], dtype=np.float64))
+        cross_min = min(float(Node_Colors._ciede2000_to_many(point, top8_cluster).min()) for point in top8_sub)
+        self.assertGreaterEqual(cross_min, 12.0)
+
+    def test_console_readable_color_does_not_collapse_cluster_colors(self):
+        from utilities.Terminal_Colors import readable_color
+
+        colors = Node_Colors.cluster_colors(24)
+        hexes = ["#{:02x}{:02x}{:02x}".format(*(int(round(c * 255)) for c in rgb)) for rgb in colors]
+        for bg in ("#ffffff", "#18181b"):
+            with self.subTest(background=bg):
+                adjusted = [Node_Colors._hex_to_rgb(readable_color(h, bg)) for h in hexes]
+                self.assertGreaterEqual(self._min_pairwise_de00(adjusted), 6.5)
+
+    def test_dynamic_extension_wraps_cleanly_beyond_bounded_gamut(self):
+        huge = Node_Colors.cluster_colors(3000)
+        self.assertEqual(len(huge), 3000)
+        self.assertEqual(huge[:64], Node_Colors.cluster_colors(64))
+
+
 if __name__ == "__main__":
     unittest.main()

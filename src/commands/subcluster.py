@@ -17,14 +17,12 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
-from desktop.Node_Colors import NOISE_COLOR, declare_categories
+from desktop.Node_Colors import NOISE_COLOR, declare_categories, subcluster_colors
 import re
 import os
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import sys
-import colorsys
-import math
 try:
     import commands.group as group_cmd
 except ImportError:
@@ -80,22 +78,7 @@ def get_colored_subcluster_name(sub_id, name_str, color_map=None):
     return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 
 def get_subcluster_colors(n_subclusters):
-    if n_subclusters <= 0:
-        return []
-    shades_per_hue = math.ceil(n_subclusters / 12)
-    n_hues = math.ceil(n_subclusters / shades_per_hue)
-    colors = []
-    for s_idx in range(shades_per_hue):
-        for h_idx in range(n_hues):
-            hue = h_idx / n_hues
-            if shades_per_hue == 1:
-                lightness = 0.50  # Strong/bold tone
-            else:
-                lightness = 0.35 + (s_idx / (shades_per_hue - 1)) * 0.30  # Bold tones (0.35 to 0.65)
-            saturation = 0.95  # Highly saturated
-            rgb = colorsys.hls_to_rgb(hue, lightness, saturation)
-            colors.append(rgb)
-    return colors
+    return subcluster_colors(n_subclusters)
 
 def extra_argument_error(argument, syntax):
     """Return the error Message for an argument the command does not take, with its usage."""

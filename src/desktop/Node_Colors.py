@@ -10,6 +10,7 @@ the commands the two viewers share import such constants from here.
 import copy
 import math
 import string
+import threading
 
 import numpy as np
 
@@ -17,6 +18,229 @@ from utilities.Localization import Message, translate
 
 # RGBA of a node with no value to color it by or no group to belong to: translucent light gray.
 NOISE_COLOR = (0.8, 0.8, 0.8, 0.4)
+
+
+# ---------------------------------------------------------------------
+# Categorical palettes for clusters and subclusters
+# ---------------------------------------------------------------------
+# A fixed prefix sequence so that the largest clusters (numbered 1..N by size)
+# keep stable, maximally distinguishable colors as parameters change.
+#
+# - First 7 cluster colors: hand-tuned CVD-safe core (min CIEDE2000 >= 24.6 in
+#   normal vision, >= 14.0 under deuteranopia, >= 13.7 under protanopia, and
+#   >= 12.1 under tritanopia), all clear of the white canvas, black outlines,
+#   and gray NOISE_COLOR.
+# - Colors 8..64 (and dynamic extensions past 64): greedy farthest-point
+#   sampling in CIEDE2000 (Glasbey method) over a gamut bounded away from white
+#   (WCAG contrast >= 2.25:1), dark backgrounds (>= 2.25:1 against #18181b),
+#   black (L* >= 30), and gray noise (CIEDE2000 >= 18 from #ccc/#ebebeb/#fff/#000),
+#   with tiered OKLCH chroma floors so the top 32 colors stay crisp and vivid.
+# - Subclusters use a bold, high-chroma sequence whose top 8 colors also stay
+#   separated (CIEDE2000 >= 12) from the top 8 main cluster colors so subclustering
+#   one cluster stands out cleanly against surrounding clusters.
+
+CLUSTER_PALETTE = (
+    # CVD-universal publication core (1..7)
+    "#1d5bbf", "#d94816", "#009e73", "#dfa000", "#d962a8", "#29b6e6", "#882266",
+    # Tiered-chroma CIEDE2000 farthest-point sequence (8..64)
+    "#95b520", "#9f95ff", "#206a00", "#9f0bff", "#ff8080", "#aa002a", "#008aff",
+    "#ff8a40", "#f40b60", "#807500", "#955500", "#8a6ab5", "#00bfbf", "#009f00",
+    "#d460ff", "#60409f", "#ca00aa", "#9f2a00", "#bf7500", "#6a6aff", "#aa4a6a",
+    "#6abf6a", "#0b20ff", "#d495df", "#008ab5", "#006060", "#758a55", "#aa6a60",
+    "#aa9560", "#208a8a", "#357555", "#555515", "#d495aa", "#bf8a6a", "#006080",
+    "#805580", "#ff3540", "#8a4a40", "#9f9500", "#6a80b5", "#80aaf4", "#aa80aa",
+    "#75b595", "#608000", "#d46a80", "#9500aa", "#957540", "#d40b20", "#aa6a40",
+    "#ea7555", "#9faa6a", "#606095", "#008a40", "#ff00d4", "#df0080", "#df9f60",
+    "#009fb5",
+)
+
+SUBCLUSTER_PALETTE = (
+    # Bold high-chroma CVD-aware core, distinct from top main clusters (1..5)
+    "#dc143c", "#7c2ae8", "#007a33", "#ff8c1a", "#00a6b4",
+    # High-chroma CIEDE2000 farthest-point sequence (6..64)
+    "#808aff", "#df8aff", "#ff7580", "#aab500", "#15bf75", "#9f0b6a", "#0060bf",
+    "#ff00aa", "#00aaff", "#ca4a00", "#559f0b", "#aa8000", "#9f60aa", "#607500",
+    "#d40bff", "#953520", "#b55575", "#f48abf", "#ff6a40", "#00bfaa", "#952a40",
+    "#6a60b5", "#75408a", "#00956a", "#0080bf", "#df9f00", "#bf752a", "#754a00",
+    "#007575", "#b56a60", "#959555", "#d49575", "#9f8aca", "#806a2a", "#b500b5",
+    "#8a60ff", "#8ab56a", "#00604a", "#156075", "#bf9f6a", "#956040", "#b5809f",
+    "#55550b", "#ff006a", "#804a60", "#1540d4", "#358095", "#ff0015", "#40602a",
+    "#608a4a", "#4a958a", "#d49595", "#9faadf", "#2075ff", "#ff4aea", "#60b5d4",
+    "#6a80b5", "#6aaa8a", "#955555",
+)
+
+
+def _hex_to_rgb(hex_color):
+    value = hex_color.lstrip("#")
+    return (int(value[0:2], 16) / 255.0, int(value[2:4], 16) / 255.0, int(value[4:6], 16) / 255.0)
+
+
+_CLUSTER_BASE_RGB = tuple(_hex_to_rgb(code) for code in CLUSTER_PALETTE)
+_SUBCLUSTER_BASE_RGB = tuple(_hex_to_rgb(code) for code in SUBCLUSTER_PALETTE)
+_PALETTE_LOCK = threading.Lock()
+_EXTENDED_CACHE = {}
+_CANDIDATE_GAMUT = None
+
+
+def _srgb_to_linear(rgb):
+    return np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+
+
+def _rgb_to_lab(rgb):
+    lin = _srgb_to_linear(np.asarray(rgb, dtype=np.float64))
+    r, g, b = lin[..., 0], lin[..., 1], lin[..., 2]
+    x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047
+    y = (0.2126729 * r + 0.7151522 * g + 0.0721750 * b) / 1.00000
+    z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883
+    eps = (6.0 / 29.0) ** 3
+    kap = 1.0 / (3.0 * (6.0 / 29.0) ** 2)
+    fx = np.where(x > eps, np.cbrt(np.maximum(x, 0.0)), kap * x + 4.0 / 29.0)
+    fy = np.where(y > eps, np.cbrt(np.maximum(y, 0.0)), kap * y + 4.0 / 29.0)
+    fz = np.where(z > eps, np.cbrt(np.maximum(z, 0.0)), kap * z + 4.0 / 29.0)
+    return np.stack([116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)], axis=-1)
+
+
+def _rgb_to_oklab_chroma(rgb):
+    lin = _srgb_to_linear(np.asarray(rgb, dtype=np.float64))
+    r, g, b = lin[..., 0], lin[..., 1], lin[..., 2]
+    l_ = np.cbrt(np.maximum(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b, 0.0))
+    m_ = np.cbrt(np.maximum(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b, 0.0))
+    s_ = np.cbrt(np.maximum(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b, 0.0))
+    a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+    b_ = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    return np.hypot(a, b_)
+
+
+def _ciede2000_to_many(lab1, lab2):
+    """Exact CIEDE2000 color difference from one CIELAB point ``lab1`` to an ``(M, 3)`` array."""
+    l1, a1, b1 = float(lab1[0]), float(lab1[1]), float(lab1[2])
+    l2, a2, b2 = lab2[:, 0], lab2[:, 1], lab2[:, 2]
+    avg_l = 0.5 * (l1 + l2)
+    c1 = math.hypot(a1, b1)
+    c2 = np.hypot(a2, b2)
+    avg_c7 = (0.5 * (c1 + c2)) ** 7
+    g = 0.5 * (1.0 - np.sqrt(avg_c7 / (avg_c7 + 25.0 ** 7)))
+    a1p = (1.0 + g) * a1
+    a2p = (1.0 + g) * a2
+    c1p = np.hypot(a1p, b1)
+    c2p = np.hypot(a2p, b2)
+    avg_cp = 0.5 * (c1p + c2p)
+    h1p = np.where(c1p > 1e-12, np.degrees(np.arctan2(b1, a1p)) % 360.0, 0.0)
+    h2p = np.where(c2p > 1e-12, np.degrees(np.arctan2(b2, a2p)) % 360.0, 0.0)
+    d_lp = l2 - l1
+    d_cp = c2p - c1p
+    diff = h2p - h1p
+    d_hp_deg = np.where(
+        np.abs(diff) <= 180.0, diff,
+        np.where(diff > 180.0, diff - 360.0, diff + 360.0),
+    )
+    nonzero = (c1p * c2p) > 0.0
+    d_hp_deg = np.where(nonzero, d_hp_deg, 0.0)
+    d_hp = 2.0 * np.sqrt(c1p * c2p) * np.sin(np.radians(0.5 * d_hp_deg))
+    h_sum = h1p + h2p
+    avg_hp = np.where(
+        ~nonzero, h_sum,
+        np.where(
+            np.abs(h1p - h2p) <= 180.0, 0.5 * h_sum,
+            np.where(h_sum < 360.0, 0.5 * (h_sum + 360.0), 0.5 * (h_sum - 360.0)),
+        ),
+    )
+    t_term = (
+        1.0
+        - 0.17 * np.cos(np.radians(avg_hp - 30.0))
+        + 0.24 * np.cos(np.radians(2.0 * avg_hp))
+        + 0.32 * np.cos(np.radians(3.0 * avg_hp + 6.0))
+        - 0.20 * np.cos(np.radians(4.0 * avg_hp - 63.0))
+    )
+    d_ro = 30.0 * np.exp(-(((avg_hp - 275.0) / 25.0) ** 2))
+    avg_cp7 = avg_cp ** 7
+    r_c = 2.0 * np.sqrt(avg_cp7 / (avg_cp7 + 25.0 ** 7))
+    lm50_2 = (avg_l - 50.0) ** 2
+    s_l = 1.0 + (0.015 * lm50_2) / np.sqrt(20.0 + lm50_2)
+    s_c = 1.0 + 0.045 * avg_cp
+    s_h = 1.0 + 0.015 * avg_cp * t_term
+    r_t = -np.sin(np.radians(2.0 * d_ro)) * r_c
+    return np.sqrt(
+        np.maximum(
+            0.0,
+            (d_lp / s_l) ** 2 + (d_cp / s_c) ** 2 + (d_hp / s_h) ** 2 + r_t * (d_cp / s_c) * (d_hp / s_h),
+        )
+    )
+
+
+def _candidate_gamut():
+    """Lazily build the bounded sRGB candidate pool for dynamic extensions past 64 colors."""
+    global _CANDIDATE_GAMUT
+    if _CANDIDATE_GAMUT is not None:
+        return _CANDIDATE_GAMUT
+    levels = np.linspace(0.0, 1.0, 17)
+    grid = np.stack(np.meshgrid(levels, levels, levels, indexing="ij"), axis=-1).reshape(-1, 3)
+    lin = _srgb_to_linear(grid)
+    lum = 0.2126 * lin[:, 0] + 0.7152 * lin[:, 1] + 0.0722 * lin[:, 2]
+    cr_white = 1.05 / (lum + 0.05)
+    cr_dark = (lum + 0.05) / (0.009 + 0.05)
+    lab = _rgb_to_lab(grid)
+    chroma = _rgb_to_oklab_chroma(grid)
+    mask = (cr_white >= 2.25) & (cr_dark >= 2.25) & (lab[:, 0] >= 30.0) & (lab[:, 0] <= 76.0) & (chroma >= 0.075)
+    cand_rgb = grid[mask]
+    cand_lab = lab[mask]
+    forbidden = _rgb_to_lab(np.array([
+        [1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0],
+        [0.8, 0.8, 0.8],
+        [0.92, 0.92, 0.92],
+        [0.5, 0.5, 0.5],
+    ]))
+    min_forb = np.min(np.stack([_ciede2000_to_many(anchor, cand_lab) for anchor in forbidden], axis=0), axis=0)
+    keep = min_forb >= 18.0
+    _CANDIDATE_GAMUT = (cand_rgb[keep], cand_lab[keep])
+    return _CANDIDATE_GAMUT
+
+
+def _palette_colors(key, base_rgb, count):
+    """Return ``count`` distinguishable (r, g, b) tuples, extending ``base_rgb`` in CIEDE2000 as needed."""
+    count = int(count)
+    if count <= 0:
+        return []
+    if count <= len(base_rgb):
+        return list(base_rgb[:count])
+
+    with _PALETTE_LOCK:
+        cached = _EXTENDED_CACHE.get(key)
+        if cached is None:
+            cand_rgb, cand_lab = _candidate_gamut()
+            chosen = list(base_rgb)
+            min_d = np.full(len(cand_rgb), np.inf, dtype=np.float64)
+            for lab_point in _rgb_to_lab(np.asarray(base_rgb, dtype=np.float64)):
+                min_d = np.minimum(min_d, _ciede2000_to_many(lab_point, cand_lab))
+            cached = [chosen, min_d]
+            _EXTENDED_CACHE[key] = cached
+
+        chosen, min_d = cached
+        cand_rgb, cand_lab = _candidate_gamut()
+        max_unique = len(base_rgb) + len(cand_rgb)
+        target = min(count, max_unique)
+        while len(chosen) < target:
+            idx = int(np.argmax(min_d))
+            if min_d[idx] <= 0.0:
+                break
+            chosen.append(tuple(float(channel) for channel in cand_rgb[idx]))
+            min_d = np.minimum(min_d, _ciede2000_to_many(cand_lab[idx], cand_lab))
+        cached[1] = min_d
+
+        if count <= len(chosen):
+            return list(chosen[:count])
+        return [chosen[idx % len(chosen)] for idx in range(count)]
+
+
+def cluster_colors(n_clusters):
+    """Return ``n_clusters`` perceptually distinguishable (r, g, b) tuples for main clusters."""
+    return _palette_colors("cluster", _CLUSTER_BASE_RGB, n_clusters)
+
+
+def subcluster_colors(n_subclusters):
+    """Return ``n_subclusters`` bold, distinguishable (r, g, b) tuples for subclusters."""
+    return _palette_colors("subcluster", _SUBCLUSTER_BASE_RGB, n_subclusters)
 
 
 # ---------------------------------------------------------------------
