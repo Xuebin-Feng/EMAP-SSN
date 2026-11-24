@@ -479,6 +479,64 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(f"creationflags=subprocess.{child_flag}", broker_code)
                 self.assertNotIn("DETACHED_PROCESS", broker_code)
 
+    async def _first_command(self, mode, platform_name, link):
+        """The command a ``mode`` launch would start on ``platform_name``; nothing is started.
+
+        The project is a scratch folder whose .venv/bin/python is the interpreter; ``link`` is what the named
+        link would be (None: it is missing and cannot be made). The platform is faked for this module only.
+        """
+        from desktop import Window_Python
+        from mcp_server.viewer import Viewer_Client
+
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        python = root / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        link_path = None if link is None else python.with_name(link)
+        fake_sys = SimpleNamespace(platform=platform_name, executable=str(python))
+        started = []
+
+        def refuse(command, *args, **kwargs):
+            started.append(command)
+            raise RuntimeError("nothing is started in this test")
+
+        with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), \
+                mock.patch.object(Viewer_Client, "sys", fake_sys), \
+                mock.patch.object(Viewer_Client, "validate_viewer_document",
+                                  return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}), \
+                mock.patch.object(Window_Python, "ensure_link", return_value=link_path), \
+                mock.patch.object(Viewer_Client.subprocess, "CREATE_NO_WINDOW", 0, create=True), \
+                mock.patch.object(Viewer_Client.subprocess, "CREATE_NEW_PROCESS_GROUP", 0, create=True), \
+                mock.patch.object(Viewer_Client.subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0, create=True), \
+                mock.patch.object(Viewer_Client.subprocess, "Popen", side_effect=refuse), \
+                mock.patch.object(Viewer_Client, "_identity", return_value=None):
+            with self.assertRaises(MCPViewerError):
+                await MCPViewerClient(root).launch_session(settings_document={}, mode=mode)
+        self.assertEqual(len(started), 1)
+        command = started[0]
+        if platform_name == "win32":  # the broker carries the launch command as JSON
+            command = json.loads(command[3])
+        return command, python, python.with_name("EMAP-SSN")
+
+    async def test_a_hidden_launch_on_macos_starts_through_the_named_link_when_there_is_one(self):
+        command, python, link = await self._first_command("hidden", "darwin", "EMAP-SSN")
+        self.assertEqual(command[:2], [str(link), "-u"])
+        self.assertIn("launch-viewer", command)
+        self.assertEqual(command[command.index("--viewer-mode") + 1], "hidden")
+
+    async def test_a_hidden_launch_on_macos_without_the_link_starts_plain_python(self):
+        command, python, _link = await self._first_command("hidden", "darwin", None)
+        self.assertEqual(command[:2], [str(python), "-u"])
+        self.assertIn("launch-viewer", command)
+
+    async def test_a_headless_launch_on_macos_and_a_hidden_launch_elsewhere_start_plain_python(self):
+        for mode, platform_name in (("headless", "darwin"), ("hidden", "win32"), ("hidden", "linux"),
+                                    ("headless", "linux")):
+            with self.subTest(mode=mode, platform=platform_name):
+                command, python, _link = await self._first_command(mode, platform_name, "EMAP-SSN")
+                self.assertEqual(command[:2], [str(python), "-u"])
+                self.assertEqual(command[command.index("--viewer-mode") + 1], mode)
+
     # A normal Viewer is started by the session launcher (desktop/Desktop_Launcher.py), which these tests replace
     # with a few lines: whatever it prints, records or ends with is what the launch has to cope with.
     START_VIEWER = (

@@ -27,6 +27,7 @@ from utilities.Viewer_Sessions import (
 from desktop.Desktop_Launcher_Monitor import (
     SUPERVISED_DIRECTORY_VARIABLE, SUPERVISED_IDENTITY_NAME, viewer_session_command,
 )
+from desktop.Window_Python import window_python
 from desktop.Viewer_State import read_viewer_settings, validate_viewer_document, ViewerSettingsError
 from utilities.Viewer_Display import (
     FALLBACK_ENV as WINDOW_FALLBACK_ENV, HIDDEN_UNAVAILABLE_MARKER, WINDOW_ENV,
@@ -301,7 +302,13 @@ class MCPViewerClient:
         (directory / "launch.json").write_text(json.dumps(launch), encoding="utf-8")
         stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"
         script = Path(self.project_root) / "src" / "EMAPSSN_Config.py"
-        command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
+        interpreter = sys.executable
+        if mode == "hidden" and sys.platform == "darwin":
+            # The hidden process becomes the Viewer a person may show later: on a Mac it goes by the program's
+            # name in the Dock when it is started through the named link ("session" is the Viewer's kind).
+            # Plain Python when the link is missing and cannot be made.
+            interpreter = window_python(self.project_root, "session", sys.executable, sys.platform)
+        command = [interpreter, "-u", str(script), "--headless", "launch-viewer",
                    "--settings", str(snapshot), "--delete-settings", "--viewer-mode", mode]
         if mode == "normal":
             # The Viewer a person sees opens as it does from Config: the session launcher shows a splash and runs
