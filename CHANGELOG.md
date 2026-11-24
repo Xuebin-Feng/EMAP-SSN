@@ -4,13 +4,66 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
-## [Unreleased]
+## [0.6.0] - 2026-11-23
+
+### Highlights
+
+- **Tree View and saved guide trees.** Embedding MSA now writes its guide tree to
+  `Guide_Trees/<name>_guide_tree.nex` as a standard NEXUS file, and the new `tree` command
+  opens Tree View in the browser for that guide tree, a fast network threshold tree, or
+  your own tree file (Newick, NEXUS, PhyloXML, NeXML, JSON). Clades link both ways with
+  the network, respond to `#clade:N#` in commands and MCP, fold and export to PNG or SVG,
+  and share the Viewer's color legend.
+- **Major compute speedups across alignment, embeddings, MSA, and layouts.** Runtime-compiled
+  CUDA/ROCm GPU kernels fuse residue-embedding alignment and SSEARCH on-device; local pLM
+  plugins run with length-sorted dynamic FP32 batching; Embedding MSA uses disk-cached Numba
+  kernels, compact Neighbor-Joining, 2-row affine DP, and lazy tree-replay FASTA writing;
+  and SSN GPU/CPU physics, Gustavson MCL, UMAP k-NN, and parallel AMG run substantially
+  faster with disk-cached kernels.
+- **Calibrated chain-assisted imputation and smarter Network Injection.** Embedding MSA
+  aligns a calibration sample of a sparse network's missing pairs, estimates skipped pairs
+  from both embedding similarity and chains of computed pairs, and gives every sparse
+  network the full all-pairs consensus. Network Injection cuts on Edge Pre-filtering's
+  shared similarity, preserves the input network's pair share, and selects pairs on sorted
+  arrays.
+- **ProtT5, Embedding Import, float16 defaults, and parallel Biohub requests.** Generate
+  Embeddings adds ProtT5-XL-U50, saves float16 by default (halving file sizes and memory),
+  and sends parallel requests to Biohub's ESM C 6B API (`API_PARALLEL_REQUESTS`). A new
+  Embedding Import tool converts external per-residue embeddings (HDF5, `.npz`, `.npy`)
+  into EMAP-SSN databases without rerunning a model.
+- **Standalone Predict Structures and ESMFold 2 remote folding.** The new Predict Structures
+  tool (and MCP `predict_structure` / `predict_structures`) folds a typed sequence or FASTA
+  file without opening a Viewer, saving PDBs to `Analysis_Results/Folded_Structure/`. Remote
+  `esmfold large` now folds through Biohub's ESMFold 2 API with parallel batches, and local
+  folding now works on CPUs and Apple Silicon too.
+- **EFI-EST alignment scores and one-click BLAST+ downloads.** BLAST all-vs-all and the
+  BLAST/DIAMOND importer can score edges with the EFI-EST alignment score (`SCORE_METRIC`),
+  kept separate from E-value networks (`[BLAST-EFI]` / `[DIAMOND-EFI]`), and the Tools
+  window can download and SHA-256-verify NCBI BLAST+ 2.17.0 on demand. Pairwise Embedding
+  Alignment and SSEARCH also report sequence similarity and gaps.
+- **Viewer analysis, legends, and Fold View upgrades.** New `distribution`, `identity`, and
+  single-node `spectrum` similarity modes join cluster centres and MSA Mean/Min %ID in
+  `cluster` and `subcluster` tables, command aliases (`colour`, `dist`, `spec`, `align`,
+  `embed`, `ref`), and a shared interactive Legend card in both the Viewer and Tree View.
+  Fold View adds a Properties coloring group (solvent accessibility, hydrophobicity, charge)
+  and a Representation tab to restyle every structure at once.
+- **High contrast mode, accessibility, and GPU crash recovery.** A global High Contrast mode
+  covers all desktop windows and Viewer web pages, paired with a full web accessibility
+  audit and monospace clipboard copying from the Console. GPU alignment and embedding tools
+  now run under a lightweight supervisor that catches post-OOM native aborts and restarts
+  with half the VRAM budget, while tiled GPU runs cap PyTorch's caching allocator.
+- **PyTorch 2.14.0/ROCm 10.1, macOS fixes, and MCP 0.17.0.** Every backend moves to PyTorch
+  2.14.0 (with ROCm 10.1 for AMD GPUs and pinned `threadpoolctl==3.7.0`), new environments
+  prefer uv's managed Python 3.13, macOS gains fixes from real-hardware testing, and MCP
+  server 0.17.0 adds tree/clade inspection, inline `export_settings`, `predict_structure`,
+  `predict_structures`, and `embedding_import`.
 
 ### Upgrade Notes
 
 - The first launch after updating reinstalls PyTorch, whichever backend this computer
   uses, because the pinned version moves from 2.12.0 to 2.14.0. For CUDA that downloads
-  several GB.
+  several GB. `threadpoolctl==3.7.0` is also now pinned directly in `src/requirements.txt`
+  (previously pulled in only through scikit-learn).
 - The Viewer no longer reads an alignment path ending in `none_[E1_RA]_alignment.fasta`,
   an old placeholder, as "no alignment": it reports the file as missing. An empty MSA
   field means no alignment.
@@ -30,8 +83,10 @@ still change before version 1.0.0.
   are the edges that were copied from the old network.
 - On a Mac, the first start after updating checks the setup once more, because the record
   of the computer's hardware no longer includes its display settings (see Fixed).
-- The MCP server is 0.17.0 (0.16.0 in v0.5.0), for the new `predict_structure` action and
-  the `predict_structures` and `embedding_import` pipeline tools (see Added).
+- The MCP server is 0.17.0 (0.16.0 in v0.5.0), for `predict_structure`,
+  `predict_structures`, `embedding_import`, tree and clade inspection (`query_clades`,
+  `query_tree_names`, and `get_summary(include_tree=..., tree_source=...)`), and inline
+  `export_settings(settings_document=...)` (see Added).
 - Generate Embeddings now saves float16 by default (see Changed). To resume an interrupted
   run that was saving float32, set Saving Mode to float32 first: a resume keeps the file's
   saving mode and refuses a different one.
@@ -66,6 +121,24 @@ still change before version 1.0.0.
   with the default gets a different guide tree and alignment now. A settings file, the
   Tools window's saved settings or an MCP document that still holds the setting is
   accepted, and the setting is ignored.
+- Align Similarity Matrix, Network Injection, Embedding MSA calibration, and Embedding
+  SSEARCH now run runtime-compiled fused CUDA/ROCm GPU kernels on NVIDIA and AMD GPUs (see
+  Changed). Compiled binaries are cached in the user `gpu_kernels` cache folder
+  (`%LOCALAPPDATA%\EMAP-SSN\gpu_kernels` on Windows, `~/.cache/emap-ssn/gpu_kernels` on
+  Linux). Alignment scores match the CPU reference within `1e-4` per residue with
+  orientation-canonical tie-breaking; set `SSN_ALIGN_GPU_KERNELS=0` to restore the PyTorch +
+  CPU-DP path.
+- Local protein language model embedding generation and injection now use length-sorted
+  dynamic FP32 batching (see Changed). Output embeddings match single-sequence FP32 within
+  `< 1e-4`. HDF5 datasets are created longest-first while manifest order and resume remain
+  compatible with earlier files.
+- GPU SSN physics lowers `SKIP_MIN_NODES` from 16,384 to 4,096 and fuses tile gathering,
+  springs, integration, and RMSD into compiled kernels (see Changed). Saved layout caches
+  open unchanged; newly generated GPU layouts may shift at float32 rounding level compared
+  with v0.5.0 while preserving same-GPU determinism.
+- Numba kernels for CPU layout physics, Embedding MSA, UMAP, MCL, and AMG now cache compiled
+  machine code on disk (`cache=True` in `__pycache__`), eliminating per-launch LLVM
+  recompilation. If `__pycache__` is not writable, they fall back cleanly without caching.
 
 ### Added
 
@@ -542,10 +615,11 @@ still change before version 1.0.0.
     goes to the CPU without timing the devices; only a sample too large for that has the
     devices timed on a share of it. On the HomFam kringle and DEATH families (829 and 881
     sequences, 5,000 sampled pairs) the step took 4 to 9 s on the CPU.
-    On a 12,927-sequence set (100,000 sampled pairs) the step took 220 s: timing the
-    devices took about half of that, the CPU measured faster than the GPU (an RTX 4070),
-    and 18 CPU workers aligned the sample. While aligning, the workers held 11.2 GiB
-    together, beside 6.0 GiB in the main process.
+    Measured before the fused GPU alignment kernels landed (see Changed below), on a
+    12,927-sequence set (100,000 sampled pairs) the step took 220 s on the CPU worker
+    path: timing the devices took about half of that, the CPU measured faster than the
+    pre-fused GPU path (an RTX 4070), and 18 CPU workers aligned the sample while holding
+    11.2 GiB together beside 6.0 GiB in the main process.
   - **Edge Pre-filtering itself aligns and stores only the pairs it keeps.** A network
     file records nothing of the cut. The similarity it cuts on (max-pooled embeddings,
     cosine × (shorter/longer)²) is now one shared function for Align Similarity Matrix,
@@ -739,8 +813,9 @@ still change before version 1.0.0.
   overrides `BOOTSTRAP_TREE` to false and says why, as the Tools window already turns
   the switch off. `BOOTSTRAP_TREE` defaults to true, so an agent that only picked
   Neighbor-joining used to get 100 perturbed replicates. Each replicate is a full
-  neighbor-joining tree: about 30 s at 8,000 sequences, or hours for the whole set.
-  A settings file run from the command line keeps the setting.
+  neighbor-joining tree (about 30 s at 8,000 sequences before the compact NJ rewrite, and
+  still hours over many replicates on large sets), so MCP still overrides `BOOTSTRAP_TREE`
+  to false. A settings file run from the command line keeps the setting.
 - **`meta` succeeds when its page is already open.** It used to fail with "The metadata
   interface is already open in your browser."; it now succeeds with that note, as `tree`,
   `esmfold` and `agent` do. A request that has nothing to change is not an error.
@@ -905,8 +980,9 @@ still change before version 1.0.0.
 - **The Fold View draws a coloring's colors in one place, the legend over the canvas.**
   The Colors card repeated them. It now keeps only the texts: pLDDT's description and
   the caution for opened files, a layer's source and description and its no-data warning,
-  and the note of Structure color. Secondary structure and Residue position have no box
-  there.
+  the descriptions of the Properties colorings (Solvent accessibility, Hydrophobicity and
+  Charge), and the note of Structure color. Secondary structure and Residue position have
+  no box there.
   - The legend over the canvas names pLDDT's band limits (50, 70 and 90) above its bar,
     shows a "No data" key for a layer that covers a structure in part, keeps the two end
     labels of a bar at least 12 px apart, and can be read by a screen reader. The legend
@@ -938,6 +1014,69 @@ still change before version 1.0.0.
 - **The small titles of the Fold View are written as their texts are,** with a capital at
   the start only. The titles of the groups in the Colors card and the headings of the
   Help dialog were drawn in capitals.
+- **Runtime-compiled fused GPU kernels accelerate pairwise embedding alignment and
+  SSEARCH.** `src/utilities/Align_GPU_Kernels.py` compiles four zero-header CUDA/HIP kernels
+  at runtime with PyTorch's bundled NVRTC or hiprtc (`--fmad=false` / `-ffp-contract=off`),
+  caching binaries in the user `gpu_kernels` cache folder and running a startup self-check
+  against the CPU reference before first use (`SSN_ALIGN_GPU_KERNELS=0` restores the
+  previous PyTorch + CPU-DP path).
+  - **On-device fusion and numerical parity:** similarity transformation, exact two-pass
+    population Z-score normalization, and exact linear-gap Needleman-Wunsch + Smith-Waterman
+    wavefront DP (float32-exact and float64-gap kernels, plus SSEARCH scoring with identity,
+    similarity and gap counts) run directly on GPU-resident cosine matrices, cutting PCIe
+    transfers from full residue score matrices to 16 bytes per pair. Canonical pair ordering
+    and orientation-canonical DP tie-breaking keep scores within `1e-4` per residue of the
+    CPU path, and the AMD HIP path uses barrier-safe shared-memory virtual-warp reductions
+    for both wave32 and wave64 devices (untested on AMD hardware; guarded by the startup
+    self-check).
+  - **Sparse slabs, degree-tiered blocking, planner pruning and pinned staging:** sparse
+    workloads batch rows into 2D slabs to avoid per-block launch fragmentation and
+    cross-stream races, allocate ragged per-pair swath scratch to bound VRAM, and group
+    high-degree hubs (such as in Network Injection) into dense blocks. The tile planner
+    Pareto-prunes redundant plans, avoids multi-tile VRAM leaks, and reuses pinned host
+    buffers through `_PinnedHostBufferPool` across alignment and SSEARCH.
+- **Local protein language models run with length-sorted dynamic FP32 batching.**
+  `src/tools/tool_helpers/Embedding_Batching.py` packs sequences across all six local pLM
+  plugins (ESM-2, ESM C, ProtBERT, ProtT5, ProstT5 and Ankh) into microbatches bounded by
+  linear activation memory, quadratic attention memory (for T5 relative-position-bias
+  models) and a 15% padding cap while keeping strict FP32 compute precision (matching
+  single-sequence FP32 within `< 1e-4`).
+  - **Longest-first OOM backoff and device-side FP16 conversion:** batches execute
+    longest-first so peak memory hits on the first batch and halves automatically on OOM.
+    Downcasting to float16 runs on-device before D2H transfer (with a guard keeping
+    `float64` casts on CPU for MPS and non-FP64 devices), and both Generate Embeddings and
+    Embedding Injection validate every batch atomically before writing HDF5 datasets.
+  - **Auto benchmark and fast HDF5 copy:** Generate Embeddings' `Auto` device benchmark runs
+    under a VRAM budget with OOM recovery, cache cleanup and a trimmed slow-CPU probe.
+    Embedding Injection copies unchanged embeddings directly with raw `hf_in.copy` without
+    deserializing arrays.
+- **Embedding MSA accelerates guide trees, consensus accumulation, profile DP and FASTA
+  export.** Its Numba kernels are consolidated in `src/utilities/MSA_Kernels.py` with disk
+  caching (`cache=True` in `__pycache__`, falling back without caching if unwritable).
+  - **Batched row-parallel consensus and compact Neighbor-Joining:** replicate consensus
+    accumulation batches trees in a thread-capped, L1-resident row-parallel kernel that
+    remains bit-identical to serial seed order. Neighbor-Joining uses a compact shrinking
+    `(N, N)` float64 distance matrix (4× less RAM) with O(1) lower-bound pruning and
+    cross-thread deterministic pair selection.
+  - **2-row affine Gotoh DP, lazy tree-replay FASTA writer and single-pass score matrices:**
+    progressive profile alignment uses a 2-row affine Gotoh DP with 1-byte-per-cell
+    bit-packed traceback, FASTA export defers full alignment materialization via lazy
+    merge-tree replay, and `compute_score_matrix_torch` builds score matrices in a single
+    pass.
+- **Faster SSN layouts, MCL clustering, UMAP k-NN and spectral AMG starts.**
+  - **GPU SSN physics (`Layout_GPU_Kernels.py`):** adds fused gather+tile-boxes,
+    springs+Euler+RMSD, and RMSD-finish kernels (five compiled kernels in total), runs
+    speculative 64-step GPU batches with bit-exact device-side rollback, and lowers
+    `SKIP_MIN_NODES` from 16,384 to 4,096.
+  - **CPU SSN physics (`Layout_CPU_Kernels.py`):** uses an O(N) spatial cell-grid repulsion
+    kernel in 2D and 3D that stays bit-exact to the direct sum and caches compiled Numba
+    kernels on disk.
+  - **MCL, UMAP and AMG (`Network_Kernels.py`, `Layout_Engine_UMAP.py`,
+    `Spectral_Start.py`):** MCL engages a disk-cached parallel Numba Gustavson kernel when
+    `n >= 1000` or `nnz >= 40000` (matching reference division and pruning while keeping
+    tiny graphs on SciPy); UMAP builds its k-NN graph with a parallel Numba CSR top-K
+    kernel; and the spectral start's AMG preconditioner uses parallel Numba V-cycles,
+    single-pass Galerkin contraction and an O(m²) deflated coarsest-level inverse.
 
 ### Fixed
 
@@ -961,21 +1100,22 @@ still change before version 1.0.0.
   4 workers, with UPGMA and with neighbor-joining: guide trees and alignments are
   byte-identical, and equal to the earlier version's with one worker.
 - **Embedding MSA no longer keeps a sparse network's imputation arrays in memory for the
-  rest of the run.** For a sparse network the tool builds an all-pairs similarity matrix
-  and two dense matrices of filled-in scores and distances, and holds one similarity and
-  one score per edge for the fit. Nothing reads them once the distances for the guide
-  tree are built, but they stayed in memory through the replicate trees, the final tree
-  and the whole progressive merge: 20 bytes per sequence pair plus 12 bytes per edge.
-  Each is now released right after its last use.
-  - **Measured** on the 12,927-sequence fold-type IV PLP-dependent enzyme set (E1,
-    62,710,401 edges, 75% of pairs kept, on the CPU): the main process's private memory at
-    the start of the merge fell from 6.64 GB to 2.54 GB, and at the start of the replicate
-    trees from 6.95 GB to 2.85 GB. The difference, 4.10 GB, matches the size of these
-    arrays (4.09 GB).
-  - **Unchanged:** the results, and the run's highest memory use (11.2 GB on that set),
-    which is reached earlier, while the fit is checked. The guide tree of that set is
-    byte-identical, and so are the alignments and guide trees of the HomFam kringle
-    family (829 sequences) for four settings, each run with one worker.
+  rest of the run.** Earlier in this cycle, a sparse network built an all-pairs similarity
+  matrix and two dense matrices of filled-in scores and distances (`filled_scores` and
+  `filled_dists`), alongside one similarity and one score per edge for the fit. Nothing
+  read them once the guide-tree distances were built, yet they stayed in memory through the
+  replicate trees, the final tree and the whole progressive merge (20 bytes per sequence
+  pair plus 12 bytes per edge). Each imputation array is now released right after its last
+  use, and the later row-blocked sparse fill (see Changed) eliminated the two dense filled
+  matrices altogether.
+  - **Measured when early release landed** on the 12,927-sequence fold-type IV PLP-dependent
+    enzyme set (E1, 62,710,401 edges, 75% of pairs kept, on the CPU): the main process's
+    private memory at the start of the merge fell from 6.64 GB to 2.54 GB, and at the start
+    of the replicate trees from 6.95 GB to 2.85 GB. The difference, 4.10 GB, matched the
+    size of those arrays (4.09 GB), while peak memory during the fit check stayed at 11.2 GB
+    on that build. The guide tree of that set was byte-identical, and so were the alignments
+    and guide trees of the HomFam kringle family (829 sequences) for four settings, each run
+    with one worker.
 - **Empty text fields in the Tools window showed the word None.** Reference Header and
   Target Header of Pairwise Embedding Alignment and Norm Score Cutoff of Embedding
   Database Search showed None while nothing was set, and Save wrote that word into
@@ -1061,7 +1201,6 @@ still change before version 1.0.0.
   the text inside a box that kept its height, and the box stayed tall after Send until the
   reply came. It now fits its text wherever the text came from (`field-sizing: content`),
   from one line up to 200 px; a browser without `field-sizing` grows it as you type.
-
 - **Tooltips were far larger than their text.** Qt counts a tooltip's stylesheet padding
   twice, so each tooltip had 17 px of black around its text at the sides and 14 px above
   and below. They now fit their text, with 6 px at the sides.
@@ -1296,6 +1435,11 @@ still change before version 1.0.0.
   a user folder named `First Last`. `meta upload` looked up each word as its own file.
   It now tries the whole text as one file first, and accepts quotes, as the desktop
   does. `run` reported a folder with a space as missing; it now names it as a folder.
+- **VR: removed unused folder settings and labelled EFI alignment score statistics.**
+  `opt_vr` drops the unread `LOGO_DIR`, `CLUSTER_ALIGNMENT_DIR` and `CLUSTER_LABEL_DIR`
+  settings while keeping `CLUSTER_ALIGNMENT_DIR` in its deprecated-settings list so legacy
+  VR profiles still load cleanly, and VR Config's Network Statistics labels EFI alignment
+  score networks as `Metric: EFI alignment score`.
 - **Tests that assumed Windows now hold on macOS:** a folder listing in a fixed order,
   the Tree View's key names, a Retina screen's doubled scale, a colour read back one
   step off, and a message box found by its title, which macOS does not show. The last
@@ -1336,17 +1480,19 @@ still change before version 1.0.0.
   none, and ended the program with no error to catch. This is the crash of the next entry.
   Align Similarity Matrix and Network Injection now limit what PyTorch may hold during a
   tiled run to what the plan needs plus 0.5 GiB, on NVIDIA and AMD ROCm devices.
-  - **Measured on that job with Align Similarity Matrix (RTX 4070, Windows):** without
-    the limit the plan test crashed in 10 of 11 runs, 3 of them on the code before this
-    change. With it, 8 of 8 runs passed all eight plans, PyTorch held 5.9 to 7.5 GiB, and
-    at least 1.4 GiB of the card stayed free. The chosen plan and the speed were the
-    same, and 100,000 alignment results were identical bit for bit. The tool itself then
-    ran its plan test and most of its first batch without a memory warning. Earlier the
-    same day, before the computer was restarted, the same test had passed without the
-    limit, so the crash depends on the state of the machine.
+  - **Measured on that job with Align Similarity Matrix on the pre-fused tiled path
+    (RTX 4070, Windows):** without the limit the plan test crashed in 10 of 11 runs, 3 of
+    them on the code before this change. With it, 8 of 8 runs passed all eight pre-fused
+    tiled plans, PyTorch held 5.9 to 7.5 GiB, and at least 1.4 GiB of the card stayed
+    free. The chosen plan and the speed were the same, and 100,000 alignment results were
+    identical bit for bit. The tool itself then ran its plan test and most of its first
+    batch without a memory warning. Earlier the same day, before the computer was
+    restarted, the same test had passed without the limit, so the crash depends on the
+    state of the machine.
   - **A failed run gives its memory back before the retry.** The error kept for the
     retry also kept the failed run's GPU memory, so the retry with half the budget
-    started with less room than planned.
+    started with less room than planned. OOM retries also clear `allocator_cap_bytes=0`
+    so the fallback plan recalculates its cap from the smaller budget.
   - **A failed plan test says more.** Its row shows the first line of the error, the free
     GPU memory, and the computer's own memory: the available RAM and, on Windows, the
     virtual memory in use. The rest of the error follows on the lines below. When a tool
@@ -4487,6 +4633,7 @@ still change before version 1.0.0.
 - Distributed as GitHub-generated source archives. Native executables and model
   weights are not included.
 
+[0.6.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.3.0

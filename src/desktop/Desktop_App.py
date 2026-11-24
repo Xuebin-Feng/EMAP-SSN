@@ -117,7 +117,7 @@ if TYPE_CHECKING:
 # =====================================================================
 
 PRODUCT_NAME = "EMAP-SSN"
-APPLICATION_VERSION = "0.5.0"
+APPLICATION_VERSION = "0.6.0"
 PRODUCT_LONG_NAME = (
     f"{PRODUCT_NAME}: Embedding- and Multiple-Alignment-integrated Protein "
     "Sequence Similarity Network Platform"

@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-23
 
 ---
 
@@ -28,7 +28,7 @@ body is otherwise unchanged.
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/`, which the translated documentation pages in `src/resources/languages/zh_CN/docs/` load too (through `language.css`) | [`src`](src/resources/fonts/LICENSE.Noto) |
-| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (58 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
+| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (61 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
@@ -257,11 +257,12 @@ longer lists Mol*'s public remote states, which Mol* otherwise fetches from
 
 Remaining network use is by design rather than asset loading: model weights are
 downloaded from Hugging Face on first use and cached, the ESM C 6B embedding and
-ESM3 Large structure backends call remote inference APIs, and the agent calls
+ESMFold 2 structure backends call remote inference APIs, and the agent calls
 whichever LLM endpoint is configured (the Ollama, LM Studio and llama.cpp
 options are fully local). Setting up the environment also downloads software:
-the launchers install `uv` from `astral.sh` when it is not already present, `uv`
-provides a managed CPython 3.13 when no suitable interpreter is found, and the
+the launchers install `uv` from `astral.sh` when it is not already present, setup
+prefers `uv`'s managed CPython 3.13 first (falling back to a suitable interpreter
+already on the system if that fails), and the
 installer fetches Python packages from PyPI and the selected PyTorch build from
 `download.pytorch.org` or AMD's `stable.repo.amd.com` index.
 

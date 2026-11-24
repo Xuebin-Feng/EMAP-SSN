@@ -15,7 +15,7 @@ Multiple Sequence Alignments (MSAs) directly into network exploration, the
 platform bridges macroscopic sequence relationships with microscopic
 residue-level conservation to provide a multi-scale view of protein sequence
 space.
-The latest release recorded in the changelog is **v0.5.0**.
+The latest release recorded in the changelog is **v0.6.0**.
 This README describes the current source checkout, which may include changes
 since that release. Because EMAP-SSN remains below version 1.0, command
 interfaces and persisted formats may evolve between releases. See the
@@ -84,7 +84,7 @@ separate command, for example
 
 ### 🔌 Local STDIO MCP server
 
-`src/EMAPSSN_MCP_Server.py` exposes 15 pipeline programs, layout-cache generation,
+`src/EMAPSSN_MCP_Server.py` exposes 16 pipeline programs, layout-cache generation,
 Viewer inspection, command execution, and session management to local MCP clients.
 It registers exactly three workflow tools:
 
@@ -212,7 +212,7 @@ during MCP initialization.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP and PaCMAP remain available as optional non-physics layout methods on the Inputs & Outputs tab.Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)`, offered on every tab except Inputs & Outputs, loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, `$analysis_result$`, or `$embedding$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP and PaCMAP remain available as optional non-physics layout methods on the Inputs & Outputs tab. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)`, offered on every tab except Inputs & Outputs, loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, `$analysis_result$`, or `$embedding$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -368,7 +368,7 @@ and the [Viewer Command Reference](docs/list_of_commands.html) for command synta
 
 ## ✅ Compatibility
 
-*Compatibility snapshot: October 2026.* Compatibility is the intersection of
+*Compatibility snapshot: November 2026.* Compatibility is the intersection of
 the application detector, the pinned Python packages, the operating system,
 and the installed GPU driver. A device can be eligible for an installation
 attempt without being guaranteed to work; the installer records it as
@@ -493,14 +493,20 @@ The installer does not install the Linux kernel driver or system ROCm stack.
 Consult the [ROCm 10.1.0 compatibility matrix](https://rocm.docs.amd.com/en/docs-10.1.0/compatibility/compatibility-matrix.html)
 for the matching operating system, driver, and hardware requirements.
 
-SSN physics layouts on a GPU use two small kernels that EMAP-SSN compiles when a
-layout first needs them, with the compiler that ships with PyTorch: NVRTC on
-NVIDIA, hiprtc on ROCm. **The ROCm build of these kernels has not been tested on
-AMD hardware.** Before first use, every process checks the kernels against a
-double-precision evaluation of the same physics on a small test problem; if they
-fail to compile or disagree, layouts automatically use the slower PyTorch
-implementation and the layout log says why. Setting `SSN_LAYOUT_GPU_KERNELS=0`
-forces that fallback on any GPU.
+SSN physics layouts on a GPU use five small kernels (`src/utilities/Layout_GPU_Kernels.py`)
+that EMAP-SSN compiles when a layout first needs them, with the compiler that ships
+with PyTorch: NVRTC on NVIDIA, hiprtc on ROCm. **The ROCm build of these kernels has
+not been tested on AMD hardware.** Before first use, every process checks the kernels
+against a double-precision evaluation of the same physics on a small test problem; if
+they fail to compile or disagree, layouts automatically use the slower PyTorch
+implementation and the layout log says why. Setting `SSN_LAYOUT_GPU_KERNELS=0` forces
+that fallback on any GPU.
+
+Pairwise embedding alignment and Embedding SSEARCH on a GPU similarly use four
+runtime-compiled NVRTC/hiprtc kernels (`src/utilities/Align_GPU_Kernels.py`), sharing
+the same per-user `gpu_kernels` binary cache and startup CPU reference self-check (the
+ROCm build is likewise untested on AMD hardware). Setting `SSN_ALIGN_GPU_KERNELS=0`
+disables them and falls back to the PyTorch + CPU dynamic-programming path.
 
 #### Intel XPU
 
@@ -777,7 +783,7 @@ than overwritten.
 Layout execution JSON uses `schema_version: 2`, `kind: "layout"`, and named
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`
 sections. It contains generation settings only. Viewer JSON uses `kind: "viewer"`
-and `inputs`, `alignment`, `visualization`, and `directories` sections. Score
+and `inputs`, `alignment`, `embedding`, `visualization`, and `directories` sections. Score
 interpretation, edge filters, UMAP or PaCMAP settings, and box scale are read from verified
 cache provenance, never repeated in Viewer JSON. Both exports inherit relevant
 saved preferences; old execution JSON must be re-exported. Personal settings
@@ -937,7 +943,9 @@ EMAP-SSN/
     ├── Alignment_Report/      # Pairwise-alignment reports
     ├── Saved_Images/          # Viewer image exports
     ├── Cluster_Label/         # Cluster and specificity reports
-    └── Sequence_Logos/        # Sequence-logo graphics
+    ├── Sequence_Logos/        # Sequence-logo graphics
+    ├── Folded_Structure/      # Standalone predicted structures (.pdb)
+    └── Sequence_Identity/     # Pairwise sequence-identity matrices
 ```
 
 ---
