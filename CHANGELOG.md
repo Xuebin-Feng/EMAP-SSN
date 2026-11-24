@@ -1460,9 +1460,11 @@ still change before version 1.0.0.
   through a link named `EMAP-SSN` in `.venv/bin`, and Tools through one named
   `EMAP-SSN Tools`, and the Dock shows those names. Setup makes the links. A start that
   finds one missing makes it again, or uses plain `python` when it cannot. Programs the
-  windows start still run with the real `python`. A link made by hand gave the right
-  name on a Mac in the third round; the launchers' own use of it is not yet confirmed
-  there.
+  windows start still run with the real `python`. A Viewer that MCP starts hidden goes
+  through the link too, so it has the name when it is shown later. On a Mac in the
+  fourth round, macOS listed Tools, Config and a normal Viewer under these names, and
+  links that had been removed were made again; the hidden Viewer's name is not yet
+  confirmed there.
 - **macOS: the benchmark could raise the "Install Command Line Developer Tools"
   dialog.** It asks git which commit it is timing, and on a Mac without Apple's
   developer tools `git` is a stub that opens that dialog. The benchmark now checks for
@@ -1516,7 +1518,10 @@ still change before version 1.0.0.
   next. A failed plan test also shows the free GPU memory read just before it. On
   Linux and macOS, a tool ended by a crash signal now reports exit code 128 plus the
   signal's number (134 for an abort). An MCP job reads the signal from that code and
-  still names it, as in "was ended by signal 6 (SIGABRT)". `SSN_TOOL_SUPERVISOR=0`
+  still names it, as in "was ended by signal 6 (SIGABRT)". A tool ended by a stop
+  signal, such as the kill a system sends when memory runs out, ends its watcher by
+  the same signal, and the job names that one too: "was ended by signal 9
+  (SIGKILL)". `SSN_TOOL_SUPERVISOR=0`
   in the environment runs a tool in one process, as before. Tested with stand-in
   programs on Windows and Debian. Seen once on a real GPU: the job that had crashed
   twice restarted, planned with half of the free memory and finished (3,479 sequences,
