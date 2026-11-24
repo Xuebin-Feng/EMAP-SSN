@@ -1168,6 +1168,7 @@ def _benchmark_injection_plans(
 
         estimates = {}
         variant_lanes = {}
+        missing_fused_plans = set()
         for variant in variants:
             if variant == "tiled" and fused_gpu:
                 v_lanes = [l for l in lane_candidates if l <= 2] or [lane_candidates[0]]
@@ -1185,7 +1186,11 @@ def _benchmark_injection_plans(
                     )
                     by_lanes = {p.lanes: p.estimate for p in fused_plans}
                     for lanes in v_lanes:
-                        estimates[variant, lanes] = by_lanes.get(lanes)
+                        if lanes in by_lanes:
+                            estimates[variant, lanes] = by_lanes[lanes]
+                        else:
+                            estimates[variant, lanes] = None
+                            missing_fused_plans.add((variant, lanes))
                 else:
                     for lanes in v_lanes:
                         estimates[variant, lanes] = None
@@ -1200,13 +1205,23 @@ def _benchmark_injection_plans(
                             compute_element_bytes=precision_element_bytes(matmul_precision),
                         ) if memory_info is not None else None
                     )
-        feasible_count = sum(e is None or e.feasible for e in estimates.values())
+        feasible_count = sum(
+            key not in missing_fused_plans and (e is None or e.feasible)
+            for key, e in estimates.items()
+        )
         print(f"[Hardware] {candidate.display_name}: {feasible_count} feasible configurations.")
         best_tiled_rate = 0.0
         for variant in variants:
             prev_scalar_rate = None
             for lanes in variant_lanes[variant]:
                 vram = "--"
+                if (variant, lanes) in missing_fused_plans:
+                    print(
+                        f"{candidate.display_name[:30]:30}  {variant:8}  "
+                        f"{lanes:>5}   {vram:>14}   {'--':>9}   "
+                        "skipped: no memory-safe tile plan"
+                    )
+                    continue
                 if memory_info is not None and estimates[variant, lanes] is not None:
                     estimate = estimates[variant, lanes]
                     vram = (

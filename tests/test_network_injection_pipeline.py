@@ -155,6 +155,139 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             [tasks] * 5,
         )
 
+    def test_benchmark_skips_infeasible_fused_gpu_tiled_plans_under_tight_memory(self):
+        # HI-4: build_adaptive_tile_plans(..., fused_gpu=True) drops infeasible lane plans.
+        # Missing lanes under non-None memory_info must be skipped and excluded from
+        # feasible_count instead of being treated as feasible and bypassing the VRAM gate.
+        cuda = network_injection.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        tasks = [(0, column, "s0", f"s{column}") for column in range(1, 5)]
+        lengths = [64] * 5
+        scalar_estimate = mock.Mock(
+            feasible=True,
+            projected_peak_bytes=1 << 28,
+            safe_peak_bytes=1 << 29,
+            reason="within reserved-VRAM boundary",
+        )
+        fused_lane1_estimate = mock.Mock(
+            feasible=True,
+            projected_peak_bytes=1 << 28,
+            safe_peak_bytes=1 << 29,
+            reason="within reserved-VRAM boundary",
+        )
+        fused_lane1_plan = mock.Mock(lanes=1, estimate=fused_lane1_estimate)
+
+        def complete_benchmark(*_args, **kwargs):
+            trial = kwargs["benchmark_trial"]
+            trial.start()
+            trial.submitted = trial.completed = len(tasks)
+            trial.stop(len(tasks))
+            return []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            h5_path = os.path.join(temp_dir, "embs.h5")
+            headers = [f"s{i}" for i in range(5)]
+            with h5py.File(h5_path, "w") as hf:
+                grp = hf.create_group("embeddings")
+                for h, L in zip(headers, lengths):
+                    grp.create_dataset(h, data=np.ones((L, 64), dtype=np.float32))
+            store = network_injection.EmbeddingTileStore(h5_path, headers, host_cache_setting=0)
+
+            # Subcase 1: real build_adaptive_tile_plans drops ALL fused tiled lanes under tight VRAM.
+            tight_memory = mock.Mock(
+                free_bytes=256 << 20,
+                total_bytes=256 << 20,
+                matrix_bytes=64 << 20,
+            )
+            stdout_all_dropped = io.StringIO()
+            with mock.patch.object(
+                network_injection, "DEVICE_SELECTION", "auto"
+            ), mock.patch.object(
+                network_injection.Hardware_Utils,
+                "get_available_devices",
+                return_value=[cuda],
+            ), mock.patch.object(
+                network_injection.Hardware_Utils, "release_device_cache"
+            ), mock.patch.object(
+                network_injection.Hardware_Utils, "begin_gpu_trial", return_value=None
+            ), mock.patch.object(
+                network_injection, "tiled_accelerator_support",
+                return_value=(True, "supported"),
+            ), mock.patch.object(
+                network_injection.Align_GPU_Kernels, "align_kernels", return_value=object()
+            ), mock.patch.object(
+                network_injection, "_lane_candidates", return_value=[1, 2]
+            ), mock.patch.object(
+                network_injection, "cuda_memory_plan", return_value=tight_memory
+            ), mock.patch.object(
+                network_injection, "estimate_cuda_working_set", return_value=scalar_estimate
+            ), mock.patch.object(
+                network_injection, "_execute_injection_plan", side_effect=complete_benchmark
+            ) as execute, redirect_stdout(stdout_all_dropped):
+                ranked = network_injection._benchmark_injection_plans(
+                    tasks,
+                    workers=2,
+                    input_h5=h5_path,
+                    store=store,
+                    lengths=lengths,
+                    matmul_precision="ieee_fp32",
+                )
+
+            out_text = stdout_all_dropped.getvalue()
+            executed_plans = [(c.args[0][1], c.args[0][2]) for c in execute.call_args_list]
+            self.assertTrue(ranked)
+            self.assertNotIn(("tiled", 1), executed_plans)
+            self.assertNotIn(("tiled", 2), executed_plans)
+            self.assertIn(("scalar", 1), executed_plans)
+            self.assertIn(f"[Hardware] {cuda.display_name}: 2 feasible configurations.", out_text)
+            self.assertEqual(out_text.count("skipped: no memory-safe tile plan"), 2)
+
+            # Subcase 2: only lanes=1 fused plan is feasible; lanes=2 is dropped and must be skipped.
+            stdout_partial = io.StringIO()
+            with mock.patch.object(
+                network_injection, "DEVICE_SELECTION", "auto"
+            ), mock.patch.object(
+                network_injection.Hardware_Utils,
+                "get_available_devices",
+                return_value=[cuda],
+            ), mock.patch.object(
+                network_injection.Hardware_Utils, "release_device_cache"
+            ), mock.patch.object(
+                network_injection.Hardware_Utils, "begin_gpu_trial", return_value=None
+            ), mock.patch.object(
+                network_injection, "tiled_accelerator_support",
+                return_value=(True, "supported"),
+            ), mock.patch.object(
+                network_injection.Align_GPU_Kernels, "align_kernels", return_value=object()
+            ), mock.patch.object(
+                network_injection, "_lane_candidates", return_value=[1, 2]
+            ), mock.patch.object(
+                network_injection, "cuda_memory_plan", return_value=tight_memory
+            ), mock.patch.object(
+                network_injection, "build_adaptive_tile_plans", return_value=[fused_lane1_plan]
+            ), mock.patch.object(
+                network_injection, "estimate_cuda_working_set", return_value=scalar_estimate
+            ), mock.patch.object(
+                network_injection, "_execute_injection_plan", side_effect=complete_benchmark
+            ) as execute_partial, redirect_stdout(stdout_partial):
+                ranked_partial = network_injection._benchmark_injection_plans(
+                    tasks,
+                    workers=2,
+                    input_h5=h5_path,
+                    store=store,
+                    lengths=lengths,
+                    matmul_precision="ieee_fp32",
+                )
+
+            out_partial = stdout_partial.getvalue()
+            executed_partial = [(c.args[0][1], c.args[0][2]) for c in execute_partial.call_args_list]
+            self.assertTrue(ranked_partial)
+            self.assertIn(("tiled", 1), executed_partial)
+            self.assertNotIn(("tiled", 2), executed_partial)
+            self.assertIn(f"[Hardware] {cuda.display_name}: 3 feasible configurations.", out_partial)
+            self.assertEqual(out_partial.count("skipped: no memory-safe tile plan"), 1)
+
     def test_input_path_configuration_preserves_none_as_unselected(self):
         with mock.patch.object(network_injection, "OLD_NETWORK", None), \
                 mock.patch.object(network_injection, "NEW_EMBEDDINGS", None):
