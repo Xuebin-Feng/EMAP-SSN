@@ -545,7 +545,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         "def start_viewer(code='import time; time.sleep(60)'):\n"
         "    child = subprocess.Popen([sys.executable, '-c', code], stdin=subprocess.DEVNULL)\n"
         "    path = os.path.join(os.environ['SSN_SUPERVISED_LAUNCH_DIR'], 'window-process.json')\n"
-        "    open(path, 'w').write(json.dumps({'pid': child.pid, 'created': psutil.Process(child.pid).create_time()}))\n"
+        "    record = json.dumps({'pid': child.pid, 'created': psutil.Process(child.pid).create_time()})\n"
+        "    # Like the monitor (_atomic_write): a temporary file, then a rename, so a client never reads a\n"
+        "    # record that exists but is still empty.\n"
+        "    with open(path + '.tmp', 'w') as handle:\n"
+        "        handle.write(record)\n"
+        "    os.replace(path + '.tmp', path)\n"
         "    return child\n"
     )
 
