@@ -69,7 +69,7 @@
         </div>
     </header>
 
-    <aside id="sidebar" data-source-sha256="8d149baf5ce6bf43763d6aed4a8bc9e8ad3b45d48f1917f6010c4c85131427ab">
+    <aside id="sidebar" data-source-sha256="a2c03cd5f9f15df8ecc8d209a69b221b8e35eb9a908f634ba019e862b6743a1e">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN 命令参考</div>
             <div class="sidebar-subtitle">交互式手册与设置指南</div>
@@ -111,6 +111,7 @@
                 <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
                 <li class="menu-item" data-target="cmd-distribution"><a href="#cmd-distribution"><span>distribution</span></a></li>
+                <li class="menu-item" data-target="cmd-identity"><a href="#cmd-identity"><span>identity</span></a></li>
             </ul>
 
             <div class="menu-category">分析</div>
@@ -147,14 +148,14 @@
 
     <main>
         <div class="content-wrapper">
-            <header class="page-header" id="docs-intro" data-source-sha256="ec2daaf019ce8a69ddd022d9fe1d42783ffc64d4f404152a0520eea4f5680827">
+            <header class="page-header" id="docs-intro" data-source-sha256="2f291d79d10240c083cefcec6e983c89ac10558aa8c0db89e43aaef4cc2e10ff">
                 <h1>EMAP-SSN 查看器</h1>
                 <div class="subtitle">命令行界面（CLI）手册与参考指南</div>
                 <p>
                     本参考文档介绍所有可用的可视化、物理和社区聚类（community clustering）命令。可通过侧边栏动态搜索或筛选命令。核心命令作用于内存中的可视化状态，而外部脚本运行高级生物信息学算法，并把输出结果导出到磁盘。
                 </p>
                 <p>
-                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。<code>help COMMAND</code> 会打印同样的帮助，单独输入 <code>help</code> 则列出每个命令及其一行摘要。
+                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code>、<code>help</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。<code>help COMMAND</code> 会打印同样的帮助，单独输入 <code>help</code> 则列出每个命令及其一行摘要。
                 </p>
                 <p>
                     命令可以有别名，即运行该命令的其他名称：<code>help</code> 在命令旁列出别名，如 <code>color (colour)</code>，下方对应的命令卡片也会写明。别名的输入方式与命令相同，不区分大小写，Viewer 将其视为命令本身：<code>colour red</code> 即 <code>color red</code>，<code>help colour</code> 打印 <code>color</code> 的帮助。命令历史保留您输入的原文。命令自身的名称始终优先于别名。别名有：<code>colour</code>（<code>color</code>）、<code>dist</code>（<code>distribution</code>）、<code>spec</code>（<code>spectrum</code>）、<code>align</code>（<code>alignment</code>）、<code>embed</code>（<code>embedding</code>）和 <code>ref</code>（<code>reference</code>）。
@@ -172,8 +173,8 @@
 
 
             <div class="section-divider" id="sec-expression" data-source-sha256="8ac4baedea5ccf5723de95944c94446708729c7a6a76f851047e347b75aaa93d">表达式解释器语法规则</div>
-            <div class="command-card" id="expr-interpreter" data-source-sha256="0c892460cbe714815fdf240d4f043e874a1d80f32c329c181ced3eafd994e27a">
-                <p><strong>概述：</strong>通用表达式解释器是把文本查询解析为数学选择的底层引擎。<code>color</code>、<code>group</code>、<code>hide</code>、<code>logo</code>、<code>query</code>、<code>select</code> 和 <code>spectrum</code> 都使用它，它支持对网络节点（node）进行复杂的多层定位。</p>
+            <div class="command-card" id="expr-interpreter" data-source-sha256="57c12fe9d6c7d9cce612bf820164da2ecd1efefa7ff3c8305eda36f8c708a102">
+                <p><strong>概述：</strong>通用表达式解释器是把文本查询解析为数学选择的底层引擎。<code>color</code>、<code>distribution</code>、<code>group</code>、<code>hide</code>、<code>identity</code>、<code>logo</code>、<code>query</code>、<code>select</code> 和 <code>spectrum</code> 都使用它，它支持对网络节点（node）进行复杂的多层定位。</p>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>重要的空格规则</div>
                     <p>表达式必须连续书写，<strong>中间不能有空格</strong>。空格严格保留，用于分隔不同的命令、参数或属性。</p>
@@ -461,7 +462,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-help" data-source-sha256="a83b37942cd3049972120418f620d225676dfc19f98ded73ebb05a5328a34038">
+            <section class="command-card" id="cmd-help" data-source-sha256="472cc2f64ca1903042e5e9bbd99d41ff3510fd5296d09ac495b4ffff5f083eda">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">help</span>
@@ -477,7 +478,7 @@
                 <div class="subheading">帮助详情</div>
                 <ul>
                     <li><strong>列表：</strong>摘要与 MCP 服务器的命令目录（<code>get_command_catalog</code>）给出的相同，因此列表与目录一致；以插件方式添加的命令无需其他改动即会列出。</li>
-                    <li><strong>单个命令：</strong><code>help zoom</code> 打印的内容与 <code>zoom help</code> 相同。命令名不区分大小写。<code>help help</code>、<code>help -h</code> 和 <code>help --help</code> 打印本命令自带的帮助。</li>
+                    <li><strong>单个命令：</strong><code>help zoom</code> 打印的内容与 <code>zoom help</code> 相同。命令名不区分大小写。<code>help help</code>、<code>help -h</code>、<code>help --help</code> 和 <code>help -?</code> 打印本命令自带的帮助。</li>
                     <li><strong>未知名称：</strong>不是命令的词会失败，控制台以红色指出：<code>Error: Unknown command: NAME. Type help for the list of commands.</code> 多于一个词会被拒绝。两种情况下都不会发生其他任何事。</li>
                     <li><strong>立即运行：</strong>它不改变任何内容，因此会立即运行，即使其他命令正在等待。</li>
                     <li><strong>智能体：</strong>智能体的回复不能运行它：智能体的说明中已经描述了每个命令。</li>
@@ -490,7 +491,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-jobs" data-source-sha256="e331dcb5b420e43445959c3db841a98a419e61546e7002ab13a05c16bd885bdc">
+            <section class="command-card" id="cmd-jobs" data-source-sha256="0b7bf7839f6140b2eae63024f5fa17066114e139207476d99a40ca35d6ed9b9e">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">jobs</span>
@@ -502,7 +503,7 @@
                     <div class="syntax-content">jobs   |   jobs cancel [N ... | all]</div>
                     <button class="copy-btn" onclick="copyText('jobs', this)">复制</button>
                 </div>
-                <p><strong>功能：</strong>列出正在等待或运行的后台任务，以及正在运行的折叠工作进程和 Python 脚本；<code>jobs cancel</code> 用于取消后台任务。后台任务是写入文件（<code>print</code>、<code>label</code>、<code>logo</code>）或折叠结构（<code>esmfold</code>）的耗时工作，各自在文件或折叠队列中运行，期间查看器保持响应。查看器每次启动后，后台任务按给出的顺序编号为 #1、#2，依此类推。</p>
+                <p><strong>功能：</strong>列出正在等待或运行的后台任务，以及正在运行的折叠工作进程和 Python 脚本；<code>jobs cancel</code> 用于取消后台任务。后台任务是写入文件（<code>print</code>、<code>label</code>、<code>logo</code>、<code>identity</code>）或折叠结构（<code>esmfold</code>）的耗时工作，各自在文件或折叠队列中运行，期间查看器保持响应。查看器每次启动后，后台任务按给出的顺序编号为 #1、#2，依此类推。</p>
                 <div class="subheading">任务详情</div>
                 <ul>
                     <li><strong>取消：</strong>单独的 <code>jobs cancel</code> 取消最新的后台任务，<code>jobs cancel 14 15</code>（或 <code>#14</code>）取消这些任务，<code>jobs cancel all</code> 取消全部任务。只要有一个编号不对应正在等待或运行的后台任务，就不会取消任何任务。尚未开始的任务会被直接移除。正在运行的任务会被通知停止：在真正停止之前，它显示为正在停止，停止后报告为已取消，并删除它已写入的内容；之前已存在的同名文件保持不变。没有可停止步骤的任务则会照常完成。</li>
@@ -544,7 +545,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-offset" data-source-sha256="467fb10dc6c6b01c5c377b23b424f5b70dc6a8019f98810f83e92855ca77d84b">
+            <section class="command-card" id="cmd-offset" data-source-sha256="c71a6eda08dd619463c15c8383e375b56b0211b901ed8039ee113ca34d082d54">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">offset</span>
@@ -561,7 +562,7 @@
                     <li><strong>不带参数：</strong>报告已配置的偏移量，以及参考序列编号是否生效。</li>
                     <li><strong>带一个整数：</strong>应用正、负或零偏移量。需要已加载的 MSA 和有效且已生效的参考序列。</li>
                     <li><strong>仅限当前会话：</strong>该命令只改变正在运行的查看器。要为以后的会话设置该值，请在 EMAP-SSN 配置中设置“比对偏移量”。</li>
-                    <li><strong>受影响的命令：</strong>感知位置的 <code>query</code>、<code>label</code>、<code>logo</code>，以及 <code>color</code>、<code>select</code>、<code>group</code>、<code>hide</code> 和 <code>spectrum</code> 所使用的氨基酸表达式。</li>
+                    <li><strong>受影响的命令：</strong>感知位置的 <code>query</code>、<code>distribution</code>、<code>identity</code>、<code>label</code>、<code>logo</code>，以及 <code>color</code>、<code>select</code>、<code>group</code>、<code>hide</code> 和 <code>spectrum</code> 所使用的氨基酸表达式。</li>
                     <li><strong>负的氨基酸位置：</strong>在布尔表达式中，负的显示位置要用括号括起来，例如 <code>K(-1)</code>、<code>K(-1.1)</code> 或 <code>(RHK)(-1)</code>。不要使用 <code>K-1</code> 或 <code>(RHK)-1</code>。</li>
                 </ul>
                 <div class="subheading">示例</div>
@@ -606,7 +607,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-embedding" data-source-sha256="c3f66288a0bb0831280ea16a356a17bd08c29d3d40947919b3fb9bea3dfbcee8">
+            <section class="command-card" id="cmd-embedding" data-source-sha256="52bfa2883440c6d7e73d63faf20b3b8b991736e7c8cd7149eabe34ca0b3d4893">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">embedding</span>
@@ -623,7 +624,7 @@
                 <div class="subheading">参数</div>
                 <ul>
                     <li><strong>不带参数：</strong>在 Embedding 目录中打开文件对话框，手动选择 H5 embedding 文件。</li>
-                    <li><strong><code>filepath</code>：</strong>指向 embedding 文件的绝对路径或相对路径，或 Embedding 目录中的文件名；可省略 <code>.h5</code> 扩展名（如 <code>Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</code>）。</li>
+                    <li><strong><code>filepath</code>：</strong>指向 embedding 文件的绝对路径或相对路径，或 Embedding 目录中的文件名；可省略 <code>.h5</code> 扩展名（如 <code>Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5</code>）。</li>
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>加载规则与完整性检查</div>
@@ -633,7 +634,7 @@
                 <div class="subheading">示例</div>
                 <ul class="example-list">
                     <li class="example-item"><span>embedding</span><button class="copy-btn" onclick="copyText('embedding', this)">复制</button></li>
-                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5', this)">复制</button></li>
+                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5', this)">复制</button></li>
                 </ul>
             </section>
 
@@ -736,9 +737,63 @@
                 </ul>
             </section>
 
+            <section class="command-card" id="cmd-identity" data-source-sha256="538c7387cbe9e6d1becc8bf2d1479b7b898dbb8bb606b1e07b46110f146ddfcd">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">identity</span>
+                        <span class="command-card-desc-title">&ndash; 成对序列一致性工具</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">identity [expression] [expression] [positions] [filename]  |  identity summary [expression] [positions]</div>
+                    <button class="copy-btn" onclick="copyText('identity', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>从已加载的 MSA 计算一个或两个节点选集的成对序列一致性百分比，并将完整矩阵写入 <code>.xlsx</code>、<code>.csv</code> 或 <code>.tsv</code> 文件。控制台会打印摘要（均值、中位数、最小值、最大值，以及平均一致性最高和最低的序列）以及最多 20 &times; 20 个单元格的预览。使用 <code>summary</code> 时，只打印单个选集的平均和最低序列一致性百分比，不写入任何文件。</p>
+
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>前提条件</div>
+                    <p>需要已加载的 MSA，且至少有一行映射到当前网络。可选的方括号位置编号方式与 <code>query</code> 和 <code>logo</code> 完全相同：有生效的参考序列时，使用以参考序列为锚的编号加上会话偏移量；否则从 1 开始按占有率顺序编号。</p>
+                </div>
+
+                <div class="subheading">选择与模式</div>
+                <ul>
+                    <li><strong>一个表达式：</strong>将每条匹配的序列与其他每条匹配的序列两两比较。矩阵为对称方阵，对角线为每条序列与自身的比较；摘要中每对不同序列只计一次。</li>
+                    <li><strong>两个表达式：</strong>将第一个表达式匹配的每条序列与第二个表达式匹配的每条序列两两比较。第一个表达式的序列始终作为行，第二个表达式的序列始终作为列，按节点顺序排列。同时被两个表达式匹配的节点在摘要统计中不与自身比较。</li>
+                    <li><strong>鼠标选择（回退）：</strong>如果未给出表达式，则使用当前选中的节点（<code>$sele$</code>）。</li>
+                    <li><strong>隐藏节点与未比对节点：</strong>隐藏节点也会计入。匹配但没有 MSA 行的节点会被排除并在摘要中统计数量。匹配不到任何节点的表达式会成功并给出提示，不写入任何文件；若匹配的节点都没有 MSA 行，命令失败。</li>
+                    <li><strong><code>summary</code> 模式：</strong><code>identity summary [expression] [positions]</code> 只打印单个选集（一个表达式或当前选中的节点）全部序列对的平均和最低序列一致性百分比，不写入文件；给出第二个表达式或文件名会被拒绝。不超过 50,000,000 对（约 10,000 条序列）时比较全部序列对；超过该数量时随机抽样比较 2,000,000 对（随机种子 42），此时报告的最小值可能高于真实最小值。</li>
+                </ul>
+
+                <div class="subheading">一致性计算方式与位置</div>
+                <ul>
+                    <li><strong>不指定位置（局部比对定义）：</strong>相同标准残基数除以包含内部空位的比对长度，与双序列比对和 embedding 搜索工具统计局部比对的方式一致。对两行 MSA 而言，该长度是从它们第一对到最后一对对齐的残基对（双方都有残基）之间、任一序列有残基的所有列数；两端悬空部分不计入。由于独立的比对工具会自行重新比对每对序列，其结果可能与来自 MSA 的数值不同。</li>
+                    <li><strong>指定 <code>[positions]</code>：</strong>方括号内可选的显示比对位置，编号方式与 <code>query</code> 和 <code>logo</code> 相同，如 <code>[45-120]</code>、<code>[10,12,15.1]</code> 或 <code>[(-3)-(-1),0]</code>。范围展开为整数参考位置；<code>15.1</code> 这类插入位置需显式列出，当前映射中不存在的位置会被列出名称并跳过。此时只统计所选列，分母为其中任一序列有残基的所有列，因此缺失部分区域的序列在该处按不同计。</li>
+                    <li><strong>歧义字符与空对：</strong><code>X</code> 和其他非标准字母计入比对长度，但从不计为相同。长度为零的序列对没有数值（文件中为空单元格，控制台中显示 <code>-</code>）。</li>
+                </ul>
+
+                <div class="subheading">输出文件与后台执行</div>
+                <ul>
+                    <li><strong><code>[filename]</code>：</strong>可选的纯文件名，以 <code>.xlsx</code>（默认）、<code>.csv</code> 或 <code>.tsv</code> 结尾，写入已配置的分析结果目录之下（默认为 <code>Analysis_Results/Sequence_Identity/</code>）。显式指定文件名时会覆盖同名已有文件；省略文件名时自动生成 <code>identity_YYYYMMDD_HHMMSS.xlsx</code>，且不会覆盖已有文件或已排队任务的文件。</li>
+                    <li><strong>格式：</strong><code>.xlsx</code> 工作簿包含一致性矩阵（<code>Identity</code> 工作表）、<code>Summary</code> 摘要工作表，以及每条序列与其他序列的平均一致性（<code>Row means</code>；有两个表达式时还有 <code>Column means</code>），数值保留两位小数。<code>.csv</code> 和 <code>.tsv</code> 文件仅以 UTF-8 文本写出矩阵本身。</li>
+                    <li><strong>大小限制：</strong><code>.xlsx</code> 文件最多容纳 4,000,000 个单元格和 16,383 列（以及 1,048,575 行）；<code>.csv</code> 或 <code>.tsv</code> 文件最多容纳 16,000,000 个单元格。超过上限的矩阵会在运行前被拒绝：请缩小表达式范围，或改用 <code>.csv</code>/<code>.tsv</code>。</li>
+                    <li><strong>后台执行：</strong>写入矩阵文件在查看器共用的后台任务队列（<em>文件</em>队列，与 <code>print</code>、<code>label</code> 和 <code>logo</code> 并列）中运行，提交时会捕获所匹配 MSA 行的冻结副本，因此之后对查看器的修改不会改变输出；<code>jobs</code> 和会话卡片可列出并取消该任务。<code>identity summary</code> 在命令队列的工作线程上运行，保持查看器响应（计算期间可用 <code>undo</code> 取消）。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>identity summary $sele$</span><button class="copy-btn" onclick="copyText('identity summary $sele$', this)">复制</button></li>
+                    <li class="example-item"><span>identity summary #cluster_3# [45-120]</span><button class="copy-btn" onclick="copyText('identity summary #cluster_3# [45-120]', this)">复制</button></li>
+                    <li class="example-item"><span>identity #cluster_3#</span><button class="copy-btn" onclick="copyText('identity #cluster_3#', this)">复制</button></li>
+                    <li class="example-item"><span>identity #cluster_3# #cluster_5#</span><button class="copy-btn" onclick="copyText('identity #cluster_3# #cluster_5#', this)">复制</button></li>
+                    <li class="example-item"><span>identity #cluster_3# [45-120] c3_core.csv</span><button class="copy-btn" onclick="copyText('identity #cluster_3# [45-120] c3_core.csv', this)">复制</button></li>
+                    <li class="example-item"><span>identity #cluster_3# "P00350"</span><button class="copy-btn" onclick="copyText('identity #cluster_3# &quot;P00350&quot;', this)">复制</button></li>
+                </ul>
+            </section>
+
 <div class="section-divider" id="sec-analysis" data-source-sha256="11d08bd3b5ae42526bc455b04a25f732b753f4911885a431f6328f71cd362068">分析</div>
 
-            <section class="command-card" id="cmd-cluster" data-source-sha256="8779ffba6bd80f04c2cbc772a9ae2d78858206af533e38fcf321f95c47a9dc8f">
+            <section class="command-card" id="cmd-cluster" data-source-sha256="831af6ba80b46cbe1345fb27085af17506b342782e980a20c4557d86e063d892">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">cluster</span>
@@ -790,9 +845,16 @@
                     </div>
                 </div>
 
+                <div class="subheading">统计表</div>
+                <ul>
+                    <li><strong>计数与占比：</strong>每个簇所在行都会打印其节点数以及占全网总节点数的比例。</li>
+                    <li><strong>平均与最低序列一致性（已加载 MSA 时）：</strong>已加载 MSA 时，统计表会增加 <code>Mean %ID</code> 和 <code>Min %ID</code> 两列，给出每个簇所有成员对的平均和最低成对序列一致性，采用局部比对定义（相同标准残基数除以含内部空位的比对长度：对两行 MSA 而言，即从第一对到最后一对对齐残基对之间、任一序列有残基的所有列数；两端悬空部分不计入，<code>X</code> 及其他非标准字母计入长度但从不计为相同）。由于双序列比对和 embedding 搜索工具会自行重新比对每对序列，其结果可能与来自 MSA 的数值不同。没有 MSA 行的成员会被排除，少于两个已比对成员或没有任何重叠序列对的簇以 <code>-</code> 标记。不超过 50,000,000 个成员对（约 10,000 个成员）的簇会精确比较全部序列对；超过该数量的簇改为随机抽样比较 2,000,000 对（随机种子 42），并在数值前以 <code>~</code> 标记（均值仍接近全量结果，而最小值可能高于真实最小值）。未加载 MSA 时省略这两列，并附注说明原因。</li>
+                    <li><strong>中心节点：</strong>在表格右侧，<code>mcl</code> 和 <code>leiden</code> 会列出每个簇的中心节点（完整序列标题）：对于 <code>mcl</code>，是马尔可夫流动收敛到的最强吸引子；对于 <code>leiden</code>，是在当前分辨率下移除后会导致最大模块度损失的成员。<code>jaccard</code> 不指定中心节点。</li>
+                </ul>
+
                 <div class="subheading">实用子命令</div>
                 <ul>
-                    <li><code>cluster list</code>：在控制台中打印详细报告，列出各簇的大小、百分比以及噪声总数。</li>
+                    <li><code>cluster list</code>：在控制台中打印详细报告，列出各簇的大小、百分比以及噪声总数（不含 %ID 列或中心节点）。</li>
                 </ul>
 
                 <div class="subheading">重要说明</div>
@@ -805,7 +867,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-subcluster" data-source-sha256="b164d37b5109365675a976e1ba7de9d866c712c4f60060592d68ad13900959db">
+            <section class="command-card" id="cmd-subcluster" data-source-sha256="8bf148527213eb53b6369cbf36458f6c8a0bc07c1b89d2005fd6f0fad69200dc">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">subcluster</span>
@@ -832,6 +894,12 @@
                     <li><strong><code>leiden</code>（默认）：</strong>Leiden 社区检测。PARAM_1 表示分辨率（默认：1.0）。</li>
                     <li><strong><code>mcl</code>：</strong>马尔可夫聚类算法。PARAM_1 表示 inflation，取值 1.1 到 10.0（含）（默认：2.0）。</li>
                     <li><strong><code>jaccard</code>：</strong>拓扑 Jaccard 过滤。PARAM_1 表示阈值（默认：0.2）。</li>
+                </ul>
+
+                <div class="subheading">统计表</div>
+                <ul>
+                    <li><strong>平均与最低序列一致性（已加载 MSA 时）：</strong>与 <code>cluster</code> 相同，控制台统计表会增加 <code>Mean %ID</code> 和 <code>Min %ID</code> 两列，显示每个子簇成员的平均和最低成对序列一致性（采用局部比对定义；不超过 50,000,000 个成员对时精确计算，超过时随机抽样比较 2,000,000 对并以 <code>~</code> 标记；少于两个成员有 MSA 行或无重叠残基时显示 <code>-</code>；未加载 MSA 时省略并附注说明）。</li>
+                    <li><strong>中心节点：</strong>对于 <code>mcl</code>（最强吸引子）和 <code>leiden</code>（在所用分辨率下移除后模块度损失最大的成员），会在表格右侧打印每个子簇的中心节点，该中心仅基于目标簇自身的节点和内部边计算。<code>jaccard</code> 不指定中心节点。</li>
                 </ul>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
@@ -1101,11 +1169,11 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="83a5a3fe54878ba9a9755ef80f650de0b5b1a5166a2b00a44393f84a9408436f">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="a89d3a4484b5d0c68b16a86abde4b1d7db3e7f8426c53c3903fd0a33517c97e0">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
-                        <span class="command-card-desc-title">&ndash; 本地或 Biohub ESM3 结构预测</span>
+                        <span class="command-card-desc-title">&ndash; 3D 结构预测（本地 ESM3、Biohub ESMFold 2）</span>
                         <span class="badge badge-ext">外部</span>
                     </div>
                 </div>
@@ -1129,7 +1197,7 @@
                 <ul>
                     <li><strong>本地加速：</strong>本地推理会自动在已安装的运行时所支持的 CUDA/ROCm、Intel XPU、Apple Metal（MPS）和 CPU 设备中进行选择。</li>
                     <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放。它需要你的 Biohub API 令牌，保存在 Biohub API 设置文件中（或通过 <code>ESM_API_KEY</code> 环境变量提供）。工作进程没有窗口可以询问，因此尚未保存令牌时，查看器会在折叠加入队列之前弹出对话框询问（输入内容被隐藏）并保存令牌；取消则不会排队任何折叠。如果折叠过程中 Biohub 拒绝了已保存的令牌，查看器会询问一次替换令牌，尚未折叠的结构会用它继续折叠。没有窗口的查看器无法询问，命令会失败。令牌绝不会从命令中获取，也不会在任何地方显示或记录。</li>
-                    <li><strong>工作进程：</strong>每次折叠都是查看器后台任务调度器中的一个任务，排在自己的<em>折叠</em>队列里，与文件任务（<code>label</code>、<code>logo</code>、<code>print</code>）的队列并列。工作进程在后台无窗口运行，桌面查看器保持流畅，输出写入日志文件，命令的结果会给出该文件的位置；失败的折叠会在会话卡片和结构视图页面中保留一行，写明原因，并带有<em>打开日志</em>按钮，可用文本查看器打开该日志。同一时间只运行一个工作进程，因此不会把第二个模型加载到 GPU 内存中；在另一个折叠运行时再给出折叠命令不会被拒绝，而是排队等候，结果会给出它在队列中的位置。别的折叠将要写入或正在写入的节点会从新的折叠中省略，结果会指出占用它的任务；既没有节点可折叠、也没有从已保存的文件显示任何结构时，命令会被拒绝。查看器会话卡片的<em>后台任务</em>一节列出这些折叠：可以移动或移除等待中的折叠，也可以停止正在运行的折叠，<code>jobs</code> 和 <code>esmfold stop</code> 同样可以。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）不打开 Mol* 页面：命令的结果会给出 Mol* 页面的服务地址。关闭查看器会结束正在运行的工作进程。在没有选中任何节点时打开 Mol* 不会排队。</li>
+                    <li><strong>工作进程：</strong>每次折叠都是查看器后台任务调度器中的一个任务，排在自己的<em>折叠</em>队列里，与文件任务（<code>print</code>、<code>label</code>、<code>logo</code>、<code>identity</code>）的队列并列。工作进程在后台无窗口运行，桌面查看器保持流畅，输出写入日志文件，命令的结果会给出该文件的位置；失败的折叠会在会话卡片和结构视图页面中保留一行，写明原因，并带有<em>打开日志</em>按钮，可用文本查看器打开该日志。同一时间只运行一个工作进程，因此不会把第二个模型加载到 GPU 内存中；在另一个折叠运行时再给出折叠命令不会被拒绝，而是排队等候，结果会给出它在队列中的位置。别的折叠将要写入或正在写入的节点会从新的折叠中省略，结果会指出占用它的任务；既没有节点可折叠、也没有从已保存的文件显示任何结构时，命令会被拒绝。查看器会话卡片的<em>后台任务</em>一节列出这些折叠：可以移动或移除等待中的折叠，也可以停止正在运行的折叠，<code>jobs</code> 和 <code>esmfold stop</code> 同样可以。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）不打开 Mol* 页面：命令的结果会给出 Mol* 页面的服务地址。关闭查看器会结束正在运行的工作进程。在没有选中任何节点时打开 Mol* 不会排队。</li>
                     <li><strong>Mol* 界面：</strong>托管一个 Web 服务器，在丰富的交互式三维查看器中加载预测出的结构。</li>
                     <li><strong>逐残基数据：</strong>已加载比对时，为比对中包含的节点折叠出的每个结构（或从已保存的文件显示的结构），会在其 PDB 文件旁生成 <code>&lt;pdb name&gt;.residues.json</code> 文件，其中为每个残基给出两个值，均由整个已加载的比对计算（包括已隐藏的节点）：信息含量，即 <code>logo</code> 命令默认绘制的列高度，以 log2(20) = 4.32 比特为 100%；以及残基一致率，即该列中带有标准氨基酸的比对序列里，与本蛋白质该位置氨基酸相同者所占的比例（本蛋白质自身也计入）。该文件还会写明所用比对、已加载行的标识以及每个残基对应的比对列。比对中没有的节点，或比对中以另一条序列收录的节点，不生成该文件；未加载比对时所有节点都不生成。命令的结果会说明具体原因。结构查看器页面会读取这些文件。</li>
                 </ul>
@@ -1479,7 +1547,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help, #cmd-jobs'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution, #cmd-identity'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold, #cmd-tree'))

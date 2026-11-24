@@ -147,7 +147,7 @@
             </div>
 
             <!-- SECTION 1: ARCHITECTURE OVERVIEW -->
-            <div id="overview" class="section-divider" data-source-sha256="9ed14449d22b3795cb21895c6cfe926dd19896da9708707d46680d0800bb34c9">
+            <div id="overview" class="section-divider" data-source-sha256="8ec45d34a25d1917bd753bd555b68f255526e061e0278186f9dcee0d533f23a9">
                 <span>1. 架构概述与设计理念</span>
             </div>
 
@@ -181,7 +181,7 @@
                     <div class="grid-card">
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span>蛋白质语言模型（pLM）embedding</span></h4>
                         <p style="font-size: 0.9rem; margin-bottom: 0;">
-                            利用最先进的表示（ESM-2、ProtBERT、ProtT5、ProstT5、Ankh），基于稠密的 embedding 相似性矩阵而非静态的氨基酸替换表（BLOSUM62/PAM250）来比对序列，从而捕捉暮光区（twilight zone）中深层的结构与进化关系。
+                            利用最先进的表示（ESM-2、ESM C、ProtBERT、ProtT5、ProstT5、Ankh），基于稠密的 embedding 相似性矩阵而非静态的氨基酸替换表（BLOSUM62/PAM250）来比对序列，从而捕捉暮光区（twilight zone）中深层的结构与进化关系。
                         </p>
                     </div>
                     <div class="grid-card">
@@ -194,7 +194,7 @@
             </div>
 
             <!-- SECTION 2: COMPLETE WORKFLOW -->
-            <div id="workflow" class="section-divider" data-source-sha256="3680abee2501d4265dcacc5a143a3f894d10a0d88806234e534e6ce836e6abd4">
+            <div id="workflow" class="section-divider" data-source-sha256="265aa9667a49e6f23c02c6ee3e4bd9d71762df0671b1eb361a2d35732dfa1c3e">
                 <span>2. 完整的端到端系统工作流程</span>
             </div>
 
@@ -274,12 +274,12 @@
                     </li>
                 </ul>
                 <p>
-                    每个引擎默认都会生成 2D 坐标，桌面查看器会显示这些坐标。将 <code>LAYOUT_DIMENSIONS</code> 设置为 <code>3</code> 的布局设置文档会生成单独的 3D 缓存，桌面查看器不会打开该缓存。<code>LAYOUT_SEED</code>（默认 <code>42</code>）为这三个引擎设定随机种子，因此 UMAP 布局和 CPU 物理布局可以精确重现。
+                    每个引擎默认都会生成 2D 坐标，桌面查看器会显示这些坐标。将 <code>LAYOUT_DIMENSIONS</code> 设置为 <code>3</code> 的布局设置文档会生成单独的 3D 缓存，桌面查看器不会打开该缓存。<code>LAYOUT_SEED</code>（默认 <code>42</code>）为这三个引擎设定随机种子，因此 UMAP 布局、PaCMAP 布局（任意线程数下）、CPU 物理布局以及 GPU 物理布局（在同一 GPU 型号上，无论是编译内核还是 PyTorch 回退路径）都可以精确重现。
                 </p>
             </div>
 
             <!-- SECTION 3: TOOLS GUI -->
-            <div id="gui-tools" class="section-divider" data-source-sha256="6e64041f29945c3ebca6001c90bf04016f25ec1dcd0ef5d0f1336413bd8bcfa7">
+            <div id="gui-tools" class="section-divider" data-source-sha256="c2ab02e3b6be1c3e3a4717c9ddfb02a7181115e58905ea9ad435289ac4769b8c">
                 <span>3. EMAP-SSN 工具 GUI（EMAPSSN_Tools.py）</span>
             </div>
 
@@ -313,7 +313,7 @@
                         <strong>序列与 embedding 准备：</strong>包含 <code>Sanitize_Sequences.py</code>（清理序列数据库、执行长度阈值限制、去除片段关键字、去重）、<code>Generate_Embeddings.py</code>（使用 ESM-2、ESM C、ProtBERT、ProtT5、ProstT5 和 Ankh 等模型计算每个残基的表示）、<code>Embedding_Cropping.py</code>（从现有全序列数据库中为裁剪后的序列切取 embedding，而不是单独对片段进行 embedding），以及 <code>Embedding_Import.py</code>（把在别处计算的逐残基 embedding，例如 UniProt 的 ProtT5 文件，转换为 embedding 数据库）。
                     </li>
                     <li>
-                        <strong>序列相似性计算：</strong>包含 <code>Align_Similarity_Matrix.py</code>（基于残基级 embedding 相似性的全对全动态规划比对）、<code>Align_Substitution_Matrix.py</code>（使用传统替换矩阵进行全对全 BLASTP 比对；需要 NCBI BLAST+），以及 <code>Parse_BLAST_Output.py</code>（导入现有的表格形式 BLAST 或 DIAMOND 结果；请使用 <code>-k 0</code> 运行 DIAMOND，以便报告每个命中）。两个 BLAST 工具都按期望值给每个序列对打分；将<strong>得分</strong>设为 <code>EFI alignment score</code>（“EFI 比对得分”）时，则按 EFI-EST 比对得分打分，这还需要每个命中的比特得分。
+                        <strong>序列相似性计算：</strong>包含 <code>Align_Similarity_Matrix.py</code>（基于残基级 embedding 相似性的全对全动态规划比对）、<code>Align_Substitution_Matrix.py</code>（使用传统替换矩阵进行全对全 BLASTP 比对；需要 NCBI BLAST+，可点击<strong>BLASTP 目录</strong>行上的<strong>下载</strong>按钮下载并经 SHA-256 校验安装 NCBI BLAST+ 2.17.0），以及 <code>Parse_BLAST_Output.py</code>（导入现有的表格形式 BLAST 或 DIAMOND 结果；请使用 <code>-k 0</code> 运行 DIAMOND，以便报告每个命中）。两个 BLAST 工具都按期望值给每个序列对打分；将<strong>得分</strong>设为 <code>EFI alignment score</code>（“EFI 比对得分”）时，则按 EFI-EST 比对得分打分，这还需要每个命中的比特得分。
                     </li>
                     <li>
                         <strong>Embedding MSA：</strong><code>Embedding_MSA.py</code> 根据由网络得分导出的引导树构建渐进式多序列比对，比对时使用残基 embedding；<code>Sparse_MSA_Converter.py</code> 则把已比对的 FASTA 压缩为紧凑的稀疏 HDF5 MSA。
@@ -322,7 +322,7 @@
                         <strong>Embedding 与网络工具：</strong><code>Embedding_Injection.py</code> 和 <code>Network_Injection.py</code> 在重用已存储结果的同时，将新序列添加到现有的 embedding 数据库或网络中，而 <code>Embedding_Extraction.py</code> 和 <code>Network_Extraction.py</code> 则根据序列标题列表从中提取（extraction）子集。
                     </li>
                     <li>
-                        <strong>手动工具：</strong><code>Embedding_PWA.py</code> 通过两个序列的残基 embedding 进行比对并在它们之间映射位置，而 <code>Embedding_SSEARCH.py</code> 在 embedding 数据库中搜索一个查询序列，类似于 FASTA 的 <code>ssearch</code>，而 <code>Predict_Structures.py</code> 使用 ESM3 预测一条键入序列或 FASTA 中各序列的三维结构，并将每个结构保存为 PDB 文件，其 B 因子列存放逐残基的 pLDDT（0 到 100）。该选项卡还包含<strong>基准测试</strong>卡片：<strong>运行基准测试</strong>会在内置的 860 条公共蛋白质序列上对 EMAP-SSN 的耗时计算计时，以便比较计算机和版本，并把报告保存到该卡片的报告文件夹中。开始前会先询问。
+                        <strong>手动工具：</strong><code>Embedding_PWA.py</code> 通过两个序列的残基 embedding 进行比对并在它们之间映射位置，<code>Embedding_SSEARCH.py</code> 在 embedding 数据库中搜索一个查询序列，类似于 FASTA 的 <code>ssearch</code>，而 <code>Predict_Structures.py</code> 使用本地 ESM3 开放模型或通过 Biohub API 远程调用 ESMFold 2 来预测一条键入序列或 FASTA 中各序列的三维结构，并将每个结构保存为 PDB 文件，其 B 因子列存放逐残基的 pLDDT（0 到 100）。该选项卡还包含<strong>基准测试</strong>卡片：<strong>运行基准测试</strong>会在内置的 860 条公共蛋白质序列上对 EMAP-SSN 的耗时计算计时，以便比较计算机和版本，并把报告保存到该卡片的报告文件夹中。开始前会先询问。
                     </li>
                     <li>
                         <strong>目录：</strong>主路径管理器，用于定义 FASTA 输入、网络输出、embedding、布局缓存和分析结果的基础目录。
@@ -508,7 +508,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="4ad8e1e94ddad0a0de80f70f144713ee4d41b3a88b23e75611abd1b7cb05e244">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="f25d12c1893b6aeb661af285f75b83258d5f089d1a51db6ca6d8071dc2d8a3cc">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -521,7 +521,7 @@
                     <img src="../../../../../docs/assets/emapssn_viewer_gui.png" alt="EMAP-SSN 查看器 GUI 截图" style="max-height: 520px;">
                 </div>
                 <div class="figure-caption">
-                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；以及（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）。信息按钮旁边的<strong>控制台（Console）</strong>按钮会打开控制台窗口，其按钮行可打开元数据（Meta Data）、智能体（Agent）、结构视图（Fold View，Mol* 3D 结构）和树视图（Tree View，引导树）。
+                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；以及（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）。信息按钮旁边的<strong>控制台（Console）</strong>按钮会打开控制台窗口，其按钮行可打开元数据（Meta Data）、智能体（Agent）、结构视图（Fold View，Mol* 3D 结构）和树视图（Tree View，MSA 引导树、网络阈值树或打开的树文件）。
                 </div>
             </div>
 
@@ -535,7 +535,7 @@
 
                 <h3>1. OpenGL 画布与相机导航</h3>
                 <p>
-                    主视口是一个可平移、可缩放的 2D 画布。阈值滑块起始处的信息按钮会在画布上打开一张卡片。卡片显示会话信息（节点和边的数量，以及序列集、网络、布局缓存、比对和 embedding 文件，每个路径均以所属文件夹的别名写出），列出这些绑定，并链接到查看器命令参考。比对和 embedding 可通过卡片上各自旁边的按钮更改。其下的<strong>后台任务</strong>部分列出与命令并行运行的耗时任务，并给出各自的用时或其所在队列中的排队位置：即 <code>print</code>、<code>label</code> 和 <code>logo</code> 写入的文件（在<em>文件</em>队列中依次进行），以及 <code>esmfold</code> 折叠的结构（在旁边的<em>折叠</em>队列中依次进行，两个队列同时运行）。运行中的任务排在最前，其后是等待中的任务；没有任务时，以一行灰色文字说明。等待中的任务可以上移、下移或移除；运行中的任务可在确认后停止并移除：它会在下一步停止，在停止之前一直列为“正在停止”，正在写入的未完成文件会被删除。失败的任务会连同原因一直列出，若有日志还带有<em>打开日志</em>按钮，直到被清除。<code>jobs</code> 列出并取消的是同一批任务。<code>cluster</code> 这类耗时命令不是后台任务：这里不会列出它，<code>jobs</code> 也不会列出或取消它；它计算期间，可用 <code>undo</code>、Ctrl+Z（macOS 上为 Cmd+Z）或“撤销”按钮将其撤回。在对网络进行操作期间，卡片保持打开，只能通过其 × 或再次点击信息按钮关闭。画布右上角一行中、始终位于撤销与重做按钮左侧的<strong>图例</strong>按钮会在该行下方打开一张卡片，说明节点颜色的含义，内容来自 Viewer 的颜色键：最新命令的分组在最前，每个类别一行，并给出其可见节点数；渐变（如 <code>spectrum</code>）显示一条带最小值与最大值的色条；颜色键未涵盖的颜色列在<strong>未标注的颜色</strong>之下。点击一行即选中其节点（Ctrl+点击（macOS 上为 Cmd+点击）为添加，点击恰为当前选择的那一行则清除选择），在色条上按下或拖动则选中数值在该范围内的节点；隐藏的节点永远不会被选中。该卡片外观与此卡片相同，底色为白色；在你操作网络时、以及本卡片同时打开时，它都保持打开，只能通过其 × 或再次点击图例按钮关闭。它不会自行打开，在尚未描述任何颜色时以一行文字说明，<code>print</code> 生成的图片中也不会出现它。
+                    主视口是一个可平移、可缩放的 2D 画布。阈值滑块起始处的信息按钮会在画布上打开一张卡片。卡片显示会话信息（节点和边的数量，以及序列集、网络、布局缓存、比对和 embedding 文件，每个路径均以所属文件夹的别名写出），列出这些绑定，并链接到查看器命令参考。比对和 embedding 可通过卡片上各自旁边的按钮更改。其下的<strong>后台任务</strong>部分列出与命令并行运行的耗时任务，并给出各自的用时或其所在队列中的排队位置：即 <code>print</code>、<code>label</code>、<code>logo</code> 和 <code>identity</code> 写入的文件（在<em>文件</em>队列中依次进行），以及 <code>esmfold</code> 折叠的结构（在旁边的<em>折叠</em>队列中依次进行，两个队列同时运行）。运行中的任务排在最前，其后是等待中的任务；没有任务时，以一行灰色文字说明。等待中的任务可以上移、下移或移除；运行中的任务可在确认后停止并移除：它会在下一步停止，在停止之前一直列为“正在停止”，正在写入的未完成文件会被删除。失败的任务会连同原因一直列出，若有日志还带有<em>打开日志</em>按钮，直到被清除。<code>jobs</code> 列出并取消的是同一批任务。<code>cluster</code> 这类耗时命令不是后台任务：这里不会列出它，<code>jobs</code> 也不会列出或取消它；它计算期间，可用 <code>undo</code>、Ctrl+Z（macOS 上为 Cmd+Z）或“撤销”按钮将其撤回。在对网络进行操作期间，卡片保持打开，只能通过其 × 或再次点击信息按钮关闭。画布右上角一行中、始终位于撤销与重做按钮左侧的<strong>图例</strong>按钮会在该行下方打开一张卡片，说明节点颜色的含义，内容来自 Viewer 的颜色键：最新命令的分组在最前，每个类别一行，并给出其可见节点数；渐变（如 <code>spectrum</code>）显示一条带最小值与最大值的色条；颜色键未涵盖的颜色列在<strong>未标注的颜色</strong>之下。点击一行即选中其节点（Ctrl+点击（macOS 上为 Cmd+点击）为添加，点击恰为当前选择的那一行则清除选择），在色条上按下或拖动则选中数值在该范围内的节点；隐藏的节点永远不会被选中。该卡片外观与此卡片相同，底色为白色；在你操作网络时、以及本卡片同时打开时，它都保持打开，只能通过其 × 或再次点击图例按钮关闭。它不会自行打开，在尚未描述任何颜色时以一行文字说明，<code>print</code> 生成的图片中也不会出现它。
                 </p>
                 <div class="table-responsive">
                     <table>
@@ -674,7 +674,7 @@
                             点击<strong>结构视图</strong>会打开 Mol* 结构查看器，用于查看由 <code>esmfold</code> 命令预测的结构。选中一个节点并运行 <code>esmfold</code>，即可用本地的 ESM3 1.4B 模型预测其结构；运行 <code>esmfold large</code>，则通过 Biohub 的 API 使用 ESMFold 2；<code>multi</code> 允许同时处理多个选中的节点。预测结果在 Mol* 中打开，把网络视图与原子结构衔接起来。
                         </p>
                         <p style="font-size: 0.88rem;">
-                            在该页面中，<strong>着色依据</strong>可按 pLDDT、按结构颜色或按残基图层（如由折叠时查看器中已加载的比对计算出的保守性）为结构着色。将指针悬停在残基上会显示其数值，单击可固定该残基，画布下方的序列条显示相同的残基。工具栏可测量两个残基之间的距离、标注残基，并保存带图例的图片。可通过<strong>会话</strong>菜单添加 PDB 或 mmCIF 文件，也可直接将文件拖放到页面上。
+                            在该页面中，<strong>颜色</strong>卡片包含两个选项卡：<strong>颜色</strong>——分为<strong>图层</strong>（以 pLDDT 为首，其后是折叠时由查看器中已加载的比对计算出的残基图层，如保守性）、<strong>性质</strong>（二级结构、溶剂可及性、疏水性和电荷）和<strong>更多着色方式</strong>（结构颜色和残基位置）——以及<strong>表示方式</strong>，可一键将场景中的所有结构在卡通、球棍、空间填充、表面和骨架之间切换。将指针悬停在残基上会显示其数值，单击可固定该残基，画布下方的序列条显示相同的残基。工具栏可测量两个残基之间的距离、标注残基，并保存带图例的图片。可通过<strong>会话</strong>菜单添加 PDB 或 mmCIF 文件，也可直接将文件拖放到页面上。
                         </p>
                     </div>
                     <div class="grid-card" style="grid-column: 1 / -1;">

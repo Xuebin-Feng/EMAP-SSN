@@ -110,6 +110,7 @@
                 <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
                 <li class="menu-item" data-target="cmd-distribution"><a href="#cmd-distribution"><span>distribution</span></a></li>
+                <li class="menu-item" data-target="cmd-identity"><a href="#cmd-identity"><span>identity</span></a></li>
             </ul>
 
             <div class="menu-category">Analysis</div>
@@ -153,7 +154,7 @@
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
                 </p>
                 <p>
-                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference. <code>help COMMAND</code> prints the same help, and <code>help</code> alone lists every command with a one-line summary.
+                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code>, <code>help</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference. <code>help COMMAND</code> prints the same help, and <code>help</code> alone lists every command with a one-line summary.
                 </p>
                 <p>
                     A command may have aliases, other names that run it: <code>help</code> lists them beside the command, as in <code>color (colour)</code>, and its card below names them. An alias is typed as the command is, in any letter case, and the Viewer treats it as the command itself: <code>colour red</code> is <code>color red</code>, and <code>help colour</code> prints the help of <code>color</code>. What you typed stays in the command history. A command's own name always wins over an alias. The aliases are <code>colour</code> for <code>color</code>, <code>dist</code> for <code>distribution</code>, <code>spec</code> for <code>spectrum</code>, <code>align</code> for <code>alignment</code>, <code>embed</code> for <code>embedding</code> and <code>ref</code> for <code>reference</code>.
@@ -172,7 +173,7 @@
 
             <div class="section-divider" id="sec-expression">Expression Interpreter Syntax Rules</div>
             <div class="command-card" id="expr-interpreter">
-                <p><strong>Overview:</strong> The Common Expression Interpreter is the underlying engine that parses text queries into mathematical selections. It is used by <code>color</code>, <code>group</code>, <code>hide</code>, <code>logo</code>, <code>query</code>, <code>select</code>, and <code>spectrum</code>, and allows complex, multi-layered targeting of network nodes.</p>
+                <p><strong>Overview:</strong> The Common Expression Interpreter is the underlying engine that parses text queries into mathematical selections. It is used by <code>color</code>, <code>distribution</code>, <code>group</code>, <code>hide</code>, <code>identity</code>, <code>logo</code>, <code>query</code>, <code>select</code>, and <code>spectrum</code>, and allows complex, multi-layered targeting of network nodes.</p>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Important Space Rule</div>
                     <p>Expressions must be written continuously <strong>without spaces</strong>. Spaces are strictly reserved to separate different commands, parameters, or attributes.</p>
@@ -476,7 +477,7 @@
                 <div class="subheading">Help Details</div>
                 <ul>
                     <li><strong>The List:</strong> The summaries are the ones the MCP server's command catalog (<code>get_command_catalog</code>) gives, so the list and the catalog agree, and a command added as a plugin is listed with no other change.</li>
-                    <li><strong>One Command:</strong> <code>help zoom</code> prints what <code>zoom help</code> prints. The name is not case-sensitive. <code>help help</code>, <code>help -h</code> and <code>help --help</code> print this command's own help.</li>
+                    <li><strong>One Command:</strong> <code>help zoom</code> prints what <code>zoom help</code> prints. The name is not case-sensitive. <code>help help</code>, <code>help -h</code>, <code>help --help</code> and <code>help -?</code> print this command's own help.</li>
                     <li><strong>Unknown Names:</strong> A word that is no command fails, and the Console says so in red: <code>Error: Unknown command: NAME. Type help for the list of commands.</code> More than one word is refused. Nothing else happens in either case.</li>
                     <li><strong>Runs At Once:</strong> It changes nothing, so it runs at once, even while other commands wait.</li>
                     <li><strong>The Agent:</strong> An Agent reply may not run it: the Agent's instructions already describe every command.</li>
@@ -501,7 +502,7 @@
                     <div class="syntax-content">jobs   |   jobs cancel [N ... | all]</div>
                     <button class="copy-btn" onclick="copyText('jobs', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Lists the background jobs that wait or run, and the folding workers and Python scripts that run; <code>jobs cancel</code> cancels background jobs. A background job is slow work that writes a file (<code>print</code>, <code>label</code>, <code>logo</code>) or folds structures (<code>esmfold</code>), in a line of its own, Files or Folding, while the viewer keeps responding. Background jobs are numbered #1, #2 and so on from each start of the viewer, in the order they were given.</p>
+                <p><strong>Function:</strong> Lists the background jobs that wait or run, and the folding workers and Python scripts that run; <code>jobs cancel</code> cancels background jobs. A background job is slow work that writes a file (<code>print</code>, <code>label</code>, <code>logo</code>, <code>identity</code>) or folds structures (<code>esmfold</code>), in a line of its own, Files or Folding, while the viewer keeps responding. Background jobs are numbered #1, #2 and so on from each start of the viewer, in the order they were given.</p>
                 <div class="subheading">Jobs Details</div>
                 <ul>
                     <li><strong>Cancelling:</strong> <code>jobs cancel</code> alone cancels the newest background job, <code>jobs cancel 14 15</code> (or <code>#14</code>) those jobs, and <code>jobs cancel all</code> every one. If a number names no background job that waits or runs, nothing is cancelled. A job that has not started is dropped. A running job is told to stop: it is listed as stopping until it has, and is then reported cancelled, with what it had written deleted; a file of that name from before stays as it was. A job with no step left to stop at completes instead.</li>
@@ -560,7 +561,7 @@
                     <li><strong>Without arguments:</strong> Reports the configured offset and whether reference numbering is active.</li>
                     <li><strong>With one integer:</strong> Applies a positive, negative, or zero offset. A loaded MSA and valid active reference are required.</li>
                     <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in EMAP-SSN Configuration to set the value for future sessions.</li>
-                    <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
+                    <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>distribution</code>, <code>identity</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
                     <li><strong>Negative amino-acid positions:</strong> In Boolean expressions, wrap negative displayed positions in parentheses, for example <code>K(-1)</code>, <code>K(-1.1)</code>, or <code>(RHK)(-1)</code>. Do not use <code>K-1</code> or <code>(RHK)-1</code>.</li>
                 </ul>
                 <div class="subheading">Examples</div>
@@ -622,7 +623,7 @@
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>Without arguments:</strong> Opens a file dialog explorer in the Embedding Directory to manually select an H5 embedding file.</li>
-                    <li><strong><code>filepath</code>:</strong> A direct absolute or relative file path to an embedding file, or a file name inside the Embedding Directory; the <code>.h5</code> extension may be omitted (e.g. <code>Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</code>).</li>
+                    <li><strong><code>filepath</code>:</strong> A direct absolute or relative file path to an embedding file, or a file name inside the Embedding Directory; the <code>.h5</code> extension may be omitted (e.g. <code>Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5</code>).</li>
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
@@ -632,7 +633,7 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>embedding</span><button class="copy-btn" onclick="copyText('embedding', this)">Copy</button></li>
-                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5', this)">Copy</button></li>
+                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35m]_embeddings.h5', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -735,6 +736,60 @@
                 </ul>
             </section>
 
+            <section class="command-card" id="cmd-identity">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">identity</span>
+                        <span class="command-card-desc-title">&ndash; Pairwise Sequence Identity Tool</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">identity [expression] [expression] [positions] [filename]  |  identity summary [expression] [positions]</div>
+                    <button class="copy-btn" onclick="copyText('identity', this)">Copy</button>
+                </div>
+                <p><strong>Overview:</strong> Computes the pairwise % sequence identity of one or two node selections from the loaded MSA and writes the full matrix to an <code>.xlsx</code>, <code>.csv</code>, or <code>.tsv</code> file. The Console prints a summary (mean, median, minimum, maximum, and the sequences with the highest and lowest mean identity) together with a preview of at most 20 &times; 20 cells. With <code>summary</code>, only the mean and minimum % identity of one selection are printed and no file is written.</p>
+
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. Optional bracketed positions are numbered exactly as in <code>query</code> and <code>logo</code>: reference-anchored numbering plus the session offset when a reference is active, or sequential occupancy numbering from 1 otherwise.</p>
+                </div>
+
+                <div class="subheading">Selection &amp; Modes</div>
+                <ul>
+                    <li><strong>One expression:</strong> Compares every matched sequence against every other. The matrix is square and symmetric, with each sequence against itself on the diagonal; the summary counts each distinct pair once.</li>
+                    <li><strong>Two expressions:</strong> Compares each sequence matched by the first expression against each sequence matched by the second. The first expression's sequences are always the rows and the second's are the columns, in node order. A node matched by both expressions is not compared with itself in the summary figures.</li>
+                    <li><strong>Mouse Selection (Fallback):</strong> If no expression is given, the currently selected nodes (<code>$sele$</code>) are used.</li>
+                    <li><strong>Hidden &amp; Unaligned Nodes:</strong> Hidden nodes are included. Matched nodes without an MSA row are left out and counted in the summary. An expression that matches no node succeeds with a note and writes nothing; if matched nodes have no MSA rows, the command fails.</li>
+                    <li><strong><code>summary</code> mode:</strong> <code>identity summary [expression] [positions]</code> prints only the mean and minimum pairwise % identity over every pair of one selection (one expression or the selected nodes) and writes no file; a second expression or a filename is refused. Up to 50,000,000 pairs (about 10,000 sequences) are all compared; beyond that, 2,000,000 random pairs (seed 42) are sampled, and the reported minimum may then be above the true minimum.</li>
+                </ul>
+
+                <div class="subheading">How Identity Is Counted &amp; Positions</div>
+                <ul>
+                    <li><strong>Without positions (local-alignment definition):</strong> Identical standard residues divided by the alignment length including internal gaps, matching how the Pairwise Alignment and Embedding Search tools count a local alignment. For two MSA rows, the length is the columns from their first to their last aligned residue pair (where both have a residue) in which either sequence has a residue; overhanging ends are not counted. Because the standalone alignment tools align each pair themselves, their value for a pair can differ from the MSA's.</li>
+                    <li><strong>With <code>[positions]</code>:</strong> Optional displayed alignment positions in brackets, numbered as in <code>query</code> and <code>logo</code>: <code>[45-120]</code>, <code>[10,12,15.1]</code>, or <code>[(-3)-(-1),0]</code>. Ranges expand to whole reference positions; insertion positions such as <code>15.1</code> are listed explicitly, and positions absent from the active mapping are named and skipped. Only those columns count, and the length is every one of them where either sequence has a residue, so a sequence missing part of the region counts as different there.</li>
+                    <li><strong>Ambiguity &amp; Empty Pairs:</strong> <code>X</code> and other non-standard letters count toward the length but never as identical. A pair with no length has no value (an empty cell in the file, <code>-</code> in the Console).</li>
+                </ul>
+
+                <div class="subheading">Output Files &amp; Background Execution</div>
+                <ul>
+                    <li><strong><code>[filename]</code>:</strong> Optional plain filename ending in <code>.xlsx</code> (the default), <code>.csv</code>, or <code>.tsv</code>, written beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Identity/</code>). An explicit filename replaces an existing file of that name; omitting it generates <code>identity_YYYYMMDD_HHMMSS.xlsx</code> without overwriting an existing or queued file.</li>
+                    <li><strong>Formats:</strong> An <code>.xlsx</code> workbook holds the matrix (sheet <code>Identity</code>), a <code>Summary</code> sheet, and each sequence's mean identity to the others (<code>Row means</code>, plus <code>Column means</code> with two expressions), rounded to two decimals. <code>.csv</code> and <code>.tsv</code> files write the matrix alone as UTF-8 text.</li>
+                    <li><strong>Size Limits:</strong> An <code>.xlsx</code> file holds at most 4,000,000 cells and 16,383 columns (and 1,048,575 rows); a <code>.csv</code> or <code>.tsv</code> file holds at most 16,000,000 cells. A larger matrix is refused before anything runs: narrow an expression, or use <code>.csv</code>/<code>.tsv</code>.</li>
+                    <li><strong>Background Execution:</strong> Writing a matrix file runs in the viewer's shared background-job queue (the <em>Files</em> line, alongside <code>print</code>, <code>label</code>, and <code>logo</code>), capturing a frozen copy of the matched MSA rows on submission so later viewer changes do not alter the output; <code>jobs</code> and the Session card list and cancel it. <code>identity summary</code> runs on the command queue's worker thread so the viewer stays responsive (<code>undo</code> cancels it while computing).</li>
+                </ul>
+
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>identity summary $sele$</span><button class="copy-btn" onclick="copyText('identity summary $sele$', this)">Copy</button></li>
+                    <li class="example-item"><span>identity summary #cluster_3# [45-120]</span><button class="copy-btn" onclick="copyText('identity summary #cluster_3# [45-120]', this)">Copy</button></li>
+                    <li class="example-item"><span>identity #cluster_3#</span><button class="copy-btn" onclick="copyText('identity #cluster_3#', this)">Copy</button></li>
+                    <li class="example-item"><span>identity #cluster_3# #cluster_5#</span><button class="copy-btn" onclick="copyText('identity #cluster_3# #cluster_5#', this)">Copy</button></li>
+                    <li class="example-item"><span>identity #cluster_3# [45-120] c3_core.csv</span><button class="copy-btn" onclick="copyText('identity #cluster_3# [45-120] c3_core.csv', this)">Copy</button></li>
+                    <li class="example-item"><span>identity #cluster_3# "P00350"</span><button class="copy-btn" onclick="copyText('identity #cluster_3# &quot;P00350&quot;', this)">Copy</button></li>
+                </ul>
+            </section>
+
 <div class="section-divider" id="sec-analysis">Analysis</div>
 
             <section class="command-card" id="cmd-cluster">
@@ -789,9 +844,16 @@
                     </div>
                 </div>
 
+                <div class="subheading">Statistics Table</div>
+                <ul>
+                    <li><strong>Counts &amp; Shares:</strong> Each cluster row prints its node count and its share of all nodes in the network.</li>
+                    <li><strong>Mean %ID &amp; Min %ID (with an MSA loaded):</strong> When an MSA is loaded, the table adds <code>Mean %ID</code> and <code>Min %ID</code> columns giving the mean and minimum pairwise sequence identity over each cluster's member pairs, using the local-alignment definition (identical standard residues divided by alignment length including internal gaps: for two MSA rows, the columns from their first to their last aligned residue pair where either sequence has a residue; overhanging ends are excluded, and <code>X</code> or other non-standard letters count toward length but never as identical). Because the Pairwise Alignment and Embedding Search tools align each pair themselves, their value for a pair can differ from the MSA's. Members without an MSA row are left out, and <code>-</code> marks a cluster with fewer than two aligned members or no overlapping pair. Clusters with up to 50,000,000 member pairs (about 10,000 members) compare all pairs exactly; larger clusters compare 2,000,000 random pairs (seed 42) and mark their values with <code>~</code> (the mean stays close to the full value, while the minimum may be above the true minimum). Without a loaded MSA, these columns are omitted and a note explains why.</li>
+                    <li><strong>Centre Node:</strong> To the right of the table, <code>mcl</code> and <code>leiden</code> name each cluster's centre node (its full sequence header): for <code>mcl</code>, the strongest attractor the Markov flow settles on; for <code>leiden</code>, the member whose leaving would cost the most modularity at the resolution used. <code>jaccard</code> names no centre.</li>
+                </ul>
+
                 <div class="subheading">Utility Subcommands</div>
                 <ul>
-                    <li><code>cluster list</code>: Prints a detailed report to the console detailing cluster sizes, percentages, and total noise.</li>
+                    <li><code>cluster list</code>: Prints a detailed report to the console detailing cluster sizes, percentages, and total noise (without %ID columns or centre nodes).</li>
                 </ul>
 
                 <div class="subheading">Important Notes</div>
@@ -831,6 +893,12 @@
                     <li><strong><code>leiden</code> (Default):</strong> Leiden Community Detection. PARAM_1 represents Resolution (Default: 1.0).</li>
                     <li><strong><code>mcl</code>:</strong> Markov Clustering Algorithm. PARAM_1 represents Inflation, from 1.1 to 10.0 inclusive (Default: 2.0).</li>
                     <li><strong><code>jaccard</code>:</strong> Topology Jaccard filtering. PARAM_1 represents Threshold (Default: 0.2).</li>
+                </ul>
+
+                <div class="subheading">Statistics Table</div>
+                <ul>
+                    <li><strong>Mean %ID &amp; Min %ID (with an MSA loaded):</strong> As in <code>cluster</code>, the Console statistics table adds <code>Mean %ID</code> and <code>Min %ID</code> columns showing each subcluster's mean and minimum pairwise sequence identity (local-alignment definition; exact up to 50,000,000 member pairs, and 2,000,000 random pairs marked <code>~</code> above that; <code>-</code> when fewer than two members have an MSA row or share an aligned residue; omitted with a note when no MSA is loaded).</li>
+                    <li><strong>Centre Node:</strong> For <code>mcl</code> (strongest attractor) and <code>leiden</code> (highest modularity cost on removal at the resolution used), each subcluster's centre node is printed to the right of the table, computed among the target cluster's own nodes and internal edges. <code>jaccard</code> names no centre.</li>
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -1106,7 +1174,7 @@
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
-                        <span class="command-card-desc-title">&ndash; Local or Biohub ESM3 Structure Prediction</span>
+                        <span class="command-card-desc-title">&ndash; 3D Structure Prediction (local ESM3, Biohub ESMFold 2)</span>
                         <span class="badge badge-ext">external</span>
                     </div>
                 </div>
@@ -1130,7 +1198,7 @@
                 <ul>
                     <li><strong>Local Acceleration:</strong> Local inference automatically selects among CUDA/ROCm, Intel XPU, Apple Metal (MPS), and CPU devices supported by the installed runtime.</li>
                     <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection and keeps local and remote PDB files separate. It needs your Biohub API token, saved in the Biohub API settings file (or given as the <code>ESM_API_KEY</code> environment variable). The worker has no window to ask in, so when no token is saved the Viewer asks for it in a dialog (typed hidden) before the fold is queued, and saves it; cancelling queues nothing. If Biohub rejects the saved token while folding, the Viewer asks for a replacement, once, and the structures not yet folded go on with it. A Viewer with no window cannot ask, and the command fails. The token is never taken from a command and is shown and logged nowhere.</li>
-                    <li><strong>Worker Process:</strong> Each fold is a job of the Viewer&rsquo;s background job scheduler, in a <em>Folding</em> line of its own beside the line of the file jobs (<code>label</code>, <code>logo</code>, <code>print</code>). The worker runs in the background without any window, so the desktop Viewer stays responsive, and writes its output to a log file that the command&rsquo;s result names; a fold that failed keeps a row with its reason, in the Session card and on the Fold View page, and an <em>Open log</em> button that opens that log in your text viewer. Only one worker runs at a time, so that a second model is never loaded into GPU memory; a fold given while another runs is not refused but waits its turn, and the result gives its place in the line. A node that another fold is to write, or is writing, is left out of the new one and the result names the job that holds it; when no node is left to fold and none was shown from a saved file, the command is refused. The <em>Background jobs</em> section of the Viewer&rsquo;s Session card lists the folds: a waiting fold can be moved or removed, and the running one stopped, as can <code>jobs</code> and <code>esmfold stop</code>. A Viewer with no window (a headless one, or a hidden one whose window is not shown) opens no Mol* page: the command&rsquo;s result names the address the Mol* page is served at. Closing the Viewer ends the running worker. Opening Mol* with nothing selected is not queued.</li>
+                    <li><strong>Worker Process:</strong> Each fold is a job of the Viewer&rsquo;s background job scheduler, in a <em>Folding</em> line of its own beside the line of the file jobs (<code>print</code>, <code>label</code>, <code>logo</code>, <code>identity</code>). The worker runs in the background without any window, so the desktop Viewer stays responsive, and writes its output to a log file that the command&rsquo;s result names; a fold that failed keeps a row with its reason, in the Session card and on the Fold View page, and an <em>Open log</em> button that opens that log in your text viewer. Only one worker runs at a time, so that a second model is never loaded into GPU memory; a fold given while another runs is not refused but waits its turn, and the result gives its place in the line. A node that another fold is to write, or is writing, is left out of the new one and the result names the job that holds it; when no node is left to fold and none was shown from a saved file, the command is refused. The <em>Background jobs</em> section of the Viewer&rsquo;s Session card lists the folds: a waiting fold can be moved or removed, and the running one stopped, as can <code>jobs</code> and <code>esmfold stop</code>. A Viewer with no window (a headless one, or a hidden one whose window is not shown) opens no Mol* page: the command&rsquo;s result names the address the Mol* page is served at. Closing the Viewer ends the running worker. Opening Mol* with nothing selected is not queued.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>
                     <li><strong>Per-Residue Data:</strong> While an alignment is loaded, each structure folded, or shown from a saved file, for a node that the alignment holds gets a file beside its PDB, <code>&lt;pdb name&gt;.residues.json</code>, with two values for every residue, computed from the whole loaded alignment (hidden nodes included): Information Content, the column height the <code>logo</code> command draws by default, as a percentage of log2(20) = 4.32 bits; and Residue Agreement, the share of the aligned sequences with a standard amino acid in the column that have this protein&rsquo;s amino acid (this protein counts too). The file also names the alignment, identifies the loaded rows and gives each residue&rsquo;s alignment column. A node the alignment lacks or holds under another sequence gets no file, and neither does any node when no alignment is loaded; the command&rsquo;s result says which. The structure viewer page reads these files.</li>
                 </ul>
@@ -1480,7 +1548,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help, #cmd-jobs'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query, #cmd-distribution, #cmd-identity'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold, #cmd-tree'))
