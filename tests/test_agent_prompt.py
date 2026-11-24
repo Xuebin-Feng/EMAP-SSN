@@ -368,7 +368,7 @@ class WhatThePromptSaysTests(unittest.TestCase):
             'folds have one of their own (`folding`)',
             'A fold requested while another runs is queued, not refused.',
             "`jobs` lists it as `stopping`, and it is reported cancelled only once it has stopped",
-            'that `label`, `logo`, `print` or `esmfold` was accepted is not that it has completed',
+            'that `label`, `logo`, `identity`, `print` or `esmfold` was accepted is not that it has completed',
         ):
             with self.subTest(needed=needed):
                 self.assertTrue(needed in text, f'the prompt no longer says: {needed}')
