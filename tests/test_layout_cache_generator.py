@@ -1004,14 +1004,30 @@ class ViewerHandOffTests(unittest.TestCase):
         self.assertTrue(run.snapshot.exists())  # the Viewer is still to take it
 
     def test_a_launcher_that_failed_without_a_viewer_falls_back_to_this_terminal_on_linux_and_macos(self):
-        for platform_name in ("linux", "darwin"):
-            with self.subTest(platform=platform_name):
+        # A scratch project whose .venv/bin/python is the running interpreter, so that what the real machine
+        # holds (on a Mac: the named links in .venv/bin) cannot change the result.
+        root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        python = root / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        link = python.with_name("EMAP-SSN")
+        from desktop import Window_Python
+        cases = (
+            ("linux", link, str(python)),  # not macOS: plain Python, even where the link could be made
+            ("darwin", link, str(link)),  # macOS with the link: the Dock shows the program's name
+            ("darwin", None, str(python)),  # macOS without a link (it cannot be made): plain Python
+        )
+        for platform_name, made_link, expected in cases:
+            with self.subTest(platform=platform_name, link=made_link is not None), \
+                    mock.patch.object(Layout_Cache_Generator, "PROJECT_ROOT", root), \
+                    mock.patch.object(sys, "executable", str(python)), \
+                    mock.patch.object(Window_Python, "ensure_link", return_value=made_link):
                 run = self._run(platform_name, self._launcher(code=3), call_result=17)
                 self.assertEqual(run.code, 17)  # the Viewer's own exit code, as before
                 run.call.assert_called_once()
                 command = run.call.call_args.args[0]
-                self.assertEqual(command[:2], [sys.executable, "-u"])
-                self.assertEqual(pathlib.Path(command[2]), Layout_Cache_Generator.PROJECT_ROOT / "src" / "EMAPSSN_Viewer.py")
+                self.assertEqual(command[:2], [expected, "-u"])
+                self.assertEqual(pathlib.Path(command[2]), root / "src" / "EMAPSSN_Viewer.py")
                 self.assertEqual(command[3:], ["--settings", str(run.snapshot), "--delete-settings"])
                 self.assertEqual(run.call.call_args.kwargs["env"], {"A": "b"})
                 self.assertIn("exit code 3", run.errors)

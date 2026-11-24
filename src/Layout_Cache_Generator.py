@@ -1008,7 +1008,7 @@ def _hand_off_to_viewer(
     print("Starting the Viewer in this terminal.", flush=True)
     try:
         return subprocess.call(
-            [window_python(PROJECT_ROOT, "session"), "-u", os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py"),
+            [window_python(PROJECT_ROOT, "session", platform_name=platform_name), "-u", os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py"),
              "--settings", snapshot, "--delete-settings"],
             cwd=str(PROJECT_ROOT),
             env=env,
