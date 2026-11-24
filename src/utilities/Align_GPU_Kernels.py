@@ -232,6 +232,8 @@ extern "C" __global__ void align_dp_f32_k4(
     __shared__ float s_shfl_l[DP_WARPS_PER_BLK][32];
     __shared__ unsigned int s_shfl_ll[DP_WARPS_PER_BLK][32];
     __shared__ unsigned long long s_shfl_pos[DP_WARPS_PER_BLK][32];
+    __shared__ int s_blk_r[DP_WARPS_PER_BLK];
+    __shared__ int s_blk_c[DP_WARPS_PER_BLK];
     const bool active_pair = (p < num_pairs);
 #else
     if (p >= num_pairs) return;
@@ -263,9 +265,26 @@ extern "C" __global__ void align_dp_f32_k4(
     unsigned int final_gl = 0u;
 
     const int swath_w = 128;
-    const int total_steps = R + 31;
+#ifdef __HIP_PLATFORM_AMD__
+    if (lane == 0) {
+        s_blk_r[warp_id] = R;
+        s_blk_c[warp_id] = C;
+    }
+    __syncthreads();
+    int blk_R = s_blk_r[0];
+    int blk_C = s_blk_c[0];
+    for (int w = 1; w < DP_WARPS_PER_BLK; ++w) {
+        if (s_blk_r[w] > blk_R) blk_R = s_blk_r[w];
+        if (s_blk_c[w] > blk_C) blk_C = s_blk_c[w];
+    }
+    const int loop_C = blk_C;
+    const int loop_steps = blk_R + 31;
+#else
+    const int loop_C = C;
+    const int loop_steps = R + 31;
+#endif
 
-    for (int col_base = 0; col_base < C; col_base += swath_w) {
+    for (int col_base = 0; col_base < loop_C; col_base += swath_w) {
         const int c_start = col_base + lane * 4;
         float cm[4], chis[4];
         float cur_g[4], cur_l[4];
@@ -294,7 +313,7 @@ extern "C" __global__ void align_dp_f32_k4(
 
         const bool full_k = (c_start + 4 <= C);
 
-        for (int t = 0; t < total_steps; ++t) {
+        for (int t = 0; t < loop_steps; ++t) {
 #ifdef __HIP_PLATFORM_AMD__
             s_shfl_g[warp_id][lane] = send_g;
             s_shfl_gl[warp_id][lane] = send_gl;
@@ -529,6 +548,8 @@ extern "C" __global__ void align_dp_f64gap_k4(
     __shared__ unsigned int s_shfl_ll[DP_WARPS_PER_BLK][32];
     __shared__ double s_red_l[DP_WARPS_PER_BLK][32];
     __shared__ unsigned long long s_shfl_pos[DP_WARPS_PER_BLK][32];
+    __shared__ int s_blk_r[DP_WARPS_PER_BLK];
+    __shared__ int s_blk_c[DP_WARPS_PER_BLK];
     const bool active_pair = (p < num_pairs);
 #else
     if (p >= num_pairs) return;
@@ -556,9 +577,26 @@ extern "C" __global__ void align_dp_f64gap_k4(
     unsigned int final_gl = 0u;
 
     const int swath_w = 128;
-    const int total_steps = R + 31;
+#ifdef __HIP_PLATFORM_AMD__
+    if (lane == 0) {
+        s_blk_r[warp_id] = R;
+        s_blk_c[warp_id] = C;
+    }
+    __syncthreads();
+    int blk_R = s_blk_r[0];
+    int blk_C = s_blk_c[0];
+    for (int w = 1; w < DP_WARPS_PER_BLK; ++w) {
+        if (s_blk_r[w] > blk_R) blk_R = s_blk_r[w];
+        if (s_blk_c[w] > blk_C) blk_C = s_blk_c[w];
+    }
+    const int loop_C = blk_C;
+    const int loop_steps = blk_R + 31;
+#else
+    const int loop_C = C;
+    const int loop_steps = R + 31;
+#endif
 
-    for (int col_base = 0; col_base < C; col_base += swath_w) {
+    for (int col_base = 0; col_base < loop_C; col_base += swath_w) {
         const int c_start = col_base + lane * 4;
         float cm[4], chis[4];
         float cur_g[4], cur_l[4];
@@ -585,7 +623,7 @@ extern "C" __global__ void align_dp_f64gap_k4(
         float send_l = cur_l[3];
         unsigned int send_ll = cur_ll[3];
 
-        for (int t = 0; t < total_steps; ++t) {
+        for (int t = 0; t < loop_steps; ++t) {
 #ifdef __HIP_PLATFORM_AMD__
             s_shfl_g[warp_id][lane] = send_g;
             s_shfl_gl[warp_id][lane] = send_gl;
@@ -773,6 +811,7 @@ extern "C" __global__ void search_dp_k4(
     __shared__ float s_s[DP_WARPS_PER_BLK][32];
     __shared__ unsigned long long s_m[DP_WARPS_PER_BLK][32];
     __shared__ unsigned long long s_pos[DP_WARPS_PER_BLK][32];
+    __shared__ int s_blk_c[DP_WARPS_PER_BLK];
     const bool active_pair = (p < num_pairs);
 #else
     if (p >= num_pairs) return;
@@ -805,8 +844,21 @@ extern "C" __global__ void search_dp_k4(
 
     const int swath_w = 128;
     const int total_steps = R + 31;
+#ifdef __HIP_PLATFORM_AMD__
+    if (lane == 0) {
+        s_blk_c[warp_id] = C;
+    }
+    __syncthreads();
+    int blk_C = s_blk_c[0];
+    for (int w = 1; w < DP_WARPS_PER_BLK; ++w) {
+        if (s_blk_c[w] > blk_C) blk_C = s_blk_c[w];
+    }
+    const int loop_C = blk_C;
+#else
+    const int loop_C = C;
+#endif
 
-    for (int col_base = 0; col_base < C; col_base += swath_w) {
+    for (int col_base = 0; col_base < loop_C; col_base += swath_w) {
         const int c_start = col_base + lane * 4;
         float cm[4], chis[4], cur_s[4];
         unsigned long long cur_m[4];

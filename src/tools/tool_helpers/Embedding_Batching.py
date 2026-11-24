@@ -28,7 +28,7 @@ CPU_MAX_TOKENS = 2048
 CPU_MAX_BATCH_SIZE = 8
 
 
-def _torch_storage_dtype(target_dtype):
+def _torch_storage_dtype(target_dtype, device=None):
     import torch
 
     dtype = np.dtype(target_dtype)
@@ -37,6 +37,13 @@ def _torch_storage_dtype(target_dtype):
     if dtype == np.dtype(np.float32):
         return torch.float32
     if dtype == np.dtype(np.float64):
+        dev_type = (
+            getattr(device, "type", str(device).split(":", 1)[0])
+            if device is not None
+            else ""
+        )
+        if dev_type == "mps":
+            return None
         return torch.float64
     return None
 
@@ -44,8 +51,8 @@ def _torch_storage_dtype(target_dtype):
 def extract_batch_embeddings(last_hidden_state, lengths, start_offset, target_dtype):
     """Downcast on device (when exact IEEE-754) and slice unpadded residue arrays."""
     np_dtype = np.dtype(target_dtype)
-    t_dtype = _torch_storage_dtype(np_dtype)
     tensor = last_hidden_state
+    t_dtype = _torch_storage_dtype(np_dtype, device=getattr(tensor, "device", None))
     if t_dtype is not None and tensor.dtype != t_dtype:
         tensor = tensor.to(dtype=t_dtype)
     host_array = tensor.cpu().numpy()
@@ -62,8 +69,8 @@ def extract_batch_embeddings(last_hidden_state, lengths, start_offset, target_dt
 def extract_single_embedding(hidden_slice, target_dtype):
     """Downcast one residue-sliced tensor on device before D2H transfer."""
     np_dtype = np.dtype(target_dtype)
-    t_dtype = _torch_storage_dtype(np_dtype)
     tensor = hidden_slice
+    t_dtype = _torch_storage_dtype(np_dtype, device=getattr(tensor, "device", None))
     if t_dtype is not None and tensor.dtype != t_dtype:
         tensor = tensor.to(dtype=t_dtype)
     arr = tensor.cpu().numpy()

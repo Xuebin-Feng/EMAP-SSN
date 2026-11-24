@@ -346,6 +346,18 @@ class AlignGPUKernelsTests(unittest.TestCase):
             )
             self.assertTrue(ok, reason)
 
+    def test_hip_shared_memory_barrier_path_passes_self_check(self):
+        # Compile the exact `#ifdef __HIP_PLATFORM_AMD__` shared-memory lockstep path and execute
+        # self_check() (mixed lengths 1..260, partial blocks, local + global + f64-gap + search)
+        # on GPU to prove zero __syncthreads() divergence deadlocks and exact numerical parity.
+        from unittest import mock
+
+        dev = torch.device("cuda:0")
+        hip_source = "#define __HIP_PLATFORM_AMD__ 1\n" + Align_GPU_Kernels.KERNEL_SOURCE
+        with mock.patch.object(Align_GPU_Kernels, "KERNEL_SOURCE", hip_source):
+            hip_kernels = Align_GPU_Kernels.AlignKernels(dev, read_cache=False)
+            hip_kernels.self_check()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -189,6 +189,12 @@ class EmbeddingBatchingTests(unittest.TestCase):
         # Must probe at most 2 single sequences instead of running 18+ sequences on CPU.
         self.assertLessEqual(sum(calls), 2)
 
+    def test_mps_skips_device_float64_storage_cast(self):
+        self.assertIs(batching._torch_storage_dtype(np.float16, device="mps"), torch.float16)
+        self.assertIs(batching._torch_storage_dtype(np.float32, device="mps"), torch.float32)
+        self.assertIsNone(batching._torch_storage_dtype(np.float64, device="mps"))
+        self.assertIs(batching._torch_storage_dtype(np.float64, device="cpu"), torch.float64)
+
 
 if __name__ == "__main__":
     unittest.main()
