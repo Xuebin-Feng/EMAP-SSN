@@ -780,6 +780,78 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.connected_session_id, "test")
 
 
+class WindowAliveTests(unittest.TestCase):
+    """_window_alive: whether a normal launch can still become ready, from the two records in its folder."""
+
+    def setUp(self):
+        self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+    @staticmethod
+    def _running():
+        return {"pid": os.getpid(), "created": psutil.Process().create_time()}
+
+    @staticmethod
+    def _ended():
+        return {"pid": os.getpid(), "created": psutil.Process().create_time() - 1000.0}
+
+    def _record(self, name, record):
+        (self.directory / name).write_text(json.dumps(record), encoding="utf-8")
+
+    def test_a_viewer_recorded_and_a_launcher_ended_between_the_two_looks_keeps_the_launch(self):
+        from mcp_server.viewer import Viewer_Client
+
+        real = Viewer_Client._recorded_process
+        viewer_record = self._running()
+
+        def look(path):
+            if path.name == "process.json":
+                # The monitor records the Viewer, then the launcher ends, after the first look found nothing.
+                self._record("window-process.json", viewer_record)
+                return None
+            return real(path)
+
+        with mock.patch.object(Viewer_Client, "_recorded_process", side_effect=look):
+            self.assertTrue(Viewer_Client._window_alive(self.directory))
+
+    def test_a_launcher_that_ended_without_recording_a_viewer_ends_the_launch(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self._record("process.json", self._ended())
+        self.assertFalse(Viewer_Client._window_alive(self.directory))
+
+    def test_a_launcher_with_no_record_at_all_ends_the_launch(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self.assertFalse(Viewer_Client._window_alive(self.directory))
+
+    def test_a_running_launcher_without_a_viewer_record_keeps_the_launch(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self._record("process.json", self._running())
+        self.assertTrue(Viewer_Client._window_alive(self.directory))
+
+    def test_a_recorded_running_viewer_keeps_the_launch_after_its_launcher_ended(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self._record("process.json", self._ended())
+        self._record("window-process.json", self._running())
+        self.assertTrue(Viewer_Client._window_alive(self.directory))
+
+    def test_a_recorded_viewer_that_ended_ends_the_launch_while_its_launcher_runs(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self._record("process.json", self._running())
+        self._record("window-process.json", self._ended())
+        self.assertFalse(Viewer_Client._window_alive(self.directory))
+
+    def test_an_error_record_ends_the_launch_while_its_launcher_runs(self):
+        from mcp_server.viewer import Viewer_Client
+
+        self._record("process.json", self._running())
+        self._record("window-process.json", {"error": "no interpreter"})
+        self.assertFalse(Viewer_Client._window_alive(self.directory))
+
+
 class ViewerRequestTests(unittest.TestCase):
     """MCPViewerClient._request sends one authenticated JSON request and turns
     every failure into an MCPViewerError."""

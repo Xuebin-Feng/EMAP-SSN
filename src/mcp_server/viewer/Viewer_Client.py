@@ -103,12 +103,16 @@ def _window_alive(directory):
     (SSN_SUPERVISED_LAUNCH_DIR). Once that file exists the launch lives as long as the Viewer does: the
     launcher stays up behind an error splash, nobody closing it, after the Viewer has ended. Before it, the
     launcher itself is what is starting the Viewer, and ``process.json`` records it. A launcher that
-    ended without starting one, as for a display it could not reach, ends the launch.
+    ended without starting one, as for a display it could not reach, ends the launch. The monitor can record
+    the Viewer and the launcher end between the two looks, so a launcher found gone sends one more look at
+    the Viewer's record before the launch is declared over.
     """
     identity = directory / SUPERVISED_IDENTITY_NAME
     if identity.exists():
         return _recorded_process(identity) is not None
-    return _recorded_process(directory / "process.json") is not None
+    if _recorded_process(directory / "process.json") is not None:
+        return True
+    return identity.exists() and _recorded_process(identity) is not None
 
 
 def _launch_progress(directory):
