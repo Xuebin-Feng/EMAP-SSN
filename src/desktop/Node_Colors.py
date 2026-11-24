@@ -197,8 +197,12 @@ def _candidate_gamut():
     return _CANDIDATE_GAMUT
 
 
-def _palette_colors(key, base_rgb, count):
-    """Return ``count`` distinguishable (r, g, b) tuples, extending ``base_rgb`` in CIEDE2000 as needed."""
+def _palette_colors(base_rgb, count):
+    """Return ``count`` distinguishable (r, g, b) tuples, extending ``base_rgb`` in CIEDE2000 as needed.
+
+    The extension is cached per base palette (the palette itself is the cache key).
+    """
+    key = tuple(base_rgb)
     count = int(count)
     if count <= 0:
         return []
@@ -235,12 +239,12 @@ def _palette_colors(key, base_rgb, count):
 
 def cluster_colors(n_clusters):
     """Return ``n_clusters`` perceptually distinguishable (r, g, b) tuples for main clusters."""
-    return _palette_colors("cluster", _CLUSTER_BASE_RGB, n_clusters)
+    return _palette_colors(_CLUSTER_BASE_RGB, n_clusters)
 
 
 def subcluster_colors(n_subclusters):
     """Return ``n_subclusters`` bold, distinguishable (r, g, b) tuples for subclusters."""
-    return _palette_colors("subcluster", _SUBCLUSTER_BASE_RGB, n_subclusters)
+    return _palette_colors(_SUBCLUSTER_BASE_RGB, n_subclusters)
 
 
 # ---------------------------------------------------------------------
