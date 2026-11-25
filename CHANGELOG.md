@@ -1326,6 +1326,15 @@ still change before version 1.0.0.
   and a file with its original headers (spaces, brackets, `/`, `#`) was refused as "NOT a
   strict subset". The statistics now accept such a file, and find its nodes by each
   header sanitized as the network stores it.
+- **Network Statistics refused a sequence set that Run and the Consistency Check
+  accept.** In Config and VR Config, a set that is not sanitized (records that share one
+  sequence, an empty record, or one header on two sequences) stopped the statistics with
+  "FASTA file is NOT a strict subset of the network file", while Run and the Consistency
+  Check sanitized the same set and went on. The statistics now read the set through the
+  same sanitization: headers cleaned, records with the same sequence merged, empty
+  records dropped and colliding headers renamed. They print the "FASTA sanitization
+  result" block when that changed the set. A set with sequences that the network does
+  not hold is still refused.
 - **A resumed BLAST all-vs-all run could mix results from two settings.** An interrupted
   run restarted with a different E-value cutoff, maximum target sequences or composition
   setting reused the chunks it had finished. Such a workspace is now set aside with a
@@ -1335,6 +1344,18 @@ still change before version 1.0.0.
   edge.** A sparse network, such as a BLAST one, filtered to sequences with no hits
   between them ended in scikit-learn's "Found array with 0 sample(s)" error. The tool now
   stops before the fit and says that the sequences share no edge.
+- **Embedding MSA could run out of memory when several guide-tree workers ran at once.**
+  Each worker holds all pairwise distances of one bootstrap replicate: 16 bytes per
+  sequence pair with UPGMA and up to 28 with Neighbor-joining, plus about 0.75 GB for
+  the worker itself. That is about 15.3 GB a worker at 44,127 sequences with UPGMA. The
+  Workers setting started that many whatever memory was free. The tool now works out
+  how many fit into the free memory, less 2 GiB or a tenth of the computer's memory
+  (whichever is more), lowers the number when needed and says so: "Guide-tree workers
+  lowered from 8 to 3: each needs about 15.3 GB for 44,127 sequences with UPGMA (Fast),
+  and 60.0 GB of memory is free." When not even one worker fits, it runs one and warns
+  that the run may run out of memory. A memory limit set for a container or a cluster
+  job is respected. The guide tree does not change, and there is no switch. The
+  arithmetic is tested; a set of that size has not been run with it yet.
 - **Embedding SSEARCH could write its reports outside the report folder.** An Output Name
   such as `x/../../name` went into the file paths as given. A name that is not a plain
   file name is now refused before any work starts, and MCP's `validate_settings` reports
@@ -1627,6 +1648,49 @@ still change before version 1.0.0.
   programs on Windows and Debian. Seen once on a real GPU: the job that had crashed
   twice restarted, planned with half of the free memory and finished (3,479 sequences,
   2,560-wide embeddings, 12 GB of GPU memory).
+- **Generate Embeddings could run about three times slower once the graphics card was
+  full on Windows.** Windows does not refuse GPU memory past the card's size: it moves
+  part of it to system memory, which is several times slower. PyTorch keeps the GPU
+  memory it has taken, to use it again, and batches of new shapes take new memory, so
+  it held about twice what was in use. A change made during this version's development
+  (batch sizes that count PyTorch's kept memory as free) raised the memory in use by
+  about 6 %, and with that ProstT5 passed a 12 GB card: 12,927 sequences took 2,629 to
+  2,845 s instead of 879 s, at half the card's power draw. Generate Embeddings now gives
+  its unused GPU memory back before a batch would bring the card within a tenth of its
+  size (at least 1 GiB) of full, and says so once: "GPU memory on cuda:0 is nearly full
+  (other programs hold 3.1 GB of its 12.0 GB); embedding releases its unused memory to
+  stay within the card." Batch sizes do not change.
+  - **Measured (RTX 4070 12 GB, Windows 11, ProstT5, 12,927 sequences):** 794 s on a
+    quiet card and 824 s with other programs holding 3.1 GB of it. The card's power draw
+    stayed at about 195 W in both runs, and both embedding files were complete.
+  - **Memory held by other programs is counted.** On Windows, PyTorch's free figure does
+    not see what other programs hold. The tools now also ask `nvidia-smi` for the card's
+    use, at most once in 30 seconds. Generate Embeddings uses it for the limit above.
+    The alignment engine's GPU plans (Align Similarity Matrix, Network Injection and the
+    tools that plan through it) leave that memory and a margin of 5 % of the card (at
+    least 512 MiB) to the other programs, and say so once: "Other programs hold 3.1 GB
+    of the 12.0 GB on cuda:0; GPU plans leave that memory to them." On a 12 GB card the
+    plans do not change while other programs hold under about 2.2 GB.
+  - **WSL2 is treated like Windows.** Measured there with the same card: an allocation
+    past the card succeeds, and its first use fails with a CUDA out-of-memory error that
+    the process does not recover from. Linux itself and macOS are left as they were.
+  - `SSN_GPU_OTHER_PROGRAMS=0` in the environment turns the `nvidia-smi` reading off; the
+    release of unused memory stays. On AMD devices under Windows the release works from
+    PyTorch's own figures, and other programs are not read. Not run on AMD or Intel
+    devices, nor with a real embedding run inside WSL2.
+- **MCP could report a Viewer launch as ended while the Viewer was starting.** The
+  server looks for the Viewer's own record and, when there is none yet, for the
+  launcher's. When the Viewer wrote its record and the launcher ended between those two
+  looks, the launch was reported as "Viewer exited before readiness" although the Viewer
+  was up. A launcher found gone now leads to one more look at the Viewer's record. This
+  was seen only as a rare failure of the test suite.
+- **macOS: Viewer marker tests failed on a Mac although the Viewer drew correctly.** The
+  pick test built its Viewer without the step that learns the graphics driver's point
+  size limit, so on a driver with a 64-pixel limit the driver cut the points and three
+  of its cases picked the wrong node. The limit test asked for a width that does not
+  hold at the Mac's pixel scale. Both tests now follow the driver and the pixel scale,
+  and a small pick scene (under a thousand pixels on nodes) may have one tie. Shown on
+  Windows with the Mac's driver limit and scale set by hand; not yet confirmed on a Mac.
 
 ## [0.5.0] - 2026-10-30
 
