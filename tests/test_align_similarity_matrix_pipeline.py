@@ -112,6 +112,12 @@ class AlignmentPipelineTests(unittest.TestCase):
         )
         self.assertEqual((trial.submitted, trial.completed), (4, 4))
 
+    def test_cpu_pool_uses_explicit_spawn_context(self):
+        # Linux runs must never fork while torch OpenMP threads, CUDA, or the
+        # partial-RAM HDF5 prefetch thread hold internal locks.
+        self.assertEqual(similarity_matrix._POOL_CONTEXT.get_start_method(), "spawn")
+        self.assertIs(similarity_matrix.Pool.__self__, similarity_matrix._POOL_CONTEXT)
+
     def test_scalar_benchmark_keeps_executors_alive_across_phase_boundary(self):
         events = []
         ImmediateExecutor.instances.clear()
@@ -263,6 +269,147 @@ class AlignmentPipelineTests(unittest.TestCase):
                 similarity_matrix._validate_execution_mode_hardware(),
                 "tiled",
             )
+
+    def test_run_job_distributor_skips_windowed_session_for_mps_unified_memory(self):
+        # Apple Silicon MPS shares unified RAM with the host; Align_Similarity_Matrix
+        # must skip WindowedPairSession for MPS (both auto and manual selection)
+        # while keeping MPS eligible for tiled/scalar execution via EmbeddingTileStore.
+        rng = np.random.default_rng(20261125)
+        n = 12
+        headers = [f"s{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80, 64)).astype(np.float16) for _ in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        cpu_cand = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        mps_cand = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "mps", "Apple MPS", torch.device("mps"), "mps"
+        )
+        cuda_cand = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        mps_tiled_plan = similarity_matrix.Hardware_Utils.BenchmarkResult(
+            mps_cand, 250.0, lanes=1, variant="tiled"
+        )
+
+        saved_globals = (
+            "MODEL_NAME", "SEQUENCE_SET", "FULL_INPUT_HDF5",
+            "RESULTS_DIR", "FINAL_OUTPUT_NET",
+            "active_matmul_precision", "active_embedding_store",
+            "active_sequence_lengths",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            os.makedirs(embed_dir)
+            h5_name = "mps_skip_[esm2_t6_8m]_embeddings.h5"
+            h5_path = os.path.join(embed_dir, h5_name)
+            with h5py.File(h5_path, "w") as hf:
+                grp = Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    headers,
+                    ["A" * a.shape[0] for a in arrays],
+                    "esm2_t6_8m",
+                    "float16",
+                )
+                for header, arr in zip(headers, arrays):
+                    grp.create_dataset(header, data=arr)
+                Embedding_HDF5.mark_generation_complete(hf)
+
+            for device_sel, exec_mode in (
+                ("auto", "auto"),
+                ("mps", "auto"),
+                ("mps", "tiled"),
+            ):
+                with self.subTest(device_selection=device_sel, execution_mode=exec_mode):
+                    net_dir = os.path.join(tmp, f"net_{device_sel}_{exec_mode}")
+                    os.makedirs(net_dir, exist_ok=True)
+                    out_buf = io.StringIO()
+                    plan_window = mock.Mock(
+                        side_effect=AssertionError("windowing must not be planned for MPS")
+                    )
+                    tiled_support = mock.Mock(return_value=(True, "mock MPS"))
+                    bench = mock.Mock(return_value=[mps_tiled_plan])
+                    with mock.patch.multiple(
+                        similarity_matrix,
+                        **{k: getattr(similarity_matrix, k) for k in saved_globals},
+                        INPUT_HDF5=h5_name,
+                        EMBED_DIR=embed_dir,
+                        NETWORK_DIR=net_dir,
+                        EDGE_PREFILTERING=False,
+                        PREFILTER_STRENGTH=0,
+                        BATCH_SIZE=20,
+                        WORKERS=2,
+                        HOST_CACHE_GB="auto",
+                        DEVICE_SELECTION=device_sel,
+                        EXECUTION_MODE=exec_mode,
+                        ACCELERATOR_PRECISION="ieee_fp32",
+                        set_start_method=mock.DEFAULT,
+                        tiled_accelerator_support=tiled_support,
+                        plan_windowed_budgets=plan_window,
+                        _benchmark_processing_plans=bench,
+                        _run_batch_with_ranked_plans=mock.Mock(return_value=0),
+                        compile_final_output=mock.Mock(),
+                    ), mock.patch.object(
+                        similarity_matrix.Hardware_Utils,
+                        "get_available_devices",
+                        return_value=[cpu_cand, mps_cand],
+                    ), mock.patch.object(
+                        alignment_engine,
+                        "resolve_host_cache_bytes",
+                        return_value=int(total_bytes * 0.4),
+                    ), redirect_stdout(out_buf), redirect_stderr(io.StringIO()):
+                        rc = similarity_matrix.run_job_distributor()
+                        store_after = similarity_matrix.active_embedding_store
+
+                    self.assertIsNone(rc)
+                    self.assertFalse(store_after.window_active)
+                    plan_window.assert_not_called()
+                    bench.assert_called_once()
+                    self.assertNotIn("Activating partial-RAM sliding window", out_buf.getvalue())
+                    if exec_mode == "auto":
+                        # c.backend != "mps" short-circuits before probing tiled support.
+                        tiled_support.assert_not_called()
+
+            # When a non-MPS tiled accelerator also exists in auto mode, window_device
+            # skips MPS and passes the discrete accelerator device to plan_windowed_budgets.
+            net_dir = os.path.join(tmp, "net_auto_cuda_skip_mps")
+            os.makedirs(net_dir, exist_ok=True)
+            plan_window_cuda = mock.Mock(return_value=None)
+            with mock.patch.multiple(
+                similarity_matrix,
+                **{k: getattr(similarity_matrix, k) for k in saved_globals},
+                INPUT_HDF5=h5_name,
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=net_dir,
+                EDGE_PREFILTERING=False,
+                PREFILTER_STRENGTH=0,
+                BATCH_SIZE=20,
+                WORKERS=2,
+                HOST_CACHE_GB="auto",
+                DEVICE_SELECTION="auto",
+                EXECUTION_MODE="auto",
+                ACCELERATOR_PRECISION="ieee_fp32",
+                set_start_method=mock.DEFAULT,
+                tiled_accelerator_support=mock.Mock(return_value=(True, "mock")),
+                plan_windowed_budgets=plan_window_cuda,
+                _benchmark_processing_plans=mock.Mock(return_value=[mps_tiled_plan]),
+                _run_batch_with_ranked_plans=mock.Mock(return_value=0),
+                compile_final_output=mock.Mock(),
+            ), mock.patch.object(
+                similarity_matrix.Hardware_Utils,
+                "get_available_devices",
+                return_value=[cpu_cand, mps_cand, cuda_cand],
+            ), mock.patch.object(
+                alignment_engine,
+                "resolve_host_cache_bytes",
+                return_value=int(total_bytes * 0.4),
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                rc = similarity_matrix.run_job_distributor()
+
+            self.assertIsNone(rc)
+            plan_window_cuda.assert_called_once()
+            self.assertEqual(plan_window_cuda.call_args.kwargs["device"], torch.device("cuda:0"))
 
     def test_runtime_path_configuration_accepts_an_absolute_input(self):
         selected = os.path.abspath(

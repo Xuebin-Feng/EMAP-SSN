@@ -89,7 +89,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import multiprocessing
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
-from multiprocessing import Pool, set_start_method
+from multiprocessing import get_context, set_start_method
 from tqdm import tqdm
 from utilities import Align_GPU_Kernels
 from utilities import Benchmark_Record
@@ -1096,6 +1096,13 @@ def process_accelerated_tasks(
         matmul_precision=matmul_precision,
         result_callback=result_callback,
     )
+
+
+# The CPU alignment pool always starts its processes with spawn so Linux runs
+# never fork while torch OpenMP threads, CUDA, or background HDF5 prefetch
+# threads hold internal locks (e.g. h5py._objects.phil).
+_POOL_CONTEXT = get_context("spawn")
+Pool = _POOL_CONTEXT.Pool
 
 
 def process_cpu_tasks(
@@ -3022,7 +3029,11 @@ def run_job_distributor():
 
         window_device = None
         if manual_candidate is not None:
-            if not manual_candidate.is_cpu and "tiled" in _execution_variants(manual_candidate):
+            if (
+                not manual_candidate.is_cpu
+                and manual_candidate.backend != "mps"
+                and "tiled" in _execution_variants(manual_candidate)
+            ):
                 window_device = manual_candidate.device
         else:
             avail_candidates = Hardware_Utils.get_available_devices()
@@ -3030,7 +3041,9 @@ def run_job_distributor():
                 (
                     c.device
                     for c in avail_candidates
-                    if not c.is_cpu and "tiled" in _execution_variants(c)
+                    if not c.is_cpu
+                    and c.backend != "mps"
+                    and "tiled" in _execution_variants(c)
                 ),
                 None,
             )

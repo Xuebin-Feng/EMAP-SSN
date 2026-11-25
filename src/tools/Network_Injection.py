@@ -90,7 +90,7 @@ from collections import deque
 from itertools import islice, chain
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
-from multiprocessing import Pool, set_start_method
+from multiprocessing import get_context, set_start_method
 from tqdm import tqdm
 from utilities import Align_GPU_Kernels
 from utilities import Benchmark_Record
@@ -619,6 +619,13 @@ def _run_accelerated_pipeline(
     return results
 
 
+# The CPU injection pool always starts its processes with spawn so Linux runs
+# never fork while torch OpenMP threads, CUDA, or background HDF5 prefetch
+# threads hold internal locks (e.g. h5py._objects.phil).
+_POOL_CONTEXT = get_context("spawn")
+Pool = _POOL_CONTEXT.Pool
+
+
 def process_cpu_tasks(
     tasks,
     workers,
@@ -673,14 +680,14 @@ def process_cpu_tasks(
 def _execution_variants(candidate):
     """Return execution variants allowed for one hardware candidate."""
     mode = normalize_execution_mode(EXECUTION_MODE)
+    if mode == "scalar":
+        return ["scalar"]
     tiled_supported = (
         candidate.backend in {"cuda", "xpu"}
         and tiled_accelerator_support(
-            candidate.device, require_memory=False
+            candidate.device, require_memory=True
         )[0]
     )
-    if mode == "scalar":
-        return ["scalar"]
     if mode == "tiled":
         return ["tiled"] if tiled_supported else []
     variants = ["scalar"]
@@ -1165,14 +1172,18 @@ def _benchmark_injection_plans(
             candidate.device, workers
         )
         memory_info = None
-        if candidate.backend in {"cuda", "xpu"}:
+        if variants and candidate.backend in {"cuda", "xpu"}:
             Hardware_Utils.release_device_cache(candidate)
-            memory = cuda_memory_plan(
-                candidate.device,
-                lanes=1,
-                compute_element_bytes=precision_element_bytes(matmul_precision),
-            )
-            memory_info = (memory.free_bytes, memory.total_bytes)
+            try:
+                memory = cuda_memory_plan(
+                    candidate.device,
+                    lanes=1,
+                    compute_element_bytes=precision_element_bytes(matmul_precision),
+                )
+            except (RuntimeError, ValueError):
+                memory = None
+            if memory is not None:
+                memory_info = (memory.free_bytes, memory.total_bytes)
         real_store = isinstance(store, EmbeddingTileStore)
         fused_gpu = (
             real_store

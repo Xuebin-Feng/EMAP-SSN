@@ -69,6 +69,131 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                     network_injection._execution_variants(xpu), xpu_variants
                 )
 
+    def test_execution_variants_requires_memory_for_tiled_support(self):
+        xpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "Intel XPU", torch.device("xpu:0"), "xpu"
+        )
+        seen_require_memory = []
+
+        def fake_support(device, *, require_memory=True):
+            seen_require_memory.append((device, require_memory))
+            if require_memory:
+                return False, "torch.xpu is missing mem_get_info"
+            return True, "streams only"
+
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "auto"
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support", side_effect=fake_support
+        ):
+            self.assertEqual(network_injection._execution_variants(xpu), ["scalar"])
+
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "tiled"
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support", side_effect=fake_support
+        ):
+            self.assertEqual(network_injection._execution_variants(xpu), [])
+
+        self.assertEqual(
+            seen_require_memory,
+            [(torch.device("xpu:0"), True), (torch.device("xpu:0"), True)],
+        )
+
+        # Scalar mode returns immediately without probing tiled memory support.
+        probe = mock.Mock(return_value=(True, "unused"))
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "scalar"
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support", probe
+        ):
+            self.assertEqual(network_injection._execution_variants(xpu), ["scalar"])
+        probe.assert_not_called()
+
+    def test_xpu_without_mem_get_info_falls_back_to_scalar_and_cpu_in_benchmark(self):
+        cpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        xpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "Intel XPU", torch.device("xpu:0"), "xpu"
+        )
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 5)]
+
+        def fake_support(_device, *, require_memory=True):
+            if require_memory:
+                return False, "torch.xpu is missing mem_get_info"
+            return True, "streams only"
+
+        def complete_benchmark(plan, *_args, **kwargs):
+            trial = kwargs["benchmark_trial"]
+            trial.start()
+            trial.submitted = trial.completed = len(tasks)
+            trial.stop(len(tasks))
+            return []
+
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "auto"
+        ), mock.patch.object(
+            network_injection, "DEVICE_SELECTION", "auto"
+        ), mock.patch.object(
+            network_injection.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cpu, xpu],
+        ), mock.patch.object(
+            network_injection.Hardware_Utils, "release_device_cache"
+        ), mock.patch.object(
+            network_injection.Hardware_Utils, "begin_gpu_trial", return_value=None
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support", side_effect=fake_support
+        ), mock.patch.object(
+            network_injection, "_lane_candidates", return_value=[1, 2]
+        ), mock.patch.object(
+            network_injection,
+            "cuda_memory_plan",
+            side_effect=RuntimeError("torch.xpu does not expose allocator memory info."),
+        ), mock.patch.object(
+            network_injection, "estimate_cuda_working_set"
+        ) as estimate_ws, mock.patch.object(
+            network_injection, "_execute_injection_plan", side_effect=complete_benchmark
+        ) as execute, redirect_stdout(io.StringIO()):
+            plans = network_injection._benchmark_injection_plans(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                store=mock.Mock(),
+                lengths=[16] * 5,
+                matmul_precision="ieee_fp32",
+            )
+
+        executed = [(call.args[0][0].spec, call.args[0][1], call.args[0][2]) for call in execute.call_args_list]
+        self.assertTrue(plans)
+        self.assertIn(("cpu", "scalar", 1), executed)
+        self.assertIn(("xpu:0", "scalar", 1), executed)
+        self.assertIn(("xpu:0", "scalar", 2), executed)
+        self.assertFalse(any(variant == "tiled" for _spec, variant, _lanes in executed))
+        estimate_ws.assert_not_called()
+
+        # Forced tiled mode rejects an XPU lacking mem_get_info before benchmarking.
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "tiled"
+        ), mock.patch.object(
+            network_injection, "DEVICE_SELECTION", "auto"
+        ), mock.patch.object(
+            network_injection.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cpu, xpu],
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support", side_effect=fake_support
+        ), self.assertRaisesRegex(ValueError, "no compatible CUDA/ROCm or XPU"):
+            network_injection._benchmark_injection_plans(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                store=mock.Mock(),
+                lengths=[16] * 5,
+                matmul_precision="ieee_fp32",
+            )
+
     def test_forced_tiled_injection_rejects_missing_accelerator_before_benchmark(self):
         cpu = network_injection.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
@@ -490,6 +615,12 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             [(0, column, 1.0, 1, 2.0, 1) for column in range(1, 5)],
         )
         self.assertEqual((trial.submitted, trial.completed), (4, 4))
+
+    def test_cpu_pool_uses_explicit_spawn_context(self):
+        # Linux runs must never fork while torch OpenMP threads, CUDA, or the
+        # partial-RAM HDF5 prefetch thread hold internal locks.
+        self.assertEqual(network_injection._POOL_CONTEXT.get_start_method(), "spawn")
+        self.assertIs(network_injection.Pool.__self__, network_injection._POOL_CONTEXT)
 
     def test_process_batch_streams_benchmarked_plans_into_one_batch_file(self):
         # run_injection always passes the embedding store, the plan's lanes,
