@@ -1101,6 +1101,11 @@ still change before version 1.0.0.
     high-degree hubs (such as in Network Injection) into dense blocks. The tile planner
     Pareto-prunes redundant plans, avoids multi-tile VRAM leaks, and reuses pinned host
     buffers through `_PinnedHostBufferPool` across alignment and SSEARCH.
+  - **Shared-memory query IPC for SSEARCH CPU worker pools:** when `Embedding_SSEARCH`
+    runs its CPU `Pool`, the query embedding is placed once in OS shared memory
+    (`multiprocessing.shared_memory.SharedMemory`) and passed to workers as a lightweight
+    `_SharedQueryRef` handle instead of pickling the query array into every target task
+    (falling back cleanly to pickled arrays when shared memory is unavailable).
 - **2-level partial-RAM sliding window, cgroup/SLURM memory clamping, and block-streamed
   prefiltering bound host memory on large datasets.**
   - **Sliding RAM window (`WindowedPairSession`):** when an embedding database exceeds
@@ -1144,11 +1149,14 @@ still change before version 1.0.0.
     remains bit-identical to serial seed order. Neighbor-Joining uses a compact shrinking
     `(N, N)` float64 distance matrix (4× less RAM) with O(1) lower-bound pruning and
     cross-thread deterministic pair selection.
-  - **2-row affine Gotoh DP, lazy tree-replay FASTA writer and single-pass score matrices:**
-    progressive profile alignment uses a 2-row affine Gotoh DP with 1-byte-per-cell
-    bit-packed traceback, FASTA export defers full alignment materialization via lazy
-    merge-tree replay, and `compute_score_matrix_torch` builds score matrices in a single
-    pass.
+  - **2-row affine Gotoh DP, O(log N) heavy-first DFS merge order, lazy tree-replay FASTA
+    writer and single-pass score matrices:** progressive profile alignment uses a 2-row
+    affine Gotoh DP with 1-byte-per-cell bit-packed traceback and executes guide-tree
+    merges in Sethi-Ullman heavy-first post-order DFS (`heavy_first_merge_order`, using an
+    explicit stack to avoid recursion limits) to bound simultaneously live intermediate
+    profiles to `<= floor(log2(N))` while producing bit-identical alignments; FASTA export
+    defers full alignment materialization via lazy merge-tree replay, and
+    `compute_score_matrix_torch` builds score matrices in a single pass.
 - **Faster SSN layouts, MCL clustering, UMAP k-NN and spectral AMG starts.**
   - **GPU SSN physics (`Layout_GPU_Kernels.py`):** adds fused gather+tile-boxes,
     springs+Euler+RMSD, and RMSD-finish kernels (five compiled kernels in total), runs

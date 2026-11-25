@@ -705,6 +705,70 @@ class PoolStartupTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertIs(captured[0][3], query)
 
+    def test_cpu_pool_cleans_up_shared_memory_on_setup_failure(self):
+        query = np.ones((12, 8), dtype=np.float32)
+        tasks = [(0, "t0", "t0", query, "local", -2.0, "longer_sequence", "A" * 12, "A" * 12, "BLOSUM62")]
+        created = []
+
+        class FailingViewShm:
+            def __init__(self, create=False, size=0):
+                self.name = "fake_shm"
+                self.closed = False
+                self.unlinked = False
+                created.append(self)
+
+            @property
+            def buf(self):
+                raise MemoryError("simulated OOM")
+
+            def close(self):
+                self.closed = True
+
+            def unlink(self):
+                self.unlinked = True
+
+        with mock.patch.object(ssearch, "SharedMemory", FailingViewShm):
+            with self.assertRaises(MemoryError):
+                ssearch._run_cpu_search(tasks, 2, "embeddings.h5", False)
+
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].closed)
+        self.assertTrue(created[0].unlinked)
+
+    def test_resolve_worker_query_reuses_switches_and_cleans_up_on_bad_ref(self):
+        arr1 = np.arange(24, dtype=np.float32).reshape(6, 4)
+        arr2 = (np.arange(16, dtype=np.float16) * 0.5).reshape(4, 4)
+        shm1 = ssearch.SharedMemory(create=True, size=arr1.nbytes)
+        shm2 = ssearch.SharedMemory(create=True, size=arr2.nbytes)
+        try:
+            np.ndarray(arr1.shape, dtype=arr1.dtype, buffer=shm1.buf)[:] = arr1
+            np.ndarray(arr2.shape, dtype=arr2.dtype, buffer=shm2.buf)[:] = arr2
+            ref1 = ssearch._SharedQueryRef(shm1.name, arr1.shape, arr1.dtype.str)
+            ref2 = ssearch._SharedQueryRef(shm2.name, arr2.shape, arr2.dtype.str)
+            bad_ref = ssearch._SharedQueryRef(shm1.name, (9999, 9999), arr1.dtype.str)
+
+            v1 = ssearch._resolve_worker_query(ref1)
+            np.testing.assert_array_equal(v1, arr1)
+            self.assertIs(ssearch._resolve_worker_query(ref1), v1)
+
+            v2 = ssearch._resolve_worker_query(ref2)
+            np.testing.assert_array_equal(v2, arr2)
+            self.assertEqual(ssearch.worker_query_name, shm2.name)
+
+            with self.assertRaises(TypeError):
+                ssearch._resolve_worker_query(bad_ref)
+            self.assertIsNone(ssearch.worker_query_shm)
+            self.assertIsNone(ssearch.worker_query_name)
+            self.assertIsNone(ssearch.worker_query_emb)
+        finally:
+            ssearch._close_worker_shared_query()
+            for shm in (shm1, shm2):
+                shm.close()
+                try:
+                    shm.unlink()
+                except OSError:
+                    pass
+
 
 class TiledSampleTests(unittest.TestCase):
     """A tiled plan is timed on targets of one tile block, as windows of consecutive lengths."""

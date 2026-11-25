@@ -384,16 +384,25 @@ def _resolve_worker_query(q_emb):
     if worker_query_name != q_emb.name or worker_query_emb is None:
         _close_worker_shared_query()
         shm = _attach_shared_memory(q_emb.name)
+        try:
+            arr = np.ndarray(
+                q_emb.shape, dtype=np.dtype(q_emb.dtype), buffer=shm.buf
+            )
+        except BaseException:
+            try:
+                shm.close()
+            except Exception:
+                pass
+            raise
         worker_query_shm = shm
         worker_query_name = q_emb.name
-        worker_query_emb = np.ndarray(
-            q_emb.shape, dtype=np.dtype(q_emb.dtype), buffer=shm.buf
-        )
+        worker_query_emb = arr
     return worker_query_emb
 
 
 def init_worker(h5_path):
     global worker_hf, worker_device
+    _close_worker_shared_query()
     worker_hf = h5py.File(h5_path, "r", libver='latest', swmr=True)
     worker_device = torch.device("cpu")
 
@@ -898,36 +907,41 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
     ready = _POOL_CONTEXT.Queue() if timing is not None else None
     query_shm = None
     pool_tasks = tasks
-    first_q = tasks[0][3]
-    if (
-        isinstance(first_q, np.ndarray)
-        and first_q.nbytes > 0
-        and all(t[3] is first_q for t in tasks)
-    ):
-        try:
-            q_arr = np.ascontiguousarray(first_q)
-            query_shm = SharedMemory(create=True, size=q_arr.nbytes)
-            shm_view = np.ndarray(q_arr.shape, dtype=q_arr.dtype, buffer=query_shm.buf)
-            shm_view[:] = q_arr
-            del shm_view
-            ref = _SharedQueryRef(query_shm.name, q_arr.shape, q_arr.dtype.str)
-            pool_tasks = (
-                (t[0], t[1], t[2], ref, t[4], t[5], t[6], t[7], t[8], t[9])
-                for t in tasks
-            )
-        except OSError:
-            if query_shm is not None:
-                try:
-                    query_shm.close()
-                except Exception:
-                    pass
-                try:
-                    query_shm.unlink()
-                except Exception:
-                    pass
-                query_shm = None
-            pool_tasks = tasks
     try:
+        first_q = tasks[0][3]
+        if (
+            isinstance(first_q, np.ndarray)
+            and first_q.nbytes > 0
+            and all(t[3] is first_q for t in tasks)
+        ):
+            shm_view = None
+            try:
+                q_arr = np.ascontiguousarray(first_q)
+                query_shm = SharedMemory(create=True, size=q_arr.nbytes)
+                shm_view = np.ndarray(q_arr.shape, dtype=q_arr.dtype, buffer=query_shm.buf)
+                shm_view[:] = q_arr
+                shm_view = None
+                ref = _SharedQueryRef(query_shm.name, q_arr.shape, q_arr.dtype.str)
+                pool_tasks = (
+                    (t[0], t[1], t[2], ref, t[4], t[5], t[6], t[7], t[8], t[9])
+                    for t in tasks
+                )
+            except OSError:
+                shm_view = None
+                if query_shm is not None:
+                    try:
+                        query_shm.close()
+                    except Exception:
+                        pass
+                    try:
+                        query_shm.unlink()
+                    except OSError:
+                        pass
+                    query_shm = None
+                pool_tasks = tasks
+            except BaseException:
+                shm_view = None
+                raise
         with Pool(
             processes=workers,
             initializer=_init_search_pool if timing is not None else init_worker,
@@ -955,7 +969,7 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
                 pass
             try:
                 query_shm.unlink()
-            except FileNotFoundError:
+            except OSError:
                 pass
         if ready is not None:
             ready.close()
