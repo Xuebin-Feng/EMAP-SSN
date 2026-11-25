@@ -33,8 +33,8 @@ Settings:
 - SEQUENCE_SET: Defines the input FASTA file to target.
 - MODEL_NAME: The protein language model identifier to download from HuggingFace and load into VRAM. Supported models include 
   the local Evolutionary Scale Modeling families (`esmc_300m`, `esmc_600m`), the remote API-backed
-  ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t33_650m`), the Ankh family
-  (`ankh_base`, `ankh_large`), and the Rostlab families (`prot_bert`, `prot_t5`, `prost_t5`). Model identifiers
+  ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t33_650m`), the Ankh and Ankh3 families
+  (`ankh_base`, `ankh_large`, `ankh3_large`, `ankh3_xl`), and the Rostlab families (`prot_bert`, `prot_t5`, `prost_t5`). Model identifiers
   are always lower case.
 - SAVING_MODE: Determines the on-disk storage precision (`float16` by default). `float16` halves HDF5 file size and
   RAM requirements by rounding each stored value; on BAliBASE and HomFam sets the rounding changed alignment scores

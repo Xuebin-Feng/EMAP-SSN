@@ -140,7 +140,10 @@ def _is_residue_aligned(tokenizer, prefix) -> bool:
     if len(ids) != len(_ALIGNMENT_PROBE) + 2:
         return False
     unk_id = getattr(tokenizer, "unk_token_id", None)
-    if unk_id is not None and ids[0] == unk_id:
+    if unk_id is not None and (ids[0] == unk_id or any(tok_id == unk_id for tok_id in ids[1:-1])):
+        return False
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+    if eos_id is not None and ids[-1] != eos_id:
         return False
     convert = getattr(tokenizer, "convert_tokens_to_ids", None)
     if callable(convert):

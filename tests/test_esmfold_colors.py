@@ -557,6 +557,53 @@ class CardTests(ColorTestCase):
         self.assertEqual(layer["compact"], {"shown": "1", "title": "Information Content (%)", "ends": ["0 %", "100 %"]})
         self.assertEqual(self.choose("builtin:structure")["compact"]["shown"], "0")
 
+    def test_empty_layers_details_stays_open_and_keeps_focus_across_card_rerenders(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+        read_empty = """
+            const body = document.getElementById('color-body');
+            const details = body.querySelector('details.empty-layers');
+            const summary = details?.querySelector('summary');
+            return {open: !!details?.open, focusKey: summary?.dataset.focusKey ?? null,
+                    focused: document.activeElement === summary,
+                    activeKey: document.activeElement?.dataset.focusKey ?? null,
+                    selected: card().selected};"""
+        self.assertEqual(self.script(read_empty), {
+            "open": False, "focusKey": "color:empty-layers", "focused": False, "activeKey": None, "selected": "plddt"})
+        # Expand <details class="empty-layers"> via its <summary> and keep focus on it across a forced re-render.
+        self.script("""
+            const summary = document.querySelector('#color-body details.empty-layers > summary');
+            summary.focus();
+            summary.click();
+            await renderColorCard(true);
+            return 1;""")
+        self.assertEqual(self.script(read_empty), {
+            "open": True, "focusKey": "color:empty-layers", "focused": True, "activeKey": "color:empty-layers", "selected": "plddt"})
+        # An async coloring change while focus is on <summary> keeps it both open and focused.
+        self.script("""
+            await setColorMode('information_content');
+            await structureQueue;
+            await cardNow();
+            return 1;""")
+        self.assertEqual(self.script(read_empty), {
+            "open": True, "focusKey": "color:empty-layers", "focused": True, "activeKey": "color:empty-layers",
+            "selected": "information_content"})
+        # Clicking a coloring chip also keeps the expanded notice open.
+        self.choose("builtin:secondary-structure")
+        self.assertTrue(self.script("return document.querySelector('#color-body details.empty-layers').open"))
+        # Closing it again stays closed and keeps focus on <summary> across a re-render.
+        self.script("""
+            const summary = document.querySelector('#color-body details.empty-layers > summary');
+            summary.focus();
+            summary.click();
+            await renderColorCard(true);
+            return 1;""")
+        self.assertEqual(self.script(read_empty), {
+            "open": False, "focusKey": "color:empty-layers", "focused": True, "activeKey": "color:empty-layers",
+            "selected": "builtin:secondary-structure"})
+        self.assertEqual(self.console_errors(), [])
+
 
 class LegendPlaceTests(ColorTestCase):
     """The colors of the chosen coloring are drawn once, in the legend over the canvas; the Colors tab keeps only the texts."""
@@ -901,6 +948,62 @@ class PropertyColoringTests(ColorTestCase):
         self.assertNotEqual(zh["layerNote"], "No extra layers. Fold with an alignment loaded.")
         # (Navigating away to restore the session and to reload in zh_CN closes the previous page's SSE stream.)
         self.assertEqual([err for err in self.console_errors() if "SSE Connection Error" not in err[1]], [])
+
+    def test_default_chain_colored_element_symbol_is_not_atoms_and_clicking_atoms_switches_carbons_to_cpk(self):
+        self.open_two()
+        before = self.script("""
+            for (const s of loadedStructures()) await themeStructure(s, { color: 'element-symbol' });
+            deriveColorMode();
+            const c = await cardNow();
+            const atomsInput = document.querySelector('#color-body [data-coloring="builtin:element-symbol"] input');
+            return {
+                themes: loadedStructures().map(s => colorThemeOf(s).name),
+                carbonModes: loadedStructures().map(s => colorThemeOf(s).params?.carbonColor?.name ?? null),
+                colorings: loadedStructures().map(s => coloringOf(s)),
+                atomsChecked: atomsInput.checked,
+                selected: c.selected
+            };""")
+        self.assertEqual(before["themes"], ["element-symbol", "element-symbol"])
+        self.assertEqual(before["carbonModes"], ["chain-id", "chain-id"])
+        self.assertEqual(before["colorings"], ["other", "other"])
+        self.assertFalse(before["atomsChecked"])
+        self.assertNotEqual(before["selected"], "builtin:element-symbol")
+        # Clicking Atoms must not short-circuit: it switches carbons to CPK element-symbol grey.
+        card = self.choose("builtin:element-symbol")
+        after = self.script("""
+            const atomsInput = document.querySelector('#color-body [data-coloring="builtin:element-symbol"] input');
+            const s = loadedStructures()[0];
+            const themeParams = colorThemeOf(s);
+            const data = (s.transform || s).cell.obj.data;
+            const theme = plugin.representation.structure.themes.colorThemeRegistry.create(
+                themeParams.name, { structure: data }, themeParams.params);
+            const L = molstar.lib.structure;
+            const loc = L.StructureElement.Location.create(data);
+            let carbonHex = null;
+            for (const unit of data.units) {
+                loc.unit = unit;
+                for (let i = 0; i < unit.elements.length; i++) {
+                    loc.element = unit.elements[i];
+                    if (L.StructureProperties.atom.type_symbol(loc) === 'C') {
+                        carbonHex = '#' + theme.color(loc, false).toString(16).padStart(6, '0');
+                        break;
+                    }
+                }
+                if (carbonHex) break;
+            }
+            const carbonSwatch = document.querySelector('#canvas-legend .band i')?.style.getPropertyValue('--bc') ?? null;
+            return {
+                carbonModes: loadedStructures().map(st => colorThemeOf(st).params?.carbonColor?.name ?? null),
+                colorings: loadedStructures().map(st => coloringOf(st)),
+                atomsChecked: atomsInput.checked,
+                carbonHex, carbonSwatch
+            };""")
+        self.assertEqual(card["selected"], "builtin:element-symbol")
+        self.assertTrue(after["atomsChecked"])
+        self.assertEqual(after["carbonModes"], ["element-symbol", "element-symbol"])
+        self.assertEqual(after["colorings"], ["builtin:element-symbol", "builtin:element-symbol"])
+        self.assertEqual(after["carbonHex"], after["carbonSwatch"])
+        self.assertEqual(self.console_errors(), [])
 
 
 class LegendEndTests(ColorTestCase):

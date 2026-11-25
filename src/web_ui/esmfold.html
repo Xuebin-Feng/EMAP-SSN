@@ -222,7 +222,7 @@
         /* Reduced motion stops what moves (the chevrons' turn, the drawer's slide) and slows the spinner; the fades of colour stay. */
         @media (prefers-reduced-motion: reduce) {
             .icon-spin { animation-duration: 4s; }
-            .more-toggle .icon, .legend .src .chev, .srow .exp-btn .icon, .side { transition: none !important; }
+            .more-toggle .icon, .legend .src .chev, details.empty-layers > summary .chev, .srow .exp-btn .icon, .side { transition: none !important; }
         }
 
         .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

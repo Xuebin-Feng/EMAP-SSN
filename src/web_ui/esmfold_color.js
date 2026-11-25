@@ -54,6 +54,7 @@ let colorFilter = '';
 let moreColorings = true;
 const MORE_COLORINGS = [STRUCTURE_COLORING, POSITION_COLORING, ATOM_COLORING];
 let lastColorMode = colorMode;
+let emptyLayersOpen = false;
 let colorRenderId = 0;
 let renderedColors = '';
 // The listings of the Viewer as they came, by file, so that a row can offer a structure's layers without waiting.
@@ -94,7 +95,9 @@ function coloringOf(structure) {
     switch (theme.name) {
         case 'mvs-annotation': return activeLayerId(structure);
         case 'plddt-confidence': return PLDDT_LAYER;
-        case 'secondary-structure': case 'sequence-id': case 'element-symbol': case 'accessible-surface-area': case 'hydrophobicity': case 'residue-charge':
+        case 'element-symbol':
+            return theme.params?.carbonColor?.name === 'element-symbol' ? ATOM_COLORING : OTHER_COLORING;
+        case 'secondary-structure': case 'sequence-id': case 'accessible-surface-area': case 'hydrophobicity': case 'residue-charge':
             return BUILTIN_OF_THEME[theme.name];
         case 'uniform': {
             const value = theme.params?.value;
@@ -674,6 +677,8 @@ function replaceAround(parent, keep, before, after) {
 function renderColorBody(model) {
     const body = byId('color-body');
     const focused = body.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    const currentEmpty = body.querySelector('details.empty-layers');
+    if (currentEmpty) emptyLayersOpen = currentEmpty.open;
     drawnColorModel = model;
     const nodes = [];
     const many = model.layers.length > MAX_PLAIN_LAYERS;
@@ -713,7 +718,12 @@ function renderColorBody(model) {
                 : t("{n} structures have no extra layers.", {n: model.unavailable.length});
         if (model.unavailable.length) {
             const empty = make('details', 'empty-layers');
+            empty.open = emptyLayersOpen;
+            empty.addEventListener('toggle', () => {
+                if (empty.isConnected) emptyLayersOpen = empty.open;
+            });
             const summary = make('summary');
+            summary.dataset.focusKey = 'color:empty-layers';
             const label = make('span', undefined, summaryText);
             const chevron = icon("chevron-down", 'chev');
             summary.append(label, chevron);

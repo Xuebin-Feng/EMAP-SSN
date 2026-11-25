@@ -9,7 +9,7 @@ eliminates the batch-size-1 weight-bandwidth and kernel-launch bottleneck by
 packing length-sorted sequences into microbatches bounded simultaneously by:
   1. Linear activation memory (B * max_L * bytes_per_token)
   2. Quadratic attention memory (B * max_L^2 * bytes_per_quad) — critical for
-     T5 relative-position-bias models (Ankh, ProtT5, ProstT5)
+     T5 relative-position-bias models (Ankh, Ankh3, ProtT5, ProstT5)
   3. Padding waste limit (B * max_L <= 1.15 * sum(L_i))
 
 Batches are ordered longest-first so peak memory hits on batch 0 and triggers

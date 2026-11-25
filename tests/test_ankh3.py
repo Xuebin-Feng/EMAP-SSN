@@ -29,6 +29,7 @@ from tools.tool_helpers import Model_Plugins  # noqa: E402
 class _FakeAnkh3Tokenizer:
     """In-memory tokenizer mimicking Ankh3's unspaced [NLU]/[S2S] + bare-AA vocab."""
 
+    eos_token_id = 1
     unk_token_id = 2
 
     def __init__(self, *, prepend_unk=False):
@@ -162,6 +163,38 @@ class Ankh3TokenizerAlignmentTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "not residue-aligned"):
             ankh3._residue_aligned_tokenizer(_BrokenTokenizer(), "[NLU]")
+
+    def test_is_residue_aligned_rejects_interior_unk_residue(self):
+        class _InteriorUnkTokenizer:
+            eos_token_id = 1
+            unk_token_id = 2
+
+            def convert_tokens_to_ids(self, token):
+                return 4 if token == "[NLU]" else self.unk_token_id
+
+            def __call__(self, text):
+                return {"input_ids": [4, 20, self.unk_token_id, 14, 8, self.eos_token_id]}
+
+        self.assertFalse(ankh3._is_residue_aligned(_InteriorUnkTokenizer(), "[NLU]"))
+
+    def test_is_residue_aligned_rejects_missing_or_wrong_eos_token(self):
+        class _WrongEosTokenizer:
+            eos_token_id = 1
+            unk_token_id = 2
+
+            def __init__(self, trailing_id):
+                self._trailing_id = trailing_id
+
+            def convert_tokens_to_ids(self, token):
+                return 4 if token == "[NLU]" else self.unk_token_id
+
+            def __call__(self, text):
+                return {"input_ids": [4, 20, 18, 14, 8, self._trailing_id]}
+
+        for bad_trailing in (0, 2, 99):
+            with self.subTest(trailing_id=bad_trailing):
+                self.assertFalse(ankh3._is_residue_aligned(_WrongEosTokenizer(bad_trailing), "[NLU]"))
+        self.assertTrue(ankh3._is_residue_aligned(_WrongEosTokenizer(1), "[NLU]"))
 
 
 class Ankh3LoadAndInferenceTests(unittest.TestCase):
