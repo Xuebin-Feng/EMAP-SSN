@@ -361,6 +361,27 @@ def _attach_shared_memory(name):
         return SharedMemory(name=name, create=False)
 
 
+def _preallocate_shared_memory(shm, size):
+    """Commit backing pages for a POSIX SharedMemory block on Linux.
+
+    On Linux ``tmpfs`` (``/dev/shm``), ``SharedMemory(create=True, size=...)``
+    sizes the segment via ``ftruncate``, which succeeds sparsely even when
+    ``size`` exceeds free ``/dev/shm`` capacity (e.g., Docker's default 64 MiB
+    limit). Writing to the mapped buffer then kills the process with an
+    uncatchable ``SIGBUS``. Calling ``os.posix_fallocate`` up front commits the
+    backing pages so space exhaustion (``ENOSPC``) or unsupported filesystems
+    (``EOPNOTSUPP``) raise a catchable ``OSError`` before the buffer is touched.
+    """
+    if not sys.platform.startswith("linux") or not hasattr(os, "posix_fallocate"):
+        return
+    nbytes = int(size)
+    if nbytes <= 0:
+        return
+    fd = getattr(shm, "_fd", None)
+    if isinstance(fd, int) and not isinstance(fd, bool) and fd >= 0:
+        os.posix_fallocate(fd, 0, nbytes)
+
+
 def _close_worker_shared_query():
     global worker_query_shm, worker_query_name, worker_query_emb
     worker_query_emb = None
@@ -918,6 +939,7 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
             try:
                 q_arr = np.ascontiguousarray(first_q)
                 query_shm = SharedMemory(create=True, size=q_arr.nbytes)
+                _preallocate_shared_memory(query_shm, q_arr.nbytes)
                 shm_view = np.ndarray(q_arr.shape, dtype=q_arr.dtype, buffer=query_shm.buf)
                 shm_view[:] = q_arr
                 shm_view = None

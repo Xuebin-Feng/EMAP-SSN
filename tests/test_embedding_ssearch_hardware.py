@@ -6,6 +6,7 @@ working-set estimate and the TF32/BF16 result comparisons. Accelerators are
 simulated; the real searches run on the CPU.
 """
 
+import errno
 import io
 import os
 import pickle
@@ -734,6 +735,145 @@ class PoolStartupTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertTrue(created[0].closed)
         self.assertTrue(created[0].unlinked)
+
+    def test_preallocate_shared_memory_calls_posix_fallocate_on_linux(self):
+        with mock.patch.object(ssearch.sys, "platform", "linux"), \
+                mock.patch.object(ssearch.os, "posix_fallocate", create=True) as fallocate:
+            ssearch._preallocate_shared_memory(SimpleNamespace(_fd=7), 4096)
+            fallocate.assert_called_once_with(7, 0, 4096)
+
+            fallocate.reset_mock()
+            ssearch._preallocate_shared_memory(SimpleNamespace(_fd=0), 128)
+            fallocate.assert_called_once_with(0, 0, 128)
+
+        for err_no, msg in (
+            (errno.ENOSPC, "No space left on device"),
+            (errno.EOPNOTSUPP, "Operation not supported"),
+        ):
+            with self.subTest(errno=err_no), \
+                    mock.patch.object(ssearch.sys, "platform", "linux"), \
+                    mock.patch.object(
+                        ssearch.os,
+                        "posix_fallocate",
+                        side_effect=OSError(err_no, msg),
+                        create=True,
+                    ):
+                with self.assertRaises(OSError) as ctx:
+                    ssearch._preallocate_shared_memory(SimpleNamespace(_fd=9), 8192)
+                self.assertEqual(ctx.exception.errno, err_no)
+
+    def test_preallocate_shared_memory_noop_on_non_linux_or_missing_fd(self):
+        for platform in ("win32", "darwin"):
+            with self.subTest(platform=platform), \
+                    mock.patch.object(ssearch.sys, "platform", platform), \
+                    mock.patch.object(ssearch.os, "posix_fallocate", create=True) as fallocate:
+                ssearch._preallocate_shared_memory(SimpleNamespace(_fd=7), 4096)
+                fallocate.assert_not_called()
+
+        with mock.patch.object(ssearch.sys, "platform", "linux"), \
+                mock.patch.object(ssearch.os, "posix_fallocate", create=True) as fallocate:
+            for bad_shm, size in (
+                (SimpleNamespace(), 4096),
+                (SimpleNamespace(_fd=None), 4096),
+                (SimpleNamespace(_fd=-1), 4096),
+                (SimpleNamespace(_fd=True), 4096),
+                (SimpleNamespace(_fd="7"), 4096),
+                (SimpleNamespace(_fd=7), 0),
+                (SimpleNamespace(_fd=7), -16),
+            ):
+                ssearch._preallocate_shared_memory(bad_shm, size)
+            fallocate.assert_not_called()
+
+        with mock.patch.object(ssearch.sys, "platform", "linux"), \
+                mock.patch.object(ssearch, "os", SimpleNamespace()):
+            ssearch._preallocate_shared_memory(SimpleNamespace(_fd=7), 4096)
+
+    def test_cpu_pool_falls_back_cleanly_when_shm_preallocate_raises_enospc(self):
+        query = np.ones((12, 8), dtype=np.float32)
+        tasks = [(0, "t0", "t0", query, "local", -2.0, "longer_sequence", "A" * 12, "A" * 12, "BLOSUM62")]
+
+        def run_case(patch_fn):
+            created = []
+            captured = []
+
+            class FakeShm:
+                def __init__(self, create=False, size=0):
+                    self.name = "fake_enospc_shm"
+                    self.size = size
+                    self._fd = 11
+                    self.closed = False
+                    self.unlinked = False
+                    self.buf_accessed = False
+                    created.append(self)
+
+                @property
+                def buf(self):
+                    self.buf_accessed = True
+                    raise AssertionError("SharedMemory.buf must not be touched after preallocation fails")
+
+                def close(self):
+                    self.closed = True
+
+                def unlink(self):
+                    self.unlinked = True
+
+            class InspectPool:
+                def __init__(self, processes, initializer, initargs):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    return False
+
+                def imap_unordered(self, function, items, chunksize):
+                    captured.extend(items)
+                    return iter(())
+
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(ssearch, "SharedMemory", FakeShm))
+                stack.enter_context(mock.patch.object(ssearch, "Pool", InspectPool))
+                patch_fn(stack)
+                ssearch._run_cpu_search(tasks, 2, "embeddings.h5", False)
+            return created, captured
+
+        with self.subTest(via="helper"):
+            created, captured = run_case(
+                lambda stack: stack.enter_context(
+                    mock.patch.object(
+                        ssearch,
+                        "_preallocate_shared_memory",
+                        side_effect=OSError(errno.ENOSPC, "No space left on device"),
+                    )
+                )
+            )
+            self.assertEqual(len(created), 1)
+            self.assertFalse(created[0].buf_accessed)
+            self.assertTrue(created[0].closed)
+            self.assertTrue(created[0].unlinked)
+            self.assertEqual(len(captured), 1)
+            self.assertIs(captured[0][3], query)
+
+        with self.subTest(via="linux_posix_fallocate"):
+            fallocate_mock = mock.Mock(
+                side_effect=OSError(errno.ENOSPC, "No space left on device")
+            )
+
+            def patch_linux(stack):
+                stack.enter_context(mock.patch.object(ssearch.sys, "platform", "linux"))
+                stack.enter_context(
+                    mock.patch.object(ssearch.os, "posix_fallocate", fallocate_mock, create=True)
+                )
+
+            created, captured = run_case(patch_linux)
+            fallocate_mock.assert_called_once_with(11, 0, query.nbytes)
+            self.assertEqual(len(created), 1)
+            self.assertFalse(created[0].buf_accessed)
+            self.assertTrue(created[0].closed)
+            self.assertTrue(created[0].unlinked)
+            self.assertEqual(len(captured), 1)
+            self.assertIs(captured[0][3], query)
 
     def test_resolve_worker_query_reuses_switches_and_cleans_up_on_bad_ref(self):
         arr1 = np.arange(24, dtype=np.float32).reshape(6, 4)
