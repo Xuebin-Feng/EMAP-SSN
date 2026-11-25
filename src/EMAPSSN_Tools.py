@@ -1869,7 +1869,7 @@ class ToolsGUI(QMainWindow):
                 ),
                 "MODEL_NAME": Tip(
                     translate("Tools", "Protein language model (pLM) architecture used to generate residue embeddings."),
-                    details=(translate("Tools", "Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key)."),),
+                    details=(translate("Tools", "Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh/Ankh3 and remote API models (e.g. `ESM C 6B` with API key)."),),
                 ),
                 "SAVING_MODE": Tip(
                     translate("Tools", "Floating-point precision for storing embedding tensors in HDF5."),

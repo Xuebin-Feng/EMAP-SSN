@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 42cff47add9e64e99ebf119b990ec4f54ebd26b7d5c7c1f1f8a987f73fad1ad7 -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 d8b409ca18ddc54d1dbc52e437820e71a88eec7db884dd02387cb0ae411b4565 -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -61,7 +61,7 @@
 
 # 生成 embedding (`Generate_Embeddings.py`)
 
-该脚本使用预训练的蛋白质语言模型（例如 ESM-2、ESM-C、Ankh、ProtBERT、ProtT5 和 ProstT5）提取（extraction）序列 embedding。它把残基映射为高维表示向量，并按所选的 `float16` 或 `float32` 精度存入元数据优先的 HDF5 数据库。
+该脚本使用预训练的蛋白质语言模型（例如 ESM-2、ESM-C、Ankh、Ankh3、ProtBERT、ProtT5 和 ProstT5）提取（extraction）序列 embedding。它把残基映射为高维表示向量，并按所选的 `float16` 或 `float32` 精度存入元数据优先的 HDF5 数据库。
 
 ### 输入
 
@@ -74,14 +74,14 @@
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构。下拉列表给出每个模型的名称，例如 ESM-2 650M 或 ESM C 6B；设置中保存的是它的标识符，标识符也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`prot_bert`、`prot_t5`、`prost_t5`）。 |
+| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构。下拉列表给出每个模型的名称，例如 ESM-2 650M 或 ESM C 6B；设置中保存的是它的标识符，标识符也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`ankh3_large`、`ankh3_large_s2s`、`ankh3_xl`、`ankh3_xl_s2s`、`prot_bert`、`prot_t5`、`prost_t5`，其中 Ankh3 的 `_s2s` 变体使用 `[S2S]` 任务前缀，标准版本使用 `[NLU]`）。 |
 | 保存精度 **`SAVING_MODE`** | 在 HDF5 中存储向量所用的数值精度格式（默认的 `Float16 (Half Size)` 即“Float16（体积减半）”，或 `Float32 (Full Precision)` 即“Float32（全精度）”）。`Float16 (Half Size)` 所占的 embedding 存储空间约为 `Float32 (Full Precision)` 的一半。模型始终以 float32 计算；存储时的舍入只会使比对分数产生很小的变化，在 BAliBASE 和 HomFam 基准数据集上没有改变 MSA 准确度。若需按计算结果原样保存数值，请使用 `Float32 (Full Precision)`。 |
 | 计算设备 **`DEVICE_SELECTION`** | `auto` 会在具有代表性的序列长度上对可用、且经安装程序验证的 CPU/加速器候选设备进行基准测试，使用最快的成功设备；若运行时出错，可回退到排名中的下一个设备。本地模型在保持严格 FP32 计算精度的同时，会将按长度排序的序列打包为动态微批次（受激活/注意力内存和不超过 15% 的填充开销限制，遇显存不足自动减半批大小回退）。指定某个 CPU、CUDA、XPU 或 MPS 设备时，生成过程固定在该设备上，出错时报告错误，而不会悄悄切换设备。 |
 | 并行请求数 **`API_PARALLEL_REQUESTS`** | 设置文件/MCP 参数，控制远程 API 模型（`esmc_6b`）同时保持在途的请求数（1–64，默认 `8`；`1` 表示逐条发送序列）。遇到服务器速率限制时会自动降低并发数并逐步回升；结果按输入顺序写入。本地模型忽略此项。 |
 
 > **共享 Biohub API 访问：** 选择 ESM C 6B（`esmc_6b`）；插件会把这个便于用作文件名的标识符映射为 Biohub 的 `esmc-6b-2024-12` API 标识符。首次使用时，`Generate_Embeddings.py` 的终端会提示输入一个隐藏的令牌，并将其存入被 Git 忽略的 `src/resources/Biohub_API.json`。同一个令牌和可选的 `ESM_API_URL` 也供 `esmfold large` 使用；当共享文件和 `ESM_API_KEY` 环境变量都不存在时，其工作进程终端会使用同样的隐藏提示。
 
-> **模型条款：** 模型权重单独下载，并保留其发布者的许可证。特别是，Ankh Base 和 Ankh Large 的权重采用 CC-BY-NC-SA-4.0 许可，程序在访问前要求用户确认。模型清单见 `THIRD_PARTY_LICENSES.md`。这些模型条款不会改变 Apache-2.0 程序源代码的许可。
+> **模型条款：** 模型权重单独下载，并保留其发布者的许可证。特别是，Ankh Base、Ankh Large、Ankh3 Large 和 Ankh3 XL 的权重采用 CC-BY-NC-SA-4.0 许可，程序在访问前要求用户确认。模型清单见 `THIRD_PARTY_LICENSES.md`。这些模型条款不会改变 Apache-2.0 程序源代码的许可。
 
 ### 输出
 
@@ -106,7 +106,7 @@
      发现经安装程序验证的 CPU、CUDA、Intel XPU 和 Apple MPS 设备。在 `auto` 模式下，它会在每个可用的候选设备上对具有代表性的已清理序列做基准测试，并对成功的设备排名；若生成 embedding 失败，可退回到排名中的下一个设备。手动选择的设备会被独占使用。
 
 4. **残基 embedding 生成**：
-     本地模型将按长度排序的已清理序列打包为动态微批次，同时受线性激活内存、二次注意力内存和 15% 填充上限约束（按最长序列优先运行，遇显存不足自动减半批大小回退），同时保持严格的 FP32 计算精度并在设备端转换为存储数据类型。远程 API 模型（`esmc_6b`）最多同时发送 `API_PARALLEL_REQUESTS` 个并发请求（默认 `8`），带自适应速率限制回退，并按输入顺序写出结果。对每条已清理的序列 $s$，所选的模型适配器会按该模型的要求格式化残基并分词，在不计算梯度的情况下执行推理，并去除该模型特有的特殊标记。ESM 和 Rostlab 系列适配器去除边界标记；Ankh 使用自己的分词器布局，并去除末尾的特殊标记。每个适配器都会校验最终的残基矩阵每个残基恰好对应一行：
+     本地模型将按长度排序的已清理序列打包为动态微批次，同时受线性激活内存、二次注意力内存和 15% 填充上限约束（按最长序列优先运行，遇显存不足自动减半批大小回退），同时保持严格的 FP32 计算精度并在设备端转换为存储数据类型。远程 API 模型（`esmc_6b`）最多同时发送 `API_PARALLEL_REQUESTS` 个并发请求（默认 `8`），带自适应速率限制回退，并按输入顺序写出结果。对每条已清理的序列 $s$，所选的模型适配器会按该模型的要求格式化残基并分词，在不计算梯度的情况下执行推理，并去除该模型特有的特殊标记。ESM 和 Rostlab 系列适配器去除边界标记；Ankh 使用自己的分词器布局并去除末尾的特殊标记，而 Ankh3 会在序列前添加 `[NLU]` 或 `[S2S]` 并在末尾附加 `</s>`，随后切掉两端的边界标记（`1:-1`）。每个适配器都会校验最终的残基矩阵每个残基恰好对应一行：
      $$E_{\text{residue}} \in \mathbb{R}^{L \times D}$$
 
 5. **HDF5 数据库编制**：

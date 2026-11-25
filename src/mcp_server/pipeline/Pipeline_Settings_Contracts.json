@@ -62,7 +62,7 @@
           "null"
         ],
         "default": null,
-        "description": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).",
+        "description": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh/Ankh3 and remote API models (e.g. esmc_6b with API key).",
         "x-choice-provider": "plm_models"
       },
       "SAVING_MODE": {
@@ -243,7 +243,7 @@
       },
       "HOST_CACHE_GB": {
         "default": "auto",
-        "description": "Host cache in GiB, or auto for runtime sizing.",
+        "description": "Host Cache (GiB): Maximum host RAM in GiB for holding embeddings across batches, or 'auto' for runtime sizing (clamped to Linux cgroup v1/v2 and SLURM memory quotas, up to 128 GiB; 0 disables persistent RAM caching).\nPreloads the full database when it fits; when embeddings exceed the budget, tiled runs automatically use a 2-level partial-RAM sliding window with asynchronous slab prefetching.",
         "anyOf": [
           {
             "const": "auto"
@@ -615,7 +615,7 @@
       },
       "HOST_CACHE_GB": {
         "default": "auto",
-        "description": "Host cache in GiB, or auto for runtime sizing.",
+        "description": "Host Cache (GiB): Maximum host RAM in GiB for holding embeddings across batches, or 'auto' for runtime sizing (clamped to Linux cgroup v1/v2 and SLURM memory quotas, up to 128 GiB; 0 disables persistent RAM caching).\nPreloads the full database when it fits; when embeddings exceed the budget, tiled runs automatically use a 2-level partial-RAM sliding window with asynchronous slab prefetching.",
         "anyOf": [
           {
             "const": "auto"

@@ -3459,7 +3459,7 @@ Command-line usage:
         <translation type="unfinished">{n} 个结构无额外图层。</translation>
     </message>
     <message>
-        <location line="+107"/>
+        <location line="+111"/>
         <source>The chain as a ribbon: helices as coils, strands as arrows.</source>
         <translation type="unfinished">链以飘带形式显示：螺旋为线圈，β 链为箭头。</translation>
     </message>
@@ -3502,7 +3502,7 @@ Command-line usage:
         <translation type="obsolete">模型</translation>
     </message>
     <message>
-        <location line="-163"/>
+        <location line="-167"/>
         <location line="+3"/>
         <source>Properties</source>
         <translation type="unfinished">性质</translation>
@@ -3539,7 +3539,7 @@ Command-line usage:
         <translation type="obsolete">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+55"/>
         <location line="+11"/>
         <source>More colorings</source>
         <translation type="unfinished">更多着色方式</translation>
@@ -3818,7 +3818,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location line="-725"/>
+        <location line="-729"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -9579,7 +9579,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2168"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2228"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -13362,12 +13362,11 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">完整的网络：{sequences:,} 条序列，已观测 {observed:,}/{expected:,} 个序列对。不适用：没有缺失的序列对，因此无需插补。</translation>
     </message>
     <message>
-        <location line="+1377"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
-        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
+        <translation type="obsolete">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+1406"/>
         <source>The sequences the new embedding file holds.</source>
         <translation type="unfinished">新 embedding 文件所包含的序列。</translation>
     </message>
@@ -13883,7 +13882,12 @@ Shows the isotonic fit of normalized network scores on length-adjusted pooled-em
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="-508"/>
+        <location line="-1590"/>
+        <source>Supports local ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh/Ankh3 and remote API models (e.g. `ESM C 6B` with API key).</source>
+        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProtT5/ProstT5/Ankh/Ankh3 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
+    </message>
+    <message>
+        <location line="+1082"/>
         <source>Calibrated Imputation:</source>
         <translation type="unfinished">校准插补：</translation>
     </message>

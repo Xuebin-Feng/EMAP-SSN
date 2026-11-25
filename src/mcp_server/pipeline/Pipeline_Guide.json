@@ -40,7 +40,7 @@
         {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<MODEL_NAME>]_embeddings.h5", "existing": "a complete file from the same model, saving mode and sequences is kept and the job ends at once; an incomplete one is resumed; one with another model, SAVING_MODE or changed sequences fails the job unchanged"}
       ],
       "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_injection", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
-      "requirements": "A GPU is strongly recommended. Local models download their weights on first use. esmc_6b runs on a remote API and needs a Biohub token stored beforehand by the user (the job cannot prompt for it). Ankh models need a one-time license acknowledgement made by the user outside MCP: python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID.",
+      "requirements": "A GPU is strongly recommended. Local models download their weights on first use. esmc_6b runs on a remote API and needs a Biohub token stored beforehand by the user (the job cannot prompt for it). Ankh and Ankh3 models need a one-time license acknowledgement made by the user outside MCP: python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID.",
       "notes": [
         "get_tool_schema lists each model's availability on this machine under model_availability.",
         "Use one model for every file you intend to combine: injection, extraction, cropping and network injection reuse the source file's model.",
@@ -60,10 +60,10 @@
         {"directory": "NETWORK_DIR", "name": "<set>_[<model>]_network_temp/ (batch files)", "existing": "reused to resume an interrupted run; kept after success"}
       ],
       "next": ["network_statistics", "start_layout_job", "embedding_msa", "network_injection (later, to add sequences)"],
-      "requirements": "On CUDA/ROCm GPUs, tiled execution uses runtime-compiled fused GPU kernels (Align_GPU_Kernels.py) to run similarity scoring, exact two-pass Z-score normalization, and global+local dynamic programming end-to-end on the GPU (set SSN_ALIGN_GPU_KERNELS=0 to opt out); XPU, Apple MPS, scalar GPU, and CPU-only runs fall back to PyTorch score matrices with CPU dynamic-programming workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
+      "requirements": "On CUDA/ROCm GPUs, tiled execution uses runtime-compiled fused GPU kernels (Align_GPU_Kernels.py) to run similarity scoring, exact two-pass Z-score normalization, and global+local dynamic programming end-to-end on the GPU (set SSN_ALIGN_GPU_KERNELS=0 to opt out); XPU, Apple MPS, scalar GPU, and CPU-only runs fall back to PyTorch score matrices with CPU dynamic-programming workers (WORKERS). HOST_CACHE_GB bounds persistent host RAM (auto clamps to Linux cgroup v1/v2 and SLURM memory quotas, up to 128 GiB); when embeddings exceed the budget, tiled runs automatically use a 2-level partial-RAM sliding window with asynchronous slab prefetching. Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
       "notes": [
         "Layouts of this network choose ALIGNMENT_SCORE (global or local) and NORM_MODE; scores are normalized alignment scores, not identities.",
-        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. Only the kept pairs are aligned and stored; embedding_msa draws and aligns its own calibration sample of the missing pairs when it needs one.",
+        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high. Above 256 MiB (~4,700 sequences), prefiltering switches automatically from a dense matrix to block-streamed upper-triangle strips with compact sorted int64 pair keys. Only the kept pairs are aligned and stored; embedding_msa draws and aligns its own calibration sample of the missing pairs when it needs one.",
         "The log states Total Required pairs and, during the benchmark, each plan's throughput in pairs/s; divide to estimate the run time before committing to a large job."
       ]
     },
@@ -169,7 +169,7 @@
     },
     "network_injection": {
       "stage": "update a network with new sequences",
-      "purpose": "Extend an existing embedding-alignment network to an expanded embedding database, reusing every existing pair score and aligning only pairs that involve new sequences.",
+      "purpose": "Extend an existing embedding-alignment network to an expanded embedding database, reusing every existing pair score and aligning pairs that involve new sequences (on sparse input networks, uncomputed old-old pairs reaching the similarity cut are also aligned).",
       "inputs": {
         "OLD_NETWORK": {"directory": "NETWORK_DIR", "content": "existing network from align_similarity_matrix or an earlier injection"},
         "NEW_EMBEDDINGS": {"directory": "EMBED_DIR", "content": "expanded embedding database containing the old and new sequences (for example from embedding_injection), same model as OLD_NETWORK"}
@@ -179,8 +179,11 @@
         {"directory": "NETWORK_DIR", "name": "<NEW_EMBEDDINGS set>_[<model>]_network_temp/ (batch files)", "existing": "reused to resume"}
       ],
       "next": ["network_statistics", "start_layout_job (with the expanded FASTA as node FASTA)"],
-      "requirements": "Like align_similarity_matrix, for the new pairs only. A TF32 source network needs an NVIDIA CUDA device.",
-      "notes": ["Gap penalties and accelerator precision are inherited from OLD_NETWORK (inspect_file shows them), so old and new scores stay comparable."]
+      "requirements": "Like align_similarity_matrix, for the queued pairs only (including HOST_CACHE_GB with Linux cgroup v1/v2 and SLURM quota clamping and the 2-level partial-RAM sliding window on tiled runs when embeddings exceed budget). A TF32 source network needs an NVIDIA CUDA device.",
+      "notes": [
+        "Gap penalties and accelerator precision are inherited from OLD_NETWORK (inspect_file shows them), so old and new scores stay comparable.",
+        "On sparse input networks, pair selection switches automatically from a dense similarity matrix to block-streamed upper-triangle strips above 256 MiB (~4,700 sequences) with compact sorted int64 pair keys."
+      ]
     },
     "network_extraction": {
       "stage": "derive a network",
@@ -335,6 +338,7 @@
     {
       "goal": "Domain or fragment network that keeps full-length context",
       "steps": [
+        "If starting from a raw full-length FASTA, run sanitize_sequences first, read its stdout log with read_log, and report the sanitization result immediately before continuing",
         "generate_embeddings on the full-length sequences",
         "embedding_cropping with a FASTA of the fragments (same headers, exact substrings)",
         "align_similarity_matrix on the cropped embeddings, then a layout with the fragment FASTA"

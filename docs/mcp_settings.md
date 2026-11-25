@@ -57,6 +57,14 @@ access to receive it; whether instructions are surfaced to the model is controll
 by the MCP host. Existing tool descriptions also explain prerequisites and next
 steps for clients navigating through tool discovery.
 
+For sequence-set pipelines starting from a raw FASTA, both
+`Agent_Instructions.md` and `Pipeline_Guide.json` instruct agents to start with
+`sanitize_sequences` (unless the user explicitly skips it on an already-sanitized
+file), read its stdout via `emapssn_pipeline(action="read_log")`, and immediately
+report the sanitization result (kept/removed counts, duplicates, and length
+summary) before proceeding, as it can change the go/no-go decision or filter
+settings.
+
 Maintain workflow guidance in that file and parameter rules in tool schemas.
 Restart the MCP server after changing the guide or tool descriptions. A missing,
 unreadable, invalid UTF-8, or empty guide causes an actionable startup error;
@@ -443,7 +451,9 @@ source code:
   `DIRECTORIES` key a relative name resolves in), output file names with what
   happens to an existing output, requirements, typical next tools and notes. The
   catalog also carries workflow recipes (embedding SSN, BLAST SSN, imported
-  BLAST/DIAMOND results, adding sequences by injection, subsets, MSA, fragments),
+  BLAST/DIAMOND results, adding sequences by injection, subsets, MSA, fragments;
+  raw-FASTA workflows start with `sanitize_sequences`, read its stdout via
+  `read_log`, and report the sanitization result immediately before continuing),
   path rules, and a `layout` entry naming the layout actions. The knowledge lives in
   `src/mcp_server/pipeline/Pipeline_Guide.json`.
 - `get_tool_schema` repeats that tool's planning entry. For `generate_embeddings` and

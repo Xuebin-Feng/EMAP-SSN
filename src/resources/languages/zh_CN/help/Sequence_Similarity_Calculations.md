@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 e2919cea229ac8d0577c9bb994cc3b662cf391776fd070c2e9fe25842fb02796 -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 b01066e17cb19a015303a3147e9cd7e91b6af9fe432c4e5b9dceb8d7fd920740 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -24,7 +24,7 @@
 | 处理批大小 **`BATCH_SIZE`** | 每个分块（tile）中处理、随后写入磁盘的序列对数量（整数）。批次（batch）越大，资源利用率可能越高，但内存占用也越大。 |
 | 计算设备 **`DEVICE_SELECTION`** | 为残基比对选择 `auto` 或某个可用的 CPU、CUDA、XPU 或 MPS 设备。自动选择设备时会估算工作内存，在最多 256 个按成本分层的序列对上调优安全的并行通道数，并在最多 2,048 个按正式计算顺序排列的序列对上确认候选方案。在 CUDA/ROCm 上，分块运行会在 GPU 上融合执行 z-score 归一化与动态规划（dynamic programming）打分（设置 `SSN_ALIGN_GPU_KERNELS=0` 可禁用）；XPU、MPS、标量及仅 CPU 运行则回退到 CPU 动态规划。 |
 | 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块方案。`Scalar`（标量）在每个加速器通道（lane）上一次处理一个双序列得分矩阵，在 CPU 和受支持的加速器上始终可用。`Tiled`（分块）使用内存受限的 embedding 分块，并在 CUDA/ROCm 上使用运行时编译的融合 GPU 比对内核（设为 `SSN_ALIGN_GPU_KERNELS=0` 时，或在 XPU 和受支持的 Apple MPS 运行时上，则使用填充后的 PyTorch 微批次（microbatch）配合 CPU 动态规划）；若没有兼容的加速器，会在处理序列对之前失败。 |
-| 主机缓存 **`HOST_CACHE_GB`** | 跨批次保留 embedding 可使用的主机内存上限（GiB）。若整个数据库能放入预算则一次性预加载至内存；若超出预算，分块（tiled）运行会自动启用受预算限制的滑动内存窗口与异步分片预取。`auto` 会至少保留 8 GiB 或可用内存的 25%（同时遵循 Linux cgroup 与 SLURM 内存配额），上限为 128 GiB；`0` 则停用持久化内存缓存。 |
+| 主机缓存 **`HOST_CACHE_GB`** | 跨批次保留 embedding 可使用的主机内存上限（GiB）。若整个数据库能放入预算则一次性预加载至内存；若超出预算，分块（tiled）运行会自动启用受预算限制的滑动内存窗口与异步分片预取。`auto` 会至少保留 8 GiB 或总内存（或配额）的 25%（同时遵循 Linux cgroup 与 SLURM 内存配额），上限为 128 GiB；`0` 则停用持久化内存缓存。 |
 | 加速器精度 **`ACCELERATOR_PRECISION`** | `automatic_32bit` 会在最多 2,048 个按正式计算顺序排列的序列对上，用 `EXECUTION_MODE` 允许的每种执行模式测试 IEEE FP32 和 TF32。只有当这些方案保持比对长度不变、通过逐残基的得分容差检查、结果均为有限值，且最快的 TF32 方案比最快的 FP32 方案至少快 10% 时，才会选用 TF32。`bf16` 表示明确的低精度执行：归一化（normalization）和得分后处理仍用 FP32，而归一化后的矩阵乘法操作数使用 BF16。它需要具备相应能力的加速器，会打印低精度警告，并针对每种设备/执行变体，在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计。有限的数值差异仅供参考，不会导致拒绝 BF16。旧的输入别名 `auto` 会被当作 `automatic_32bit`。 |
 
 ### 输出
@@ -59,7 +59,7 @@
      该相似度再按序列长度之比进行校正：
      $$\text{Adj}(i, j) = \text{Sim}_{\text{cos}}(i, j) \times \left(\frac{\min(L_i, L_j)}{\max(L_i, L_j)}\right)^P$$
      
-     得分处于 `PREFILTER_STRENGTH` 所对应最低百分位的序列对会被跳过。
+     得分处于 `PREFILTER_STRENGTH` 所对应最低百分位的序列对会被跳过。当稠密矩阵超过 256 MiB（约 4,700 条序列）时，边预过滤会自动从稠密矩阵切换为按块流式计算上三角分条，并以紧凑的有序 `int64` 序列对键存储保留的序列对。
 
      被跳过的序列对不做任何比对。这个相似度是所有工具共用的同一条规则（最大池化、$P = 2$、在单个 BLAS 线程上做矩阵乘法），因此 Embedding 多序列比对填补缺失序列对时得到相同的数值。
 
