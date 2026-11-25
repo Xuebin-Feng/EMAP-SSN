@@ -391,12 +391,12 @@ modules = [
     "test_blast_directory_control",
     "test_emapssn_tools_responsive_layout",
     "test_emapssn_tools_window",
+    "test_gpu_memory_view",
     "test_predict_structures",
     "test_tool_charts",
     "test_tool_help_pages",
     "test_tool_pipeline",
     "test_tool_settings_cli",
-    "test_gpu_memory_view",
     "test_tool_supervisor",
 ]
 

@@ -856,7 +856,7 @@ class AcceleratorBackend:
             free_bytes = int(free_bytes)
             reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
             if self.device_type == "cuda":
-                reserve = _reserve_beside_other_programs(self.device, free_bytes, total_bytes, reserve)
+                free_bytes = _free_beside_other_programs(self.device, free_bytes, total_bytes, reserve)
             return AcceleratorMemorySnapshot(
                 backend=self.device_type,
                 free_bytes=free_bytes,
@@ -951,21 +951,24 @@ class AcceleratorBackend:
 _other_programs_announced = set()  # device keys the "other programs" line was printed for
 
 
-def _reserve_beside_other_programs(device, free_bytes, total_bytes, reserve, out=print):
-    """Raise a CUDA snapshot's reserve so that plans leave out the memory other programs hold (Windows).
+def _free_beside_other_programs(device, free_bytes, total_bytes, reserve, out=print):
+    """The free figure a CUDA snapshot plans from: lowered so that plans leave out what other programs hold (Windows).
 
-    On Windows the free figure of mem_get_info does not see other programs, so the usable memory is
-    taken as the smaller of today's and ``room - margin``, where room is the card minus what other
-    programs hold and torch's reserved pool. Only the reserve changes, never the free figure; every
-    other case (not Windows, reader unknown, switch off) returns ``reserve`` unchanged. Never raises.
+    On Windows the free figure of mem_get_info does not see other programs, so the usable memory (free minus
+    reserve) is taken as the smaller of today's and ``room - margin``, where room is the card minus what other
+    programs hold and torch's reserved pool. The correction travels in the free figure and not in the reserve
+    because plans are rebuilt from a plan's free and total with the default reserve (memory_info=), which
+    would drop a raised reserve but keeps a lowered free figure. Every other case (not Windows, reader
+    unknown, switch off) returns ``free_bytes`` unchanged. Never raises.
     """
     try:
         view = GPU_Memory_View.room_beside_other_programs(device, total_bytes)
         if view is None:
-            return reserve
+            return free_bytes
         room, others = view
-        raised = max(reserve, int(free_bytes) - (int(room) - GPU_Memory_View.card_margin_bytes(total_bytes)))
-        if raised > reserve:
+        planned = max(0, int(room) - GPU_Memory_View.card_margin_bytes(total_bytes)) + int(reserve)
+        lowered = min(int(free_bytes), planned)
+        if lowered < int(free_bytes):
             key = str(device)
             if key not in _other_programs_announced:
                 _other_programs_announced.add(key)
@@ -973,9 +976,9 @@ def _reserve_beside_other_programs(device, free_bytes, total_bytes, reserve, out
                     f"[Hardware] Other programs hold {others / GIB:.1f} GB of the "
                     f"{int(total_bytes) / GIB:.1f} GB on {device}; GPU plans leave that memory to them."
                 )
-        return raised
+        return lowered
     except Exception:
-        return reserve
+        return free_bytes
 
 
 def get_accelerator_backend(device):

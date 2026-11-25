@@ -948,9 +948,10 @@ class OtherProgramsSnapshotTests(unittest.TestCase):
     The recorded card: total 12,282 MiB, CUDA free 11,106 MiB. Today's reserve there is
     max(2,048 MiB, 15 % = 1,842 MiB) = 2,048 MiB, so today's usable memory is 11,106 - 2,048 = 9,058 MiB.
     The margin is int(total * 0.05) bytes (614.1 MiB). With the rule
-    usable = min(today's, room - margin) and room = total - others - torch's reserved pool:
+    usable = min(today's, room - margin) and room = total - others - torch's reserved pool, carried in the
+    free figure (free = usable + reserve, so a plan rebuilt from free and total keeps it):
       others 1,762 MiB: room 10,520, room - margin 9,905.9 > 9,058   -> unchanged;
-      others 2,868 MiB: room  9,414, room - margin 8,799.9 < 9,058   -> reserve raised to free - usable.
+      others 2,868 MiB: room  9,414, room - margin 8,799.9 < 9,058   -> free = 8,799.9 + 2,048 = 10,847.9 MiB.
     """
 
     TOTAL = 12282 * MIB
@@ -1015,24 +1016,31 @@ class OtherProgramsSnapshotTests(unittest.TestCase):
         self._todays(snapshot)
         reader.assert_not_called()
 
+    def _margin(self):
+        return GPU_Memory_View.card_margin_bytes(self.TOTAL)
+
     def test_other_programs_below_todays_reserve_leave_the_snapshot_unchanged(self):
+        # planned free = room - margin + reserve = 10,520 MiB - margin + 2,048 MiB, above the 11,106 MiB CUDA reports.
+        reserve = 2048 * MIB
+        self.assertGreater((12282 - 1762) * MIB - self._margin() + reserve, self.FREE)
         with self._card(used_mib=1762) as (out, reader):
             snapshot = self._backend().memory_snapshot()
         self._todays(snapshot)
         reader.assert_called()
         self.assertEqual(out.getvalue(), "")
 
-    def test_other_programs_holding_2868_mib_raise_the_reserve_and_the_line_prints_once(self):
-        margin = int(self.TOTAL * 0.05)
-        usable = (12282 - 2868) * MIB - margin
+    def test_other_programs_holding_2868_mib_lower_the_free_figure_and_the_line_prints_once(self):
+        reserve = 2048 * MIB
+        usable = (12282 - 2868) * MIB - self._margin()
         with self._card(used_mib=2868) as (out, reader):
             backend = self._backend()
             snapshot = backend.memory_snapshot()
             again = backend.memory_snapshot()
+        self.assertEqual(snapshot.free_bytes, usable + reserve)  # 9,414 MiB - margin + 2 GiB
+        self.assertLess(snapshot.free_bytes, self.FREE)
+        self.assertEqual(snapshot.reserve_bytes, reserve)  # exactly today's
         self.assertEqual(snapshot.usable_bytes, usable)
-        self.assertEqual(snapshot.reserve_bytes, self.FREE - usable)
         self.assertLess(snapshot.usable_bytes, 9058 * MIB)
-        self.assertEqual(snapshot.free_bytes, self.FREE)  # never changed
         self.assertEqual(snapshot.total_bytes, self.TOTAL)
         self.assertEqual(snapshot.source, "mem_get_info")
         self.assertEqual(again, snapshot)
@@ -1044,35 +1052,52 @@ class OtherProgramsSnapshotTests(unittest.TestCase):
         self.assertEqual(reader.call_count, 1)  # the second snapshot used the 30 s cache
 
     def test_the_pool_torch_holds_is_left_out_of_the_room_too(self):
-        margin = int(self.TOTAL * 0.05)
         free = 10106 * MIB  # CUDA free: 11,106 less the 1,000 MiB torch holds
         with self._card(used_mib=5000 + 1000, reserved_mib=1000) as (out, reader):
             snapshot = self._backend(free=free).memory_snapshot()
-        self.assertEqual(snapshot.usable_bytes, (12282 - 5000 - 1000) * MIB - margin)
-        self.assertEqual(snapshot.reserve_bytes, free - snapshot.usable_bytes)
-        self.assertEqual(snapshot.free_bytes, free)
+        self.assertEqual(snapshot.usable_bytes, (12282 - 5000 - 1000) * MIB - self._margin())
+        self.assertEqual(snapshot.reserve_bytes, 2048 * MIB)
+        self.assertLess(snapshot.free_bytes, free)
 
     def test_other_programs_holding_more_than_the_card_leave_nothing_usable(self):
         with self._card(used_mib=13000) as (out, reader):
             backend = self._backend()
             snapshot = backend.memory_snapshot()
             supported, reason = backend.supports_tiled(require_memory=True)
+        self.assertEqual(snapshot.free_bytes, snapshot.reserve_bytes)
         self.assertEqual(snapshot.usable_bytes, 0)
         self.assertFalse(supported)
         self.assertEqual(reason, "torch.cuda reported no safely usable accelerator memory")
 
-    def test_a_plan_made_from_the_device_carries_the_raised_reserve(self):
-        margin = int(self.TOTAL * 0.05)
-        usable = (12282 - 2868) * MIB - margin
-        with self._card(used_mib=2868) as (out, reader), \
-                mock.patch.object(alignment_engine, "get_accelerator_backend", return_value=self._backend()):
-            plan = alignment_engine.accelerator_memory_plan(torch.device("cuda:0"), lanes=1)
-        self.assertEqual(plan.reserve_bytes, self.FREE - usable)
-        self.assertEqual(plan.usable_bytes, usable)
-        self.assertEqual(plan.free_bytes, self.FREE)
-        cap = alignment_engine.allocator_cap_bytes(plan)
+    def _plan(self, backend):
+        with mock.patch.object(alignment_engine, "get_accelerator_backend", return_value=backend):
+            return alignment_engine.accelerator_memory_plan(torch.device("cuda:0"), lanes=1)
+
+    def test_a_plan_rebuilt_from_a_plans_free_and_total_keeps_the_correction(self):
+        usable = (12282 - 2868) * MIB - self._margin()
+        with self._card(used_mib=2868) as (out, reader):
+            backend = self._backend()
+            plan_a = self._plan(backend)
+            with mock.patch.object(alignment_engine, "get_accelerator_backend", return_value=backend):
+                plan_b = alignment_engine.accelerator_memory_plan(
+                    torch.device("cuda:0"), lanes=1, memory_info=(plan_a.free_bytes, plan_a.total_bytes)
+                )
+        self.assertEqual(plan_a.usable_bytes, usable)
+        self.assertEqual(plan_a.reserve_bytes, 2048 * MIB)
+        for name in ("usable_bytes", "tile_cache_bytes", "matrix_pool_bytes", "reserve_bytes"):
+            with self.subTest(field=name):
+                self.assertEqual(getattr(plan_b, name), getattr(plan_a, name))
+        cap = alignment_engine.allocator_cap_bytes(plan_a)
         self.assertIsNotNone(cap)
-        self.assertLessEqual(cap, plan.total_bytes - plan.reserve_bytes)
+        self.assertLessEqual(cap, plan_a.total_bytes - plan_a.reserve_bytes)
+
+    def test_a_normal_desktop_gives_the_same_plan_as_an_unknown_reader(self):
+        with self._card(used_mib=None):
+            unknown = self._plan(self._backend())
+        GPU_Memory_View._OTHER_PROGRAMS_CACHE.clear()
+        with self._card(used_mib=1762):
+            desktop = self._plan(self._backend())
+        self.assertEqual(desktop, unknown)
 
     def test_xpu_and_mps_backends_never_ask_for_other_programs_memory(self):
         with mock.patch.object(GPU_Memory_View, "room_beside_other_programs") as room:
