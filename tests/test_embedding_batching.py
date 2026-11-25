@@ -834,7 +834,22 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
 
     @staticmethod
     def _margin(total):
-        return max(512 * _MIB, int(total * 0.05))
+        return max(1024 ** 3, int(total * 0.10))
+
+    def test_pool_margin_is_a_tenth_of_the_card_with_a_floor_of_one_gibibyte(self):
+        total = _CARD_TOTAL_MIB * _MIB
+        pool = self._pool_limit(free_mib=6006, reserved_mib=4700)
+        self.assertEqual(pool.margin, int(total * 0.10))
+        self.assertGreater(pool.margin, 1024 ** 3)
+        # An 8 GiB card: a tenth is 0.8 GiB, so the floor of 1 GiB applies.
+        eight_gib = 8 * 1024 ** 3
+        with self._cuda_card(free_mib=3000, reserved_mib=1000, allocated_mib=0), \
+                mock.patch.object(torch.cuda, "mem_get_info", return_value=(3000 * _MIB, eight_gib)), \
+                mock.patch.object(GPU_Memory_View, "card_limit_is_not_enforced", return_value=True), \
+                mock.patch.object(batching, "_pool_limit_bytes", _REAL_POOL_LIMIT):
+            small = batching._pool_limit_bytes(torch.device("cuda:0"))
+        self.assertEqual(small.margin, 1024 ** 3)
+        self.assertEqual(small.limit, (1000 + 3000) * _MIB - 1024 ** 3)
 
     def test_pool_limit_in_the_measured_windows_case(self):
         total = _CARD_TOTAL_MIB * _MIB
@@ -844,7 +859,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         self.assertEqual(pool.total, total)
         self.assertEqual(pool.margin, self._margin(total))
         self.assertEqual(pool.limit, total - 3268 * _MIB - self._margin(total))
-        self.assertAlmostEqual(pool.limit / _MIB, 8400, delta=1)
+        self.assertAlmostEqual(pool.limit / _MIB, 12282 - 3268 - 1228.2, delta=1)  # about 7,786 MiB
 
     def test_pool_limit_without_the_second_view_is_reserved_plus_free_minus_margin(self):
         total = _CARD_TOTAL_MIB * _MIB
@@ -864,9 +879,9 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
     def test_pool_limit_ignores_the_second_view_when_cuda_already_shows_less_room(self):
         # CUDA's own figure (Linux-like) is already the smaller room.
         total = _CARD_TOTAL_MIB * _MIB
-        pool = self._pool_limit(free_mib=2000, reserved_mib=4700, used_mib=4700 + 100)
+        pool = self._pool_limit(free_mib=3000, reserved_mib=4700, used_mib=4700 + 100)
         self.assertIsNotNone(pool)
-        self.assertEqual(pool.limit, (4700 + 2000) * _MIB - self._margin(total))
+        self.assertEqual(pool.limit, (4700 + 3000) * _MIB - self._margin(total))
 
     def test_pool_limit_is_none_when_the_card_limit_is_enforced(self):
         self.assertIsNone(
@@ -881,7 +896,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
                 )
 
     def test_pool_limit_is_none_when_there_is_no_room_beyond_a_gibibyte(self):
-        # 4,700 + 1,000 - 614 = 5,086 MiB is under 4,700 + 1,024.
+        # 4,700 + 1,000 - 1,228 = 4,472 MiB is under 4,700 + 1,024.
         self.assertIsNone(self._pool_limit(free_mib=1000, reserved_mib=4700))
 
     def test_pool_limit_is_none_without_an_exception_when_mem_get_info_raises(self):

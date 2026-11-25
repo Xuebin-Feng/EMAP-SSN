@@ -138,6 +138,10 @@ def _model_memory_profile(model_obj):
 
 # What other programs hold on the card (the second view of its memory) comes from
 # utilities/GPU_Memory_View.py; it sizes the limit of torch's cached pool below.
+# The card's memory.used stops rising at about 95 % of the total on the measured 12 GB card,
+# so the pool stays a tenth below the total (and at least 1 GiB).
+_POOL_MARGIN_MIN_BYTES = 1024 ** 3
+_POOL_MARGIN_FRACTION = 0.10
 _POOL_MIN_ROOM_BYTES = 1024 ** 3
 _POOL_RELEASE_MIN_BYTES = 64 * 1024 ** 2
 _POOL_NOTICE_MIN_OTHERS_BYTES = 256 * 1024 ** 2
@@ -174,7 +178,7 @@ def _pool_limit_bytes(device):
         # CUDA's free figure may not drop by this process's own allocations on Windows, so
         # reserved + free can exceed the card; the pool can never usefully pass the card.
         room_end = min(room_end, total)
-        margin = GPU_Memory_View.card_margin_bytes(total)
+        margin = max(_POOL_MARGIN_MIN_BYTES, int(total * _POOL_MARGIN_FRACTION))
         limit = room_end - margin
         if limit < reserved + _POOL_MIN_ROOM_BYTES:
             return None
