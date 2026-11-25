@@ -3251,7 +3251,7 @@ Command-line usage:
         <translation type="unfinished">{file} 没有图层 {layer}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="+123"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="+126"/>
         <source>Structure color</source>
         <translation type="unfinished">结构颜色</translation>
     </message>
@@ -3444,7 +3444,7 @@ Command-line usage:
         <translation type="unfinished">无数据：{names}。此图层对它们没有数值。</translation>
     </message>
     <message>
-        <location line="+219"/>
+        <location line="+221"/>
         <source>No extra layers. Fold with an alignment loaded.</source>
         <translation type="unfinished">无额外图层。加载比对后再折叠即可生成。</translation>
     </message>
@@ -3459,7 +3459,7 @@ Command-line usage:
         <translation type="unfinished">{n} 个结构无额外图层。</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+116"/>
         <source>The chain as a ribbon: helices as coils, strands as arrows.</source>
         <translation type="unfinished">链以飘带形式显示：螺旋为线圈，β 链为箭头。</translation>
     </message>
@@ -3502,7 +3502,7 @@ Command-line usage:
         <translation type="obsolete">模型</translation>
     </message>
     <message>
-        <location line="-167"/>
+        <location line="-172"/>
         <location line="+3"/>
         <source>Properties</source>
         <translation type="unfinished">性质</translation>
@@ -3513,7 +3513,7 @@ Command-line usage:
         <translation type="unfinished">图层</translation>
     </message>
     <message>
-        <location line="-69"/>
+        <location line="-71"/>
         <location line="+1"/>
         <source>Filter layers</source>
         <translation type="unfinished">筛选图层</translation>
@@ -3529,7 +3529,7 @@ Command-line usage:
         <translation type="unfinished">没有匹配的图层。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+31"/>
         <location filename="../../../web_ui/esmfold.html" line="+1101"/>
         <source>Colors</source>
         <translation type="unfinished">颜色</translation>
@@ -3539,7 +3539,7 @@ Command-line usage:
         <translation type="obsolete">保守性等图层需要比对：请在查看器中加载比对后再折叠。</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+60"/>
         <location line="+11"/>
         <source>More colorings</source>
         <translation type="unfinished">更多着色方式</translation>
@@ -3818,7 +3818,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location line="-729"/>
+        <location line="-736"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -9579,7 +9579,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2228"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2400"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -9594,12 +9594,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
-        <translation type="unfinished">{count} 个校准序列对的留出检验 · Spearman ρ {rho} · MAE {mae} · R² {r2}</translation>
-    </message>
-    <message>
-        <location line="+94"/>
+        <location line="+212"/>
         <source>Length-adjusted embedding cosine similarity</source>
         <translation type="unfinished">长度校正的 embedding 余弦相似性</translation>
     </message>
@@ -9609,12 +9604,48 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">归一化网络得分</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-66"/>
+        <location line="+77"/>
         <source>Pairs per hexagon</source>
         <translation type="unfinished">每个六边形中的序列对数</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-215"/>
+        <source>Isotonic fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished">保序拟合，在 {count} 个校准序列对上的留出检验 · Spearman ρ {rho} · MAE {mae} · R² {r2}</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Chain + calibration fill, checked on the same pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished">链式 + 校准填充，在相同序列对上的检验 · Spearman ρ {rho} · MAE {mae} · R² {r2}</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished">ρ {rho} · MAE {mae} · R² {r2}</translation>
+    </message>
+    <message>
+        <location line="+65"/>
+        <source>Isotonic fit alone</source>
+        <translation type="unfinished">仅保序拟合</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Chain + calibration</source>
+        <translation type="unfinished">链式 + 校准</translation>
+    </message>
+    <message>
+        <location line="+30"/>
+        <source>Estimated score</source>
+        <translation type="unfinished">估计得分</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Directly computed score</source>
+        <translation type="unfinished">直接计算的得分</translation>
+    </message>
+    <message>
+        <location line="+94"/>
         <source>Observed pairs (random sample of {count})</source>
         <translation type="unfinished">已观测的序列对（随机抽取 {count} 个）</translation>
     </message>
@@ -9632,6 +9663,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+2"/>
         <source>Isotonic fit</source>
         <translation type="unfinished">保序回归拟合曲线</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Chain + calibration fill not used (not enough free memory); the missing pairs are filled from the isotonic fit alone</source>
+        <translation type="unfinished">未使用链式 + 校准填充（可用内存不足）；缺失的序列对仅由保序拟合填充</translation>
     </message>
     <message>
         <location filename="../../../Embedding_Manager.py" line="+105"/>

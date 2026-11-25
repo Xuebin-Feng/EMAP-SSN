@@ -2431,8 +2431,24 @@ def calibration_statistics(check):
         "r2": f"{check.r2:.4f}",
     }
     return Message(
-        "Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
+        "Isotonic fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
         **numbers,
+    )
+
+
+def chain_statistics(check):
+    """The chart's line on the chain + calibration fill's check, made on the same held-out pairs as the isotonic fit's."""
+    return Message(
+        "Chain + calibration fill, checked on the same pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}",
+        rho=f"{check.spearman:.4f}", mae=f"{check.mae:.4f}", r2=f"{check.r2:.4f}",
+    )
+
+
+def panel_statistics(check):
+    """The corner of a held-out panel: the method's Spearman rho, MAE and R²."""
+    return Message(
+        "ρ {rho} · MAE {mae} · R² {r2}",
+        rho=f"{check.spearman:.4f}", mae=f"{check.mae:.4f}", r2=f"{check.r2:.4f}",
     )
 
 
@@ -2442,7 +2458,7 @@ def _count_ticks(top):
     return ticks if len(ticks) > 1 else [1, top]
 
 
-def plot_regression_fit(iso_reg, x, y, rho, r2, pairs, calibration=None):
+def plot_regression_fit(iso_reg, x, y, rho, r2, pairs, calibration=None, held_out=None, summary=None):
     """Show the fit over the observed pairs as a pop-up chart in the Tools window's look.
 
     x and y are the length-adjusted similarities and normalized scores the
@@ -2453,14 +2469,20 @@ def plot_regression_fit(iso_reg, x, y, rho, r2, pairs, calibration=None):
     linearly, so the line is the very function the imputation uses. rho and r2
     head the chart. calibration, an ImputationFit with a calibration sample,
     adds that sample's pairs as dots (they are among the pairs counted, but
-    not in x and y) and a line on its held-out check. Its texts show in the
+    not in x and y) and a line on its held-out check. summary, the run's
+    ImputationSummary, adds a line on the chain + calibration fill's check
+    (or that the fill was not used). held_out, a tuple of the held-out
+    calibration pairs' directly computed scores, the isotonic fit's estimates
+    of them and the chain + calibration fill's (None when the fill was not
+    made), adds a column of two panels of estimated against computed scores;
+    the arrays are only read while the chart is drawn. Its texts show in the
     Tools window's language (Tool_Charts.chart_translation), and its window
     takes the Tools window's style (Tool_Charts.show_chart).
     """
     language, translator = Tool_Charts.chart_translation("regression plot")
     previous = set_translator(translator)
     try:
-        _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration)
+        _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration, held_out, summary)
     finally:
         set_translator(previous)
 
@@ -2472,7 +2494,85 @@ _CALIBRATION_ALPHA = 0.6
 _HEADER_LINE = 16
 
 
-def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=None):
+# The held-out panels: hexagons across each, and the figure's size with and without them, in inches.
+_PANEL_GRID = 36
+_FIGURE_SIZE = (10, 6)
+_PANEL_FIGURE_SIZE = (14, 6.5)
+
+
+def _draw_held_out_panels(figure, slot, held_out, summary, shades, tokens):
+    """Draw the column of held-out panels in the gridspec slot: estimated against computed scores, hexagon-shaded.
+
+    held_out is (computed, isotonic estimates, chain estimates or None). Both panels
+    share axes, hexagons and colour scale, and a y = x line; each shows its
+    method's check in a corner. A colour bar on the column's right gives the pairs per hexagon.
+    """
+    from matplotlib.colors import LogNorm
+    from matplotlib.ticker import FixedLocator, NullLocator, StrMethodFormatter
+
+    computed, isotonic, chain = held_out
+    methods = [(Message("Isotonic fit alone"), isotonic, None if summary is None else summary.check)]
+    if chain is not None:
+        chain_check = None if summary is None or summary.chain is None else summary.chain.check
+        methods.append((Message("Chain + calibration"), chain, chain_check))
+    computed = np.asarray(computed, dtype=np.float64)
+    ends = [float(np.max(computed))]
+    for _, estimates, _ in methods:
+        estimates = np.asarray(estimates, dtype=np.float64)
+        ends.append(float(np.max(estimates[np.isfinite(estimates)])))
+    top_value = max(ends) * 1.04
+    inner = slot.subgridspec(2, 2, width_ratios=[30, 1], hspace=0.14, wspace=0.05)
+    panels, cells = [], []
+    for row, (name, estimates, check) in enumerate(methods):
+        axes = figure.add_subplot(
+            inner[row, 0], sharex=panels[0] if panels else None, sharey=panels[0] if panels else None
+        )
+        estimates = np.asarray(estimates, dtype=np.float64)
+        known = np.isfinite(estimates) & np.isfinite(computed)
+        axes.set_facecolor(tokens["surface"])
+        cells.append(axes.hexbin(
+            computed[known], estimates[known], gridsize=_PANEL_GRID, mincnt=1, cmap=shades,
+            norm=LogNorm(), extent=(0, top_value, 0, top_value), linewidths=0.2, edgecolors="face",
+        ))
+        axes.plot([0, top_value], [0, top_value], color=tokens["text_muted"], linewidth=1.0,
+                  linestyle="--", zorder=3)
+        axes.set_xlim(0, top_value)
+        axes.set_ylim(0, top_value)
+        for side in ("top", "right", "left"):
+            axes.spines[side].set_visible(False)
+        axes.grid(True, color=tokens["border"], linewidth=0.8)
+        axes.set_axisbelow(True)
+        axes.tick_params(axis="y", length=0, pad=6)
+        axes.tick_params(axis="x", length=4)
+        axes.set_ylabel(Message("Estimated score").display(), labelpad=8)
+        # The method's name and its check in the panel's top left corner.
+        axes.annotate(
+            name.display(), (0.04, 0.96), xycoords="axes fraction", va="top",
+            color=tokens["text"], fontsize=11,
+        )
+        if check is not None:
+            axes.annotate(
+                panel_statistics(check).display(), (0.04, 0.96), xycoords="axes fraction",
+                xytext=(0, -18), textcoords="offset points", va="top",
+                color=tokens["text_muted"], fontsize=9,
+            )
+        panels.append(axes)
+    panels[0].tick_params(axis="x", labelbottom=len(panels) == 1)
+    panels[-1].set_xlabel(Message("Directly computed score").display(), labelpad=8)
+    top = max(2, max(int(cell.get_array().max()) for cell in cells))
+    for cell in cells:
+        cell.set_clim(1, top)
+    colorbar = figure.colorbar(cells[0], cax=figure.add_subplot(inner[:, 1]))
+    colorbar.outline.set_visible(False)
+    colorbar.ax.yaxis.set_major_locator(FixedLocator(_count_ticks(top)))
+    colorbar.ax.yaxis.set_minor_locator(NullLocator())
+    colorbar.ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+    colorbar.ax.tick_params(length=0, pad=6)
+    colorbar.set_label(Message("Pairs per hexagon").display(), labelpad=8)
+    return panels
+
+
+def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=None, held_out=None, summary=None):
     """plot_regression_fit's chart, its texts in language with the translator installed."""
     Tool_Charts.use_qt_backend()
     import matplotlib.pyplot as plt
@@ -2490,9 +2590,19 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
     )
     with plt.rc_context(Tool_Charts.chart_style(tokens, families)):
         # The figure's label names the pop-up window.
-        figure, axes = plt.subplots(
-            num=_REGRESSION_TITLE.display(), figsize=(10, 6), facecolor=tokens["surface"]
-        )
+        sampled = calibration is not None and calibration.calibration_x is not None
+        panelled = sampled and held_out is not None and len(held_out[0]) > 0
+        if panelled:
+            figure = plt.figure(
+                num=_REGRESSION_TITLE.display(), figsize=_PANEL_FIGURE_SIZE, facecolor=tokens["surface"]
+            )
+            outer = figure.add_gridspec(1, 2, width_ratios=[2.3, 1.25], wspace=0.3)
+            main = outer[0, 0].subgridspec(1, 2, width_ratios=[40, 1], wspace=0.04)
+            axes = figure.add_subplot(main[0, 0])
+        else:
+            figure, axes = plt.subplots(
+                num=_REGRESSION_TITLE.display(), figsize=_FIGURE_SIZE, facecolor=tokens["surface"]
+            )
         axes.set_facecolor(tokens["surface"])
         # Thin edges in each hexagon's own colour close the hairline seams between them.
         cells = axes.hexbin(
@@ -2506,7 +2616,6 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
             patheffects.Stroke(linewidth=_FIT_WIDTH + 2 * _FIT_RING, foreground=tokens["surface"]),
             patheffects.Normal(),
         ]
-        sampled = calibration is not None and calibration.calibration_x is not None
         if sampled:
             axes.scatter(
                 calibration.calibration_x, calibration.calibration_y, s=_CALIBRATION_DOT,
@@ -2527,7 +2636,10 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
         axes.set_xlabel(Message("Length-adjusted embedding cosine similarity").display(), labelpad=8)
         axes.set_ylabel(Message("Normalized network score").display(), labelpad=8)
 
-        colorbar = figure.colorbar(cells, ax=axes, aspect=40, pad=0.015, fraction=0.03)
+        if panelled:
+            colorbar = figure.colorbar(cells, cax=figure.add_subplot(main[0, 1]))
+        else:
+            colorbar = figure.colorbar(cells, ax=axes, aspect=40, pad=0.015, fraction=0.03)
         colorbar.outline.set_visible(False)
         colorbar.ax.yaxis.set_major_locator(FixedLocator(_count_ticks(top)))
         colorbar.ax.yaxis.set_minor_locator(NullLocator())
@@ -2563,6 +2675,13 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
         lines = [regression_statistics(rho, r2, pairs)]
         if sampled and calibration.check is not None:
             lines.append(calibration_statistics(calibration.check))
+            if summary is not None and summary.chain is not None:
+                lines.append(chain_statistics(summary.chain.check))
+            elif summary is not None and summary.chain_skipped:
+                lines.append(Message(
+                    "Chain + calibration fill not used (not enough free memory); the missing pairs "
+                    "are filled from the isotonic fit alone"
+                ))
         for row, line in enumerate(reversed(lines)):
             axes.annotate(
                 line.display(), (0, 1), xycoords="axes fraction",
@@ -2574,7 +2693,11 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
             fontsize=15, fontweight=Tool_Charts.title_weight(families), color=tokens["text"],
         )
 
-        figure.tight_layout()
+        if panelled:
+            _draw_held_out_panels(figure, outer[0, 1], held_out, summary, shades, tokens)
+            figure.subplots_adjust(left=0.065, right=0.93, bottom=0.11, top=0.78)
+        else:
+            figure.tight_layout()
         Tool_Charts.show_chart(figure, color, PROJECT_ROOT)
 
 # ==========================================
@@ -2957,12 +3080,20 @@ def run_msa_builder():
             )
         report_imputation(imputation, imputation_summary)
 
+        held_out = None
         if SHOW_REGRESSION_PLOT:
             try:
                 print("Displaying Isotonic Regression plot. Close the plot window to continue...")
+                # The odd calibration half every check scores: computed scores, the isotonic fit's
+                # estimates and the chain + calibration fill's (None when it was not made).
+                if not imputation.uniform:
+                    held_out = (
+                        imputation.calibration_y[1::2], imputation.out_of_fold[1::2],
+                        None if chain_plan is None else chain_plan.held_out,
+                    )
                 plot_regression_fit(
                     iso_reg, imputation.fit_x, imputation.fit_y, rho, r2, len(fitted_x),
-                    calibration=imputation,
+                    calibration=imputation, held_out=held_out, summary=imputation_summary,
                 )
             except Exception as plot_err:
                 print(f"Could not open plot window: {plot_err}")
@@ -2971,7 +3102,7 @@ def run_msa_builder():
         # after its last use. Otherwise they all stay alive through the replicate
         # trees and the whole merge.
         del fitted_x, fitted_y, Y_pred, X_cos, Y_align, norm_scores, calibration_positions, calibration_weights
-        del imputation, sample
+        del imputation, sample, held_out
 
     # 8. BUILD CONSENSUS TREE
     tree_building_started = time.perf_counter()

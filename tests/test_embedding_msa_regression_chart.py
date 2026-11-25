@@ -627,7 +627,8 @@ class RegressionChartTests(unittest.TestCase):
         ])
         texts = {text.get_text(): text for text in figure.findobj(Text) if text.get_text()}
         check = texts[str(Embedding_MSA.calibration_statistics(fit.check))]
-        self.assertTrue(check.get_text().startswith("Held-out check on 30 calibration pairs · Spearman ρ "))
+        self.assertTrue(check.get_text().startswith(
+            "Isotonic fit, held-out check on 30 calibration pairs · Spearman ρ "))
         statistics = texts[str(Embedding_MSA.regression_statistics(0.5, 0.25, 2_060))]
         title = texts["Isotonic Regression Fit"]
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -643,6 +644,90 @@ class RegressionChartTests(unittest.TestCase):
         # 400 hexagon pairs stand for all 2,000 besides the sample: a random sample.
         axes = self.draw(pairs=460, calibration=fit).axes[0]
         self.assertEqual(axes.get_legend().get_texts()[0].get_text(), "Observed pairs")
+
+    def held_out_inputs(self, fit, chain=True):
+        """The run's held-out arrays for a fit with a sample, and a summary with the chain fill's check or its skip."""
+        computed = fit.calibration_y[1::2]
+        isotonic = fit.out_of_fold[1::2]
+        rng = np.random.default_rng(42)
+        chain_estimates = computed + rng.normal(0, 0.2, computed.size)
+        summary = Embedding_MSA.ImputationSummary(missing=10, outside=0.0, check=fit.check)
+        if chain:
+            summary.chain = Embedding_MSA.ChainSummary(
+                check=Embedding_MSA.held_out_check(chain_estimates, computed), covered=1.0,
+                coefficients=(1.0, 0.0, 0.0, 0.0), calibration_coverage=1.0,
+            )
+        else:
+            summary.chain_skipped = "it needs about 9 GB and 2 GB of memory is free"
+        return (computed, isotonic, chain_estimates if chain else None), summary
+
+    def draw_with_held_out(self, chain=True):
+        """The figure of a run with held-out arrays, its fit, arrays, summary and every text on it."""
+        from matplotlib.text import Text
+
+        fit = self.calibrated()
+        held_out, summary = self.held_out_inputs(fit, chain)
+        self.app_settings.write_text(json.dumps({"LANGUAGE": "en"}), encoding="utf-8")
+        shown = []
+
+        def show(*args, **kwargs):
+            figure = self.plt.gcf()
+            figure.canvas.draw()
+            shown.append(figure)
+
+        with mock.patch.dict(os.environ, {"SSN_APP_SETTINGS_PATH": str(self.app_settings)}), \
+                mock.patch.object(self.plt, "show", side_effect=show):
+            Embedding_MSA.plot_regression_fit(
+                self.iso, self.x, self.y, 0.5, 0.25, 2_060, calibration=fit, held_out=held_out,
+                summary=summary,
+            )
+        figure = shown[0]
+        texts = [text.get_text() for text in figure.findobj(Text) if text.get_text()]
+        return figure, fit, held_out, summary, texts
+
+    def test_the_chain_fill_gets_its_line_and_a_panel_beside_the_isotonic_one(self):
+        from matplotlib.collections import PolyCollection
+
+        figure, fit, held_out, summary, texts = self.draw_with_held_out()
+        self.assertIn(str(Embedding_MSA.calibration_statistics(fit.check)), texts)
+        self.assertIn(str(Embedding_MSA.chain_statistics(summary.chain.check)), texts)
+        self.assertTrue(any(text.startswith("Chain + calibration fill, checked on the same pairs") for text in texts))
+        self.assertEqual(tuple(figure.get_size_inches()), (14, 6.5))
+        # Main chart, its colour bar, two panels, their colour bar.
+        self.assertEqual(len(figure.axes), 5)
+        top, bottom = figure.axes[2], figure.axes[3]
+        self.assertEqual(top.get_xlim(), bottom.get_xlim())
+        self.assertEqual(top.get_ylim(), bottom.get_ylim())
+        self.assertIn("Isotonic fit alone", texts)
+        self.assertIn("Chain + calibration", texts)
+        self.assertIn(str(Embedding_MSA.panel_statistics(fit.check)), texts)
+        self.assertIn(str(Embedding_MSA.panel_statistics(summary.chain.check)), texts)
+        clims = set()
+        for panel, estimates in ((top, held_out[1]), (bottom, held_out[2])):
+            (cells,) = [item for item in panel.collections if isinstance(item, PolyCollection)]
+            self.assertEqual(int(np.asarray(cells.get_array()).sum()), len(estimates))
+            clims.add(tuple(cells.get_clim()))
+            # y = x.
+            (reference,) = panel.lines
+            np.testing.assert_array_equal(reference.get_xdata(), reference.get_ydata())
+        self.assertEqual(len(clims), 1, "one colour scale for both panels")
+
+    def test_a_skipped_chain_fill_says_so_and_leaves_one_panel(self):
+        figure, fit, held_out, summary, texts = self.draw_with_held_out(chain=False)
+        self.assertTrue(any(text.startswith("Chain + calibration fill not used") for text in texts), texts)
+        self.assertFalse(any("checked on the same pairs" in text for text in texts))
+        self.assertNotIn("Chain + calibration", texts)
+        self.assertIn("Isotonic fit alone", texts)
+        self.assertEqual(len(figure.axes), 4)
+
+    def test_a_run_without_a_sample_draws_as_before(self):
+        from matplotlib.collections import PathCollection
+
+        plain = Embedding_MSA.fit_imputation(self.x, self.y)
+        figure = self.draw(calibration=plain)
+        self.assertEqual(len(figure.axes), 2)
+        self.assertEqual(tuple(figure.get_size_inches()), (10, 6))
+        self.assertFalse([item for item in figure.axes[0].collections if isinstance(item, PathCollection)])
 
     def test_a_fit_without_a_sample_draws_as_before(self):
         from matplotlib.collections import PathCollection
@@ -688,6 +773,13 @@ class RegressionChartTests(unittest.TestCase):
         for text in words:
             self.assertTrue(is_pseudo_translated(text), text)
         self.assertEqual(self.warnings, [])
+        # The held-out panels and the chain fill's line: every text of them goes through the catalog too.
+        with mock.patch.dict(os.environ, {"SSN_PSEUDO_TRANSLATION": "1"}):
+            _, _, _, _, texts = self.draw_with_held_out()
+        shown = [text for text in texts if not re.fullmatch(r"[\d,.\-−]+", text)]
+        self.assertGreater(len(shown), 14, shown)
+        for text in shown:
+            self.assertTrue(is_pseudo_translated(text), text)
 
     def test_simplified_chinese_draws_in_its_bundled_font_with_no_glyph_missing(self):
         # Nor a face: matplotlib logs one a family lacks, as Noto Sans SC lacks semibold.

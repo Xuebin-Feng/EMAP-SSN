@@ -6555,7 +6555,35 @@ The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <source>Isotonic fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Chain + calibration fill, checked on the same pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ρ {rho} · MAE {mae} · R² {r2}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Isotonic fit alone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Chain + calibration</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Estimated score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directly computed score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pairs per hexagon</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6564,10 +6592,6 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Normalized network score</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Pairs per hexagon</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6584,6 +6608,10 @@ The whole output is in {log}.</source>
     </message>
     <message>
         <source>Isotonic fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Chain + calibration fill not used (not enough free memory); the missing pairs are filled from the isotonic fit alone</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
