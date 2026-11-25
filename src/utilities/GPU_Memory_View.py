@@ -42,6 +42,13 @@ def other_programs_switch_on():
     return _switch_on
 
 
+def _platform_name():
+    """``sys.platform``; a seam so that tests can run each branch on any system."""
+    import sys
+
+    return sys.platform
+
+
 def limit_is_not_enforced_on(platform_name, kernel_release):
     """Whether a system lets GPU memory run past the card: Windows, and Linux under WSL.
 
@@ -64,17 +71,17 @@ def card_limit_is_not_enforced():
     slower, with no message. Under WSL2 the allocation succeeds and its first use fails with a CUDA
     out-of-memory error the process does not recover from. In both, torch never gets the refusal
     at allocation that makes it free its cache. On native Linux (and macOS) the driver refuses at
-    the limit and torch then frees its own cache. Never raises.
+    the limit and torch then frees its own cache. The kernel release is read with os.uname() on POSIX
+    only (the platform module asks WMI on Windows, which can stall). Never raises.
     """
-    import sys
-
+    name = _platform_name()
+    if name == "win32":
+        return True
     try:
-        import platform
-
-        release = platform.uname().release
-    except Exception:
+        release = os.uname().release
+    except Exception:  # AttributeError where os.uname does not exist, OSError otherwise
         release = ""  # an unreadable release counts as "not WSL"
-    return limit_is_not_enforced_on(sys.platform, release)
+    return limit_is_not_enforced_on(name, release)
 
 
 def card_margin_bytes(total_bytes):

@@ -298,16 +298,28 @@ class GPUMemoryViewTests(unittest.TestCase):
                 self.assertIs(decide(platform_name, release), expected)
 
     def test_the_public_decision_uses_this_systems_platform_and_kernel_release(self):
-        import platform
-
+        release = os.uname().release if hasattr(os, "uname") else ""
         self.assertIs(
             GPU_Memory_View.card_limit_is_not_enforced(),
-            GPU_Memory_View.limit_is_not_enforced_on(sys.platform, platform.uname().release),
+            GPU_Memory_View.limit_is_not_enforced_on(sys.platform, release),
         )
 
     def test_an_unreadable_kernel_release_counts_as_not_wsl_and_never_raises(self):
-        with mock.patch("platform.uname", side_effect=OSError("unreadable")):
-            self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), sys.platform == "win32")
+        with mock.patch.object(GPU_Memory_View, "_platform_name", return_value="linux"), \
+                mock.patch.object(os, "uname", side_effect=OSError("unreadable"), create=True):
+            self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), False)
+
+    def test_a_kernel_release_naming_microsoft_is_read_with_os_uname_on_linux(self):
+        release = types.SimpleNamespace(release="6.18.58.1-microsoft-standard-WSL2")
+        with mock.patch.object(GPU_Memory_View, "_platform_name", return_value="linux"), \
+                mock.patch.object(os, "uname", return_value=release, create=True):
+            self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), True)
+
+    def test_on_windows_the_kernel_release_is_not_read_at_all(self):
+        with mock.patch.object(GPU_Memory_View, "_platform_name", return_value="win32"), \
+                mock.patch.object(os, "uname", side_effect=AssertionError("must not be read"), create=True) as uname:
+            self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), True)
+        uname.assert_not_called()
 
     def test_card_margin_is_five_percent_of_the_total_with_a_floor_of_512_mib(self):
         total = _CARD_TOTAL_MIB * _MIB
