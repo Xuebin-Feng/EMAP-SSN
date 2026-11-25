@@ -1157,6 +1157,12 @@ still change before version 1.0.0.
     profiles to `<= floor(log2(N))` while producing bit-identical alignments; FASTA export
     defers full alignment materialization via lazy merge-tree replay, and
     `compute_score_matrix_torch` builds score matrices in a single pass.
+  - **Chunked network edge streaming (`filter_network_edges`):** `Embedding_MSA` validates
+    edge dataset lengths from HDF5 metadata before reading any pairs, samples calibration
+    check edges directly from the HDF5 datasets, and streams network edge filtering in
+    500,000-edge chunks (skipping `j`, score, and length reads for chunks with no in-subset
+    endpoints and closing the network handle immediately afterward), allowing sequence
+    subsets to align against out-of-RAM network files with bit-identical results.
 - **Faster SSN layouts, MCL clustering, UMAP k-NN and spectral AMG starts.**
   - **GPU SSN physics (`Layout_GPU_Kernels.py`):** adds fused gather+tile-boxes,
     springs+Euler+RMSD, and RMSD-finish kernels (five compiled kernels in total), runs
