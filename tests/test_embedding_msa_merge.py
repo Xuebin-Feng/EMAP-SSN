@@ -366,6 +366,79 @@ class FullRunTests(unittest.TestCase):
         self.assertEqual(len(embedding_opens), 1)
 
 
+class HeavyFirstMergeOrderTests(unittest.TestCase):
+    @staticmethod
+    def _simulate_peak_live(linkage, num_seqs, order):
+        live = set()
+        peak = 0
+        for k in order:
+            a, b = int(linkage[k, 0]), int(linkage[k, 1])
+            if a >= num_seqs:
+                assert a in live, f"child {a} not ready before merge {k}"
+                live.remove(a)
+            if b >= num_seqs:
+                assert b in live, f"child {b} not ready before merge {k}"
+                live.remove(b)
+            live.add(num_seqs + k)
+            if len(live) > peak:
+                peak = len(live)
+        assert live == {num_seqs + len(linkage) - 1}
+        return peak
+
+    def test_heavy_first_order_bounds_live_profiles_across_tree_shapes(self):
+        import math
+        import scipy.cluster.hierarchy as sch
+
+        # 1) Perfectly balanced binary tree of 256 leaves: sequential holds 128, heavy-first holds <= 8.
+        n_bal = 256
+        links_bal = []
+        level = list(range(n_bal))
+        next_id = n_bal
+        while len(level) > 1:
+            nxt = []
+            for i in range(0, len(level), 2):
+                links_bal.append([level[i], level[i + 1], 1.0, 2])
+                nxt.append(next_id)
+                next_id += 1
+            level = nxt
+        z_bal = np.asarray(links_bal, dtype=np.float64)
+        seq_peak = self._simulate_peak_live(z_bal, n_bal, range(len(z_bal)))
+        order_bal = Embedding_MSA.heavy_first_merge_order(z_bal, n_bal)
+        dfs_peak = self._simulate_peak_live(z_bal, n_bal, order_bal)
+        self.assertEqual(sorted(order_bal), list(range(len(z_bal))))
+        self.assertEqual(seq_peak, 128)
+        self.assertLessEqual(dfs_peak, int(math.floor(math.log2(n_bal))))
+
+        # 2) Deeply unbalanced comb tree of 3,000 leaves (exceeds default recursion limit 1000!):
+        #    heavy-first holds at most 1 live profile at all times without RecursionError.
+        n_comb = 3000
+        z_comb = np.zeros((n_comb - 1, 4), dtype=np.float64)
+        prev = 0
+        for k in range(n_comb - 1):
+            # Alternate child placement (left vs right) so both orientations are tested.
+            if k % 2 == 0:
+                z_comb[k] = [prev, k + 1, float(k + 1), float(k + 2)]
+            else:
+                z_comb[k] = [k + 1, prev, float(k + 1), float(k + 2)]
+            prev = n_comb + k
+        order_comb = Embedding_MSA.heavy_first_merge_order(z_comb, n_comb)
+        self.assertEqual(sorted(order_comb), list(range(n_comb - 1)))
+        self.assertEqual(self._simulate_peak_live(z_comb, n_comb, order_comb), 1)
+
+        # 3) Random UPGMA trees of 512 leaves: always strictly <= floor(log2(N)).
+        rng = np.random.default_rng(77)
+        for trial in range(5):
+            dists = rng.random(512 * 511 // 2)
+            z_rand = sch.linkage(dists, method="average")
+            order_rand = Embedding_MSA.heavy_first_merge_order(z_rand, 512)
+            self.assertEqual(sorted(order_rand), list(range(511)))
+            peak_rand = self._simulate_peak_live(z_rand, 512, order_rand)
+            self.assertLessEqual(peak_rand, 9, f"trial={trial} peak={peak_rand}")
+
+        # 4) Degenerate single-sequence tree (0 merges).
+        self.assertEqual(Embedding_MSA.heavy_first_merge_order(np.zeros((0, 4)), 1), [])
+
+
 class MergeSpeedTests(unittest.TestCase):
     def test_four_thousand_sequence_merge_beats_the_string_merge_per_sequence(self):
         # Wall-clock limits fail on a busy machine, so the array merge is

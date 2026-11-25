@@ -1311,6 +1311,66 @@ def guide_tree_notes(network_type, imputed, imputation=None, calibration=None):
     return notes
 
 
+def heavy_first_merge_order(linkage_matrix, num_seqs):
+    """Return merge indices in Sethi-Ullman heavy-first post-order DFS.
+
+    Executing the guide tree's merges in this order produces the exact same
+    per-node alignments and final MSA as sequential ``linkage_matrix`` order,
+    while bounding the number of simultaneously live intermediate profiles in
+    ``active_profiles`` to at most ``floor(log2(num_seqs))`` (O(log N) instead
+    of O(N) for breadth-first distance-ordered merges). Uses an explicit stack
+    so deeply unbalanced trees never hit Python's recursion limit.
+    """
+    num_merges = len(linkage_matrix)
+    if num_merges == 0:
+        return []
+    total_nodes = int(num_seqs) + num_merges
+    # Minimum simultaneously live internal profiles needed to evaluate each subtree.
+    cost = np.zeros(total_nodes, dtype=np.int32)
+    size = np.ones(total_nodes, dtype=np.int32)
+    for k in range(num_merges):
+        a = int(linkage_matrix[k, 0])
+        b = int(linkage_matrix[k, 1])
+        node = int(num_seqs) + k
+        size[node] = size[a] + size[b]
+        ca = int(cost[a])
+        cb = int(cost[b])
+        if ca == cb:
+            cost[node] = ca + 1
+        else:
+            cost[node] = ca if ca > cb else cb
+
+    order = []
+    visited = np.zeros(num_merges, dtype=bool)
+    # Start from the root (last merge), falling back to any unvisited merge if disconnected.
+    for root_k in range(num_merges - 1, -1, -1):
+        if visited[root_k]:
+            continue
+        stack = [(int(num_seqs) + root_k, False)]
+        while stack:
+            node, ready = stack.pop()
+            k = node - int(num_seqs)
+            if ready:
+                if not visited[k]:
+                    visited[k] = True
+                    order.append(k)
+                continue
+            if visited[k]:
+                continue
+            stack.append((node, True))
+            a = int(linkage_matrix[k, 0])
+            b = int(linkage_matrix[k, 1])
+            # Visit higher-cost (tie-break: larger subtree) child first -> push it last.
+            a_key = (int(cost[a]), int(size[a]))
+            b_key = (int(cost[b]), int(size[b]))
+            first, second = (a, b) if a_key >= b_key else (b, a)
+            if second >= num_seqs:
+                stack.append((second, False))
+            if first >= num_seqs:
+                stack.append((first, False))
+    return order
+
+
 def merge_profiles_lazy(width_a, count_a, width_b, count_b, path, emb_a, emb_b):
     """Merge only the float16 profiles and return ``(merged_profile, moves_int8)``.
 
@@ -2927,16 +2987,13 @@ def run_msa_builder():
     # 9. INITIALIZE CLUSTERS (Deferred lazy tree-replay: zero intermediate alignment copies!)
     print("Initializing clusters...")
     # Keep leaf_alignments fitted lazily as leaves are first touched; store only
-    # (profile_embedding, width, leaf_count) during progressive merging.
+    # live intermediate profiles in active_profiles (bounded to O(log N) by heavy-first DFS).
     active_profiles = {}
-    active_widths = {}
-    active_counts = {}
-    for i in range(num_seqs):
-        active_profiles[i] = None
-        active_widths[i] = leaf_alignments[i].shape[0]
-        active_counts[i] = 1
-    merge_children = []
-    merge_moves = []
+    active_widths = {i: leaf_alignments[i].shape[0] for i in range(num_seqs)}
+    active_counts = {i: 1 for i in range(num_seqs)}
+    num_merges = len(linkage_matrix)
+    merge_children = [None] * num_merges
+    merge_moves = [None] * num_merges
 
     # 10. PROGRESSIVE ALIGNMENT
     print(f"Aligning {num_seqs} sequences...")
@@ -2944,7 +3001,7 @@ def run_msa_builder():
     embeddings_group = f_emb["embeddings"]
 
     def _get_node_profile(node_idx):
-        prof = active_profiles.pop(node_idx)
+        prof = active_profiles.pop(node_idx, None)
         if prof is not None:
             return prof
         header = valid_headers[node_idx]
@@ -2955,7 +3012,9 @@ def run_msa_builder():
         active_widths[node_idx] = leaf_alignments[node_idx].shape[0]
         return prof
 
-    for iteration, link in enumerate(tqdm(linkage_matrix, desc="Merging Clusters")):
+    merge_order = heavy_first_merge_order(linkage_matrix, num_seqs)
+    for iteration in tqdm(merge_order, desc="Merging Clusters"):
+        link = linkage_matrix[iteration]
         idx_a = int(link[0])
         idx_b = int(link[1])
 
@@ -2982,8 +3041,8 @@ def run_msa_builder():
         active_profiles[new_idx] = merged_profile
         active_widths[new_idx] = moves.shape[0]
         active_counts[new_idx] = count_a + count_b
-        merge_children.append((idx_a, idx_b))
-        merge_moves.append(moves)
+        merge_children[iteration] = (idx_a, idx_b)
+        merge_moves[iteration] = moves
 
         del emb_a
         del emb_b
