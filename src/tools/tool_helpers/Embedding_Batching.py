@@ -291,6 +291,9 @@ def _pool_limit_bytes(device):
         room_end = reserved + free
         if others is not None:
             room_end = min(room_end, total - others)
+        # CUDA's free figure may not drop by this process's own allocations on Windows, so
+        # reserved + free can exceed the card; the pool can never usefully pass the card.
+        room_end = min(room_end, total)
         margin = max(_POOL_MARGIN_MIN_BYTES, int(total * 0.05))
         limit = room_end - margin
         if limit < reserved + _POOL_MIN_ROOM_BYTES:

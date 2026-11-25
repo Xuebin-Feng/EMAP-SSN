@@ -1019,6 +1019,14 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         self.assertIsNone(pool.others)
         self.assertEqual(pool.limit, (4700 + 6006) * _MIB - self._margin(total))
 
+    def test_pool_limit_never_passes_the_card_when_cuda_reports_too_much_free(self):
+        total = _CARD_TOTAL_MIB * _MIB
+        # 4,700 + 11,106 = 15,806 MiB would be more than the 12,282 MiB card.
+        pool = self._pool_limit(free_mib=11106, reserved_mib=4700)
+        self.assertIsNotNone(pool)
+        self.assertIsNone(pool.others)
+        self.assertEqual(pool.limit, total - self._margin(total))
+
     def test_pool_limit_ignores_the_second_view_when_cuda_already_shows_less_room(self):
         # CUDA's own figure (Linux-like) is already the smaller room.
         total = _CARD_TOTAL_MIB * _MIB
