@@ -127,6 +127,7 @@ from utilities import Align_Library
 from tools.tool_helpers import Tool_Charts
 import warnings
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 # ==========================================
@@ -460,7 +461,7 @@ GUIDE_TREE_HEADROOM_FRACTION = 0.10  # ... or a tenth of the machine's memory, w
 class GuideTreeWorkerPlan:
     workers: int  # how many guide-tree workers to start
     need_bytes: int  # what one worker needs
-    room_bytes: "int | None"  # memory the workers may use; None when the memory is unknown
+    room_bytes: Optional[int]  # memory the workers may use; None when the memory is unknown
     fits_one: bool  # whether a single worker fits (True when the memory is unknown)
 
 
