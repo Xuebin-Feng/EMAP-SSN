@@ -173,7 +173,7 @@ def new_statistics_report(network_path, fasta_path, score_mode, norm_mode, *, wo
         metadata = cache_manifest.validate_network_schema(hf)
         is_blast = metadata.network_type == "blast"
         headers = [h.decode("utf-8") if isinstance(h, bytes) else h for h in hf["headers"][:]]
-        ids, names = stats.read_fasta_names(fasta_path)
+        ids, names = stats.read_fasta_names(fasta_path, report=False)
         mask, missing = stats.kept_node_mask(headers, ids, names)
         if missing:
             raise ValueError(f"missing {missing}")
@@ -882,7 +882,7 @@ class FastaFilterNamesNodes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = pathlib.Path(folder) / "nodes.fasta"
             path.write_bytes(raw_bytes)
-            ids, names = stats.read_fasta_names(str(path))
+            ids, names = stats.read_fasta_names(str(path), report=False)
         return stats.kept_node_mask(self.NETWORK, ids, names)
 
     def test_a_byte_order_mark_is_not_part_of_the_first_header(self):

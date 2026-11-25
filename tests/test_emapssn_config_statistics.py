@@ -11,6 +11,8 @@ deterministic; one test uses the real thread, held at a gate, to check the hand-
 threads.
 """
 
+import contextlib
+import io
 import os
 import pathlib
 import sys
@@ -259,7 +261,10 @@ class StatisticsWindowTests(unittest.TestCase):
         (self.work / "raw.fasta").write_text(
             ">n0\nACDEK\n>n0_long\nACDEK\n>n1\nCCCCK\n>empty\n>n2\nDDDDK\n>n2\nEEEEK\n>n3\nFFFFK\n", encoding="utf-8")
         self.select("raw.fasta", "sanitized.h5")
-        self.finish(self.start_run())
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console):
+            self.finish(self.start_run())
+        self.assertIn("FASTA sanitization result", console.getvalue())     # as the Consistency Check reports a changed set
         self.assertEqual(self.panel(), "Network statistics computed successfully.")
         self.assertIn("Total Nodes Processed: 5", self.report())
 
