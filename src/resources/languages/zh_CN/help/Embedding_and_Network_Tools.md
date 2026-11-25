@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_and_Network_Tools.md, sha256 df702f375d3f88f7dbceffe5a4745dbfd5896bba584eb4d73a408dac2473fd40 -->
+<!-- Translation of Embedding_and_Network_Tools.md, sha256 c306e2d13fa38118a9ebf60736983c797c4018742d7f55a1f49e3b8a2bd9099c -->
 # Embedding 注入 (`Embedding_Injection.py`)
 
 该脚本把新序列的 embedding 注入（injection）到已有的 HDF5 embedding 数据库中。它扫描传入的 FASTA 序列列表，对已有的匹配项直接从数据库中取出预先计算的 embedding，只为新增的序列计算 embedding，以节省计算时间。
@@ -130,9 +130,9 @@
 | 处理批大小 **`BATCH_SIZE`** | 每个写入块计算的序列比对数量，可降低内存占用并优化文件写入性能。 |
 | 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体设备来计算新的残基（residue）比对。在 CUDA/ROCm 上，分块运行会在 GPU 上融合执行 z-score 归一化与动态规划（设为 `SSN_ALIGN_GPU_KERNELS=0` 可禁用）；XPU、MPS、标量与 CPU 运行则回退到 CPU 动态规划。 |
 | 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块（tile）方案。`Scalar`（标量）将调优和正式计算限制为一次处理一个矩阵的方案。`Tiled`（分块）使用内存受限的 embedding 分块，在 CUDA/ROCm 上使用融合 GPU 比对内核（在 XPU 上或设为 `SSN_ALIGN_GPU_KERNELS=0` 时使用填充后的 PyTorch 微批次（microbatch））；若没有兼容的加速器，会提前失败。 |
-| 主机缓存 **`HOST_CACHE_GB`** | 跨批次（batch）保留打包 embedding 所用的最大内存（GiB）；`auto` 使用一个安全的内存预算，上限为 128 GiB，`0` 则停用缓存。 |
+| 主机缓存 **`HOST_CACHE_GB`** | 跨批次（batch）保留 embedding 所用的最大主机内存（GiB）。数据库未超限时整库预加载，超限时在分块（tiled）运行下自动切换为受限滑动内存窗口与异步分片预取；`auto` 按安全预算（遵循 Linux cgroup 与 SLURM 内存配额，上限 128 GiB）分配，`0` 则停用持久化内存缓存。 |
 | 矩阵乘法精度 | 继承自 `OLD_NETWORK`。旧版网络为 IEEE FP32；TF32 网络需要 NVIDIA CUDA，以免复制的边（edge）与新计算的边混用精度。BF16 网络需要具备相应能力的加速器。计算新边之前，网络注入会打印低精度警告，并在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计；只要数值差异是有限值，就不会拒绝 BF16。 |
-| 内存 | 完整的输入网络不需要计算相似度。稀疏网络需要计算新序列集中每个序列对的相似度，其峰值内存为序列数平方的 12 字节；之后保留相似度矩阵（每个序列数平方 8 字节），并为确定截断值保留上三角的取值（每个序列数平方 4 字节）：44,000 条序列时约 23 GB，与 Align Similarity Matrix 中的边预过滤同一数量级。选定序列对后相似度即被释放。 |
+| 内存 | 完整的输入网络不需要计算相似度。稀疏网络仅在小规模数据集（不超过 256 MiB，约 4,700 条序列）上构建稠密相似度矩阵，超过该规模会自动切换为按行分块流式计算上三角相似度，使内存保持受控（即使在 100,000 条序列时也仅需不到约 1 GiB 及保留的 `int64` 边键）。选定所需序列对后相似度状态即被释放。 |
 
 ### 输出
 

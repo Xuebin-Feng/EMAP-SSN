@@ -1689,13 +1689,21 @@ class EmbeddingTileStore:
         return block_ids
 
 
-def plan_windowed_budgets(store, *, device=None, compute_element_bytes=4):
+def plan_windowed_budgets(
+    store,
+    *,
+    device=None,
+    compute_element_bytes=4,
+    num_tasks=None,
+    batch_size=None,
+):
     """Return ``(anchor_bytes, slab_bytes)`` for partial-RAM windowing, or ``None``.
 
     Activates only when ``store`` has a positive host-cache budget that cannot
     hold the whole embedding file, has uniform dtype, and can fit at least one
     anchor plus two double-buffered streaming slabs (aligned to GPU half-tile
-    byte size when an accelerator is available).
+    byte size when an accelerator is available). Skips windowing for single-batch
+    runs whose entire compute working set already fits in the GPU tile cache.
     """
     if not isinstance(store, EmbeddingTileStore) or not store.supports_windowed_cache:
         return None
@@ -1716,6 +1724,14 @@ def plan_windowed_budgets(store, *, device=None, compute_element_bytes=4):
                 plan = accelerator_memory_plan(
                     device, lanes=2, compute_element_bytes=elem_bytes
                 )
+                total_compute_bytes = int(sum(store.compute_bytes(elem_bytes)))
+                if (
+                    num_tasks is not None
+                    and batch_size is not None
+                    and int(num_tasks) <= int(batch_size)
+                    and total_compute_bytes <= int(plan.tile_cache_bytes)
+                ):
+                    return None
                 gpu_half_src = max(
                     max_seq_bytes,
                     int((plan.tile_cache_bytes // 2) * src_itemsize // elem_bytes),

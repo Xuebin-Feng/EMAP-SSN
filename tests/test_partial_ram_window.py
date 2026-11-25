@@ -879,6 +879,102 @@ class PartialRAMWindowTests(unittest.TestCase):
             )
             self.assertTrue(ok, msg)
 
+    def test_vram_single_batch_skip_and_prefilter_pair_keys_dense_parity(self):
+        # 1) Single-batch VRAM-fit skips windowing; multi-batch still activates windowing.
+        lengths = [100] * 20
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, lengths, dim=64, dtype=np.float16)
+            # total source = 256,000 B; total fp32 = 512,000 B; budget = 102,400 B (40%)
+            store = self._store_with_budget(path, headers, 102_400)
+            fake_plan = mock.Mock(tile_cache_bytes=1_000_000)  # holds entire 512 KB fp32 file
+            with mock.patch.object(engine, "accelerator_memory_plan", return_value=fake_plan):
+                # Single batch (num_tasks <= batch_size) -> skip windowing
+                self.assertIsNone(
+                    engine.plan_windowed_budgets(
+                        store, device=torch.device("cuda:0"), num_tasks=50, batch_size=100
+                    )
+                )
+                # Multi-batch (num_tasks > batch_size) -> activate windowing
+                self.assertIsNotNone(
+                    engine.plan_windowed_budgets(
+                        store, device=torch.device("cuda:0"), num_tasks=250, batch_size=100
+                    )
+                )
+
+            # 2) prefilter_pair_keys matches prefilter_pairs bit-for-bit below STREAMED_SIMILARITY_BYTES,
+            #    and force_streamed=True matches within float32 ULP.
+            with mock.patch.multiple(
+                align_tool, FULL_INPUT_HDF5=path, PREFILTER_STRENGTH=60
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                mask, cut_mask = align_tool.prefilter_pairs(headers, lengths)
+                keys_dense, cut_dense = align_tool.prefilter_pair_keys(headers, lengths)
+                keys_stream, cut_stream = align_tool.prefilter_pair_keys(
+                    headers, lengths, force_streamed=True
+                )
+            rr, cc = np.nonzero(mask)
+            want_keys = rr.astype(np.int64) * len(headers) + cc.astype(np.int64)
+            self.assertEqual(cut_dense.threshold, cut_mask.threshold)
+            np.testing.assert_array_equal(keys_dense, want_keys)
+            self.assertAlmostEqual(cut_stream.threshold, cut_mask.threshold, places=6)
+            self.assertGreater(keys_stream.size, 0)
+
+    def test_scalar_winner_releases_ram_window_immediately(self):
+        # Simulate scalar CUDA plan winning benchmark: window must be released before batch work.
+        rng = np.random.default_rng(1212)
+        n = 16
+        headers = [f"x{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80, 64)).astype(np.float16) for _ in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        cuda_cand = Hardware_Utils.DeviceCandidate("cuda:0", "CUDA", torch.device("cuda:0"), "cuda")
+        scalar_plan = Hardware_Utils.BenchmarkResult(cuda_cand, 500.0, lanes=1, variant="scalar")
+        window_active_during_batch = []
+
+        def fake_run_batch(ranked_plans, active_plan_index, batch, *args, **kwargs):
+            window_active_during_batch.append(align_tool.active_embedding_store.window_active)
+            return active_plan_index
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            net_dir = os.path.join(tmp, "net")
+            os.makedirs(embed_dir)
+            os.makedirs(net_dir)
+            emb_name = "scalar_rel_[esm2_t6_8m]_embeddings.h5"
+            self._make_complete_h5(os.path.join(embed_dir, emb_name), headers, arrays)
+            saved_globals = (
+                "MODEL_NAME", "SEQUENCE_SET", "FULL_INPUT_HDF5",
+                "RESULTS_DIR", "FINAL_OUTPUT_NET",
+                "active_matmul_precision", "active_embedding_store",
+                "active_sequence_lengths",
+            )
+            with mock.patch.multiple(
+                align_tool,
+                **{k: getattr(align_tool, k) for k in saved_globals},
+                INPUT_HDF5=emb_name,
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=net_dir,
+                EDGE_PREFILTERING=False,
+                BATCH_SIZE=30,
+                WORKERS=2,
+                HOST_CACHE_GB="auto",
+                DEVICE_SELECTION="cuda:0",
+                EXECUTION_MODE="auto",
+                ACCELERATOR_PRECISION="ieee_fp32",
+                LOCAL_GAP_P=-2.0,
+                GLOBAL_GAP_P=0.0,
+                set_start_method=mock.DEFAULT,
+                _validate_execution_mode_hardware=mock.Mock(),
+                _benchmark_processing_plans=mock.Mock(return_value=[scalar_plan]),
+                _run_batch_with_ranked_plans=mock.Mock(side_effect=fake_run_batch),
+                compile_final_output=mock.Mock(),
+            ), mock.patch.object(
+                align_tool.Hardware_Utils, "get_available_devices", return_value=[cuda_cand]
+            ), mock.patch.object(
+                engine, "resolve_host_cache_bytes", return_value=int(total_bytes * 0.35)
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                align_tool.run_job_distributor()
+        self.assertTrue(window_active_during_batch)
+        self.assertTrue(all(not active for active in window_active_during_batch))
+
 
 if __name__ == "__main__":
     unittest.main()

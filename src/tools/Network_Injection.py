@@ -2118,8 +2118,10 @@ def run_injection():
                 embedding_store,
                 device=window_device,
                 compute_element_bytes=precision_element_bytes(inherited_precision),
+                num_tasks=num_tasks,
+                batch_size=int(BATCH_SIZE),
             )
-            if window_device is not None
+            if window_device is not None and normalize_execution_mode(EXECUTION_MODE) != "scalar"
             else None
         )
 
@@ -2127,7 +2129,9 @@ def run_injection():
             last_error = None
             while active_plan_index_ref[0] < len(ranked_plans):
                 selected_plan = ranked_plans[active_plan_index_ref[0]]
-                if selected_plan.candidate.is_cpu and window_session is not None:
+                if window_session is not None and (
+                    selected_plan.candidate.is_cpu or selected_plan.variant != "tiled"
+                ):
                     window_session.release_window()
                 try:
                     process_batch(
@@ -2155,7 +2159,9 @@ def run_injection():
                     active_plan_index_ref[0] += 1
                     if active_plan_index_ref[0] < len(ranked_plans):
                         fallback = ranked_plans[active_plan_index_ref[0]]
-                        if fallback.candidate.is_cpu and window_session is not None:
+                        if window_session is not None and (
+                            fallback.candidate.is_cpu or fallback.variant != "tiled"
+                        ):
                             window_session.release_window()
                         cause = error.__cause__ if error.__cause__ is not None else error
                         detail = str(cause).strip().splitlines()[0][:200] if str(cause).strip() else ""
@@ -2198,7 +2204,9 @@ def run_injection():
                     inherited_precision,
                     precision_tasks=precision_tasks,
                 )
-                if ranked_plans and ranked_plans[0].candidate.is_cpu:
+                if ranked_plans and (
+                    ranked_plans[0].candidate.is_cpu or ranked_plans[0].variant != "tiled"
+                ):
                     window_session.release_window()
                 pbar = tqdm(total=int(num_tasks), desc="Progress", unit="pair")
                 try:

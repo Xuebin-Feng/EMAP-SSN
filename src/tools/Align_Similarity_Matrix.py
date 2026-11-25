@@ -2503,20 +2503,52 @@ def prefilter_pairs(safe_headers, seq_lens):
     return required_mask, PrefilterCut(threshold=threshold, kept=num_kept, skipped=skipped)
 
 
-def prefilter_pair_keys(safe_headers, seq_lens):
-    """Memory-bounded Edge Pre-filtering returning sorted int64 pair keys (no N x N arrays)."""
+def prefilter_pair_keys(safe_headers, seq_lens, *, force_streamed=False):
+    """Memory-bounded Edge Pre-filtering returning sorted int64 pair keys (no N x N masks).
+
+    Uses exact dense ``pair_similarity`` when its temporary working set fits within
+    ``Prefilter_Calibration.STREAMED_SIMILARITY_BYTES`` (bit-identical to legacy
+    ``prefilter_pairs`` and ``Embedding_MSA``) and switches automatically to
+    ``streamed_pair_similarity`` above that threshold.
+    """
     print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
-    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
-        similarity = Prefilter_Calibration.streamed_pair_similarity(
-            hf["embeddings"],
-            safe_headers,
-            seq_lens,
-            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
-        )
     n = len(safe_headers)
     total_pairs = n * (n - 1) // 2
-    threshold, required_keys = similarity.upper_percentile_and_keys(PREFILTER_STRENGTH)
-    del similarity
+    use_streamed = bool(force_streamed) or (
+        12 * n * n > Prefilter_Calibration.STREAMED_SIMILARITY_BYTES
+    )
+    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
+        if use_streamed:
+            similarity = Prefilter_Calibration.streamed_pair_similarity(
+                hf["embeddings"],
+                safe_headers,
+                seq_lens,
+                progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
+            )
+            threshold, required_keys = similarity.upper_percentile_and_keys(PREFILTER_STRENGTH)
+            del similarity
+        else:
+            similarity = Prefilter_Calibration.pair_similarity(
+                hf["embeddings"],
+                safe_headers,
+                seq_lens,
+                progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
+            )
+            values = np.empty(total_pairs, dtype=np.float64)
+            filled = 0
+            for row in range(n - 1):
+                length = n - row - 1
+                values[filled:filled + length] = similarity[row, row + 1:]
+                filled += length
+            threshold = float(np.percentile(values, PREFILTER_STRENGTH, overwrite_input=True))
+            del values
+            pieces = []
+            for row in range(n - 1):
+                cols = np.flatnonzero(similarity[row, row + 1:] >= threshold)
+                if cols.size:
+                    pieces.append(np.int64(row) * n + (cols.astype(np.int64) + row + 1))
+            del similarity
+            required_keys = np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.int64)
     num_kept = int(required_keys.size)
     skipped = total_pairs - num_kept
 
@@ -2953,8 +2985,10 @@ def run_job_distributor():
                 active_embedding_store,
                 device=window_device,
                 compute_element_bytes=precision_element_bytes(active_matmul_precision),
+                num_tasks=num_tasks,
+                batch_size=int(BATCH_SIZE),
             )
-            if window_device is not None
+            if window_device is not None and normalize_execution_mode(EXECUTION_MODE) != "scalar"
             else None
         )
 
@@ -2997,7 +3031,10 @@ def run_job_distributor():
                     sequence_lengths=active_sequence_lengths,
                     matmul_precision=active_matmul_precision,
                 )
-                if ranked_plans and ranked_plans[active_plan_index].candidate.is_cpu:
+                if ranked_plans and (
+                    ranked_plans[active_plan_index].candidate.is_cpu
+                    or ranked_plans[active_plan_index].variant != "tiled"
+                ):
                     window_session.release_window()
                 pbar = tqdm(
                     total=int(num_tasks),
@@ -3006,9 +3043,9 @@ def run_job_distributor():
                 )
                 try:
                     for batch in chain([first_batch] if first_batch else [], batch_iter):
-                        if (
-                            active_plan_index < len(ranked_plans)
-                            and ranked_plans[active_plan_index].candidate.is_cpu
+                        if active_plan_index < len(ranked_plans) and (
+                            ranked_plans[active_plan_index].candidate.is_cpu
+                            or ranked_plans[active_plan_index].variant != "tiled"
                         ):
                             window_session.release_window()
                         active_plan_index = _run_batch_with_ranked_plans(
@@ -3023,9 +3060,9 @@ def run_job_distributor():
                             current_saving_mode,
                             current_gap_penalties,
                         )
-                        if (
-                            active_plan_index < len(ranked_plans)
-                            and ranked_plans[active_plan_index].candidate.is_cpu
+                        if active_plan_index < len(ranked_plans) and (
+                            ranked_plans[active_plan_index].candidate.is_cpu
+                            or ranked_plans[active_plan_index].variant != "tiled"
                         ):
                             window_session.release_window()
                         batch_id += 1
