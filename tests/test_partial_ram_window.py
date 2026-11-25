@@ -562,6 +562,68 @@ class PartialRAMWindowTests(unittest.TestCase):
                 )
                 self.assertTrue(ok, msg)
 
+    def test_system_memory_respects_cgroup_v2_v1_and_slurm_quotas(self):
+        gib = engine.GIB
+        host_mem = mock.Mock(total=512 * gib, available=400 * gib)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # 1) Cgroup v2: parent limits to 32 GiB, leaf has 'max', current=6 GiB with 2 GiB inactive_file -> 28 GiB avail
+            cg_root = os.path.join(tmp, "cg2")
+            job_dir = os.path.join(cg_root, "slurm", "job_42")
+            os.makedirs(job_dir)
+            with open(os.path.join(cg_root, "slurm", "memory.max"), "w") as f:
+                f.write(str(32 * gib))
+            with open(os.path.join(cg_root, "slurm", "memory.current"), "w") as f:
+                f.write(str(6 * gib))
+            with open(os.path.join(cg_root, "slurm", "memory.stat"), "w") as f:
+                f.write(f"anon {4 * gib}\ninactive_file {2 * gib}\n")
+            with open(os.path.join(job_dir, "memory.max"), "w") as f:
+                f.write("max\n")
+            proc_cg2 = os.path.join(tmp, "proc_cg2")
+            with open(proc_cg2, "w") as f:
+                f.write("0::/slurm/job_42\n")
+
+            v2 = engine._cgroup_v2_limits(
+                512 * gib, proc_cgroup=proc_cg2, cgroup_root=cg_root
+            )
+            self.assertEqual(v2, (32 * gib, 28 * gib))
+
+            # 2) Cgroup v1: 24 GiB limit, 5 GiB usage with 1 GiB total_inactive_file -> 20 GiB avail
+            cg1_root = os.path.join(tmp, "cg1")
+            cg1_job = os.path.join(cg1_root, "docker", "abc")
+            os.makedirs(cg1_job)
+            with open(os.path.join(cg1_job, "memory.limit_in_bytes"), "w") as f:
+                f.write(str(24 * gib))
+            with open(os.path.join(cg1_job, "memory.usage_in_bytes"), "w") as f:
+                f.write(str(5 * gib))
+            with open(os.path.join(cg1_job, "memory.stat"), "w") as f:
+                f.write(f"total_inactive_file {1 * gib}\n")
+            proc_cg1 = os.path.join(tmp, "proc_cg1")
+            with open(proc_cg1, "w") as f:
+                f.write("4:memory:/docker/abc\n")
+
+            v1 = engine._cgroup_v1_limits(
+                512 * gib, proc_cgroup=proc_cg1, cgroup_root=cg1_root
+            )
+            self.assertEqual(v1, (24 * gib, 20 * gib))
+
+            # 3) SLURM env vars: SLURM_MEM_PER_NODE=32768 (32 GiB), RSS=4 GiB -> 28 GiB avail -> auto budget=20 GiB
+            fake_proc = mock.Mock()
+            fake_proc.memory_info.return_value = mock.Mock(rss=4 * gib)
+            with mock.patch("psutil.virtual_memory", return_value=host_mem), \
+                 mock.patch("psutil.Process", return_value=fake_proc), \
+                 mock.patch.dict(os.environ, {"SLURM_MEM_PER_NODE": "32768"}, clear=False):
+                self.assertEqual(engine.system_memory_bytes(), (32 * gib, 28 * gib))
+                self.assertEqual(engine.resolve_host_cache_bytes("auto"), 20 * gib)
+
+            # 4) SLURM_MEM_PER_CPU * SLURM_CPUS_PER_TASK (4096 MiB * 4 = 16 GiB)
+            with mock.patch("psutil.Process", return_value=fake_proc):
+                sl = engine._slurm_memory_limits(
+                    512 * gib,
+                    environ={"SLURM_MEM_PER_CPU": "4096", "SLURM_CPUS_PER_TASK": "4"},
+                )
+            self.assertEqual(sl, (16 * gib, 12 * gib))
+
 
 if __name__ == "__main__":
     unittest.main()

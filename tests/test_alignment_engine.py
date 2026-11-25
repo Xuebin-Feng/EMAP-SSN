@@ -351,6 +351,7 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
         ):
             with self.subTest(platform=platform), \
                     mock.patch("psutil.virtual_memory", return_value=memory), \
+                    mock.patch.object(alignment_engine, "_container_memory_limits", return_value=None), \
                     mock.patch.object(sys, "platform", platform), \
                     mock.patch.object(os, "sysconf", sysconf, create=True):
                 self.assertEqual(alignment_engine.system_memory_bytes(), (64 * gib, 40 * gib))

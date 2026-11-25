@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 from itertools import chain
 import os
 import queue
+import sys
 import threading
 import time
 import traceback
@@ -374,18 +375,234 @@ def matched_benchmark_task_halves(
     return warmup, timed
 
 
+def _read_text_file(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+
+def _parse_int_limit(text):
+    if not text or text.lower() == "max":
+        return None
+    try:
+        value = int(text)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _read_cgroup_stat_field(stat_path, *field_names):
+    text = _read_text_file(stat_path)
+    if not text:
+        return 0
+    wanted = set(field_names)
+    values = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in wanted:
+            try:
+                values[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+    for name in field_names:
+        if name in values:
+            return max(0, values[name])
+    return 0
+
+
+def _cgroup_ancestors(root_dir, rel_path):
+    root = os.path.normpath(root_dir)
+    rel = (rel_path or "").strip().lstrip("/")
+    current = os.path.normpath(os.path.join(root, rel)) if rel else root
+    try:
+        if os.path.commonpath([root, current]) != root:
+            current = root
+    except ValueError:
+        current = root
+    dirs = []
+    while True:
+        dirs.append(current)
+        if current == root:
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return dirs
+
+
+def _cgroup_v2_limits(
+    host_total,
+    *,
+    proc_cgroup="/proc/self/cgroup",
+    cgroup_root="/sys/fs/cgroup",
+):
+    text = _read_text_file(proc_cgroup)
+    rel_path = ""
+    if text:
+        for line in text.splitlines():
+            parts = line.split(":", 2)
+            if len(parts) == 3 and parts[0] == "0" and parts[1] == "":
+                rel_path = parts[2]
+                break
+    best_total = None
+    best_avail = None
+    for directory in _cgroup_ancestors(cgroup_root, rel_path):
+        limit = _parse_int_limit(_read_text_file(os.path.join(directory, "memory.max")))
+        if limit is None or limit >= host_total:
+            continue
+        current = _parse_int_limit(_read_text_file(os.path.join(directory, "memory.current")))
+        if current is None:
+            avail = limit
+        else:
+            reclaimable = _read_cgroup_stat_field(
+                os.path.join(directory, "memory.stat"), "inactive_file"
+            )
+            avail = max(0, limit - max(0, current - reclaimable))
+        best_total = limit if best_total is None else min(best_total, limit)
+        best_avail = avail if best_avail is None else min(best_avail, avail)
+    if best_total is None:
+        return None
+    return best_total, min(best_total, best_avail)
+
+
+def _cgroup_v1_limits(
+    host_total,
+    *,
+    proc_cgroup="/proc/self/cgroup",
+    cgroup_root="/sys/fs/cgroup/memory",
+):
+    text = _read_text_file(proc_cgroup)
+    rel_path = ""
+    if text:
+        for line in text.splitlines():
+            parts = line.split(":", 2)
+            if len(parts) == 3 and "memory" in parts[1].split(","):
+                rel_path = parts[2]
+                break
+    best_total = None
+    best_avail = None
+    # Linux cgroup v1 reports ~2^63 - PAGE_SIZE when unlimited.
+    unlimited_sentinel = 1 << 60
+    for directory in _cgroup_ancestors(cgroup_root, rel_path):
+        limit = _parse_int_limit(
+            _read_text_file(os.path.join(directory, "memory.limit_in_bytes"))
+        )
+        if limit is None or limit >= host_total or limit >= unlimited_sentinel:
+            continue
+        usage = _parse_int_limit(
+            _read_text_file(os.path.join(directory, "memory.usage_in_bytes"))
+        )
+        if usage is None:
+            avail = limit
+        else:
+            reclaimable = _read_cgroup_stat_field(
+                os.path.join(directory, "memory.stat"),
+                "total_inactive_file",
+                "inactive_file",
+            )
+            avail = max(0, limit - max(0, usage - reclaimable))
+        best_total = limit if best_total is None else min(best_total, limit)
+        best_avail = avail if best_avail is None else min(best_avail, avail)
+    if best_total is None:
+        return None
+    return best_total, min(best_total, best_avail)
+
+
+def _parse_slurm_mem_bytes(raw_value):
+    if not raw_value:
+        return None
+    text = str(raw_value).strip()
+    if not text:
+        return None
+    multipliers = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}
+    suffix = text[-1].lower()
+    if suffix in multipliers:
+        scale = multipliers[suffix]
+        text = text[:-1].strip()
+    else:
+        # SLURM_MEM_PER_NODE and SLURM_MEM_PER_CPU are reported in MiB by default.
+        scale = 1024 ** 2
+    try:
+        amount = float(text)
+    except ValueError:
+        return None
+    if not np.isfinite(amount) or amount <= 0:
+        return None
+    return int(amount * scale)
+
+
+def _slurm_memory_limits(host_total, environ=None):
+    env = os.environ if environ is None else environ
+    limit = _parse_slurm_mem_bytes(env.get("SLURM_MEM_PER_NODE"))
+    if limit is None:
+        per_cpu = _parse_slurm_mem_bytes(env.get("SLURM_MEM_PER_CPU"))
+        if per_cpu is not None:
+            cpus = 1
+            for key in ("SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE"):
+                raw_cpus = env.get(key)
+                if raw_cpus:
+                    try:
+                        parsed = int(str(raw_cpus).split("(", 1)[0].strip())
+                        if parsed > 0:
+                            cpus = parsed
+                            break
+                    except ValueError:
+                        pass
+            limit = per_cpu * cpus
+    if limit is None or limit <= 0 or limit >= host_total:
+        return None
+    try:
+        rss = int(psutil.Process().memory_info().rss)
+    except (psutil.Error, OSError):
+        rss = 0
+    return limit, max(0, limit - max(0, rss))
+
+
+def _container_memory_limits(host_total):
+    """Return tighter ``(limit_total, limit_available)`` from Linux cgroups or SLURM."""
+    if host_total <= 0:
+        return None
+    candidates = []
+    if sys.platform.startswith("linux"):
+        for probe in (_cgroup_v2_limits, _cgroup_v1_limits):
+            result = probe(host_total)
+            if result is not None:
+                candidates.append(result)
+    slurm = _slurm_memory_limits(host_total)
+    if slurm is not None:
+        candidates.append(slurm)
+    if not candidates:
+        return None
+    best_total = min(item[0] for item in candidates)
+    best_avail = min(item[1] for item in candidates)
+    return best_total, min(best_total, best_avail)
+
+
 def system_memory_bytes():
-    """Return ``(total, available)`` physical-memory bytes, or ``(0, 0)``.
+    """Return ``(total, available)`` physical-memory or container/job quota bytes.
 
     psutil's available figure counts memory the OS can hand out without
     swapping, such as reclaimable page cache: Linux's MemAvailable, macOS's
-    free plus inactive pages and Windows's available physical memory.
+    free plus inactive pages and Windows's available physical memory. When
+    running inside a Linux cgroup (v1 or v2) or SLURM job with a tighter
+    memory quota, both totals are clamped to that quota so ``HOST_CACHE_GB='auto'``
+    never oversubscribes the job allocation.
     """
     try:
         memory = psutil.virtual_memory()
     except (psutil.Error, OSError):
         return 0, 0
-    return int(memory.total), int(memory.available)
+    total = int(memory.total)
+    available = int(memory.available)
+    quota = _container_memory_limits(total)
+    if quota is not None:
+        limit_total, limit_available = quota
+        total = min(total, int(limit_total))
+        available = min(available, int(limit_available), total)
+    return total, available
 
 
 def resolve_host_cache_bytes(setting):
