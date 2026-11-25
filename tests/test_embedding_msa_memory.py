@@ -834,5 +834,156 @@ class SparseImputationReleaseTests(unittest.TestCase):
                 self.assertLess(HeldMemoryPool.held_bytes / (count * count), self.HELD_BUDGET)
 
 
+GIB = 1024 ** 3
+MIB = 1024 ** 2
+
+
+class GuideTreeWorkerPlanTests(unittest.TestCase):
+    """The guide-tree workers are capped by the memory that is free (pure arithmetic, no processes)."""
+
+    LARGE_SET = 44127
+    LARGE_PAIRS = LARGE_SET * (LARGE_SET - 1) // 2  # 973,574,001
+
+    def plan(self, num_seqs, method, requested, total_gib, available_gib):
+        return Embedding_MSA.guide_tree_worker_plan(
+            num_seqs, method, requested, int(total_gib * GIB), int(available_gib * GIB)
+        )
+
+    def test_the_constants_are_the_measured_figures(self):
+        self.assertEqual(Embedding_MSA.UPGMA_BYTES_PER_PAIR, 16)
+        self.assertEqual(Embedding_MSA.NEIGHBOR_JOINING_BYTES_PER_PAIR, 28)
+        self.assertEqual(Embedding_MSA.WORKER_START_BYTES, 768 * MIB)
+        self.assertEqual(Embedding_MSA.GUIDE_TREE_MIN_HEADROOM_BYTES, 2 * GIB)
+        self.assertEqual(Embedding_MSA.GUIDE_TREE_HEADROOM_FRACTION, 0.10)
+
+    def test_large_set_with_upgma_is_capped_by_the_free_memory(self):
+        # need = 973,574,001 * 16 + 768 MiB = 16,382,490,384 bytes (15.3 GiB)
+        # room = 80 GiB - int(96 GiB * 0.10) = 85,899,345,920 - 10,307,921,510 = 75,591,424,410
+        # fit  = 75,591,424,410 // 16,382,490,384 = 4
+        need = self.LARGE_PAIRS * 16 + 768 * MIB
+        room = 80 * GIB - max(2 * GIB, int(96 * GIB * 0.10))
+        self.assertEqual(need, 16382490384)
+        self.assertEqual(room, 75591424410)
+        plan = self.plan(self.LARGE_SET, "UPGMA (Fast)", 8, 96, 80)
+        self.assertEqual((plan.workers, plan.need_bytes, plan.room_bytes, plan.fits_one), (4, need, room, True))
+        # A request the memory holds is left as it is.
+        self.assertEqual(self.plan(self.LARGE_SET, "UPGMA (Fast)", 3, 96, 80).workers, 3)
+
+    def test_large_set_with_neighbor_joining_needs_more_per_worker(self):
+        # need = 973,574,001 * 28 + 768 MiB = 28,065,378,396 bytes; fit = 75,591,424,410 // 28,065,378,396 = 2
+        need = self.LARGE_PAIRS * 28 + 768 * MIB
+        self.assertEqual(need, 28065378396)
+        plan = self.plan(self.LARGE_SET, "Neighbor-joining (Slow)", 8, 96, 80)
+        self.assertEqual((plan.workers, plan.need_bytes, plan.fits_one), (2, need, True))
+
+    def test_a_small_set_is_decided_by_the_start_cost(self):
+        # 1,000 sequences: 499,500 pairs, need = 499,500 * 16 + 768 MiB = 813,298,368 bytes.
+        # room = 8 GiB - max(2 GiB, int(16 GiB * 0.10)) = 6 GiB = 6,442,450,944; fit = 7 (8 * need is 6,506,386,944).
+        pairs = 1000 * 999 // 2
+        need = pairs * 16 + 768 * MIB
+        self.assertEqual(need, 813298368)
+        self.assertGreater(8 * need, 6 * GIB)
+        plan = self.plan(1000, "UPGMA (Fast)", 16, 16, 8)
+        self.assertEqual((plan.workers, plan.room_bytes), (7, 6 * GIB))
+
+    def test_no_room_for_one_worker_gives_one_worker_and_says_it_does_not_fit(self):
+        # Available below the headroom: room is 0.
+        below = self.plan(1000, "UPGMA (Fast)", 8, 16, 1)
+        self.assertEqual((below.workers, below.room_bytes, below.fits_one), (1, 0, False))
+        # 2.5 GiB available: room 0.5 GiB = 536,870,912 is below one worker's need of 813,298,368.
+        short = self.plan(1000, "UPGMA (Fast)", 8, 16, 2.5)
+        self.assertEqual((short.workers, short.room_bytes, short.fits_one), (1, 512 * MIB, False))
+
+    def test_unknown_memory_leaves_the_request_alone(self):
+        for total, available in ((0, 0), (16 * GIB, 0), (0, 8 * GIB), (-1, -1)):
+            with self.subTest(total=total, available=available):
+                plan = Embedding_MSA.guide_tree_worker_plan(
+                    self.LARGE_SET, "UPGMA (Fast)", 16, total, available
+                )
+                self.assertEqual(plan.workers, 16)
+                self.assertTrue(plan.fits_one)
+                self.assertIsNone(plan.room_bytes)
+
+    def test_one_worker_is_never_raised_and_never_lowered_below_one(self):
+        self.assertEqual(self.plan(1000, "UPGMA (Fast)", 1, 256, 200).workers, 1)
+        self.assertEqual(self.plan(self.LARGE_SET, "UPGMA (Fast)", 1, 16, 1).workers, 1)
+        self.assertEqual(self.plan(1000, "UPGMA (Fast)", 0, 256, 200).workers, 1)
+
+    def test_an_unknown_tree_method_uses_the_upgma_figure(self):
+        # compute_single_tree_worker treats every method but Neighbor-joining as UPGMA; so does the plan.
+        upgma = self.plan(self.LARGE_SET, "UPGMA (Fast)", 8, 96, 80)
+        other = self.plan(self.LARGE_SET, "something else", 8, 96, 80)
+        self.assertEqual(other, upgma)
+
+
+class GuideTreeMemoryReaderTests(unittest.TestCase):
+    def test_it_returns_the_engines_quota_aware_figures(self):
+        with mock.patch("Embedding_Alignment_Engine.system_memory_bytes", return_value=(96 * GIB, 80 * GIB)):
+            self.assertEqual(Embedding_MSA.read_guide_tree_memory(), (96 * GIB, 80 * GIB))
+
+    def test_it_returns_zeros_when_the_engines_reader_raises(self):
+        with mock.patch("Embedding_Alignment_Engine.system_memory_bytes", side_effect=RuntimeError("no memory info")):
+            self.assertEqual(Embedding_MSA.read_guide_tree_memory(), (0, 0))
+
+
+class RecordingPool(InProcessPool):
+    """Runs the replicates in this process and records how many workers the builder asked for."""
+
+    created = []
+
+    def __init__(self, processes=None):
+        super().__init__(processes)
+        RecordingPool.created.append(processes)
+
+
+class GuideTreeWorkerStageTests(unittest.TestCase):
+    """Step 8 of run_msa_builder starts its pool with the capped number of workers (no real processes)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = temporary.name
+
+    def run_stage(self, memory, workers=3):
+        RecordingPool.created = []
+        lines = []
+        fixture = NetworkFixture(self.directory, seed=7)
+        with mock.patch.object(Embedding_MSA, "read_guide_tree_memory", return_value=memory), \
+                mock.patch.object(
+                    Embedding_MSA, "print", side_effect=lambda *args, **kw: lines.append(" ".join(map(str, args))),
+                    create=True,
+                ):
+            run_until_guide_tree(
+                fixture, record_edges=False, pool=RecordingPool,
+                BOOTSTRAP_TREE=True, NUM_TREES=3, WORKERS=workers,
+            )
+        return RecordingPool.created, [line for line in lines if line.startswith("[Hardware] ") and "uide-tree" in line]
+
+    def test_a_small_machine_lowers_the_workers_and_says_so_once(self):
+        # 4 GiB machine with 3 GiB free: room 3 - 2 = 1 GiB, one worker needs about 768 MiB, so fit is 1.
+        created, lines = self.run_stage((4 * GIB, 3 * GIB), workers=3)
+        self.assertEqual(created, [1])
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("[Hardware] Guide-tree workers lowered from 3 to 1: each needs about 0.8 GB for "))
+        self.assertTrue(lines[0].endswith("sequences with UPGMA (Fast), and 3.0 GB of memory is free."))
+
+    def test_plenty_of_memory_gives_the_requested_workers_and_prints_nothing(self):
+        created, lines = self.run_stage((64 * GIB, 60 * GIB), workers=3)
+        self.assertEqual(created, [3])
+        self.assertEqual(lines, [])
+
+    def test_unknown_memory_gives_the_requested_workers_and_prints_nothing(self):
+        created, lines = self.run_stage((0, 0), workers=3)
+        self.assertEqual(created, [3])
+        self.assertEqual(lines, [])
+
+    def test_memory_that_does_not_hold_one_worker_says_so(self):
+        created, lines = self.run_stage((4 * GIB, 2 * GIB + 100 * MIB), workers=1)
+        self.assertEqual(created, [1])
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("[Hardware] One guide-tree worker needs about 0.8 GB and 2.1 GB of memory is free; "))
+        self.assertTrue(lines[0].endswith("the run may run out of memory."))
+
+
 if __name__ == "__main__":
     unittest.main()

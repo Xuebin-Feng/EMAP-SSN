@@ -446,6 +446,75 @@ class MSACluster:
         return _normalize_residue_embeddings(embeddings_group[safe_h][:])
 
 # ==========================================
+# HELPER: GUIDE-TREE WORKERS AND THE MEMORY THEY NEED
+# ==========================================
+# Every bootstrap worker holds a full replicate of all pairwise distances.
+UPGMA_BYTES_PER_PAIR = 16  # float64 condensed array plus SciPy's own copy of it
+NEIGHBOR_JOINING_BYTES_PER_PAIR = 28  # peak: float32 condensed 4 + float32 square 8 + float64 square 16
+WORKER_START_BYTES = 768 * 1024 ** 2  # a freshly started worker: 654 MiB resident measured with this tool's imports
+GUIDE_TREE_MIN_HEADROOM_BYTES = 2 * 1024 ** 3  # memory left to the system and other programs, at least
+GUIDE_TREE_HEADROOM_FRACTION = 0.10  # ... or a tenth of the machine's memory, whichever is more
+
+
+@dataclass(frozen=True)
+class GuideTreeWorkerPlan:
+    workers: int  # how many guide-tree workers to start
+    need_bytes: int  # what one worker needs
+    room_bytes: "int | None"  # memory the workers may use; None when the memory is unknown
+    fits_one: bool  # whether a single worker fits (True when the memory is unknown)
+
+
+def guide_tree_worker_plan(num_seqs, tree_method, requested_workers, total_bytes, available_bytes):
+    """Cap the guide-tree workers by the memory that is free. Pure: no I/O.
+
+    A method other than Neighbor-joining uses the UPGMA figure, as compute_single_tree_worker does.
+    """
+    requested = max(1, int(requested_workers))
+    pairs = int(num_seqs) * (int(num_seqs) - 1) // 2
+    per_pair = NEIGHBOR_JOINING_BYTES_PER_PAIR if tree_method == "Neighbor-joining (Slow)" else UPGMA_BYTES_PER_PAIR
+    need = pairs * per_pair + WORKER_START_BYTES
+    if int(total_bytes) <= 0 or int(available_bytes) <= 0:
+        return GuideTreeWorkerPlan(workers=requested, need_bytes=need, room_bytes=None, fits_one=True)
+    headroom = max(GUIDE_TREE_MIN_HEADROOM_BYTES, int(int(total_bytes) * GUIDE_TREE_HEADROOM_FRACTION))
+    room = max(0, int(available_bytes) - headroom)
+    fit = room // need
+    return GuideTreeWorkerPlan(
+        workers=max(1, min(requested, fit)), need_bytes=need, room_bytes=room, fits_one=room >= need
+    )
+
+
+def read_guide_tree_memory():
+    """Return ``(total, available)`` bytes of memory (quota-aware), or ``(0, 0)`` when unknown.
+
+    The engine is imported here and not at module level: spawned workers re-import this module
+    and must not pay for it.
+    """
+    try:
+        from Embedding_Alignment_Engine import system_memory_bytes
+
+        total, available = system_memory_bytes()
+        return int(total), int(available)
+    except Exception:
+        return 0, 0
+
+
+def announce_guide_tree_worker_plan(plan, requested, num_seqs, tree_method, available_bytes):
+    """Say on the console when the memory lowers the workers, or does not hold even one."""
+    gib = 1024 ** 3
+    if plan.workers < requested:
+        print(
+            f"[Hardware] Guide-tree workers lowered from {requested} to {plan.workers}: each needs about "
+            f"{plan.need_bytes / gib:.1f} GB for {num_seqs:,} sequences with {tree_method}, and "
+            f"{available_bytes / gib:.1f} GB of memory is free."
+        )
+    if not plan.fits_one:
+        print(
+            f"[Hardware] One guide-tree worker needs about {plan.need_bytes / gib:.1f} GB and "
+            f"{available_bytes / gib:.1f} GB of memory is free; the run may run out of memory."
+        )
+
+
+# ==========================================
 # HELPER: FASTA LOADER & WORKER
 # ==========================================
 def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noise_scale, tree_method, kernel_threads=None):
@@ -2977,9 +3046,15 @@ def run_msa_builder():
         D_final_cond.fill(0.0)
 
         seeds = generate_bootstrap_seeds(NUM_TREES)
+        # Every worker holds a full replicate of the distances: no more workers than the free memory holds.
+        total_memory, available_memory = read_guide_tree_memory()
+        worker_plan = guide_tree_worker_plan(num_seqs, TREE_METHOD, WORKERS, total_memory, available_memory)
+        announce_guide_tree_worker_plan(
+            worker_plan, max(1, int(WORKERS)), num_seqs, TREE_METHOD, available_memory
+        )
         # Neighbor-joining workers share the CPU budget; UPGMA ignores it.
         worker_threads = max(
-            1, Numba_Threads.default_thread_count() // max(1, int(WORKERS))
+            1, Numba_Threads.default_thread_count() // worker_plan.workers
         )
         if TREE_METHOD == "Neighbor-joining (Slow)":
             print(f"Neighbor-joining uses {worker_threads} threads per worker.")
@@ -2997,7 +3072,7 @@ def run_msa_builder():
         # cuts DRAM traffic by ~25x while keeping bit-identical float32 consensus sums.
         consensus_batch = []
         consensus_batch_size = 25
-        with mp.Pool(processes=WORKERS) as pool:
+        with mp.Pool(processes=worker_plan.workers) as pool:
             # In seed order, so the float32 sums of the consensus do not depend on which
             # worker finishes first and the guide tree is the same for any WORKERS.
             iterator = pool.imap(worker_func, seeds)
