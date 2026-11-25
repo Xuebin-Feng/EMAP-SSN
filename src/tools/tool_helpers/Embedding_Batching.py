@@ -14,11 +14,14 @@ packing length-sorted sequences into microbatches bounded simultaneously by:
 
 Batches are ordered longest-first so peak memory hits on batch 0 and triggers
 automatic batch-halving backoff on low-VRAM GPUs before work accumulates.
-On Windows, where the driver lets allocations pass the card's memory (into slow shared
-system memory), torch's cached pool is released before a batch that would overfill it.
+On Windows and under WSL2, where allocations can pass the card's memory (Windows moves them into
+slow shared system memory, WSL2 fails on first use), torch's cached pool is released before a
+batch that would overfill it.
 """
 
 from __future__ import annotations
+
+import sys
 
 import numpy as np
 
@@ -175,7 +178,7 @@ def _pool_limit_bytes(device):
         room_end = reserved + free
         if others is not None:
             room_end = min(room_end, total - others)
-        # CUDA's free figure may not drop by this process's own allocations on Windows, so
+        # CUDA's free figure may not drop by this process's own allocations on Windows and WSL2, so
         # reserved + free can exceed the card; the pool can never usefully pass the card.
         room_end = min(room_end, total)
         margin = max(_POOL_MARGIN_MIN_BYTES, int(total * _POOL_MARGIN_FRACTION))
@@ -397,7 +400,7 @@ def run_batched_embeddings(
     tok_cap = CPU_MAX_TOKENS if is_cpu else GPU_MAX_TOKENS
     bsz_cap = CPU_MAX_BATCH_SIZE if is_cpu else GPU_MAX_BATCH_SIZE
     mem_budget = _available_activation_bytes(device)
-    # Windows only: keep torch's cached pool below what the card has left (None elsewhere).
+    # Windows and WSL2 only: keep torch's cached pool below what the card has left (None elsewhere).
     pool = _pool_limit_bytes(device)
     bytes_per_tok, bytes_per_quad, _is_t5 = _model_memory_profile(model_obj)
     said_release = False
@@ -431,7 +434,7 @@ def run_batched_embeddings(
                     held = ""
                 print(
                     f"[Hardware] GPU memory on {device} is nearly full{held}; embedding releases "
-                    "its unused memory so that Windows does not move it to system memory."
+                    "its unused memory to stay within the card."
                 )
         try:
             embeddings = plugin.get_embeddings_batch(
@@ -494,10 +497,15 @@ def run_batched_embeddings(
             idx += 1
             if pool is not None and not said_past_card and _pool_is_past_card(device, pool):
                 said_past_card = True
+                if sys.platform == "win32":
+                    consequence = (
+                        "Windows may move part of it to system memory, which is several times slower."
+                    )
+                else:
+                    consequence = "under WSL2 the GPU may then report out of memory."
                 print(
                     f"[Hardware] Embedding needs more GPU memory on {device} than is free; "
-                    "Windows may move part of it to system memory, which is several times "
-                    "slower. Closing other programs that use the GPU helps."
+                    f"{consequence} Closing other programs that use the GPU helps."
                 )
 
     return model_obj, device

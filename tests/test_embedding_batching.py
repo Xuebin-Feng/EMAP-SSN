@@ -997,7 +997,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         pool = batching._PoolLimit(6500 * _MIB, 600 * _MIB, None, _CARD_TOTAL_MIB * _MIB)
         expected = (
             "[Hardware] GPU memory on cuda:0 is nearly full; embedding releases its unused "
-            "memory so that Windows does not move it to system memory.\n"
+            "memory to stay within the card.\n"
         )
         # The release frees nothing here, so every one of the three batches releases again.
         with self._pool_run(pool=pool, reserved_mib=6000, allocated_mib=3000) as run:
@@ -1009,12 +1009,11 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         total = _CARD_TOTAL_MIB * _MIB
         with_others = (
             "[Hardware] GPU memory on cuda:0 is nearly full (other programs hold 3.2 GB of its "
-            "12.0 GB); embedding releases its unused memory so that Windows does not move it "
-            "to system memory.\n"
+            "12.0 GB); embedding releases its unused memory to stay within the card.\n"
         )
         plain = (
             "[Hardware] GPU memory on cuda:0 is nearly full; embedding releases its unused "
-            "memory so that Windows does not move it to system memory.\n"
+            "memory to stay within the card.\n"
         )
         for others, expected in ((3268 * _MIB, with_others), (256 * _MIB, None), (255 * _MIB, plain), (None, plain)):
             with self.subTest(others=others):
@@ -1028,17 +1027,25 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
 
     def test_loop_warns_once_when_the_pool_stays_past_the_limit_plus_margin(self):
         pool = batching._PoolLimit(6500 * _MIB, 600 * _MIB, None, _CARD_TOTAL_MIB * _MIB)
-        expected = (
+        windows_line = (
             "[Hardware] Embedding needs more GPU memory on cuda:0 than is free; Windows may "
             "move part of it to system memory, which is several times slower. Closing other "
             "programs that use the GPU helps.\n"
         )
-        # Nothing is cached and unused (reserved == allocated), so there is no release line.
-        with self._pool_run(pool=pool, reserved_mib=7200, allocated_mib=7200) as run:
-            seen = self._embed(self._long_items())
-        self.assertEqual(len(seen), 3)
-        self.assertEqual(run.releases, [])
-        self.assertEqual(run.out.getvalue(), expected)
+        wsl_line = (
+            "[Hardware] Embedding needs more GPU memory on cuda:0 than is free; under WSL2 "
+            "the GPU may then report out of memory. Closing other programs that use the GPU helps.\n"
+        )
+        # The wording follows the platform the code reads; only this module's view of sys is replaced.
+        for platform_name, expected in (("win32", windows_line), ("linux", wsl_line)):
+            with self.subTest(platform=platform_name):
+                # Nothing is cached and unused (reserved == allocated), so there is no release line.
+                with self._pool_run(pool=pool, reserved_mib=7200, allocated_mib=7200) as run, \
+                        mock.patch.object(batching, "sys", types.SimpleNamespace(platform=platform_name)):
+                    seen = self._embed(self._long_items())
+                self.assertEqual(len(seen), 3)
+                self.assertEqual(run.releases, [])
+                self.assertEqual(run.out.getvalue(), expected)
 
     def test_loop_does_not_warn_when_the_pool_stays_within_the_limit_plus_margin(self):
         pool = batching._PoolLimit(6500 * _MIB, 600 * _MIB, None, _CARD_TOTAL_MIB * _MIB)

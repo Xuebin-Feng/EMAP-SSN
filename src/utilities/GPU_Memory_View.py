@@ -2,18 +2,21 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""A second view of a CUDA card's memory: what other programs hold on it (Windows).
+"""A second view of a CUDA card's memory: what other programs hold on it (Windows and WSL2).
 
-Under Windows' driver model (WDDM) the free figure of ``torch.cuda.mem_get_info`` does not
-go down when other programs (the desktop compositor, browsers) hold memory on the card, and
-the driver never refuses an allocation past the card: the overflow moves to shared system
-memory and the run becomes several times slower, with no message. ``nvidia-smi`` counts the
-memory resident on the card for every process, so the difference between its figure and
-torch's own pool is what other programs hold.
+On Windows (driver model WDDM) and under WSL2 the free figure of ``torch.cuda.mem_get_info``
+does not go down when other programs (the desktop compositor, browsers) hold memory on the
+card, and an allocation past the card is not refused. On Windows the overflow moves to shared
+system memory and the run becomes several times slower, with no message. Under WSL2 the
+allocation succeeds and its first use fails with a CUDA out-of-memory error from which the
+process does not recover. In both, torch never gets the refusal at allocation that makes it
+free its cache and retry. (Measured on 25 Nov 2026 with one card, an RTX 4070.)
+``nvidia-smi`` counts the memory resident on the card for every process, so the difference
+between its figure and torch's own pool is what other programs hold.
 
 This module reads that figure (never raising, cached for 30 s, never required) so that the
 GPU budgets can leave that memory to the other programs. Everything answers "unknown"
-(None) off Windows, for devices that are not CUDA, and when SSN_GPU_OTHER_PROGRAMS=0.
+(None) on other systems, for devices that are not CUDA, and when SSN_GPU_OTHER_PROGRAMS=0.
 
 Only the standard library is imported at module level; torch is imported inside the
 functions, and only after the switch and the platform have been checked.
@@ -39,16 +42,39 @@ def other_programs_switch_on():
     return _switch_on
 
 
-def card_limit_is_not_enforced():
-    """True where an allocation past the card's memory still succeeds.
+def limit_is_not_enforced_on(platform_name, kernel_release):
+    """Whether a system lets GPU memory run past the card: Windows, and Linux under WSL.
 
-    Under Windows' driver model the driver never refuses: the memory goes to shared
-    system memory and the run becomes several times slower, with no message. On Linux
-    the driver refuses at the limit and torch then frees its own cache.
+    ``platform_name`` is ``sys.platform``; ``kernel_release`` is the Linux kernel release, which names
+    Microsoft under WSL (for example ``6.18.58.1-microsoft-standard-WSL2``). WSL1 has no GPU, so
+    matching it too is harmless. Pure; never raises.
+    """
+    try:
+        if platform_name == "win32":
+            return True
+        return str(platform_name).startswith("linux") and "microsoft" in str(kernel_release).lower()
+    except Exception:
+        return False
+
+
+def card_limit_is_not_enforced():
+    """True where an allocation past the card's memory still succeeds: Windows and WSL2.
+
+    On Windows the overflow moves to shared system memory and the run becomes several times
+    slower, with no message. Under WSL2 the allocation succeeds and its first use fails with a CUDA
+    out-of-memory error the process does not recover from. In both, torch never gets the refusal
+    at allocation that makes it free its cache. On native Linux (and macOS) the driver refuses at
+    the limit and torch then frees its own cache. Never raises.
     """
     import sys
 
-    return sys.platform == "win32"
+    try:
+        import platform
+
+        release = platform.uname().release
+    except Exception:
+        release = ""  # an unreadable release counts as "not WSL"
+    return limit_is_not_enforced_on(sys.platform, release)
 
 
 def card_margin_bytes(total_bytes):
@@ -161,10 +187,10 @@ def other_programs_bytes(device, reserved_bytes, total_bytes):
 
 
 def room_beside_other_programs(device, total_bytes):
-    """Return ``(room, others)`` for a CUDA card on Windows, or None when it is not known.
+    """Return ``(room, others)`` for a CUDA card on Windows or WSL2, or None when it is not known.
 
     ``others`` is what other programs hold; ``room`` is ``total - others - torch's reserved pool``
-    (0 at least), the memory torch could still take. None off Windows, for a device that is not
+    (0 at least), the memory torch could still take. None on other systems, for a device that is not
     CUDA, with the switch off, or when the reader does not answer. Never raises.
     """
     try:

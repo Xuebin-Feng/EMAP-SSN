@@ -281,8 +281,33 @@ class GPUMemoryViewTests(unittest.TestCase):
 
     # ---- the platform and the margin --------------------------------------------------
 
-    def test_card_limit_is_not_enforced_only_on_windows(self):
-        self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), sys.platform == "win32")
+    def test_the_limit_is_not_enforced_on_windows_and_under_wsl_only(self):
+        decide = GPU_Memory_View.limit_is_not_enforced_on
+        for platform_name, release, expected in (
+            ("win32", "10", True),
+            ("win32", "", True),
+            ("linux", "6.18.58.1-microsoft-standard-WSL2", True),
+            ("linux", "4.4.0-19041-Microsoft", True),
+            ("linux", "6.8.0-45-generic", False),
+            ("darwin", "23.5.0", False),
+            ("darwin", "6.18.58.1-microsoft-standard-WSL2", False),
+            ("linux", None, False),
+            ("linux", "", False),
+        ):
+            with self.subTest(platform=platform_name, release=release):
+                self.assertIs(decide(platform_name, release), expected)
+
+    def test_the_public_decision_uses_this_systems_platform_and_kernel_release(self):
+        import platform
+
+        self.assertIs(
+            GPU_Memory_View.card_limit_is_not_enforced(),
+            GPU_Memory_View.limit_is_not_enforced_on(sys.platform, platform.uname().release),
+        )
+
+    def test_an_unreadable_kernel_release_counts_as_not_wsl_and_never_raises(self):
+        with mock.patch("platform.uname", side_effect=OSError("unreadable")):
+            self.assertIs(GPU_Memory_View.card_limit_is_not_enforced(), sys.platform == "win32")
 
     def test_card_margin_is_five_percent_of_the_total_with_a_floor_of_512_mib(self):
         total = _CARD_TOTAL_MIB * _MIB

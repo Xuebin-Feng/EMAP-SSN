@@ -952,13 +952,13 @@ _other_programs_announced = set()  # device keys the "other programs" line was p
 
 
 def _free_beside_other_programs(device, free_bytes, total_bytes, reserve, out=print):
-    """The free figure a CUDA snapshot plans from: lowered so that plans leave out what other programs hold (Windows).
+    """The free figure a CUDA snapshot plans from: lowered so that plans leave out what other programs hold (Windows and WSL2).
 
-    On Windows the free figure of mem_get_info does not see other programs, so the usable memory (free minus
+    On Windows and under WSL2 the free figure of mem_get_info does not see other programs, so the usable memory (free minus
     reserve) is taken as the smaller of today's and ``room - margin``, where room is the card minus what other
     programs hold and torch's reserved pool. The correction travels in the free figure and not in the reserve
     because plans are rebuilt from a plan's free and total with the default reserve (memory_info=), which
-    would drop a raised reserve but keeps a lowered free figure. Every other case (not Windows, reader
+    would drop a raised reserve but keeps a lowered free figure. Every other case (not Windows or WSL2, reader
     unknown, switch off) returns ``free_bytes`` unchanged. Never raises.
     """
     try:
