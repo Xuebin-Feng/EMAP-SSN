@@ -14,6 +14,8 @@ packing length-sorted sequences into microbatches bounded simultaneously by:
 
 Batches are ordered longest-first so peak memory hits on batch 0 and triggers
 automatic batch-halving backoff on low-VRAM GPUs before work accumulates.
+On Windows, where the driver lets allocations pass the card's memory (into slow shared
+system memory), torch's cached pool is released before a batch that would overfill it.
 """
 
 from __future__ import annotations
@@ -134,13 +136,10 @@ def _model_memory_profile(model_obj):
 
 # Second view of a CUDA card (see _device_memory_in_use). On Windows (WDDM) the CUDA
 # runtime reports free memory without counting what other programs (the desktop,
-# browsers) hold, so a run can overfill the card and spill into shared system memory
-# without any message. nvidia-smi counts the memory resident on the card for every
-# process; the budget takes the smaller of the two views.
+# browsers) hold; nvidia-smi counts the memory resident on the card for every process.
+# It is used to size the limit of torch's cached pool (see _pool_limit_bytes).
 _OTHER_PROGRAMS_TTL_SECONDS = 30.0
-_OTHER_PROGRAMS_MIN_NOTICE_BYTES = 256 * 1024 ** 2
 _OTHER_PROGRAMS_CACHE = {}  # device key -> (time.monotonic() stamp, bytes or None)
-_OTHER_PROGRAMS_SAID = set()  # device keys the console line was already printed for
 _NVIDIA_SMI_MISSING = False  # the program could not be started: never try again
 
 
@@ -246,17 +245,88 @@ def _other_programs_bytes(device, reserved_bytes, total_bytes):
     return others
 
 
-def _say_other_programs_once(device, others_bytes, total_bytes):
-    key = str(device)
-    if key in _OTHER_PROGRAMS_SAID:
-        return
-    _OTHER_PROGRAMS_SAID.add(key)
-    gib = 1024 ** 3
-    print(
-        f"[Hardware] Other programs hold {others_bytes / gib:.1f} GB of the "
-        f"{total_bytes / gib:.1f} GB of GPU memory on {device}; "
-        "embedding batches are sized for what is left."
-    )
+def _card_limit_is_not_enforced():
+    """True where an allocation past the card's memory still succeeds.
+
+    Under Windows' driver model the driver never refuses: the memory goes to shared
+    system memory and the run becomes several times slower, with no message. On Linux
+    the driver refuses at the limit and torch then frees its own cache.
+    """
+    import sys
+
+    return sys.platform == "win32"
+
+
+_POOL_MARGIN_MIN_BYTES = 512 * 1024 ** 2
+_POOL_MIN_ROOM_BYTES = 1024 ** 3
+_POOL_RELEASE_MIN_BYTES = 64 * 1024 ** 2
+_POOL_NOTICE_MIN_OTHERS_BYTES = 256 * 1024 ** 2
+
+
+class _PoolLimit:
+    """How large torch's cached pool (reserved memory) may grow on one card."""
+
+    def __init__(self, limit, margin, others, total):
+        self.limit = int(limit)
+        self.margin = int(margin)
+        self.others = others  # bytes held by other programs, or None when unknown
+        self.total = int(total)
+
+
+def _pool_limit_bytes(device):
+    """Return a ``_PoolLimit`` for a CUDA card where the limit is not enforced, else None.
+
+    Never raises. None means "leave today's behaviour".
+    """
+    try:
+        import torch
+
+        dev = torch.device(device) if device is not None else torch.device("cpu")
+        if dev.type != "cuda" or not _card_limit_is_not_enforced():
+            return None
+        free, total = torch.cuda.mem_get_info(dev)
+        free, total = int(free), int(total)
+        reserved = int(torch.cuda.memory_reserved(dev))
+        others = _other_programs_bytes(dev, reserved, total)
+        room_end = reserved + free
+        if others is not None:
+            room_end = min(room_end, total - others)
+        margin = max(_POOL_MARGIN_MIN_BYTES, int(total * 0.05))
+        limit = room_end - margin
+        if limit < reserved + _POOL_MIN_ROOM_BYTES:
+            return None
+        return _PoolLimit(limit, margin, others, total)
+    except Exception:
+        return None
+
+
+def _release_pool_if_needed(device, pool, estimate_bytes):
+    """Free torch's cached blocks before a batch that would push the pool past its limit.
+
+    Freed blocks of one batch shape otherwise stay cached while the next shapes get new
+    blocks, so the pool creeps past the card. Returns True when it released. Never raises.
+    """
+    try:
+        import torch
+
+        reserved = int(torch.cuda.memory_reserved(device))
+        allocated = int(torch.cuda.memory_allocated(device))
+        if reserved + int(estimate_bytes) > pool.limit and reserved - allocated >= _POOL_RELEASE_MIN_BYTES:
+            clear_device_cache(device)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _pool_is_past_card(device, pool):
+    """True when the pool is beyond what the card has left (never raises)."""
+    try:
+        import torch
+
+        return int(torch.cuda.memory_reserved(device)) > pool.limit + pool.margin
+    except Exception:
+        return False
 
 
 def _available_activation_bytes(device):
@@ -269,31 +339,15 @@ def _available_activation_bytes(device):
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info(dev)
             reusable = 0
-            reserved = allocated = 0
-            readable = False
             try:
                 if hasattr(torch.cuda, "memory_reserved") and hasattr(torch.cuda, "memory_allocated"):
-                    reserved = int(torch.cuda.memory_reserved(dev))
-                    allocated = int(torch.cuda.memory_allocated(dev))
-                    reusable = max(0, reserved - allocated)
-                    readable = True
+                    reusable = max(
+                        0,
+                        int(torch.cuda.memory_reserved(dev)) - int(torch.cuda.memory_allocated(dev)),
+                    )
             except Exception:
                 reusable = 0
-                reserved = allocated = 0
-                readable = False
             effective_free = min(int(total_bytes), int(free_bytes) + reusable)
-            if readable:
-                # Take the smaller of two views of the card; any failure keeps the first.
-                try:
-                    others = _other_programs_bytes(dev, reserved, int(total_bytes))
-                    if others is not None:
-                        second_view = max(0, int(total_bytes) - others - allocated)
-                        lowered_by = effective_free - second_view
-                        effective_free = min(effective_free, second_view)
-                        if lowered_by >= _OTHER_PROGRAMS_MIN_NOTICE_BYTES:
-                            _say_other_programs_once(dev, others, int(total_bytes))
-                except Exception:
-                    pass
             reserve = max(512 * 1024 ** 2, int(total_bytes * 0.18))
             return max(128 * 1024 ** 2, int(max(0, effective_free - reserve) * 0.50))
         except Exception:
@@ -456,6 +510,11 @@ def run_batched_embeddings(
     tok_cap = CPU_MAX_TOKENS if is_cpu else GPU_MAX_TOKENS
     bsz_cap = CPU_MAX_BATCH_SIZE if is_cpu else GPU_MAX_BATCH_SIZE
     mem_budget = _available_activation_bytes(device)
+    # Windows only: keep torch's cached pool below what the card has left (None elsewhere).
+    pool = _pool_limit_bytes(device)
+    bytes_per_tok, bytes_per_quad, _is_t5 = _model_memory_profile(model_obj)
+    said_release = False
+    said_past_card = False
 
     queue_batches = pack_length_sorted_batches(
         items,
@@ -470,6 +529,23 @@ def run_batched_embeddings(
     while idx < len(queue_batches):
         batch = queue_batches[idx]
         sequences = [seq for _, seq in batch]
+        if pool is not None:
+            max_tok = max(len(seq) for seq in sequences) + 2
+            estimate = (
+                len(sequences) * max_tok * bytes_per_tok
+                + len(sequences) * max_tok * max_tok * bytes_per_quad
+            )
+            if _release_pool_if_needed(device, pool, estimate) and not said_release:
+                said_release = True
+                gib = 1024 ** 3
+                if pool.others is not None and pool.others >= _POOL_NOTICE_MIN_OTHERS_BYTES:
+                    held = f" (other programs hold {pool.others / gib:.1f} GB of its {pool.total / gib:.1f} GB)"
+                else:
+                    held = ""
+                print(
+                    f"[Hardware] GPU memory on {device} is nearly full{held}; embedding releases "
+                    "its unused memory so that Windows does not move it to system memory."
+                )
         try:
             embeddings = plugin.get_embeddings_batch(
                 sequences, model_obj, device, target_dtype
@@ -513,6 +589,8 @@ def run_batched_embeddings(
                 tok_cap = CPU_MAX_TOKENS if is_cpu else GPU_MAX_TOKENS
                 bsz_cap = CPU_MAX_BATCH_SIZE if is_cpu else GPU_MAX_BATCH_SIZE
                 mem_budget = _available_activation_bytes(device)
+                pool = _pool_limit_bytes(device)
+                bytes_per_tok, bytes_per_quad, _is_t5 = _model_memory_profile(model_obj)
                 remaining_items = [item for future in queue_batches[idx:] for item in future]
                 queue_batches[idx:] = pack_length_sorted_batches(
                     remaining_items,
@@ -527,5 +605,12 @@ def run_batched_embeddings(
         else:
             on_batch_complete(batch, embeddings)
             idx += 1
+            if pool is not None and not said_past_card and _pool_is_past_card(device, pool):
+                said_past_card = True
+                print(
+                    f"[Hardware] Embedding needs more GPU memory on {device} than is free; "
+                    "Windows may move part of it to system memory, which is several times "
+                    "slower. Closing other programs that use the GPU helps."
+                )
 
     return model_obj, device
