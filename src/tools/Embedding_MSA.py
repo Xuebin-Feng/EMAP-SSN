@@ -873,6 +873,108 @@ def map_network_indices(indices, net_old_to_new):
     return mapped
 
 
+# Edges read per HDF5 slice when filtering a network down to the run's
+# intersection. Matches Network_Score_Statistics.CHUNK_EDGES (~8-12 MB scratch).
+NETWORK_EDGE_CHUNK_SIZE = 500_000
+
+
+def _concat_edge_chunks(chunks, dtype):
+    """Assemble chunk arrays into one contiguous array of ``dtype``, freeing chunks as copied."""
+    target_dtype = np.dtype(dtype)
+    if not chunks:
+        return np.empty(0, dtype=target_dtype)
+    if len(chunks) == 1:
+        only = chunks.pop()
+        if only.dtype == target_dtype and only.flags.c_contiguous:
+            return only
+        return np.ascontiguousarray(only, dtype=target_dtype)
+    total = sum(len(part) for part in chunks)
+    out = np.empty(total, dtype=target_dtype)
+    offset = 0
+    while chunks:
+        part = chunks.pop(0)
+        size = len(part)
+        out[offset:offset + size] = part
+        offset += size
+    return out
+
+
+def filter_network_edges(
+    ds_i,
+    ds_j,
+    ds_score,
+    ds_len,
+    net_old_to_new,
+    chunk_size=NETWORK_EDGE_CHUNK_SIZE,
+):
+    """Stream and filter network edges in bounded chunks, preserving stored edge order.
+
+    ``ds_i``, ``ds_j``, ``ds_score``, and optional ``ds_len`` (``None`` for BLAST
+    networks, where every alignment length is ``1.0``) may be ``h5py.Dataset``
+    handles or 1D NumPy arrays of equal length. Chunks with no endpoint in
+    ``net_old_to_new`` skip reading the remaining columns for that slice, so
+    filtering a small sequence subset out of a network larger than RAM uses
+    memory proportional to the kept edges plus one chunk of scratch.
+
+    Returns ``(edge_i, edge_j, raw_scores, align_lens)`` with dtypes
+    ``(int32, int32, float32, float32)``.
+    """
+    total_edges = len(ds_i)
+    step = max(1, int(chunk_size))
+    kept_i = []
+    kept_j = []
+    kept_scores = []
+    kept_lens = [] if ds_len is not None else None
+
+    for start in range(0, total_edges, step):
+        stop = min(start + step, total_edges)
+        raw_i = np.asarray(ds_i[start:stop])
+        chunk_i = map_network_indices(raw_i, net_old_to_new)
+        del raw_i
+        if chunk_i.size == 0 or chunk_i.max() < 0:
+            continue
+
+        raw_j = np.asarray(ds_j[start:stop])
+        chunk_j = map_network_indices(raw_j, net_old_to_new)
+        del raw_j
+        if chunk_j.max() < 0:
+            continue
+
+        if (
+            chunk_i.min() >= 0
+            and chunk_j.min() >= 0
+            and not np.any(chunk_i == chunk_j)
+        ):
+            kept_i.append(chunk_i)
+            kept_j.append(chunk_j)
+            kept_scores.append(np.asarray(ds_score[start:stop], dtype=np.float32))
+            if kept_lens is not None:
+                kept_lens.append(np.asarray(ds_len[start:stop]))
+            continue
+
+        keep = (chunk_i >= 0) & (chunk_j >= 0) & (chunk_i != chunk_j)
+        if not np.any(keep):
+            continue
+        kept_i.append(chunk_i[keep])
+        kept_j.append(chunk_j[keep])
+        raw_score = np.asarray(ds_score[start:stop])
+        kept_scores.append(raw_score[keep].astype(np.float32, copy=False))
+        del raw_score
+        if kept_lens is not None:
+            raw_len = np.asarray(ds_len[start:stop])
+            kept_lens.append(raw_len[keep])
+            del raw_len
+
+    edge_i = _concat_edge_chunks(kept_i, np.int32)
+    edge_j = _concat_edge_chunks(kept_j, np.int32)
+    raw_scores = _concat_edge_chunks(kept_scores, np.float32)
+    if kept_lens is None:
+        align_lens = np.ones(len(edge_i), dtype=np.float32)
+    else:
+        align_lens = _concat_edge_chunks(kept_lens, np.float32)
+    return edge_i, edge_j, raw_scores, align_lens
+
+
 def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator, threads=None):
     """Add float32 cophenetic distances for every condensed pair in place."""
     if num_seqs <= 1:
@@ -2493,9 +2595,6 @@ def run_msa_builder():
     raw_net_headers = f_net['headers'][:]
     net_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_net_headers]
 
-    arr_i = f_net['i'][:]
-    arr_j = f_net['j'][:]
-    
     network_metadata = validate_network_schema(f_net)
     # How the network's scores were made, which the calibration sample is aligned with.
     network_gap_penalties = f_net.attrs.get("gap_penalties")
@@ -2504,23 +2603,27 @@ def run_msa_builder():
         network_precision = network_precision.decode("utf-8")
     # The embeddings that describe the network: today the run's own embeddings.
     network_embeddings = FULL_INPUT_EMBED
+    ds_i = f_net['i']
+    ds_j = f_net['j']
     if network_metadata.network_type == "blast":
-        target_score = f_net['score'][:]
-        target_len   = np.ones_like(target_score)
+        ds_score = f_net['score']
+        ds_len = None
         is_evalue = True
     else:
         if ALIGNMENT_SCORE == "global":
-            target_score = f_net['g_score'][:]
-            target_len   = f_net['g_len'][:]
+            ds_score = f_net['g_score']
+            ds_len = f_net['g_len']
         else:
-            target_score = f_net['l_score'][:]
-            target_len   = f_net['l_len'][:]
+            ds_score = f_net['l_score']
+            ds_len = f_net['l_len']
         is_evalue = False
 
-    # Validate dataset lengths match to prevent out-of-bounds IndexError
-    if not (len(arr_i) == len(arr_j) == len(target_score) == len(target_len)):
+    # Validate dataset lengths match from HDF5 metadata before reading any edge data
+    len_i, len_j, len_score = len(ds_i), len(ds_j), len(ds_score)
+    len_align = len_score if ds_len is None else len(ds_len)
+    if not (len_i == len_j == len_score == len_align):
         sys.exit(f"❌ Error: Network file {FULL_INPUT_NETWORK} is corrupted or incomplete.\n"
-                 f"Dataset lengths: i={len(arr_i)}, j={len(arr_j)}, score={len(target_score)}, len={len(target_len)}.\n"
+                 f"Dataset lengths: i={len_i}, j={len_j}, score={len_score}, len={len_align}.\n"
                  f"Please delete this network file and re-run the pipeline to re-generate it.")
 
     os.makedirs(os.path.dirname(OUTPUT_FASTA), exist_ok=True)
@@ -2595,34 +2698,22 @@ def run_msa_builder():
         if new_index is not None:
             net_old_to_new[i] = new_index
 
-    # A few of the network's own edges, to be reproduced by the calibration alignment (chosen before the
-    # index arrays are mapped and freed below).
+    # A few of the network's own edges, to be reproduced by the calibration alignment.
+    # Indexed directly against the HDF5 datasets so the full columns are never loaded.
     check_edges = None
     if CALIBRATED_IMPUTATION and network_metadata.network_type != "blast":
         check_edges = choose_check_edges(
-            f_net, arr_i, arr_j, net_old_to_new, "g_score" if ALIGNMENT_SCORE == "global" else "l_score",
+            f_net, ds_i, ds_j, net_old_to_new, "g_score" if ALIGNMENT_SCORE == "global" else "l_score",
         )
 
-    # Filter with whole-array operations. A Python tuple per edge costs about
-    # 130 bytes, so a complete 44k-sequence network (~974M edges) would need
-    # ~125 GB. Each network index array is freed as soon as its int32 mapping
-    # exists. Edge order is kept, so duplicate pairs resolve as before.
-    edge_i = map_network_indices(arr_i, net_old_to_new)
-    del arr_i
-    edge_j = map_network_indices(arr_j, net_old_to_new)
-    del arr_j
-    if edge_i.size and (
-        edge_i.min() < 0 or edge_j.min() < 0 or np.any(edge_i == edge_j)
-    ):
-        keep = (edge_i >= 0) & (edge_j >= 0) & (edge_i != edge_j)
-        edge_i = edge_i[keep]
-        edge_j = edge_j[keep]
-        target_score = target_score[keep]
-        target_len = target_len[keep]
-        del keep
-    raw_scores = target_score.astype(np.float32, copy=False)
-    align_lens = target_len.astype(np.float32, copy=False)
-    del target_score, target_len
+    # Stream and filter edges in bounded chunks so a small sequence subset can
+    # be aligned against a network file larger than RAM. Edge order is kept, so
+    # duplicate pairs resolve as before.
+    edge_i, edge_j, raw_scores, align_lens = filter_network_edges(
+        ds_i, ds_j, ds_score, ds_len, net_old_to_new
+    )
+    del ds_i, ds_j, ds_score, ds_len
+    f_net.close()
     num_edges = len(edge_i)
 
     print(f"Retained {num_edges} edges valid for the intersection.")
