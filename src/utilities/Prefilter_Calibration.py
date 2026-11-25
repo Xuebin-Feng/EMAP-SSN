@@ -130,6 +130,10 @@ def length_adjusted_similarity(pooled, seq_lens, power):
     on the same values (integer minimum and maximum, one division, one power, one multiplication, each
     correctly rounded and none combining elements), so the order in which blocks are made cannot change a bit.
     """
+    pooled = np.asarray(pooled, dtype=np.float32)
+    if pooled.size == 0 or pooled.shape[0] == 0:
+        n = int(pooled.shape[0]) if pooled.ndim >= 1 else 0
+        return np.zeros((n, n), dtype=np.float64)
     norms = np.linalg.norm(pooled, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1e-8, norms)
     unit = pooled / norms
@@ -180,9 +184,14 @@ class StreamedPairSimilarity:
 
     def __init__(self, pooled, seq_lens, power):
         pooled = np.asarray(pooled, dtype=np.float32)
-        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1e-8, norms)
-        self.unit = np.ascontiguousarray(pooled / norms, dtype=np.float32)
+        if pooled.ndim == 1:
+            pooled = pooled.reshape(pooled.shape[0], 0)
+        if pooled.shape[0] == 0 or pooled.shape[1] == 0:
+            self.unit = np.ascontiguousarray(pooled, dtype=np.float32)
+        else:
+            norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1e-8, norms)
+            self.unit = np.ascontiguousarray(pooled / norms, dtype=np.float32)
         self.lengths = np.asarray(seq_lens, dtype=np.int32)
         self.power = float(power)
         self.n = int(self.unit.shape[0])
@@ -191,6 +200,36 @@ class StreamedPairSimilarity:
 
     def _upper_block_rows(self):
         return max(1, _SIMILARITY_BLOCK // max(self.n, 1))
+
+    def _dot_block(self, start, stop, col_start):
+        """Compute (stop - start, n - col_start) float32 cosines via float64 accumulation.
+
+        Accumulating in float64 before rounding to float32 eliminates float32 BLAS
+        blocking/order drift so ``rows()``, ``upper_strip()``, and ``at()`` agree
+        identically on every pair while keeping ``self.unit`` compact in float32.
+        """
+        width = self.n - col_start
+        rows_count = stop - start
+        if rows_count <= 0 or width <= 0:
+            return np.empty((max(0, rows_count), max(0, width)), dtype=np.float32)
+        dim = int(self.unit.shape[1]) if self.unit.ndim == 2 else 0
+        if dim == 0:
+            return np.zeros((rows_count, width), dtype=np.float32)
+        row_64 = np.asarray(self.unit[start:stop], dtype=np.float64)
+        # Bound temporary float64 column slice to ~32 MiB.
+        col_chunk = max(1, (4 * 1024 * 1024) // dim)
+        with threadpool_limits(limits=1, user_api="blas"):
+            if width <= col_chunk:
+                col_64 = np.asarray(self.unit[col_start:], dtype=np.float64)
+                return np.dot(row_64, col_64.T).astype(np.float32, copy=False)
+            cos = np.empty((rows_count, width), dtype=np.float32)
+            for c0 in range(col_start, self.n, col_chunk):
+                c1 = min(c0 + col_chunk, self.n)
+                col_64 = np.asarray(self.unit[c0:c1], dtype=np.float64)
+                cos[:, c0 - col_start:c1 - col_start] = np.dot(row_64, col_64.T).astype(
+                    np.float32, copy=False
+                )
+            return cos
 
     def _scale_block(self, cos_block, row_lengths, col_lengths):
         np.clip(cos_block, -1.0, 1.0, out=cos_block)
@@ -207,8 +246,7 @@ class StreamedPairSimilarity:
         stop = int(stop)
         if stop <= start:
             return np.empty((0, self.n), dtype=np.float64)
-        with threadpool_limits(limits=1, user_api="blas"):
-            cos = np.dot(self.unit[start:stop], self.unit.T)
+        cos = self._dot_block(start, stop, 0)
         return self._scale_block(cos, self.lengths[start:stop], self.lengths)
 
     def upper_strip(self, start, stop):
@@ -217,8 +255,7 @@ class StreamedPairSimilarity:
         stop = int(stop)
         if stop <= start:
             return np.empty((0, max(0, self.n - start)), dtype=np.float64)
-        with threadpool_limits(limits=1, user_api="blas"):
-            cos = np.dot(self.unit[start:stop], self.unit[start:].T)
+        cos = self._dot_block(start, stop, start)
         return self._scale_block(cos, self.lengths[start:stop], self.lengths[start:])
 
     def iter_upper_blocks(self):
@@ -244,14 +281,19 @@ class StreamedPairSimilarity:
         if count == 0:
             return np.empty(0, dtype=np.float64)
         out = np.empty(count, dtype=np.float64)
-        dim = max(1, int(self.unit.shape[1]) if self.unit.ndim == 2 else 1)
-        # Keep temporary (chunk, d) gathers bounded (~32 MiB).
-        chunk = max(1, (8 * 1024 * 1024) // dim)
+        dim = int(self.unit.shape[1]) if self.unit.ndim == 2 else 0
+        if dim == 0:
+            out.fill(0.0)
+            return out
+        # Keep temporary float64 (chunk, d) gathers bounded (~32 MiB each).
+        chunk = max(1, (4 * 1024 * 1024) // dim)
         for start in range(0, count, chunk):
             stop = min(start + chunk, count)
             r = rows[start:stop]
             c = columns[start:stop]
-            cos = np.einsum("ij,ij->i", self.unit[r], self.unit[c])
+            u_r = np.asarray(self.unit[r], dtype=np.float64)
+            u_c = np.asarray(self.unit[c], dtype=np.float64)
+            cos = np.einsum("ij,ij->i", u_r, u_c).astype(np.float32, copy=False)
             np.clip(cos, -1.0, 1.0, out=cos)
             lr = self.lengths[r]
             lc = self.lengths[c]
@@ -260,7 +302,7 @@ class StreamedPairSimilarity:
             ratio = shorter / longer
             if self.power != 1.0:
                 ratio = ratio ** self.power
-            out[start:stop] = cos * ratio
+            out[start:stop] = np.multiply(cos, ratio, dtype=np.float64)
         return out
 
     def count_upper_at_or_above(self, threshold):
@@ -408,7 +450,7 @@ class StreamedPairSimilarity:
                     if hi_bin_vals.size:
                         m = float(hi_bin_vals.min())
                         v_hi = m if v_hi is None or m < v_hi else v_hi
-                return "exact", float(v_lo + frac * (v_hi - v_lo))
+                return "exact", self._lerp(v_lo, v_hi, frac)
 
             # Massive ties inside a single bin b_lo == b_hi: narrow [lo, hi].
             step = span / n_bins
@@ -435,13 +477,21 @@ class StreamedPairSimilarity:
                     if v_hi is None and acc > k_hi:
                         v_hi = u_val
                         break
-                return "exact", float(v_lo + frac * (v_hi - v_lo))
+                return "exact", self._lerp(v_lo, v_hi, frac)
             lo, hi = new_lo, new_hi
 
         return "exact", float(0.5 * (lo + hi))
 
     @staticmethod
-    def _finish_bracket(buf, strictly_below, k_lo, k_hi, frac):
+    def _lerp(v_lo, v_hi, frac):
+        """NumPy 2.x exact linear interpolation formula for 0-ULP ``np.percentile`` parity."""
+        diff = v_hi - v_lo
+        if frac >= 0.5:
+            return float(v_hi - diff * (1.0 - frac))
+        return float(v_lo + frac * diff)
+
+    @classmethod
+    def _finish_bracket(cls, buf, strictly_below, k_lo, k_hi, frac):
         pos_lo = k_lo - strictly_below
         pos_hi = k_hi - strictly_below
         if pos_lo == pos_hi:
@@ -450,7 +500,7 @@ class StreamedPairSimilarity:
         part = np.partition(buf, (pos_lo, pos_hi))
         v_lo = float(part[pos_lo])
         v_hi = float(part[pos_hi])
-        return float(v_lo + frac * (v_hi - v_lo))
+        return cls._lerp(v_lo, v_hi, frac)
 
     def upper_percentile(self, q):
         """Return the exact q-th percentile (0..100) of upper-triangle similarities, or None if n < 2."""
@@ -526,8 +576,19 @@ class StreamedPairSimilarity:
 
         threshold = self._finish_bracket(buf[:filled], strictly_below, k_lo, k_hi, frac)
         del buf
-        kept_pieces = []
-        for cand_keys, br_local, br_vals in strip_records:
+        total_kept = 0
+        for cand_keys, _br_local, br_vals in strip_records:
+            n_drop = (
+                int(np.count_nonzero(br_vals < threshold))
+                if (br_vals is not None and br_vals.size)
+                else 0
+            )
+            total_kept += int(cand_keys.size) - n_drop
+        keys = np.empty(total_kept, dtype=np.int64)
+        cursor = 0
+        for idx_rec in range(len(strip_records)):
+            cand_keys, br_local, br_vals = strip_records[idx_rec]
+            strip_records[idx_rec] = None
             if br_vals is not None and br_vals.size:
                 drop_mask = br_vals < threshold
                 if drop_mask.any():
@@ -535,8 +596,11 @@ class StreamedPairSimilarity:
                     keep[br_local[drop_mask]] = False
                     cand_keys = cand_keys[keep]
             if cand_keys.size:
-                kept_pieces.append(cand_keys)
-        keys = np.concatenate(kept_pieces) if kept_pieces else np.zeros(0, dtype=np.int64)
+                keys[cursor:cursor + cand_keys.size] = cand_keys
+                cursor += cand_keys.size
+            del cand_keys, br_local, br_vals
+        strip_records.clear()
+        self._last_threshold_count = (threshold, total_kept)
         return threshold, keys
 
 

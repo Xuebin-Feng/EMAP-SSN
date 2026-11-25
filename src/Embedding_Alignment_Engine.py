@@ -517,21 +517,38 @@ def _parse_slurm_mem_bytes(raw_value):
     text = str(raw_value).strip()
     if not text:
         return None
-    multipliers = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}
-    suffix = text[-1].lower()
-    if suffix in multipliers:
-        scale = multipliers[suffix]
-        text = text[:-1].strip()
-    else:
-        # SLURM_MEM_PER_NODE and SLURM_MEM_PER_CPU are reported in MiB by default.
-        scale = 1024 ** 2
+    lower = text.lower()
+    suffix_multipliers = (
+        ("kib", 1024),
+        ("mib", 1024 ** 2),
+        ("gib", 1024 ** 3),
+        ("tib", 1024 ** 4),
+        ("kb", 1024),
+        ("mb", 1024 ** 2),
+        ("gb", 1024 ** 3),
+        ("tb", 1024 ** 4),
+        ("k", 1024),
+        ("m", 1024 ** 2),
+        ("g", 1024 ** 3),
+        ("t", 1024 ** 4),
+    )
+    # SLURM_MEM_PER_NODE and SLURM_MEM_PER_CPU are reported in MiB by default.
+    scale = 1024 ** 2
+    for suffix, mult in suffix_multipliers:
+        if lower.endswith(suffix):
+            scale = mult
+            text = text[:-len(suffix)].strip()
+            break
     try:
         amount = float(text)
     except ValueError:
         return None
     if not np.isfinite(amount) or amount <= 0:
         return None
-    return int(amount * scale)
+    scaled = amount * scale
+    if not np.isfinite(scaled) or scaled <= 0:
+        return None
+    return int(scaled)
 
 
 def _slurm_memory_limits(host_total, environ=None):
@@ -545,7 +562,8 @@ def _slurm_memory_limits(host_total, environ=None):
                 raw_cpus = env.get(key)
                 if raw_cpus:
                     try:
-                        parsed = int(str(raw_cpus).split("(", 1)[0].strip())
+                        token = str(raw_cpus).split("(", 1)[0].split(",", 1)[0].strip()
+                        parsed = int(token)
                         if parsed > 0:
                             cpus = parsed
                             break
@@ -1295,18 +1313,40 @@ class _WindowSlabPrefetcher(threading.Thread):
         self._req = queue.Queue(maxsize=1)
         self._done = queue.Queue()
         self._stop = threading.Event()
+        self._ready = threading.Event()
+        self._fatal_error = None
         self._pending = False
 
     def submit(self, slot, indices):
         if self._pending:
             raise RuntimeError("A slab prefetch is already in flight.")
+        if self._fatal_error is not None:
+            raise self._fatal_error
+        if self._stop.is_set() or not self.is_alive():
+            raise RuntimeError("Window slab prefetcher thread is not running.")
         self._pending = True
         self._req.put((int(slot), list(indices)))
 
     def wait_result(self):
         if not self._pending:
             return None
-        slot, slab_map, read_count, read_bytes, error = self._done.get()
+        while True:
+            try:
+                slot, slab_map, read_count, read_bytes, error = self._done.get(timeout=0.1)
+                break
+            except queue.Empty:
+                if self._fatal_error is not None:
+                    self._pending = False
+                    raise self._fatal_error
+                if not self.is_alive():
+                    try:
+                        slot, slab_map, read_count, read_bytes, error = self._done.get_nowait()
+                        break
+                    except queue.Empty:
+                        self._pending = False
+                        if self._fatal_error is not None:
+                            raise self._fatal_error
+                        raise RuntimeError("Window slab prefetcher thread exited unexpectedly.")
         self._pending = False
         if error is not None:
             raise error
@@ -1316,6 +1356,7 @@ class _WindowSlabPrefetcher(threading.Thread):
         try:
             with h5py.File(self._store.path, "r", libver="latest", swmr=True) as hf:
                 group = hf["embeddings"]
+                self._ready.set()
                 while not self._stop.is_set():
                     try:
                         item = self._req.get(timeout=0.05)
@@ -1352,6 +1393,8 @@ class _WindowSlabPrefetcher(threading.Thread):
                     except BaseException as error:
                         self._done.put((slot, None, 0, 0, error))
         except BaseException as error:
+            self._fatal_error = error
+            self._ready.set()
             if self._pending:
                 self._done.put((-1, None, 0, 0, error))
 
@@ -1522,8 +1565,13 @@ class EmbeddingTileStore:
         self._active_slab_slot = -1
         self._active_slab_map = {}
         if slab_rows_cap > 0:
-            self._prefetcher = _WindowSlabPrefetcher(self, self._slab_bufs)
-            self._prefetcher.start()
+            prefetcher = _WindowSlabPrefetcher(self, self._slab_bufs)
+            self._prefetcher = prefetcher
+            prefetcher.start()
+            ready = prefetcher._ready.wait(timeout=30.0)
+            if not ready or prefetcher._fatal_error is not None or not prefetcher.is_alive():
+                self.clear_window()
+                return False
         return True
 
     def load_anchor(self, indices):
@@ -1915,6 +1963,7 @@ class WindowedPairSession:
         n = len(self.safe_headers)
         self._key_stages = []
         if keys.size == 0 or n == 0:
+            self._pending_keys = None
             self._anchor_rows_cap = 0
             self._slab_rows_cap = 0
             return
@@ -1933,7 +1982,9 @@ class WindowedPairSession:
             active.tolist(),
             key=lambda idx: (0 if int(deg[idx]) >= hub_cut else 1, -int(deg[idx]) if int(deg[idx]) >= hub_cut else idx),
         )
+        del deg, active
         anchors = _byte_partition_indices(order, self.store.source_bytes, self.anchor_bytes)
+        del order
 
         anchor_of = np.full(n, -1, dtype=np.int32)
         for a_idx, seqs in enumerate(anchors):
@@ -1941,17 +1992,24 @@ class WindowedPairSession:
 
         au = anchor_of[u]
         av = anchor_of[v]
+        del u, v
         a_lo = np.minimum(au, av)
         a_hi = np.maximum(au, av)
+        del au, av
 
         # Group all pending keys by their lower anchor in one O(E log E) sort.
         sort_idx = np.argsort(a_lo, kind="stable")
         keys_sorted = keys[sort_idx]
+        self._pending_keys = None
+        del keys
         a_lo_s = a_lo[sort_idx]
+        del a_lo
         a_hi_s = a_hi[sort_idx]
+        del a_hi, sort_idx
 
         starts = np.searchsorted(a_lo_s, np.arange(len(anchors)), side="left")
         ends = np.searchsorted(a_lo_s, np.arange(len(anchors)), side="right")
+        del a_lo_s
 
         max_anchor_rows = 0
         max_slab_rows = 0
@@ -1969,6 +2027,7 @@ class WindowedPairSession:
             sv = stage_keys % n
             in_anchor = np.concatenate((su[anchor_of[su] == a_idx], sv[anchor_of[sv] == a_idx]))
             active_anchor = np.unique(in_anchor).tolist()
+            del su, sv, in_anchor
             max_anchor_rows = max(max_anchor_rows, _rows_for_indices(self.store, active_anchor))
 
             # Order diagonal keys cleanly by (u, v).
@@ -1981,6 +2040,7 @@ class WindowedPairSession:
                 eu = ext_keys // n
                 ev = ext_keys % n
                 ext_end = np.where(anchor_of[eu] == a_idx, ev, eu)
+                del eu, ev
                 unique_ext = np.unique(ext_end).tolist()
                 slab_groups = _byte_partition_indices(
                     unique_ext, self.store.source_bytes, self.slab_bytes
@@ -1990,17 +2050,21 @@ class WindowedPairSession:
                     slab_of[sl_seqs] = sl_idx
                     max_slab_rows = max(max_slab_rows, _rows_for_indices(self.store, sl_seqs))
                 ext_slab_ids = slab_of[ext_end]
+                del ext_end, slab_of
                 sl_order = np.argsort(ext_slab_ids, kind="stable")
                 ext_sorted = ext_keys[sl_order]
                 ext_sid_sorted = ext_slab_ids[sl_order]
+                del ext_slab_ids, sl_order, ext_keys
                 sl_starts = np.searchsorted(ext_sid_sorted, np.arange(len(slab_groups)), side="left")
                 sl_ends = np.searchsorted(ext_sid_sorted, np.arange(len(slab_groups)), side="right")
+                del ext_sid_sorted
                 for sl_seqs, sl_s, sl_e in zip(slab_groups, sl_starts.tolist(), sl_ends.tolist()):
                     if sl_s < sl_e:
                         slabs.append((sl_seqs, ext_sorted[sl_s:sl_e]))
 
             self._key_stages.append((active_anchor, diag_keys, slabs))
 
+        del keys_sorted, a_hi_s, anchor_of
         self._anchor_rows_cap = max_anchor_rows
         self._slab_rows_cap = max_slab_rows
 
@@ -2143,6 +2207,8 @@ class WindowedPairSession:
                 continue
 
             active_anchor = (np.flatnonzero(row_active) + r0).tolist()
+            if self._window_enabled and not self.store.window_active:
+                self._window_enabled = False
             if self._window_enabled:
                 self.store.load_anchor(active_anchor)
                 self.anchors_loaded += 1
@@ -2154,6 +2220,8 @@ class WindowedPairSession:
             if diag_count > 0 and (not packed_slabs or diag_count >= merge_diag_threshold):
                 yield from self._chunk_pair_tuples(self._iter_mask_diag_tuples(anchor_blocks))
             elif diag_count > 0 and packed_slabs:
+                if self._window_enabled and not self.store.window_active:
+                    self._window_enabled = False
                 if self._window_enabled:
                     self.store.activate_prefetched_slab()
                     self.slabs_loaded += 1
@@ -2168,6 +2236,8 @@ class WindowedPairSession:
                 start_slab = 1
 
             for k in range(start_slab, len(packed_slabs)):
+                if self._window_enabled and not self.store.window_active:
+                    self._window_enabled = False
                 if self._window_enabled:
                     self.store.activate_prefetched_slab()
                     self.slabs_loaded += 1
@@ -2180,6 +2250,8 @@ class WindowedPairSession:
     def _iter_key_batches(self):
         merge_diag_threshold = min(self.batch_size, 16384)
         for active_anchor, diag_keys, slabs in self._key_stages:
+            if self._window_enabled and not self.store.window_active:
+                self._window_enabled = False
             if self._window_enabled:
                 self.store.load_anchor(active_anchor)
                 self.anchors_loaded += 1
@@ -2191,6 +2263,8 @@ class WindowedPairSession:
             if diag_count > 0 and (not slabs or diag_count >= merge_diag_threshold):
                 yield from self._chunk_pair_tuples(self._keys_to_tuples(diag_keys))
             elif diag_count > 0 and slabs:
+                if self._window_enabled and not self.store.window_active:
+                    self._window_enabled = False
                 if self._window_enabled:
                     self.store.activate_prefetched_slab()
                     self.slabs_loaded += 1
@@ -2202,6 +2276,8 @@ class WindowedPairSession:
                 start_slab = 1
 
             for k in range(start_slab, len(slabs)):
+                if self._window_enabled and not self.store.window_active:
+                    self._window_enabled = False
                 if self._window_enabled:
                     self.store.activate_prefetched_slab()
                     self.slabs_loaded += 1

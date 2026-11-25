@@ -2106,11 +2106,15 @@ def run_injection():
 
         window_device = None
         if manual_candidate is not None:
-            if not manual_candidate.is_cpu:
+            if not manual_candidate.is_cpu and "tiled" in _execution_variants(manual_candidate):
                 window_device = manual_candidate.device
         else:
             window_device = next(
-                (c.device for c in avail_devices if not c.is_cpu),
+                (
+                    c.device
+                    for c in avail_devices
+                    if not c.is_cpu and "tiled" in _execution_variants(c)
+                ),
                 None,
             )
         window_budgets = (
@@ -2195,8 +2199,21 @@ def run_injection():
             ) as window_session:
                 batch_iter = window_session.iter_batches()
                 first_batch = next(batch_iter, [])
+                benchmark_batch = first_batch
+                min_bench = min(64, int(BATCH_SIZE), int(num_tasks))
+                if 0 < len(benchmark_batch) < min_bench:
+                    seen_bench = {(u, v) for u, v, _, _ in benchmark_batch}
+                    target_bench = min(int(BATCH_SIZE), int(num_tasks))
+                    benchmark_batch = list(benchmark_batch)
+                    for task in iter_pending_tasks():
+                        pair = (task[0], task[1])
+                        if pair not in seen_bench:
+                            seen_bench.add(pair)
+                            benchmark_batch.append(task)
+                            if len(benchmark_batch) >= target_bench:
+                                break
                 ranked_plans = _benchmark_injection_plans(
-                    first_batch,
+                    benchmark_batch,
                     WORKERS,
                     NEW_EMBEDDINGS,
                     embedding_store,

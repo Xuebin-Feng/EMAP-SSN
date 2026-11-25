@@ -612,6 +612,8 @@ class PartialRAMWindowTests(unittest.TestCase):
             fake_proc.memory_info.return_value = mock.Mock(rss=4 * gib)
             with mock.patch("psutil.virtual_memory", return_value=host_mem), \
                  mock.patch("psutil.Process", return_value=fake_proc), \
+                 mock.patch.object(engine, "_cgroup_v2_limits", return_value=None), \
+                 mock.patch.object(engine, "_cgroup_v1_limits", return_value=None), \
                  mock.patch.dict(os.environ, {"SLURM_MEM_PER_NODE": "32768"}, clear=False):
                 self.assertEqual(engine.system_memory_bytes(), (32 * gib, 28 * gib))
                 self.assertEqual(engine.resolve_host_cache_bytes("auto"), 20 * gib)
@@ -974,6 +976,471 @@ class PartialRAMWindowTests(unittest.TestCase):
                 align_tool.run_job_distributor()
         self.assertTrue(window_active_during_batch)
         self.assertTrue(all(not active for active in window_active_during_batch))
+
+    def test_prefetcher_startup_hdf5_failure_falls_back_and_never_hangs(self):
+        """D-HI-1: HDF5 open failure in _WindowSlabPrefetcher never hangs submit() or wait_result()."""
+        lengths = [64] * 12
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, lengths, dim=32, dtype=np.float16)
+            store = self._store_with_budget(path, headers, 24_000)
+
+            # 1) open_window() waits for prefetcher readiness, detects startup OSError,
+            #    cleans up buffers, and returns False cleanly.
+            with mock.patch.object(
+                engine.h5py, "File", side_effect=OSError("simulated hdf5 open failure")
+            ):
+                opened = store.open_window(anchor_rows_cap=128, slab_rows_cap=128)
+            self.assertFalse(opened)
+            self.assertFalse(store.window_active)
+            self.assertEqual(store.window_cached_bytes, 0)
+            self.assertIsNone(store._prefetcher)
+
+            # 2) Direct _WindowSlabPrefetcher failure before submit() raises on submit()
+            #    and never blocks in wait_result().
+            slab_bufs = [
+                np.empty((128, 32), dtype=np.float16),
+                np.empty((128, 32), dtype=np.float16),
+            ]
+            with mock.patch.object(
+                engine.h5py, "File", side_effect=OSError("cannot open hdf5")
+            ):
+                prefetcher = engine._WindowSlabPrefetcher(store, slab_bufs)
+                prefetcher.start()
+                self.assertTrue(prefetcher._ready.wait(timeout=5.0))
+                prefetcher.join(timeout=5.0)
+                with self.assertRaisesRegex(OSError, "cannot open hdf5"):
+                    prefetcher.submit(0, [0, 1])
+                # Even if _pending were already set when thread exited, wait_result() raises promptly.
+                prefetcher._pending = True
+                with self.assertRaisesRegex(OSError, "cannot open hdf5"):
+                    prefetcher.wait_result()
+                self.assertFalse(prefetcher._pending)
+
+                # Dead thread with no recorded fatal error also raises RuntimeError promptly.
+                prefetcher._fatal_error = None
+                prefetcher._pending = True
+                with self.assertRaises(RuntimeError):
+                    prefetcher.wait_result()
+                self.assertFalse(prefetcher._pending)
+                prefetcher.close()
+
+    def test_streamed_at_matches_upper_strip_s_min_and_lerp_0ulp(self):
+        """D-HI-2 & Low #9: at() == upper_strip(), s_min edge always kept, 0-ULP NumPy 2.x _lerp."""
+        rng = np.random.default_rng(31415)
+        for trial in range(5):
+            n = 60
+            pooled = rng.standard_normal((n, 128)).astype(np.float32)
+            lengths = rng.integers(40, 350, n)
+            sim = Prefilter_Calibration.StreamedPairSimilarity(pooled, lengths, 2.0)
+
+            # Compare every upper-triangle pair from upper_strip() vs at() and rows().
+            rr, cc = np.triu_indices(n, k=1)
+            at_vals = sim.at(rr, cc)
+            strip_vals = []
+            for s, e, blk in sim.iter_upper_blocks():
+                m = sim._upper_mask(s, e, blk.shape[1])
+                strip_vals.append(blk[m])
+            strip_all = np.concatenate(strip_vals)
+            np.testing.assert_array_equal(at_vals, strip_all)
+            full_rows = sim.rows(0, n)
+            np.testing.assert_array_equal(at_vals, full_rows[rr, cc])
+
+            # Network_Injection set_by == "s_min": pick low-similarity old edges so s_min < t'.
+            order = np.argsort(at_vals)
+            edge_idx = order[10:25]  # includes low-similarity edge below 50th percentile
+            edge_u = rr[edge_idx]
+            edge_v = cc[edge_idx]
+            skip = np.zeros(edge_u.size, dtype=bool)
+            cut, s_min, lowest_edge, t_prime, set_by = inject_tool._similarity_cut(
+                sim, edge_u, edge_v, skip, kept_share=0.20
+            )
+            self.assertEqual(set_by, "s_min")
+            u_star = int(edge_u[lowest_edge])
+            v_star = int(edge_v[lowest_edge])
+            star_key = min(u_star, v_star) * n + max(u_star, v_star)
+            keys = sim.upper_keys_at_or_above(s_min)
+            self.assertIn(star_key, set(keys.tolist()), f"trial={trial} dropped s_min edge")
+
+        # Low #9: _finish_bracket / _lerp matches NumPy 2.x np.percentile to 0 ULP (incl. frac >= 0.5).
+        vals = np.array(
+            [0.10000000000000009, 0.30000000000000004, 0.7000000000000001, 0.9999999999999999],
+            dtype=np.float64,
+        )
+        for q in (10.0, 20.0, 33.0, 60.0, 66.6666666667, 75.0, 83.3333333333, 90.0):
+            want = float(np.percentile(vals, q))
+            h = (q / 100.0) * (vals.size - 1)
+            k_lo = int(np.floor(h))
+            k_hi = int(np.ceil(h))
+            frac = h - k_lo
+            got = Prefilter_Calibration.StreamedPairSimilarity._finish_bracket(
+                vals.copy(), 0, k_lo, k_hi, frac
+            )
+            self.assertEqual(got, want, f"q={q}")
+
+        # upper_percentile_and_keys caches _last_threshold_count so count_upper_at_or_above hits cache.
+        sim_c = Prefilter_Calibration.StreamedPairSimilarity(
+            rng.standard_normal((50, 32)).astype(np.float32),
+            rng.integers(50, 200, 50),
+            2.0,
+        )
+        t_val, k_arr = sim_c.upper_percentile_and_keys(75.0)
+        self.assertEqual(sim_c._last_threshold_count, (t_val, int(k_arr.size)))
+        with mock.patch.object(sim_c, "iter_upper_blocks", side_effect=AssertionError("should use cache")):
+            self.assertEqual(sim_c.count_upper_at_or_above(t_val), int(k_arr.size))
+
+    def test_align_midrun_tiled_to_cpu_and_scalar_failover_releases_window_first(self):
+        """Medium #1: Align_Similarity_Matrix releases RAM window BEFORE CPU/scalar failover executes."""
+        lengths = [80] * 16
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, lengths, dim=32, dtype=np.float16)
+            store = self._store_with_budget(path, headers, 32_000)
+            anchor_b, slab_b = engine.plan_windowed_budgets(store)
+            comp = np.zeros((16, 16), dtype=bool)
+            cuda_cand = Hardware_Utils.DeviceCandidate("cuda:0", "CUDA", torch.device("cuda:0"), "cuda")
+            cpu_cand = Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
+            ranked = [
+                Hardware_Utils.BenchmarkResult(cuda_cand, 500.0, lanes=1, variant="tiled"),
+                Hardware_Utils.BenchmarkResult(cpu_cand, 50.0, lanes=1, variant="scalar"),
+            ]
+
+            window_states = []
+
+            def fake_process_batch(*args, **kwargs):
+                window_states.append((kwargs["device"].type, store.window_active))
+                if kwargs["device"].type == "cuda":
+                    raise RuntimeError("simulated mid-run tiled failure")
+
+            with engine.WindowedPairSession.from_masks(
+                store, headers, comp, None, anchor_bytes=anchor_b, slab_bytes=slab_b, batch_size=30
+            ) as window_session:
+                self.assertTrue(store.window_active)
+                with mock.patch.object(align_tool, "DEVICE_SELECTION", "auto"), \
+                     mock.patch.object(align_tool, "process_batch", side_effect=fake_process_batch), \
+                     redirect_stdout(io.StringIO()):
+                    next_idx = align_tool._run_batch_with_ranked_plans(
+                        ranked, 0, [(0, 1, "s000", "s001")], 0, 2, path, "chk",
+                        window_session=window_session,
+                    )
+                self.assertEqual(next_idx, 1)
+                self.assertEqual(window_states, [("cuda", True), ("cpu", False)])
+                self.assertFalse(store.window_active)
+
+            # Also verify internal tiled->scalar OOM fallback inside process_accelerated_tasks.
+            scalar_window_state = []
+
+            def fake_scalar_pipeline(*args, **kwargs):
+                scalar_window_state.append(store.window_active)
+                return [(0, 1, 1.0, 1, 2.0, 1)]
+
+            fake_backend = mock.Mock(device_type="cuda")
+            fake_backend.is_out_of_memory.return_value = True
+            with engine.WindowedPairSession.from_masks(
+                store, headers, comp, None, anchor_bytes=anchor_b, slab_bytes=slab_b, batch_size=30
+            ) as window_session:
+                self.assertTrue(store.window_active)
+                with mock.patch.object(align_tool, "EXECUTION_MODE", "auto"), \
+                     mock.patch.object(align_tool, "tiled_accelerator_support", return_value=(True, "ok")), \
+                     mock.patch.object(align_tool, "get_accelerator_backend", return_value=fake_backend), \
+                     mock.patch.object(align_tool, "cuda_memory_plan", return_value=mock.Mock(matrix_bytes=64 * 1024 * 1024)), \
+                     mock.patch.object(align_tool, "run_tiled_accelerator_pipeline", side_effect=RuntimeError("CUDA out of memory")), \
+                     mock.patch.object(align_tool, "_run_accelerated_pipeline", side_effect=fake_scalar_pipeline), \
+                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    res = align_tool.process_accelerated_tasks(
+                        [(0, 1, "s000", "s001")],
+                        2,
+                        path,
+                        torch.device("cuda:0"),
+                        0,
+                        accelerator_workers=1,
+                        embedding_store=store,
+                        sequence_lengths=lengths,
+                        execution_variant="tiled",
+                        window_session=window_session,
+                    )
+                self.assertEqual(len(res), 1)
+                self.assertEqual(scalar_window_state, [False])
+                self.assertFalse(store.window_active)
+                self.assertFalse(window_session._window_enabled)
+
+    def test_network_injection_skips_window_for_non_tiled_accelerators(self):
+        """Medium #4: Network_Injection must not open a partial-RAM window when only MPS/non-tiled exists."""
+        rng = np.random.default_rng(4242)
+        n_old, n_new = 12, 4
+        n = n_old + n_new
+        old_headers = [f"m{i:02d}" for i in range(n_old)]
+        new_headers = [f"m{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80, 64)).astype(np.float16) for _ in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        mps_cand = Hardware_Utils.DeviceCandidate("mps", "Apple MPS", torch.device("cpu"), "mps")
+        scalar_plan = Hardware_Utils.BenchmarkResult(mps_cand, 200.0, lanes=1, variant="scalar")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            net_dir = os.path.join(tmp, "net")
+            os.makedirs(embed_dir)
+            os.makedirs(net_dir)
+            emb_name = "mps_skip_[esm2_t6_8m]_embeddings.h5"
+            self._make_complete_h5(os.path.join(embed_dir, emb_name), new_headers, arrays)
+            old_name = "old_mps_[esm2_t6_8m]_network.h5"
+            edges = [(i, j) for i in range(n_old) for j in range(i + 1, n_old)]
+            with h5py.File(os.path.join(net_dir, old_name), "w") as hf:
+                hf.attrs["model_name"] = "esm2_t6_8m"
+                hf.attrs["saving_mode"] = "float16"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], dtype=np.float32)
+                hf.attrs["matmul_precision"] = "ieee_fp32"
+                hf.create_dataset("headers", data=np.array(old_headers, dtype=object), dtype=h5py.string_dtype(encoding="utf-8"))
+                hf.create_dataset("seq_lens", data=np.full(n_old, 80, dtype=np.uint16))
+                cnt = len(edges)
+                hf.create_dataset("i", data=np.asarray([e[0] for e in edges], dtype=np.uint16))
+                hf.create_dataset("j", data=np.asarray([e[1] for e in edges], dtype=np.uint16))
+                hf.create_dataset("l_score", data=np.ones(cnt, dtype=np.float32))
+                hf.create_dataset("l_len", data=np.full(cnt, 20, dtype=np.uint16))
+                hf.create_dataset("g_score", data=np.ones(cnt, dtype=np.float32))
+                hf.create_dataset("g_len", data=np.full(cnt, 40, dtype=np.uint16))
+
+            out_buf = io.StringIO()
+            saved_globals = (
+                "_old_seq_set", "_new_seq_set", "_model_name",
+                "RESULTS_DIR", "FINAL_OUTPUT_NET", "CONFIG_FILE",
+                "LOCAL_GAP_P", "GLOBAL_GAP_P",
+            )
+            with mock.patch.multiple(
+                inject_tool,
+                **{k: getattr(inject_tool, k) for k in saved_globals},
+                OLD_NETWORK=old_name,
+                NEW_EMBEDDINGS=emb_name,
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=net_dir,
+                BATCH_SIZE=20,
+                WORKERS=2,
+                HOST_CACHE_GB="auto",
+                DEVICE_SELECTION="auto",
+                EXECUTION_MODE="auto",
+                set_start_method=mock.DEFAULT,
+                _benchmark_injection_plans=mock.Mock(return_value=[scalar_plan]),
+                process_batch=mock.Mock(),
+                compile_final_output=mock.Mock(),
+                plan_windowed_budgets=mock.Mock(side_effect=AssertionError("windowing should not be planned for MPS")),
+            ), mock.patch.object(
+                inject_tool.Hardware_Utils, "get_available_devices", return_value=[mps_cand]
+            ), mock.patch.object(
+                engine, "resolve_host_cache_bytes", return_value=int(total_bytes * 0.4)
+            ), redirect_stdout(out_buf), redirect_stderr(io.StringIO()):
+                inject_tool.run_injection()
+            self.assertNotIn("Activating partial-RAM sliding window", out_buf.getvalue())
+
+    def test_slurm_memory_parsing_suffixes_overflow_and_cpu_lists(self):
+        """Medium #5: _parse_slurm_mem_bytes and _slurm_memory_limits handle overflow, suffixes, and CPU lists."""
+        gib = 1024 ** 3
+        mib = 1024 ** 2
+        kib = 1024
+        tib = 1024 ** 4
+        self.assertIsNone(engine._parse_slurm_mem_bytes("1e308T"))
+        self.assertIsNone(engine._parse_slurm_mem_bytes("0"))
+        self.assertIsNone(engine._parse_slurm_mem_bytes("0GB"))
+        self.assertIsNone(engine._parse_slurm_mem_bytes("-8G"))
+        self.assertIsNone(engine._parse_slurm_mem_bytes("inf"))
+        self.assertIsNone(engine._parse_slurm_mem_bytes("nan"))
+        self.assertEqual(engine._parse_slurm_mem_bytes("16GB"), 16 * gib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("8GiB"), 8 * gib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("8gib"), 8 * gib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("512MB"), 512 * mib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("256MiB"), 256 * mib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("1024KB"), 1024 * kib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("2KiB"), 2 * kib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("1.5TB"), int(1.5 * tib))
+        self.assertEqual(engine._parse_slurm_mem_bytes("2TiB"), 2 * tib)
+        self.assertEqual(engine._parse_slurm_mem_bytes("4096"), 4096 * mib)
+
+        fake_proc = mock.Mock()
+        fake_proc.memory_info.return_value = mock.Mock(rss=2 * gib)
+        with mock.patch("psutil.Process", return_value=fake_proc):
+            # SLURM_CPUS_ON_NODE="4,4" -> 4 CPUs * 4 GiB = 16 GiB (avail 14 GiB)
+            sl_comma = engine._slurm_memory_limits(
+                512 * gib,
+                environ={"SLURM_MEM_PER_CPU": "4GB", "SLURM_CPUS_ON_NODE": "4,4"},
+            )
+            self.assertEqual(sl_comma, (16 * gib, 14 * gib))
+            # SLURM_CPUS_ON_NODE="4(x2)" -> 4 CPUs * 4 GiB = 16 GiB (avail 14 GiB)
+            sl_paren = engine._slurm_memory_limits(
+                512 * gib,
+                environ={"SLURM_MEM_PER_CPU": "4GiB", "SLURM_CPUS_ON_NODE": "4(x2)"},
+            )
+            self.assertEqual(sl_paren, (16 * gib, 14 * gib))
+
+    def test_tiny_prefilter_n_lt_2_bounds_check_and_unsorted_required_keys(self):
+        """Medium #6 & Low #12: n=0/1 prefilter_pair_keys, bounds check in _filter_batch_by_keys, unsorted compile."""
+        # Empty pooled inputs in Prefilter_Calibration
+        empty_dense = Prefilter_Calibration.length_adjusted_similarity(np.zeros((0,), dtype=np.float32), [], 2.0)
+        self.assertEqual(empty_dense.shape, (0, 0))
+        empty_stream = Prefilter_Calibration.StreamedPairSimilarity(np.zeros((0,), dtype=np.float32), [], 2.0)
+        self.assertEqual(empty_stream.shape, (0, 0))
+        self.assertIsNone(empty_stream.upper_percentile(50.0))
+        self.assertEqual(empty_stream.upper_percentile_and_keys(50.0)[1].size, 0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, [50], dim=16, dtype=np.float16)
+            for n_test in (0, 1):
+                for force_streamed in (False, True):
+                    with self.subTest(n=n_test, force_streamed=force_streamed), mock.patch.multiple(
+                        align_tool, FULL_INPUT_HDF5=path, PREFILTER_STRENGTH=50
+                    ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        keys, cut = align_tool.prefilter_pair_keys(
+                            headers[:n_test], [50][:n_test], force_streamed=force_streamed
+                        )
+                    self.assertEqual(keys.dtype, np.int64)
+                    self.assertEqual(keys.size, 0)
+                    self.assertEqual(cut.kept, 0)
+                    self.assertEqual(cut.skipped, 0)
+
+        # _filter_batch_by_keys rejects negative, out-of-bounds, and self-loop indices
+        # even when min(a, b) * n + max(a, b) would otherwise alias a valid key!
+        n = 10
+        req_keys = np.array([2, 13, 24], dtype=np.int64)  # (0, 2), (1, 3), (2, 4)
+        seen = np.zeros(req_keys.size, dtype=bool)
+        # (-1, 12) -> -1*10 + 12 = 2 (aliases (0, 2) without bounds check!)
+        # (0, 13)  -> 0*10 + 13 = 13 (aliases (1, 3) without bounds check!)
+        # (2, 2)   -> self-loop
+        # (1, 3)   -> valid!
+        # (3, 1)   -> duplicate of (1, 3), should be skipped
+        arr_i = np.array([-1, 0, 2, 1, 3, 10, 2], dtype=np.int64)
+        arr_j = np.array([12, 13, 2, 3, 1, 12, 4], dtype=np.int64)
+        kept_idx = align_tool._filter_batch_by_keys(arr_i, arr_j, req_keys, seen, n)
+        np.testing.assert_array_equal(kept_idx, np.array([3, 6], dtype=np.int64))
+        np.testing.assert_array_equal(seen, np.array([False, True, True]))
+
+        # Medium #2: WindowedPairSession frees _pending_keys after _prepare_key_schedule()
+        with tempfile.TemporaryDirectory() as tmp:
+            path2, headers2 = self._make_h5(tmp, [60] * 10, dim=32, dtype=np.float16)
+            store2 = self._store_with_budget(path2, headers2, 20_000)
+            a_b, s_b = engine.plan_windowed_budgets(store2)
+            pkeys = np.array([0 * 10 + 1, 1 * 10 + 2, 2 * 10 + 5], dtype=np.int64)
+            sess = engine.WindowedPairSession.from_pending_keys(
+                store2, headers2, pkeys, anchor_bytes=a_b, slab_bytes=s_b, batch_size=10
+            )
+            self.assertIsNone(sess._pending_keys)
+
+        # Low #12: compile_final_output sorts unsorted required_keys before searchsorted
+        with tempfile.TemporaryDirectory() as tmp:
+            res_dir = os.path.join(tmp, "temp")
+            os.makedirs(res_dir)
+            out_net = os.path.join(tmp, "out.h5")
+            with h5py.File(os.path.join(res_dir, "batch_00000.h5"), "w") as hf:
+                hf.create_dataset("i", data=np.array([0, 1, 2], dtype=np.uint16))
+                hf.create_dataset("j", data=np.array([1, 2, 3], dtype=np.uint16))
+                hf.create_dataset("l_score", data=np.array([1.0, 2.0, 3.0], dtype=np.float32))
+                hf.create_dataset("l_len", data=np.array([5, 6, 7], dtype=np.uint16))
+                hf.create_dataset("g_score", data=np.array([4.0, 5.0, 6.0], dtype=np.float32))
+                hf.create_dataset("g_len", data=np.array([8, 9, 10], dtype=np.uint16))
+            unsorted_keys = np.array([2 * 4 + 3, 0 * 4 + 1], dtype=np.int64)
+            with mock.patch.multiple(
+                align_tool, RESULTS_DIR=res_dir, FINAL_OUTPUT_NET=out_net
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                align_tool.compile_final_output(
+                    ["a", "b", "c", "d"], [10, 10, 10, 10], None, 4, "chk",
+                    "esm2_t6_8m", "float16", [-2.0, 0.0],
+                    required_keys=unsorted_keys,
+                )
+            rows = self._read_network_tuples(out_net)
+            self.assertEqual(sorted((r[0], r[1]) for r in rows), [(0, 1), (2, 3)])
+
+    def test_tiny_first_batch_tops_up_benchmark_sample_without_altering_batches(self):
+        """Medium #3: tiny first_batch on resumed/sparse run tops up benchmark sample cleanly."""
+        rng = np.random.default_rng(7070)
+        n = 24
+        headers = [f"b{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80, 64)).astype(np.float16) for _ in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        cuda_cand = Hardware_Utils.DeviceCandidate("cuda:0", "CUDA", torch.device("cuda:0"), "cuda")
+        tiled_plan = Hardware_Utils.BenchmarkResult(cuda_cand, 1000.0, lanes=1, variant="tiled")
+
+        # Craft sparse keys so Anchor 0 has only 2 diagonal pairs while total pending is 90 pairs.
+        keys_list = [0 * n + 1, 0 * n + 2]
+        for u in range(10, n):
+            for v in range(u + 1, n):
+                keys_list.append(u * n + v)
+        req_keys = np.sort(np.array(keys_list, dtype=np.int64))
+        self.assertGreater(req_keys.size, 80)
+
+        bench_seen_counts = []
+        dispatched_pairs = []
+
+        def fake_bench(tasks, *args, **kwargs):
+            bench_seen_counts.append(len(tasks))
+            return [tiled_plan]
+
+        def fake_run_batch(ranked_plans, active_idx, batch, *args, **kwargs):
+            dispatched_pairs.extend((u, v) for u, v, _, _ in batch)
+            return active_idx
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            net_dir = os.path.join(tmp, "net")
+            os.makedirs(embed_dir)
+            os.makedirs(net_dir)
+            emb_name = "tiny_first_[esm2_t6_8m]_embeddings.h5"
+            self._make_complete_h5(os.path.join(embed_dir, emb_name), headers, arrays)
+            # Force first yielded batch from WindowedPairSession to have only 2 pairs.
+            orig_from_keys = engine.WindowedPairSession.from_pending_keys
+
+            def tiny_first_session(*args, **kwargs):
+                sess = orig_from_keys(*args, **kwargs)
+                orig_iter = sess.iter_batches
+
+                def wrapped_iter():
+                    all_b = list(orig_iter())
+                    flat = [p for b in all_b for p in b]
+                    yield flat[:2]
+                    for start in range(2, len(flat), 40):
+                        yield flat[start:start + 40]
+
+                sess.iter_batches = wrapped_iter
+                return sess
+
+            saved_globals = (
+                "MODEL_NAME", "SEQUENCE_SET", "FULL_INPUT_HDF5",
+                "RESULTS_DIR", "FINAL_OUTPUT_NET",
+                "active_matmul_precision", "active_embedding_store",
+                "active_sequence_lengths",
+            )
+            with mock.patch.multiple(
+                align_tool,
+                **{k: getattr(align_tool, k) for k in saved_globals},
+                INPUT_HDF5=emb_name,
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=net_dir,
+                EDGE_PREFILTERING=True,
+                PREFILTER_STRENGTH=50,
+                BATCH_SIZE=80,
+                WORKERS=2,
+                HOST_CACHE_GB="auto",
+                DEVICE_SELECTION="cuda:0",
+                EXECUTION_MODE="tiled",
+                ACCELERATOR_PRECISION="ieee_fp32",
+                LOCAL_GAP_P=-2.0,
+                GLOBAL_GAP_P=0.0,
+                set_start_method=mock.DEFAULT,
+                _validate_execution_mode_hardware=mock.Mock(),
+                _execution_variants=mock.Mock(return_value=["tiled"]),
+                prefilter_pair_keys=mock.Mock(return_value=(req_keys, align_tool.PrefilterCut(0.5, int(req_keys.size), 0))),
+                _benchmark_processing_plans=mock.Mock(side_effect=fake_bench),
+                _run_batch_with_ranked_plans=mock.Mock(side_effect=fake_run_batch),
+                compile_final_output=mock.Mock(),
+            ), mock.patch.object(
+                align_tool.Hardware_Utils, "get_available_devices", return_value=[cuda_cand]
+            ), mock.patch.object(
+                align_tool.WindowedPairSession, "from_pending_keys", side_effect=tiny_first_session
+            ), mock.patch.object(
+                engine, "resolve_host_cache_bytes", return_value=int(total_bytes * 0.35)
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                align_tool.run_job_distributor()
+
+        self.assertEqual(bench_seen_counts, [80])
+        self.assertEqual(len(dispatched_pairs), req_keys.size)
+        self.assertEqual(
+            sorted(u * n + v for u, v in dispatched_pairs),
+            req_keys.tolist(),
+        )
 
 
 if __name__ == "__main__":

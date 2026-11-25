@@ -962,6 +962,7 @@ def process_accelerated_tasks(
     execution_variant="scalar",
     result_callback=None,
     memory_plan_override=None,
+    window_session=None,
 ):
     """
     Auto-select accelerator concurrency, then run the complete task batch.
@@ -1074,8 +1075,16 @@ def process_accelerated_tasks(
                 f"  > Tiled {backend_label} remained out of memory; "
                 f"using scalar {backend_label}."
             )
+            if window_session is not None:
+                window_session.release_window()
+            elif embedding_store is not None and getattr(embedding_store, "window_active", False):
+                embedding_store.clear_window()
         finally:
             progress.close()
+    if window_session is not None:
+        window_session.release_window()
+    elif embedding_store is not None and getattr(embedding_store, "window_active", False):
+        embedding_store.clear_window()
     return _run_accelerated_pipeline(
         batch_tasks,
         workers,
@@ -1186,23 +1195,33 @@ def _iter_pending_key_tasks(safe_headers, pending_keys, n):
 
 def _filter_batch_by_keys(arr_i, arr_j, required_keys, seen_keys, n):
     """Return in-order indices of batch rows that belong to required_keys and are unseen."""
-    if arr_i.size == 0 or required_keys.size == 0:
+    n = int(n)
+    if arr_i.size == 0 or required_keys.size == 0 or n < 2:
         return np.zeros(0, dtype=np.int64)
     a = np.asarray(arr_i, dtype=np.int64)
     b = np.asarray(arr_j, dtype=np.int64)
-    keys = np.minimum(a, b) * int(n) + np.maximum(a, b)
+    in_bounds = (a >= 0) & (b >= 0) & (a < n) & (b < n) & (a != b)
+    if in_bounds.all():
+        valid_rows = None
+        a_v, b_v = a, b
+    else:
+        valid_rows = np.flatnonzero(in_bounds)
+        if valid_rows.size == 0:
+            return np.zeros(0, dtype=np.int64)
+        a_v, b_v = a[valid_rows], b[valid_rows]
+    keys = np.minimum(a_v, b_v) * n + np.maximum(a_v, b_v)
     pos, valid = _locate_sorted_keys(required_keys, keys)
     cand = valid & ~seen_keys[pos]
-    cand_idx = np.flatnonzero(cand)
-    if cand_idx.size > 1:
-        cand_pos = pos[cand_idx]
+    cand_sub = np.flatnonzero(cand)
+    if cand_sub.size > 1:
+        cand_pos = pos[cand_sub]
         _, first_rel = np.unique(cand_pos, return_index=True)
-        if first_rel.size < cand_idx.size:
+        if first_rel.size < cand_sub.size:
             first_rel.sort()
-            cand_idx = cand_idx[first_rel]
-    if cand_idx.size:
-        seen_keys[pos[cand_idx]] = True
-    return cand_idx
+            cand_sub = cand_sub[first_rel]
+    if cand_sub.size:
+        seen_keys[pos[cand_sub]] = True
+    return cand_sub if valid_rows is None else valid_rows[cand_sub]
 
 
 def _precision_device(candidates):
@@ -2035,12 +2054,20 @@ def _run_batch_with_ranked_plans(
     A keyword ``runner`` (align_pairs_in_memory) replaces process_batch.
     """
     runner = process_kwargs.pop("runner", None) or process_batch
+    window_session = process_kwargs.pop("window_session", None)
     while active_plan_index < len(ranked_plans):
         plan = ranked_plans[active_plan_index]
+        if window_session is not None and (
+            plan.candidate.is_cpu or plan.variant != "tiled"
+        ):
+            window_session.release_window()
+        call_kwargs = dict(process_kwargs)
+        if window_session is not None and runner is process_batch:
+            call_kwargs["window_session"] = window_session
         try:
             runner(
                 *process_args,
-                **process_kwargs,
+                **call_kwargs,
                 device=plan.candidate.device,
                 accelerator_workers=(
                     None if plan.candidate.is_cpu else plan.lanes
@@ -2065,6 +2092,10 @@ def _run_batch_with_ranked_plans(
                     "Every benchmarked alignment processing plan failed."
                 ) from error
             fallback = ranked_plans[active_plan_index]
+            if window_session is not None and (
+                fallback.candidate.is_cpu or fallback.variant != "tiled"
+            ):
+                window_session.release_window()
             cause = error.__cause__ if error.__cause__ is not None else error
             detail = str(cause).strip().splitlines()[0][:200] if str(cause).strip() else ""
             detail_suffix = f" ({detail})" if detail else ""
@@ -2178,6 +2209,7 @@ def process_batch(
     sequence_lengths=None,
     memory_plan_override=None,
     result_writer=None,
+    window_session=None,
 ):
     """Align one batch and publish it as RESULTS_DIR/batch_NNNNN.h5.
 
@@ -2219,6 +2251,7 @@ def process_batch(
                 execution_variant=execution_variant,
                 result_callback=writer,
                 memory_plan_override=memory_plan_override,
+                window_session=window_session,
             )
         else:
             results = process_cpu_tasks(
@@ -2422,13 +2455,23 @@ def scan_existing_batches(
 
     if return_computed_keys:
         key_pieces = []
+        n_int = int(n)
         for bf in batch_files:
             try:
                 with h5py.File(bf, "r") as hf:
                     arr_i = hf["i"][:].astype(np.int64, copy=False)
                     arr_j = hf["j"][:].astype(np.int64, copy=False)
-                    if arr_i.size:
-                        key_pieces.append(np.minimum(arr_i, arr_j) * int(n) + np.maximum(arr_i, arr_j))
+                    if arr_i.size and n_int >= 2:
+                        in_bounds = (
+                            (arr_i >= 0) & (arr_j >= 0)
+                            & (arr_i < n_int) & (arr_j < n_int)
+                            & (arr_i != arr_j)
+                        )
+                        if not in_bounds.all():
+                            arr_i = arr_i[in_bounds]
+                            arr_j = arr_j[in_bounds]
+                        if arr_i.size:
+                            key_pieces.append(np.minimum(arr_i, arr_j) * n_int + np.maximum(arr_i, arr_j))
             except Exception:
                 pass
         computed_keys = (
@@ -2514,6 +2557,11 @@ def prefilter_pair_keys(safe_headers, seq_lens, *, force_streamed=False):
     print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
     n = len(safe_headers)
     total_pairs = n * (n - 1) // 2
+    if n < 2:
+        print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
+        print("  > Fewer than 2 sequences; retaining 0 / 0 pairs (0.00%)")
+        print("-----------------------------------------------------------\n")
+        return np.zeros(0, dtype=np.int64), PrefilterCut(threshold=float("nan"), kept=0, skipped=0)
     use_streamed = bool(force_streamed) or (
         12 * n * n > Prefilter_Calibration.STREAMED_SIMILARITY_BYTES
     )
@@ -2586,6 +2634,8 @@ def compile_final_output(
     use_key_dedup = required_keys is not None
     if use_key_dedup:
         required_keys = np.asarray(required_keys, dtype=np.int64)
+        if required_keys.size > 1 and not bool(np.all(required_keys[1:] > required_keys[:-1])):
+            required_keys = _sorted_unique_int64(required_keys)
         seen_keys = np.zeros(required_keys.size, dtype=bool)
         compiled_mask = None
     else:
@@ -2972,12 +3022,16 @@ def run_job_distributor():
 
         window_device = None
         if manual_candidate is not None:
-            if not manual_candidate.is_cpu:
+            if not manual_candidate.is_cpu and "tiled" in _execution_variants(manual_candidate):
                 window_device = manual_candidate.device
         else:
             avail_candidates = Hardware_Utils.get_available_devices()
             window_device = next(
-                (c.device for c in avail_candidates if not c.is_cpu),
+                (
+                    c.device
+                    for c in avail_candidates
+                    if not c.is_cpu and "tiled" in _execution_variants(c)
+                ),
                 None,
             )
         window_budgets = (
@@ -3022,8 +3076,26 @@ def run_job_distributor():
             with session_cm as window_session:
                 batch_iter = window_session.iter_batches()
                 first_batch = next(batch_iter, [])
+                benchmark_batch = first_batch
+                min_bench = min(64, int(BATCH_SIZE), int(num_tasks))
+                if 0 < len(benchmark_batch) < min_bench:
+                    seen_bench = {(u, v) for u, v, _, _ in benchmark_batch}
+                    extra_iter = (
+                        _iter_pending_key_tasks(safe_headers, pending_keys, n)
+                        if pending_keys is not None
+                        else _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+                    )
+                    target_bench = min(int(BATCH_SIZE), int(num_tasks))
+                    benchmark_batch = list(benchmark_batch)
+                    for task in extra_iter:
+                        pair = (task[0], task[1])
+                        if pair not in seen_bench:
+                            seen_bench.add(pair)
+                            benchmark_batch.append(task)
+                            if len(benchmark_batch) >= target_bench:
+                                break
                 ranked_plans = _benchmark_processing_plans(
-                    first_batch,
+                    benchmark_batch,
                     WORKERS,
                     FULL_INPUT_HDF5,
                     batch_id,
@@ -3059,6 +3131,7 @@ def run_job_distributor():
                             current_model_name,
                             current_saving_mode,
                             current_gap_penalties,
+                            window_session=window_session,
                         )
                         if active_plan_index < len(ranked_plans) and (
                             ranked_plans[active_plan_index].candidate.is_cpu
