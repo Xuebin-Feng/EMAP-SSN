@@ -874,7 +874,7 @@ def is_nice(step):
 
 
 class FastaFilterNamesNodes(unittest.TestCase):
-    """Config's statistics name nodes by the sanitized headers of the FASTA as the user wrote it."""
+    """Config's statistics name the nodes of the FASTA as sanitization keeps it (as Run and the Consistency Check read it)."""
 
     NETWORK = ["alpha_one", "sp|P1|X_(Homo_sapiens)_a_b", "café_three", "delta"]
 
@@ -898,9 +898,55 @@ class FastaFilterNamesNodes(unittest.TestCase):
         mask, missing = self.mask(">café three\nACDE\n".encode("utf-8"))
         self.assertEqual((mask.tolist(), missing), ([False, False, True, False], 0))
 
-    def test_records_sharing_one_sequence_or_none_still_name_every_node(self):
-        mask, missing = self.mask(b">alpha_one\nACDE\n>delta\nACDE\n>caf\xc3\xa9_three\n>sp|P1|X [Homo sapiens] a/b\nACDE\n")
-        self.assertEqual((mask.tolist(), missing), ([True, True, True, True], 0))
+    def names(self, raw_bytes, **options):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "nodes.fasta"
+            path.write_bytes(raw_bytes)
+            return stats.read_fasta_names(str(path), **options)
+
+    def test_two_headers_on_one_sequence_name_only_the_header_sanitization_prefers(self):
+        # Sanitization keeps the longest header of a sequence. The old reader named all three.
+        ids, headers = self.names(b">short\nACDE\n>longer_name\nACDE\n>other\nCDEF\n", report=False)
+        self.assertEqual(headers, {"longer_name", "other"})
+        self.assertEqual(ids, {"longer_name", "other"})
+
+    def test_an_empty_record_names_nothing(self):
+        # Sanitization drops a record with no sequence. The old reader named it.
+        ids, headers = self.names(b">alpha_one\nACDE\n>empty_one\n>delta\nCDEF\n", report=False)
+        self.assertEqual(headers, {"alpha_one", "delta"})
+        self.assertEqual(ids, {"alpha_one", "delta"})
+
+    def test_one_header_on_two_different_sequences_names_x_1_and_x_2(self):
+        # Sanitization renames colliding headers. The old reader named just "X".
+        ids, headers = self.names(b">X\nACDE\n>X\nCDEF\n", report=False)
+        self.assertEqual(headers, {"X_1", "X_2"})
+        self.assertEqual(ids, {"X_1", "X_2"})
+
+    def test_a_set_that_is_not_sanitized_names_what_the_sanitized_set_names_and_keeps_every_node(self):
+        # All three cases at once with odd characters, a byte-order mark and non-ASCII text. A network
+        # built from the sanitized set has exactly these headers; the old reader named extra ones, so the
+        # filter reported nodes the network lacks.
+        from utilities.Sequence_Utils import load_sanitized_fasta
+        raw = ("﻿>short\nACDE\n>longer_name\nACDE\n>empty one\n>X\nCDEF\n>X\nDEFG\n"
+               ">sp|P1|X [Homo sapiens] a/b\nEFGH\n>café three\nFGHI\n").encode("utf-8")
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "mixed.fasta"
+            path.write_bytes(raw)
+            expected, _, _ = load_sanitized_fasta(str(path), report=False)
+            ids, headers = stats.read_fasta_names(str(path), report=False)
+        self.assertEqual(headers, set(expected))
+        self.assertEqual(ids, {header.split()[0] for header in expected})
+        mask, missing = stats.kept_node_mask(list(expected), ids, headers)
+        self.assertEqual((mask.all(), missing), (True, 0))
+
+    def test_the_sanitization_result_is_printed_for_a_changed_set_and_nothing_for_a_clean_one(self):
+        # As the Consistency Check does. The old reader printed nothing at all.
+        for raw, expected in ((b">short\nACDE\n>longer_name\nACDE\n", True), (b">alpha_one\nACDE\n>delta\nCDEF\n", False)):
+            with self.subTest(changed=expected):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.names(raw)
+                self.assertEqual("FASTA sanitization result" in out.getvalue(), expected, out.getvalue())
 
     def test_a_fasta_naming_a_sequence_the_network_lacks_is_still_counted_missing(self):
         mask, missing = self.mask(b">alpha_one\nACDE\n>nowhere else\nCDEF\n>also_absent\nDEFG\n")

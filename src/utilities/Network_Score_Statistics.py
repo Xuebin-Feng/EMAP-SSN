@@ -109,19 +109,19 @@ def count_at_least(sorted_scores, cutoffs):
 # --- Nodes ----------------------------------------------------------------------------
 
 
-def read_fasta_names(fasta_path):
-    """The ids and the full headers of a FASTA file's records, sanitized as a network stores them.
+def read_fasta_names(fasta_path, *, report=True):
+    """The ids and the full headers of the records a FASTA file keeps once it is sanitized.
 
-    The file is read as ``read_fasta`` reads it for the Viewer (a byte-order mark and non-ASCII
-    UTF-8 are fine) and each header is sanitized on its own, so a FASTA as the user wrote it names
-    the same nodes as the network. This is a filter by name: records are not merged by sequence,
-    dropped when empty or renamed when headers collide. For a FASTA with duplicate or empty
-    sequences the Viewer's own loader (``load_sanitized_fasta``) keeps fewer records than this
-    names.
+    The set is read through ``load_sanitized_fasta``, as Run, the Consistency Check and the Viewer
+    read it: headers cleaned, records with the same sequence merged, empty records dropped and
+    colliding headers renamed (``X_1``, ``X_2``). A set that is not sanitized therefore names the
+    same nodes as the network built from it. The "FASTA sanitization result" block is printed when
+    the set was changed, and nothing otherwise (``report``).
     """
-    from utilities.Sequence_Utils import read_fasta, sanitize_header
+    from utilities.Sequence_Utils import load_sanitized_fasta
 
-    headers = {sanitize_header(header)[0] for header in read_fasta(fasta_path)[0]}
+    headers, _, _ = load_sanitized_fasta(fasta_path, report=report)
+    headers = set(headers)
     return {header.split()[0] for header in headers if header.split()}, headers
 
 

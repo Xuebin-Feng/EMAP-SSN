@@ -91,7 +91,9 @@ class StatisticsWindowTests(unittest.TestCase):
         self.select("all.fasta", "network.h5")
 
     def write_fasta(self, name, nodes, extra=()):
-        text = "".join(f">n{index}\nACDE\n" for index in nodes) + "".join(f">{name}\nACDE\n" for name in extra)
+        # Every record has a sequence of its own (sanitization merges records that share one).
+        text = "".join(f">n{index}\nACDE{'K' * (index + 1)}\n" for index in nodes)
+        text += "".join(f">{label}\nACDE{'W' * (position + 1)}\n" for position, label in enumerate(extra))
         (self.work / name).write_text(text, encoding="utf-8")
 
     def select(self, fasta, network):
@@ -240,6 +242,26 @@ class StatisticsWindowTests(unittest.TestCase):
             "Error during network statistics calculation: FASTA file is NOT a strict subset of the "
             "network file. The network lacks 2 sequences.",
         )
+
+    def test_a_set_that_is_not_sanitized_is_read_as_run_and_the_consistency_check_read_it(self):
+        # Two headers on one sequence (n0, n0_long), an empty record, and one header on two sequences (n2):
+        # sanitization keeps n0_long, n1, n2_1, n2_2 and n3, which is what the network stores. The old reader
+        # named n0, empty and n2 too, so this ended in the "strict subset" error.
+        rng = np.random.default_rng(3)
+        first = rng.integers(0, 4, size=40)
+        second = rng.integers(first + 1, 5)
+        with h5py.File(self.work / "sanitized.h5", "w") as network:
+            network.attrs["model_name"] = "BLAST"
+            network.create_dataset("headers", data=[name.encode() for name in ("n0_long", "n1", "n2_1", "n2_2", "n3")])
+            network.create_dataset("i", data=first.astype(np.uint16))
+            network.create_dataset("j", data=second.astype(np.uint16))
+            network.create_dataset("score", data=(rng.random(40) * 40).astype(np.float32))
+        (self.work / "raw.fasta").write_text(
+            ">n0\nACDEK\n>n0_long\nACDEK\n>n1\nCCCCK\n>empty\n>n2\nDDDDK\n>n2\nEEEEK\n>n3\nFFFFK\n", encoding="utf-8")
+        self.select("raw.fasta", "sanitized.h5")
+        self.finish(self.start_run())
+        self.assertEqual(self.panel(), "Network statistics computed successfully.")
+        self.assertIn("Total Nodes Processed: 5", self.report())
 
     def test_a_missing_fasta_file_counts_every_node(self):
         # run_statistics used to fail here (the node count came from the FASTA's block).
