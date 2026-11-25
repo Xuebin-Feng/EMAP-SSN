@@ -1162,6 +1162,49 @@ def _first_pending_pairs(safe_headers, computed_mask, required_mask, num_tasks, 
     ))
 
 
+def _sorted_unique_int64(values):
+    arr = np.asarray(values, dtype=np.int64)
+    return np.unique(arr) if arr.size else np.zeros(0, dtype=np.int64)
+
+
+def _locate_sorted_keys(sorted_keys, needles):
+    needles = np.asarray(needles, dtype=np.int64)
+    if sorted_keys.size == 0:
+        return np.zeros(needles.shape, dtype=np.int64), np.zeros(needles.shape, dtype=bool)
+    pos = np.searchsorted(sorted_keys, needles)
+    np.minimum(pos, sorted_keys.size - 1, out=pos)
+    return pos, sorted_keys[pos] == needles
+
+
+def _iter_pending_key_tasks(safe_headers, pending_keys, n):
+    """Yield canonical (r, c, header_r, header_c) tuples from sorted int64 pair keys."""
+    for start in range(0, pending_keys.size, 65536):
+        chunk = pending_keys[start:start + 65536]
+        for row, col in zip((chunk // n).tolist(), (chunk % n).tolist()):
+            yield row, col, safe_headers[row], safe_headers[col]
+
+
+def _filter_batch_by_keys(arr_i, arr_j, required_keys, seen_keys, n):
+    """Return in-order indices of batch rows that belong to required_keys and are unseen."""
+    if arr_i.size == 0 or required_keys.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    a = np.asarray(arr_i, dtype=np.int64)
+    b = np.asarray(arr_j, dtype=np.int64)
+    keys = np.minimum(a, b) * int(n) + np.maximum(a, b)
+    pos, valid = _locate_sorted_keys(required_keys, keys)
+    cand = valid & ~seen_keys[pos]
+    cand_idx = np.flatnonzero(cand)
+    if cand_idx.size > 1:
+        cand_pos = pos[cand_idx]
+        _, first_rel = np.unique(cand_pos, return_index=True)
+        if first_rel.size < cand_idx.size:
+            first_rel.sort()
+            cand_idx = cand_idx[first_rel]
+    if cand_idx.size:
+        seen_keys[pos[cand_idx]] = True
+    return cand_idx
+
+
 def _precision_device(candidates):
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
     if manual is not None:
@@ -2240,14 +2283,16 @@ def scan_existing_batches(
     gap_penalties,
     computed_mask,
     requested_matmul_precision=None,
+    return_computed_keys=False,
 ):
+    empty_keys = np.zeros(0, dtype=np.int64)
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR, exist_ok=True)
-        return None
+        return (None, empty_keys) if return_computed_keys else None
     
     batch_files = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
     if not batch_files:
-        return None
+        return (None, empty_keys) if return_computed_keys else None
 
     mismatches = []
     found_attrs = {
@@ -2373,7 +2418,25 @@ def scan_existing_batches(
         # Re-initialize clean working directory
         os.makedirs(RESULTS_DIR, exist_ok=True)
         print(f"  > Initialized fresh calculation directory: '{RESULTS_DIR}'\n")
-        return None
+        return (None, empty_keys) if return_computed_keys else None
+
+    if return_computed_keys:
+        key_pieces = []
+        for bf in batch_files:
+            try:
+                with h5py.File(bf, "r") as hf:
+                    arr_i = hf["i"][:].astype(np.int64, copy=False)
+                    arr_j = hf["j"][:].astype(np.int64, copy=False)
+                    if arr_i.size:
+                        key_pieces.append(np.minimum(arr_i, arr_j) * int(n) + np.maximum(arr_i, arr_j))
+            except Exception:
+                pass
+        computed_keys = (
+            _sorted_unique_int64(np.concatenate(key_pieces))
+            if key_pieces
+            else empty_keys
+        )
+        return established_precision, computed_keys
 
     # If all existing batches match current settings perfectly, populate computed_mask
     for bf in batch_files:
@@ -2440,6 +2503,30 @@ def prefilter_pairs(safe_headers, seq_lens):
     return required_mask, PrefilterCut(threshold=threshold, kept=num_kept, skipped=skipped)
 
 
+def prefilter_pair_keys(safe_headers, seq_lens):
+    """Memory-bounded Edge Pre-filtering returning sorted int64 pair keys (no N x N arrays)."""
+    print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
+    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
+        similarity = Prefilter_Calibration.streamed_pair_similarity(
+            hf["embeddings"],
+            safe_headers,
+            seq_lens,
+            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
+        )
+    n = len(safe_headers)
+    total_pairs = n * (n - 1) // 2
+    threshold, required_keys = similarity.upper_percentile_and_keys(PREFILTER_STRENGTH)
+    del similarity
+    num_kept = int(required_keys.size)
+    skipped = total_pairs - num_kept
+
+    print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
+    print(f"  > Adjusted Similarity Threshold: {threshold:.6f}")
+    print(f"  > Retaining {num_kept} / {total_pairs} pairs ({100.0 * num_kept / total_pairs:.2f}%)")
+    print("-----------------------------------------------------------\n")
+    return required_keys, PrefilterCut(threshold=threshold, kept=num_kept, skipped=skipped)
+
+
 def compile_final_output(
     headers,
     seq_lens,
@@ -2450,6 +2537,7 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
     matmul_precision="ieee_fp32",
+    required_keys=None,
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -2463,8 +2551,15 @@ def compile_final_output(
     
     batch_files = sorted(glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5")))
     
-    # We use a 2D mask to track which pairs are successfully written to avoid duplicates
-    compiled_mask = np.zeros((n, n), dtype=bool)
+    use_key_dedup = required_keys is not None
+    if use_key_dedup:
+        required_keys = np.asarray(required_keys, dtype=np.int64)
+        seen_keys = np.zeros(required_keys.size, dtype=bool)
+        compiled_mask = None
+    else:
+        seen_keys = None
+        # We use a 2D mask to track which pairs are successfully written to avoid duplicates
+        compiled_mask = np.zeros((n, n), dtype=bool)
     
     # First Pass: Count the total number of unique, valid edges to write
     total_edges = 0
@@ -2473,6 +2568,11 @@ def compile_final_output(
             with h5py.File(bf, "r") as hf:
                 arr_i = hf["i"][:]
                 arr_j = hf["j"][:]
+
+                if use_key_dedup:
+                    kept_idx = _filter_batch_by_keys(arr_i, arr_j, required_keys, seen_keys, n)
+                    total_edges += int(kept_idx.size)
+                    continue
                 
                 # Filter out elements that do not pass pre-filtering
                 if required_mask is not None:
@@ -2497,8 +2597,11 @@ def compile_final_output(
     print(f"Saving Combined Scores to {FINAL_OUTPUT_NET} (Total unique edges: {total_edges})...")
     os.makedirs(os.path.dirname(FINAL_OUTPUT_NET), exist_ok=True)
     
-    # Reset compiled_mask for the actual write pass
-    compiled_mask.fill(False)
+    # Reset deduplication tracker for the actual write pass
+    if use_key_dedup:
+        seen_keys.fill(False)
+    else:
+        compiled_mask.fill(False)
     
     # Publish only a fully merged network: the job skips work whenever the
     # final file exists, so a partial one would be reused as complete.
@@ -2517,6 +2620,9 @@ def compile_final_output(
             model_name,
             gap_penalties,
             matmul_precision,
+            required_keys=required_keys,
+            seen_keys=seen_keys,
+            n=n,
         )
         os.replace(partial_output, FINAL_OUTPUT_NET)
     except BaseException:
@@ -2542,6 +2648,9 @@ def _merge_batches_into(
     model_name,
     gap_penalties,
     matmul_precision,
+    required_keys=None,
+    seen_keys=None,
+    n=None,
 ):
     with h5py.File(output_path, "w") as hf_out:
         if current_checksum is not None:
@@ -2563,12 +2672,29 @@ def _merge_batches_into(
         hf_out.create_dataset("g_score", shape=(total_edges,), dtype=np.float32)
         hf_out.create_dataset("g_len", shape=(total_edges,), dtype=np.uint16)
         
+        use_key_dedup = required_keys is not None and seen_keys is not None
+        num_seqs = len(headers) if n is None else int(n)
         curr_idx = 0
         for bf in tqdm(batch_files, desc="Merging batches"):
             try:
                 with h5py.File(bf, "r") as hf_in:
                     arr_i = hf_in["i"][:]
                     arr_j = hf_in["j"][:]
+
+                    if use_key_dedup:
+                        kept_idx = _filter_batch_by_keys(arr_i, arr_j, required_keys, seen_keys, num_seqs)
+                        n_write = int(kept_idx.size)
+                        if n_write == 0:
+                            continue
+                        end_idx = curr_idx + n_write
+                        hf_out["i"][curr_idx:end_idx] = arr_i[kept_idx]
+                        hf_out["j"][curr_idx:end_idx] = arr_j[kept_idx]
+                        hf_out["l_score"][curr_idx:end_idx] = hf_in["l_score"][:][kept_idx]
+                        hf_out["l_len"][curr_idx:end_idx] = hf_in["l_len"][:][kept_idx]
+                        hf_out["g_score"][curr_idx:end_idx] = hf_in["g_score"][:][kept_idx]
+                        hf_out["g_len"][curr_idx:end_idx] = hf_in["g_len"][:][kept_idx]
+                        curr_idx = end_idx
+                        continue
                     
                     uncompiled = ~compiled_mask[arr_i, arr_j]
                     if required_mask is not None:
@@ -2660,13 +2786,11 @@ def run_job_distributor():
     n = len(headers)
     total_pairs = (n * (n - 1)) // 2
     
-    # Prefiltering logic
+    # Prefiltering logic: sparse runs use compact int64 pair keys (no N x N masks).
     required_mask = None
+    required_keys = None
     if EDGE_PREFILTERING and PREFILTER_STRENGTH > 0 and n >= 2:
-        required_mask, _cut = prefilter_pairs(safe_headers, seq_lens)
-
-    # Allocate computed mask
-    computed_mask = np.zeros((n, n), dtype=bool)
+        required_keys, _cut = prefilter_pair_keys(safe_headers, seq_lens)
 
     # Calculate checksum of the input embedding file to validate cache
     print("Calculating checksum of input embedding file...")
@@ -2674,15 +2798,30 @@ def run_job_distributor():
     print(f"  > Checksum: {current_checksum}")
 
     # Scan existing batches for already computed pairs
-    cached_precision = scan_existing_batches(
-        n,
-        current_checksum,
-        current_model_name,
-        current_saving_mode,
-        current_gap_penalties,
-        computed_mask,
-        requested_matmul_precision=requested_cache_precision,
-    )
+    computed_mask = None
+    pending_keys = None
+    if required_keys is not None:
+        cached_precision, computed_keys = scan_existing_batches(
+            n,
+            current_checksum,
+            current_model_name,
+            current_saving_mode,
+            current_gap_penalties,
+            None,
+            requested_matmul_precision=requested_cache_precision,
+            return_computed_keys=True,
+        )
+    else:
+        computed_mask = np.zeros((n, n), dtype=bool)
+        cached_precision = scan_existing_batches(
+            n,
+            current_checksum,
+            current_model_name,
+            current_saving_mode,
+            current_gap_penalties,
+            computed_mask,
+            requested_matmul_precision=requested_cache_precision,
+        )
 
     # Find the next available batch_id
     existing_batches = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
@@ -2697,13 +2836,20 @@ def run_job_distributor():
     next_batch_id = max(batch_ids) + 1 if batch_ids else 0
 
     # Calculate stats
-    effective_total_pairs = np.sum(required_mask) if required_mask is not None else total_pairs
-    num_computed_and_required = _count_computed_required_pairs(
-        computed_mask,
-        required_mask,
-    )
-
-    num_tasks = effective_total_pairs - num_computed_and_required
+    if required_keys is not None:
+        effective_total_pairs = int(required_keys.size)
+        already_done = _locate_sorted_keys(computed_keys, required_keys)[1]
+        num_computed_and_required = int(np.count_nonzero(already_done))
+        pending_keys = required_keys[~already_done]
+        del already_done, computed_keys
+        num_tasks = int(pending_keys.size)
+    else:
+        effective_total_pairs = total_pairs
+        num_computed_and_required = _count_computed_required_pairs(
+            computed_mask,
+            required_mask,
+        )
+        num_tasks = effective_total_pairs - num_computed_and_required
     print(f"Total Required pairs: {effective_total_pairs}")
     print(f"Already computed pairs: {num_computed_and_required}")
     print(f"Pairs queued for calculation: {num_tasks}")
@@ -2713,11 +2859,17 @@ def run_job_distributor():
         current_batch = []
         batch_id = next_batch_id
         active_plan_index = 0
-        def pending_columns_for_row(row):
-            pending = ~computed_mask[row, row + 1:]
-            if required_mask is not None:
-                pending &= required_mask[row, row + 1:]
-            return np.flatnonzero(pending) + row + 1
+        if pending_keys is not None:
+            def pending_columns_for_row(row):
+                base = int(row) * n
+                low, high = np.searchsorted(pending_keys, (base, base + n))
+                return pending_keys[low:high] - base
+        else:
+            def pending_columns_for_row(row):
+                pending = ~computed_mask[row, row + 1:]
+                if required_mask is not None:
+                    pending &= required_mask[row, row + 1:]
+                return np.flatnonzero(pending) + row + 1
 
         # Preserve the independent precision comparison workload.
         manual_candidate = Hardware_Utils.resolve_device_selection(
@@ -2726,13 +2878,19 @@ def run_job_distributor():
         )
         if manual_candidate is not None and manual_candidate.is_cpu:
             precision_warmup = []
-            precision_timed = _first_pending_pairs(
-                safe_headers, computed_mask, required_mask, num_tasks, 1
-            )
+            if pending_keys is not None:
+                precision_timed = list(islice(_iter_pending_key_tasks(safe_headers, pending_keys, n), 1))
+            else:
+                precision_timed = _first_pending_pairs(
+                    safe_headers, computed_mask, required_mask, num_tasks, 1
+                )
         else:
-            pending_counts = np.zeros(n, dtype=np.int64)
-            for row in range(n - 1):
-                pending_counts[row] = len(pending_columns_for_row(row))
+            if pending_keys is not None:
+                pending_counts = np.bincount(pending_keys // n, minlength=n).astype(np.int64)
+            else:
+                pending_counts = np.zeros(n, dtype=np.int64)
+                for row in range(n - 1):
+                    pending_counts[row] = len(pending_columns_for_row(row))
             accelerator_half, _cpu_half = _benchmark_half_sizes()
             precision_warmup, precision_timed = matched_benchmark_task_halves(
                 safe_headers,
@@ -2807,15 +2965,27 @@ def run_job_distributor():
                 f"(anchor={anchor_b / (1024 ** 3):.2f} GiB, "
                 f"2x slab={2 * slab_b / (1024 ** 3):.2f} GiB)."
             )
-            with WindowedPairSession.from_masks(
-                active_embedding_store,
-                safe_headers,
-                computed_mask,
-                required_mask,
-                anchor_bytes=anchor_b,
-                slab_bytes=slab_b,
-                batch_size=int(BATCH_SIZE),
-            ) as window_session:
+            session_cm = (
+                WindowedPairSession.from_pending_keys(
+                    active_embedding_store,
+                    safe_headers,
+                    pending_keys,
+                    anchor_bytes=anchor_b,
+                    slab_bytes=slab_b,
+                    batch_size=int(BATCH_SIZE),
+                )
+                if pending_keys is not None
+                else WindowedPairSession.from_masks(
+                    active_embedding_store,
+                    safe_headers,
+                    computed_mask,
+                    required_mask,
+                    anchor_bytes=anchor_b,
+                    slab_bytes=slab_b,
+                    batch_size=int(BATCH_SIZE),
+                )
+            )
+            with session_cm as window_session:
                 batch_iter = window_session.iter_batches()
                 first_batch = next(batch_iter, [])
                 ranked_plans = _benchmark_processing_plans(
@@ -2863,7 +3033,11 @@ def run_job_distributor():
                 finally:
                     pbar.close()
         else:
-            pending_iterator = _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+            pending_iterator = (
+                _iter_pending_key_tasks(safe_headers, pending_keys, n)
+                if pending_keys is not None
+                else _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+            )
             first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
             ranked_plans = _benchmark_processing_plans(
                 first_batch,
@@ -2923,6 +3097,9 @@ def run_job_distributor():
     else:
         active_matmul_precision = "ieee_fp32"
 
+    # Free scheduling masks/keys before compiling the final network.
+    del computed_mask, pending_keys
+
     # Compile intermediate HDF5 batches into final output
     compile_final_output(
         headers,
@@ -2934,6 +3111,7 @@ def run_job_distributor():
         current_saving_mode,
         current_gap_penalties,
         active_matmul_precision,
+        required_keys=required_keys,
     )
 
 # %% =======================================

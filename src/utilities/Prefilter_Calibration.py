@@ -20,6 +20,7 @@ This module imports no torch, numba or Qt.
 """
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 from threadpoolctl import threadpool_limits  # pinned in src/requirements.txt
@@ -64,6 +65,11 @@ _MATCH_CHUNK = 8_000_000
 # temporaries of this size, about 100 MB), and values assigned to bands per step in _draw_by_bands.
 _SIMILARITY_BLOCK = 4_000_000
 _BAND_CHUNK = 8_000_000
+# Threshold (bytes of dense 12 * n^2 float32+float64 similarity matrices) above which
+# callers switch automatically from dense pair_similarity to StreamedPairSimilarity.
+STREAMED_SIMILARITY_BYTES = 256 * 1024 * 1024
+_HISTOGRAM_BINS = 65536
+_MAX_BRACKET_VALUES = 4_000_000
 
 
 @dataclass
@@ -160,6 +166,385 @@ def pair_similarity(embeddings, headers, lengths, progress=None):
     names = [header.replace("/", "_").replace("\\", "_") for header in headers]
     pooled = pooled_vectors(embeddings, names, POOLING, progress=progress)
     return length_adjusted_similarity(pooled, lengths, LENGTH_RATIO_POWER)
+
+
+class StreamedPairSimilarity:
+    """Memory-bounded length-adjusted pooled cosine similarity without any N x N matrix.
+
+    Stores only the (n, d) float32 unit-normalized pooled vectors and (n,) int32
+    sequence lengths, streaming row strips of at most ``_SIMILARITY_BLOCK`` cells
+    on demand under single-threaded BLAS. Supports exact streaming percentiles
+    (bit-identical to ``np.percentile`` over the streamed upper triangle) and
+    direct extraction of sorted ``int64`` pair keys ``r * n + c`` (``r < c``).
+    """
+
+    def __init__(self, pooled, seq_lens, power):
+        pooled = np.asarray(pooled, dtype=np.float32)
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1e-8, norms)
+        self.unit = np.ascontiguousarray(pooled / norms, dtype=np.float32)
+        self.lengths = np.asarray(seq_lens, dtype=np.int32)
+        self.power = float(power)
+        self.n = int(self.unit.shape[0])
+        self.shape = (self.n, self.n)
+        self._last_threshold_count = None
+
+    def _upper_block_rows(self):
+        return max(1, _SIMILARITY_BLOCK // max(self.n, 1))
+
+    def _scale_block(self, cos_block, row_lengths, col_lengths):
+        np.clip(cos_block, -1.0, 1.0, out=cos_block)
+        shorter = np.minimum(row_lengths[:, None], col_lengths[None, :])
+        longer = np.maximum(np.maximum(row_lengths[:, None], col_lengths[None, :]), 1)
+        ratio = shorter / longer
+        if self.power != 1.0:
+            ratio = ratio ** self.power
+        return np.multiply(cos_block, ratio, dtype=np.float64)
+
+    def rows(self, start, stop):
+        """Return the (stop - start, n) float64 similarity slice for rows [start, stop)."""
+        start = int(start)
+        stop = int(stop)
+        if stop <= start:
+            return np.empty((0, self.n), dtype=np.float64)
+        with threadpool_limits(limits=1, user_api="blas"):
+            cos = np.dot(self.unit[start:stop], self.unit.T)
+        return self._scale_block(cos, self.lengths[start:stop], self.lengths)
+
+    def upper_strip(self, start, stop):
+        """Return (stop - start, n - start) float64 similarities for cols >= start."""
+        start = int(start)
+        stop = int(stop)
+        if stop <= start:
+            return np.empty((0, max(0, self.n - start)), dtype=np.float64)
+        with threadpool_limits(limits=1, user_api="blas"):
+            cos = np.dot(self.unit[start:stop], self.unit[start:].T)
+        return self._scale_block(cos, self.lengths[start:stop], self.lengths[start:])
+
+    def iter_upper_blocks(self):
+        """Yield ``(start, stop, block)`` covering all upper-triangle entries ``c > r``."""
+        if self.n < 2:
+            return
+        step = self._upper_block_rows()
+        for start in range(0, self.n - 1, step):
+            stop = min(start + step, self.n - 1)
+            yield start, stop, self.upper_strip(start, stop)
+
+    @staticmethod
+    def _upper_mask(start, stop, width):
+        rows_rel = np.arange(stop - start, dtype=np.int64)[:, None]
+        cols_rel = np.arange(width, dtype=np.int64)[None, :]
+        return cols_rel > rows_rel
+
+    def at(self, rows, columns):
+        """Return the 1D float64 length-adjusted similarity at each (row, column) pair."""
+        rows = np.asarray(rows, dtype=np.int64)
+        columns = np.asarray(columns, dtype=np.int64)
+        count = rows.size
+        if count == 0:
+            return np.empty(0, dtype=np.float64)
+        out = np.empty(count, dtype=np.float64)
+        dim = max(1, int(self.unit.shape[1]) if self.unit.ndim == 2 else 1)
+        # Keep temporary (chunk, d) gathers bounded (~32 MiB).
+        chunk = max(1, (8 * 1024 * 1024) // dim)
+        for start in range(0, count, chunk):
+            stop = min(start + chunk, count)
+            r = rows[start:stop]
+            c = columns[start:stop]
+            cos = np.einsum("ij,ij->i", self.unit[r], self.unit[c])
+            np.clip(cos, -1.0, 1.0, out=cos)
+            lr = self.lengths[r]
+            lc = self.lengths[c]
+            shorter = np.minimum(lr, lc)
+            longer = np.maximum(np.maximum(lr, lc), 1)
+            ratio = shorter / longer
+            if self.power != 1.0:
+                ratio = ratio ** self.power
+            out[start:stop] = cos * ratio
+        return out
+
+    def count_upper_at_or_above(self, threshold):
+        """Count upper-triangle pairs (r < c) with similarity >= threshold."""
+        if self.n < 2:
+            return 0
+        threshold = float(threshold)
+        if math.isnan(threshold):
+            return 0
+        if (
+            self._last_threshold_count is not None
+            and self._last_threshold_count[0] == threshold
+        ):
+            return self._last_threshold_count[1]
+        total = 0
+        for start, stop, block in self.iter_upper_blocks():
+            mask = self._upper_mask(start, stop, block.shape[1])
+            mask &= block >= threshold
+            total += int(np.count_nonzero(mask))
+        self._last_threshold_count = (threshold, total)
+        return total
+
+    def upper_keys_at_or_above(self, threshold):
+        """Return sorted int64 pair keys ``r * n + c`` (r < c) with similarity >= threshold."""
+        if self.n < 2:
+            return np.zeros(0, dtype=np.int64)
+        threshold = float(threshold)
+        if math.isnan(threshold):
+            return np.zeros(0, dtype=np.int64)
+        n = self.n
+        pieces = []
+        for start, stop, block in self.iter_upper_blocks():
+            mask = self._upper_mask(start, stop, block.shape[1])
+            mask &= block >= threshold
+            rr, cc = np.nonzero(mask)
+            if rr.size:
+                pieces.append((rr.astype(np.int64) + start) * n + (cc.astype(np.int64) + start))
+        keys = np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.int64)
+        self._last_threshold_count = (threshold, int(keys.size))
+        return keys
+
+    def _find_percentile_bracket(self, q):
+        """Locate exact order-statistic bracket for ``np.percentile(..., q)`` over upper triangle.
+
+        Returns either:
+          - ``("exact", float_value)`` when the percentile is already known exactly, or
+          - ``("bracket", (lo, hi, scale, n_bins, b_lo, b_hi, strictly_below, bracket_count, k_lo, k_hi, frac))``
+            where ``bracket_count <= _MAX_BRACKET_VALUES`` and a single scan collects
+            all elements in bins ``[b_lo, b_hi]`` for exact ``np.partition``.
+        """
+        q = float(q)
+        if not np.isfinite(q) or q < 0.0 or q > 100.0:
+            raise ValueError("Percentiles must be in the range [0, 100].")
+        total = self.n * (self.n - 1) // 2
+        if total == 0:
+            return "exact", None
+
+        h = (q / 100.0) * (total - 1)
+        k_lo = max(0, min(total - 1, int(math.floor(h))))
+        k_hi = max(0, min(total - 1, int(math.ceil(h))))
+        frac = h - k_lo
+
+        # Fast 1-pass shortcuts for exact min (q == 0) and exact max (q == 100).
+        if k_lo == 0 and k_hi == 0:
+            best = None
+            for start, stop, block in self.iter_upper_blocks():
+                vals = block[self._upper_mask(start, stop, block.shape[1])]
+                if np.isnan(vals).any():
+                    return "exact", float("nan")
+                cur = float(vals.min())
+                best = cur if best is None or cur < best else best
+            return "exact", best
+        if k_lo == total - 1 and k_hi == total - 1:
+            best = None
+            for start, stop, block in self.iter_upper_blocks():
+                vals = block[self._upper_mask(start, stop, block.shape[1])]
+                if np.isnan(vals).any():
+                    return "exact", float("nan")
+                cur = float(vals.max())
+                best = cur if best is None or cur > best else best
+            return "exact", best
+
+        lo = -1.0
+        hi = 1.0
+        n_bins = _HISTOGRAM_BINS
+        for _ in range(12):
+            span = hi - lo
+            if span <= 0.0:
+                return "exact", float(lo)
+            scale = n_bins / span
+            hist = np.zeros(n_bins, dtype=np.int64)
+            below = 0
+            in_min = None
+            in_max = None
+            for start, stop, block in self.iter_upper_blocks():
+                vals = block[self._upper_mask(start, stop, block.shape[1])]
+                if np.isnan(vals).any():
+                    return "exact", float("nan")
+                below += int(np.count_nonzero(vals < lo))
+                in_vals = vals[(vals >= lo) & (vals <= hi)]
+                if in_vals.size == 0:
+                    continue
+                cur_min = float(in_vals.min())
+                cur_max = float(in_vals.max())
+                in_min = cur_min if in_min is None or cur_min < in_min else in_min
+                in_max = cur_max if in_max is None or cur_max > in_max else in_max
+                idx = np.floor((in_vals - lo) * scale).astype(np.int64)
+                np.clip(idx, 0, n_bins - 1, out=idx)
+                hist += np.bincount(idx, minlength=n_bins)
+
+            if in_min is not None and in_min == in_max:
+                return "exact", float(in_min)
+
+            cum = below + np.cumsum(hist)
+            b_lo = int(np.searchsorted(cum, k_lo, side="right"))
+            b_hi = int(np.searchsorted(cum, k_hi, side="right"))
+            b_lo = min(b_lo, n_bins - 1)
+            b_hi = min(b_hi, n_bins - 1)
+            strictly_below = below + (int(cum[b_lo - 1] - below) if b_lo > 0 else 0)
+            bracket_count = int(hist[b_lo:b_hi + 1].sum())
+
+            if bracket_count <= _MAX_BRACKET_VALUES:
+                return "bracket", (
+                    lo, hi, scale, n_bins, b_lo, b_hi,
+                    strictly_below, bracket_count, k_lo, k_hi, frac,
+                )
+
+            # Rare edge case: k_lo is the last item of b_lo and k_hi is the first of b_hi
+            # with > _MAX_BRACKET_VALUES items across those two bins -> 1-pass min/max.
+            if b_lo < b_hi:
+                v_lo = None
+                v_hi = None
+                for start, stop, block in self.iter_upper_blocks():
+                    vals = block[self._upper_mask(start, stop, block.shape[1])]
+                    in_vals = vals[(vals >= lo) & (vals <= hi)]
+                    if in_vals.size == 0:
+                        continue
+                    idx = np.floor((in_vals - lo) * scale).astype(np.int64)
+                    np.clip(idx, 0, n_bins - 1, out=idx)
+                    lo_bin_vals = in_vals[idx == b_lo]
+                    if lo_bin_vals.size:
+                        m = float(lo_bin_vals.max())
+                        v_lo = m if v_lo is None or m > v_lo else v_lo
+                    hi_bin_vals = in_vals[idx == b_hi]
+                    if hi_bin_vals.size:
+                        m = float(hi_bin_vals.min())
+                        v_hi = m if v_hi is None or m < v_hi else v_hi
+                return "exact", float(v_lo + frac * (v_hi - v_lo))
+
+            # Massive ties inside a single bin b_lo == b_hi: narrow [lo, hi].
+            step = span / n_bins
+            new_lo = max(lo, lo + b_lo * step - step * 1e-6)
+            new_hi = min(hi, lo + (b_hi + 1) * step + step * 1e-6)
+            if new_hi - new_lo <= 1e-15 * max(1.0, abs(new_lo), abs(new_hi)):
+                # At ULP resolution: at most a handful of distinct float64 values remain.
+                distinct = {}
+                below_ul = 0
+                for start, stop, block in self.iter_upper_blocks():
+                    vals = block[self._upper_mask(start, stop, block.shape[1])]
+                    below_ul += int(np.count_nonzero(vals < new_lo))
+                    in_vals = vals[(vals >= new_lo) & (vals <= new_hi)]
+                    if in_vals.size:
+                        uniq, cnts = np.unique(in_vals, return_counts=True)
+                        for u_val, u_cnt in zip(uniq.tolist(), cnts.tolist()):
+                            distinct[u_val] = distinct.get(u_val, 0) + u_cnt
+                acc = below_ul
+                v_lo = v_hi = None
+                for u_val in sorted(distinct):
+                    acc += distinct[u_val]
+                    if v_lo is None and acc > k_lo:
+                        v_lo = u_val
+                    if v_hi is None and acc > k_hi:
+                        v_hi = u_val
+                        break
+                return "exact", float(v_lo + frac * (v_hi - v_lo))
+            lo, hi = new_lo, new_hi
+
+        return "exact", float(0.5 * (lo + hi))
+
+    @staticmethod
+    def _finish_bracket(buf, strictly_below, k_lo, k_hi, frac):
+        pos_lo = k_lo - strictly_below
+        pos_hi = k_hi - strictly_below
+        if pos_lo == pos_hi:
+            v_lo = float(np.partition(buf, pos_lo)[pos_lo])
+            return v_lo
+        part = np.partition(buf, (pos_lo, pos_hi))
+        v_lo = float(part[pos_lo])
+        v_hi = float(part[pos_hi])
+        return float(v_lo + frac * (v_hi - v_lo))
+
+    def upper_percentile(self, q):
+        """Return the exact q-th percentile (0..100) of upper-triangle similarities, or None if n < 2."""
+        kind, payload = self._find_percentile_bracket(q)
+        if kind == "exact":
+            return payload
+        lo, hi, scale, n_bins, b_lo, b_hi, strictly_below, bracket_count, k_lo, k_hi, frac = payload
+        buf = np.empty(bracket_count, dtype=np.float64)
+        filled = 0
+        for start, stop, block in self.iter_upper_blocks():
+            vals = block[self._upper_mask(start, stop, block.shape[1])]
+            in_vals = vals[(vals >= lo) & (vals <= hi)]
+            if in_vals.size == 0:
+                continue
+            idx = np.floor((in_vals - lo) * scale).astype(np.int64)
+            np.clip(idx, 0, n_bins - 1, out=idx)
+            picked = in_vals[(idx >= b_lo) & (idx <= b_hi)]
+            if picked.size:
+                buf[filled:filled + picked.size] = picked
+                filled += picked.size
+        return self._finish_bracket(buf[:filled], strictly_below, k_lo, k_hi, frac)
+
+    def upper_percentile_and_keys(self, q):
+        """Compute exact percentile ``threshold`` and sorted int64 keys ``>= threshold`` in 2 passes."""
+        kind, payload = self._find_percentile_bracket(q)
+        if kind == "exact":
+            if payload is None:
+                return None, np.zeros(0, dtype=np.int64)
+            return payload, self.upper_keys_at_or_above(payload)
+
+        lo, hi, scale, n_bins, b_lo, b_hi, strictly_below, bracket_count, k_lo, k_hi, frac = payload
+        n = self.n
+        buf = np.empty(bracket_count, dtype=np.float64)
+        filled = 0
+        # Per strip we keep sorted candidate keys (in bracket OR strictly above) plus the
+        # tiny subset of border positions/values so we never need a global sort after Pass 2.
+        strip_records = []
+        for start, stop, block in self.iter_upper_blocks():
+            upper_mask = self._upper_mask(start, stop, block.shape[1])
+            rr_u, cc_u = np.nonzero(upper_mask)
+            if rr_u.size == 0:
+                continue
+            vals = block[rr_u, cc_u]
+            above_hi = vals > hi
+            in_range = (vals >= lo) & (vals <= hi)
+            cand_rel = np.zeros(vals.size, dtype=bool)
+            cand_rel |= above_hi
+            border_rel = np.zeros(vals.size, dtype=bool)
+            if in_range.any():
+                in_pos = np.flatnonzero(in_range)
+                in_vals = vals[in_pos]
+                idx = np.floor((in_vals - lo) * scale).astype(np.int64)
+                np.clip(idx, 0, n_bins - 1, out=idx)
+                ge_lo = idx >= b_lo
+                if ge_lo.any():
+                    cand_rel[in_pos[ge_lo]] = True
+                in_br = ge_lo & (idx <= b_hi)
+                if in_br.any():
+                    br_pos_global = in_pos[in_br]
+                    border_rel[br_pos_global] = True
+                    picked = in_vals[in_br]
+                    buf[filled:filled + picked.size] = picked
+                    filled += picked.size
+            cand_idx = np.flatnonzero(cand_rel)
+            if cand_idx.size == 0:
+                continue
+            cand_keys = (rr_u[cand_idx].astype(np.int64) + start) * n + (
+                cc_u[cand_idx].astype(np.int64) + start
+            )
+            br_local = np.flatnonzero(border_rel[cand_idx])
+            br_vals = vals[cand_idx[br_local]] if br_local.size else None
+            strip_records.append((cand_keys, br_local, br_vals))
+
+        threshold = self._finish_bracket(buf[:filled], strictly_below, k_lo, k_hi, frac)
+        del buf
+        kept_pieces = []
+        for cand_keys, br_local, br_vals in strip_records:
+            if br_vals is not None and br_vals.size:
+                drop_mask = br_vals < threshold
+                if drop_mask.any():
+                    keep = np.ones(cand_keys.size, dtype=bool)
+                    keep[br_local[drop_mask]] = False
+                    cand_keys = cand_keys[keep]
+            if cand_keys.size:
+                kept_pieces.append(cand_keys)
+        keys = np.concatenate(kept_pieces) if kept_pieces else np.zeros(0, dtype=np.int64)
+        return threshold, keys
+
+
+def streamed_pair_similarity(embeddings, headers, lengths, progress=None):
+    """Build a memory-bounded ``StreamedPairSimilarity`` using the shared rule (no N x N matrix)."""
+    names = [header.replace("/", "_").replace("\\", "_") for header in headers]
+    pooled = pooled_vectors(embeddings, names, POOLING, progress=progress)
+    return StreamedPairSimilarity(pooled, lengths, LENGTH_RATIO_POWER)
 
 
 def sample_size(skipped, minimum=None, maximum=None):

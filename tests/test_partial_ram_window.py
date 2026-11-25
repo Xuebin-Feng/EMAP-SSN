@@ -624,6 +624,261 @@ class PartialRAMWindowTests(unittest.TestCase):
                 )
             self.assertEqual(sl, (16 * gib, 12 * gib))
 
+    def test_streamed_pair_similarity_exact_percentile_keys_and_edge_cases(self):
+        import tracemalloc
+
+        rng = np.random.default_rng(2026)
+        n = 140
+        pooled = rng.standard_normal((n, 32)).astype(np.float32)
+        pooled[7] = 0.0  # zero vector
+        lengths = rng.integers(30, 300, n)
+        lengths[11] = 0  # zero length
+
+        # Test normal bracket, tiny bracket forcing refinement, and multiple block sizes.
+        for block, max_br in ((4_000_000, 4_000_000), (140 * 17, 25), (140 * 9, 5)):
+            with self.subTest(block=block, max_br=max_br), mock.patch.multiple(
+                Prefilter_Calibration,
+                _SIMILARITY_BLOCK=block,
+                _MAX_BRACKET_VALUES=max_br,
+            ):
+                sim = Prefilter_Calibration.StreamedPairSimilarity(pooled, lengths, 2.0)
+                # Materialize exact streamed upper triangle to verify 100% bit-exact percentile & keys.
+                upper_vals = []
+                upper_keys = []
+                for s, e, blk in sim.iter_upper_blocks():
+                    m = sim._upper_mask(s, e, blk.shape[1])
+                    rr, cc = np.nonzero(m)
+                    upper_vals.append(blk[rr, cc])
+                    upper_keys.append((rr.astype(np.int64) + s) * n + (cc.astype(np.int64) + s))
+                all_vals = np.concatenate(upper_vals)
+                all_keys = np.concatenate(upper_keys)
+
+                for q in (0.0, 1.5, 25.0, 50.0, 75.0, 95.0, 99.0, 100.0):
+                    want_t = float(np.percentile(all_vals, q))
+                    got_t = sim.upper_percentile(q)
+                    self.assertEqual(got_t, want_t, f"q={q}")
+                    got_t2, got_keys = sim.upper_percentile_and_keys(q)
+                    self.assertEqual(got_t2, want_t, f"q={q}")
+                    want_keys = all_keys[all_vals >= want_t]
+                    np.testing.assert_array_equal(got_keys, want_keys)
+                    self.assertEqual(sim.count_upper_at_or_above(want_t), int(want_keys.size))
+
+                # Also check proximity to dense full-matrix length_adjusted_similarity (<= 1e-6 float32 ULP).
+                dense = Prefilter_Calibration.length_adjusted_similarity(pooled, lengths, 2.0)
+                rr_sample = rng.integers(0, n, size=200)
+                cc_sample = rng.integers(0, n, size=200)
+                np.testing.assert_allclose(
+                    sim.at(rr_sample, cc_sample), dense[rr_sample, cc_sample], atol=1e-6
+                )
+
+        # All-identical vectors (100% ties) and tiny n < 2 edge cases.
+        tied_pooled = np.ones((80, 16), dtype=np.float32)
+        tied_lens = np.full(80, 100, dtype=np.int32)
+        with mock.patch.object(Prefilter_Calibration, "_MAX_BRACKET_VALUES", 10):
+            tied_sim = Prefilter_Calibration.StreamedPairSimilarity(tied_pooled, tied_lens, 2.0)
+            t_tied, k_tied = tied_sim.upper_percentile_and_keys(50.0)
+            self.assertAlmostEqual(t_tied, 1.0, places=6)
+            self.assertEqual(k_tied.size, 80 * 79 // 2)
+
+        single = Prefilter_Calibration.StreamedPairSimilarity(pooled[:1], lengths[:1], 2.0)
+        self.assertIsNone(single.upper_percentile(50.0))
+        self.assertEqual(single.upper_percentile_and_keys(50.0)[1].size, 0)
+
+        # Memory check: N=1500 dense would allocate ~27 MB (12*n^2); streamed stays well below dense.
+        n_mem = 1500
+        p_mem = rng.standard_normal((n_mem, 16)).astype(np.float32)
+        l_mem = rng.integers(50, 200, n_mem)
+        with mock.patch.object(Prefilter_Calibration, "_SIMILARITY_BLOCK", 60_000):
+            tracemalloc.start()
+            try:
+                s_mem = Prefilter_Calibration.StreamedPairSimilarity(p_mem, l_mem, 2.0)
+                _t_m, _k_m = s_mem.upper_percentile_and_keys(99.0)
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+        # Dense 12*n^2 would be ~27 MB; streamed peak should stay under 6 MB.
+        self.assertLess(peak, 6 * 1024 * 1024)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA GPU required")
+    def test_sparse_align_uses_int64_keys_with_resume_and_dedup(self):
+        """Sparse run_job_distributor() resumes & deduplicates purely with int64 keys (no N x N masks)."""
+        rng = np.random.default_rng(909)
+        n = 28
+        headers = [f"p{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80 + (i % 5) * 10, 128)).astype(np.float16) for i in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        cuda_cand = Hardware_Utils.DeviceCandidate("cuda:0", "CUDA", torch.device("cuda:0"), "cuda")
+        tiled_plan = Hardware_Utils.BenchmarkResult(cuda_cand, 1000.0, lanes=1, variant="tiled")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            os.makedirs(embed_dir)
+            emb_name = "sparse_keys_[esm2_t6_8m]_embeddings.h5"
+            emb_path = os.path.join(embed_dir, emb_name)
+            self._make_complete_h5(emb_path, headers, arrays)
+            checksum = align_tool.calculate_file_hash(emb_path)
+
+            # First get reference required keys from prefilter_pair_keys.
+            with mock.patch.multiple(
+                align_tool, FULL_INPUT_HDF5=emb_path, PREFILTER_STRENGTH=75
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                req_keys, cut = align_tool.prefilter_pair_keys(headers, [len(a) for a in arrays])
+            self.assertGreater(req_keys.size, 6)
+
+            # Seed batch_00000.h5 with first 4 required pairs (plus 1 duplicate and 1 non-required pair!).
+            net_dir = os.path.join(tmp, "net")
+            temp_dir = os.path.join(net_dir, "sparse_keys_[esm2_t6_8m]_network_temp")
+            os.makedirs(temp_dir)
+            seeded_req = req_keys[:4]
+            non_req = next(
+                k for k in range(n * n)
+                if (k // n) < (k % n) and not np.isin(k, req_keys)
+            )
+            seed_keys = np.array(
+                [seeded_req[0], seeded_req[1], seeded_req[0], non_req, seeded_req[2], seeded_req[3]],
+                dtype=np.int64,
+            )
+            with h5py.File(os.path.join(temp_dir, "batch_00000.h5"), "w") as hf:
+                hf.attrs["embedding_checksum"] = checksum
+                hf.attrs["model_name"] = "esm2_t6_8m"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], dtype=np.float32)
+                hf.attrs["matmul_precision"] = "ieee_fp32"
+                hf.create_dataset("i", data=(seed_keys // n).astype(np.uint16))
+                hf.create_dataset("j", data=(seed_keys % n).astype(np.uint16))
+                hf.create_dataset("l_score", data=np.full(seed_keys.size, 123.5, dtype=np.float32))
+                hf.create_dataset("l_len", data=np.full(seed_keys.size, 15, dtype=np.uint16))
+                hf.create_dataset("g_score", data=np.full(seed_keys.size, 456.25, dtype=np.float32))
+                hf.create_dataset("g_len", data=np.full(seed_keys.size, 30, dtype=np.uint16))
+
+            out_buf = io.StringIO()
+            saved_globals = (
+                "MODEL_NAME", "SEQUENCE_SET", "FULL_INPUT_HDF5",
+                "RESULTS_DIR", "FINAL_OUTPUT_NET",
+                "active_matmul_precision", "active_embedding_store",
+                "active_sequence_lengths",
+            )
+            with mock.patch.multiple(
+                align_tool,
+                **{k: getattr(align_tool, k) for k in saved_globals},
+                INPUT_HDF5=emb_name,
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=net_dir,
+                EDGE_PREFILTERING=True,
+                PREFILTER_STRENGTH=75,
+                BATCH_SIZE=40,
+                WORKERS=2,
+                HOST_CACHE_GB="auto",
+                DEVICE_SELECTION="cuda:0",
+                EXECUTION_MODE="tiled",
+                ACCELERATOR_PRECISION="ieee_fp32",
+                LOCAL_GAP_P=-2.0,
+                GLOBAL_GAP_P=0.0,
+                set_start_method=mock.DEFAULT,
+                _benchmark_processing_plans=mock.Mock(return_value=[tiled_plan]),
+            ), mock.patch.object(
+                engine, "resolve_host_cache_bytes", return_value=int(total_bytes * 0.35)
+            ), redirect_stdout(out_buf), redirect_stderr(io.StringIO()):
+                rc = align_tool.run_job_distributor()
+
+            self.assertIsNone(rc)
+            printed = out_buf.getvalue()
+            self.assertIn(f"Already computed pairs: 4\n", printed)
+            self.assertIn(f"Pairs queued for calculation: {req_keys.size - 4}\n", printed)
+            self.assertIn("[Memory] Activating partial-RAM sliding window", printed)
+            net_path = os.path.join(net_dir, "sparse_keys_[esm2_t6_8m]_network.h5")
+            rows = self._read_network_tuples(net_path)
+            got_keys = sorted(r[0] * n + r[1] for r in rows)
+            self.assertEqual(got_keys, req_keys.tolist())
+            # Seeded pairs retained exact seeded scores and duplicate/non-required dropped.
+            by_key = {r[0] * n + r[1]: r for r in rows}
+            self.assertNotIn(non_req, by_key)
+            for sk in seeded_req.tolist():
+                self.assertAlmostEqual(by_key[sk][2], 123.5, places=4)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA GPU required")
+    def test_network_injection_streamed_similarity_parity_with_dense(self):
+        """Forcing StreamedPairSimilarity in Network_Injection matches dense pair_similarity."""
+        rng = np.random.default_rng(1010)
+        n_old, n_new = 20, 6
+        n = n_old + n_new
+        old_headers = [f"q{i:02d}" for i in range(n_old)]
+        new_headers = [f"q{i:02d}" for i in range(n)]
+        arrays = [rng.standard_normal((80 + (i % 4) * 10, 128)).astype(np.float16) for i in range(n)]
+        total_bytes = sum(a.nbytes for a in arrays)
+        cuda_cand = Hardware_Utils.DeviceCandidate("cuda:0", "CUDA", torch.device("cuda:0"), "cuda")
+        tiled_plan = Hardware_Utils.BenchmarkResult(cuda_cand, 1000.0, lanes=1, variant="tiled")
+        edges = [(i, j) for i in range(n_old) for j in range(i + 1, n_old) if (i + j) % 3 == 0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            embed_dir = os.path.join(tmp, "embed")
+            os.makedirs(embed_dir)
+            emb_name = "inj_stream_[esm2_t6_8m]_embeddings.h5"
+            self._make_complete_h5(os.path.join(embed_dir, emb_name), new_headers, arrays)
+
+            outputs = {}
+            for mode, threshold_bytes in (("dense", 1 << 40), ("streamed", 1)):
+                net_dir = os.path.join(tmp, f"net_{mode}")
+                os.makedirs(net_dir)
+                old_name = "old_stream_[esm2_t6_8m]_network.h5"
+                with h5py.File(os.path.join(net_dir, old_name), "w") as hf:
+                    hf.attrs["model_name"] = "esm2_t6_8m"
+                    hf.attrs["saving_mode"] = "float16"
+                    hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], dtype=np.float32)
+                    hf.attrs["matmul_precision"] = "ieee_fp32"
+                    hf.create_dataset(
+                        "headers",
+                        data=np.array(old_headers, dtype=object),
+                        dtype=h5py.string_dtype(encoding="utf-8"),
+                    )
+                    hf.create_dataset(
+                        "seq_lens",
+                        data=np.asarray([len(arrays[i]) for i in range(n_old)], dtype=np.uint16),
+                    )
+                    cnt = len(edges)
+                    hf.create_dataset("i", data=np.asarray([e[0] for e in edges], dtype=np.uint16))
+                    hf.create_dataset("j", data=np.asarray([e[1] for e in edges], dtype=np.uint16))
+                    hf.create_dataset("l_score", data=np.arange(cnt, dtype=np.float32) + 5.0)
+                    hf.create_dataset("l_len", data=np.full(cnt, 20, dtype=np.uint16))
+                    hf.create_dataset("g_score", data=np.arange(cnt, dtype=np.float32) + 10.0)
+                    hf.create_dataset("g_len", data=np.full(cnt, 40, dtype=np.uint16))
+
+                saved_globals = (
+                    "_old_seq_set", "_new_seq_set", "_model_name",
+                    "RESULTS_DIR", "FINAL_OUTPUT_NET", "CONFIG_FILE",
+                    "LOCAL_GAP_P", "GLOBAL_GAP_P",
+                )
+                with mock.patch.multiple(
+                    inject_tool,
+                    **{k: getattr(inject_tool, k) for k in saved_globals},
+                    OLD_NETWORK=old_name,
+                    NEW_EMBEDDINGS=emb_name,
+                    EMBED_DIR=embed_dir,
+                    NETWORK_DIR=net_dir,
+                    BATCH_SIZE=50,
+                    WORKERS=2,
+                    HOST_CACHE_GB="auto",
+                    DEVICE_SELECTION="cuda:0",
+                    EXECUTION_MODE="tiled",
+                    set_start_method=mock.DEFAULT,
+                    _benchmark_injection_plans=mock.Mock(return_value=[tiled_plan]),
+                ), mock.patch.object(
+                    Prefilter_Calibration, "STREAMED_SIMILARITY_BYTES", threshold_bytes
+                ), mock.patch.object(
+                    engine, "resolve_host_cache_bytes", return_value=int(total_bytes * 0.45)
+                ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    inject_tool.run_injection()
+                net_path = os.path.join(net_dir, "inj_stream_[esm2_t6_8m]_network.h5")
+                outputs[mode] = self._read_network_tuples(net_path)
+
+            self.assertEqual(
+                sorted((r[0], r[1]) for r in outputs["dense"]),
+                sorted((r[0], r[1]) for r in outputs["streamed"]),
+            )
+            ok, msg = engine.compare_precision_results(
+                outputs["dense"], outputs["streamed"], per_residue_tolerance=1e-4
+            )
+            self.assertTrue(ok, msg)
+
 
 if __name__ == "__main__":
     unittest.main()

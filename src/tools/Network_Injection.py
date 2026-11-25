@@ -791,11 +791,15 @@ def _members(sorted_keys, needles):
 
 def _pair_similarity_rows(similarity, start, stop):
     """The similarity of rows start..stop-1 to every sequence."""
+    if hasattr(similarity, "rows"):
+        return similarity.rows(start, stop)
     return similarity[start:stop]
 
 
 def _pair_similarity_at(similarity, rows, columns):
     """The similarity of each (row, column) pair."""
+    if hasattr(similarity, "at"):
+        return similarity.at(rows, columns)
     return similarity[rows, columns]
 
 
@@ -837,6 +841,8 @@ def _share_cut(similarity, share):
     total = n * (n - 1) // 2
     if total == 0:
         return None
+    if hasattr(similarity, "upper_percentile"):
+        return similarity.upper_percentile(100.0 * (1.0 - share))
     values = np.empty(total, dtype=np.float64)
     filled = 0
     for row in range(n - 1):
@@ -867,6 +873,8 @@ def _similarity_cut(similarity, edge_u, edge_v, skip, kept_share):
 
 def _pairs_at_or_above(similarity, cut):
     """How many pairs (row < column) have a similarity >= cut, counted by row blocks."""
+    if hasattr(similarity, "count_upper_at_or_above"):
+        return similarity.count_upper_at_or_above(cut)
     n = similarity.shape[0]
     column_index = np.arange(n)
     block_rows = max(1, _PAIR_BLOCK_CELLS // max(n, 1))
@@ -899,6 +907,13 @@ def _required_pair_keys(new_N, is_old, cached, similarity, cut):
     rows = cached // new_N if new_N else cached
     columns = cached % new_N if new_N else cached
     old_cached = cached[(rows < columns) & is_old[rows] & is_old[columns]] if cached.size else cached
+    if similarity is not None and hasattr(similarity, "upper_keys_at_or_above"):
+        above = similarity.upper_keys_at_or_above(cut)
+        if old_cached.size == 0:
+            return above
+        if above.size == 0:
+            return old_cached
+        return _sorted_unique(np.concatenate((above, old_cached)))
     column_index = np.arange(new_N)
     block_rows = max(1, _PAIR_BLOCK_CELLS // max(new_N, 1))
     pieces = []
@@ -1942,7 +1957,12 @@ def run_injection():
             )
             print("Computing the length-adjusted pooled similarity of every pair of the new set...")
             with h5py.File(NEW_EMBEDDINGS, "r") as hf_new_emb:
-                similarity = Prefilter_Calibration.pair_similarity(
+                sim_fn = (
+                    Prefilter_Calibration.streamed_pair_similarity
+                    if 12 * new_N * new_N > Prefilter_Calibration.STREAMED_SIMILARITY_BYTES
+                    else Prefilter_Calibration.pair_similarity
+                )
+                similarity = sim_fn(
                     hf_new_emb["embeddings"],
                     safe_new_headers,
                     seq_lens,
