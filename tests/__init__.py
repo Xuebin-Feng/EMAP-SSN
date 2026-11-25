@@ -26,6 +26,8 @@ files and shell, whichever subset of modules runs:
 * SSN_TOOL_SUPERVISOR=0 keeps a tool script that a test runs in one process, as before the
   supervisor (utilities/Tool_Supervisor.py) existed; tests/test_tool_supervisor.py unsets it for
   the children it checks.
+* SSN_GPU_OTHER_PROGRAMS=0 keeps utilities/GPU_Memory_View.py from starting nvidia-smi, so no test reads the
+  real card's memory held by other programs; tests/test_gpu_memory_view.py patches the switch on.
 * QT_QPA_PLATFORM defaults to offscreen, so no Qt window appears.
 * Every script in src/tools applies <project>/tools_settings.json to its module
   globals when it is imported. An import hook points each tool import at a
@@ -101,6 +103,8 @@ if not os.environ.get(_ROOT_PROCESS_MARKER):
     for _name in [name for name in os.environ if name.startswith("SSN_")]:
         del os.environ[_name]
     os.environ["SSN_TOOL_SUPERVISOR"] = "0"
+    # Tests never ask the real card (nvidia-smi) what other programs hold; a test of the reader patches the switch on.
+    os.environ["SSN_GPU_OTHER_PROGRAMS"] = "0"
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
     _SESSION_DIRECTORY, _RUNNER_OWNS_SESSION = _start_session()
     os.environ["SSN_VIEWER_SESSION_DIR"] = _SESSION_DIRECTORY

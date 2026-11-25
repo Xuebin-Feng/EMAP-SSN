@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from utilities import GPU_Memory_View
+
 
 MAX_PADDING_OVERHEAD = 0.15
 GPU_MAX_TOKENS = 8192
@@ -134,130 +136,8 @@ def _model_memory_profile(model_obj):
     return bytes_per_token, bytes_per_quad, is_t5
 
 
-# Second view of a CUDA card (see _device_memory_in_use). On Windows (WDDM) the CUDA
-# runtime reports free memory without counting what other programs (the desktop,
-# browsers) hold; nvidia-smi counts the memory resident on the card for every process.
-# It is used to size the limit of torch's cached pool (see _pool_limit_bytes).
-_OTHER_PROGRAMS_TTL_SECONDS = 30.0
-_OTHER_PROGRAMS_CACHE = {}  # device key -> (time.monotonic() stamp, bytes or None)
-_NVIDIA_SMI_MISSING = False  # the program could not be started: never try again
-
-
-def _normalized_gpu_uuid(value):
-    text = str(value).strip().lower()
-    return text[4:] if text.startswith("gpu-") else text
-
-
-def _device_memory_in_use(device, total_bytes):
-    """Return ``(used_bytes, total_bytes)`` of the card as nvidia-smi sees it, or None.
-
-    ``total_bytes`` is the total CUDA reported; a row whose total differs by more than
-    5 % is not this card. Never raises.
-    """
-    global _NVIDIA_SMI_MISSING
-    if _NVIDIA_SMI_MISSING:
-        return None
-    try:
-        import subprocess
-        import sys
-
-        import torch
-
-        # A ROCm build of torch also answers to torch.cuda; nvidia-smi says nothing about that card.
-        if getattr(torch.version, "cuda", None) is None:
-            return None
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        try:
-            proc = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=uuid,memory.used,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-                **kwargs,
-            )
-        except OSError:
-            _NVIDIA_SMI_MISSING = True
-            return None
-        if proc.returncode != 0:
-            return None
-        rows = []
-        for line in str(proc.stdout).splitlines():
-            if not line.strip():
-                continue
-            fields = [field.strip() for field in line.split(",")]
-            if len(fields) != 3:
-                rows.append(None)
-                continue
-            rows.append((_normalized_gpu_uuid(fields[0]), fields[1], fields[2]))
-        if not rows:
-            return None
-        torch_uuid = None
-        try:
-            torch_uuid = getattr(torch.cuda.get_device_properties(device), "uuid", None)
-        except Exception:
-            torch_uuid = None
-        chosen = None
-        if torch_uuid is not None:
-            wanted = _normalized_gpu_uuid(torch_uuid)
-            for row in rows:
-                if row is not None and row[0] == wanted:
-                    chosen = row
-                    break
-        if chosen is None and len(rows) == 1:
-            chosen = rows[0]
-        if chosen is None:
-            return None
-        used_bytes = int(chosen[1]) * 1024 ** 2
-        smi_total_bytes = int(chosen[2]) * 1024 ** 2
-        if int(total_bytes) <= 0 or abs(smi_total_bytes - int(total_bytes)) > 0.05 * int(total_bytes):
-            return None
-        return used_bytes, smi_total_bytes
-    except Exception:
-        return None
-
-
-def _other_programs_bytes(device, reserved_bytes, total_bytes):
-    """Bytes on the card that are not this process's torch pool, or None when unknown.
-
-    Cached per device for 30 s (an unknown answer too), so a missing or slow
-    nvidia-smi cannot be started again and again.
-    """
-    import time
-
-    key = str(device)
-    now = time.monotonic()
-    cached = _OTHER_PROGRAMS_CACHE.get(key)
-    if cached is not None and 0 <= now - cached[0] < _OTHER_PROGRAMS_TTL_SECONDS:
-        return cached[1]
-    others = None
-    reading = _device_memory_in_use(device, total_bytes)
-    if reading is not None:
-        # This process's small CUDA context lands in "others": fine and conservative.
-        others = max(0, int(reading[0]) - int(reserved_bytes))
-    _OTHER_PROGRAMS_CACHE[key] = (now, others)
-    return others
-
-
-def _card_limit_is_not_enforced():
-    """True where an allocation past the card's memory still succeeds.
-
-    Under Windows' driver model the driver never refuses: the memory goes to shared
-    system memory and the run becomes several times slower, with no message. On Linux
-    the driver refuses at the limit and torch then frees its own cache.
-    """
-    import sys
-
-    return sys.platform == "win32"
-
-
-_POOL_MARGIN_MIN_BYTES = 512 * 1024 ** 2
+# What other programs hold on the card (the second view of its memory) comes from
+# utilities/GPU_Memory_View.py; it sizes the limit of torch's cached pool below.
 _POOL_MIN_ROOM_BYTES = 1024 ** 3
 _POOL_RELEASE_MIN_BYTES = 64 * 1024 ** 2
 _POOL_NOTICE_MIN_OTHERS_BYTES = 256 * 1024 ** 2
@@ -282,19 +162,19 @@ def _pool_limit_bytes(device):
         import torch
 
         dev = torch.device(device) if device is not None else torch.device("cpu")
-        if dev.type != "cuda" or not _card_limit_is_not_enforced():
+        if dev.type != "cuda" or not GPU_Memory_View.card_limit_is_not_enforced():
             return None
         free, total = torch.cuda.mem_get_info(dev)
         free, total = int(free), int(total)
         reserved = int(torch.cuda.memory_reserved(dev))
-        others = _other_programs_bytes(dev, reserved, total)
+        others = GPU_Memory_View.other_programs_bytes(dev, reserved, total)
         room_end = reserved + free
         if others is not None:
             room_end = min(room_end, total - others)
         # CUDA's free figure may not drop by this process's own allocations on Windows, so
         # reserved + free can exceed the card; the pool can never usefully pass the card.
         room_end = min(room_end, total)
-        margin = max(_POOL_MARGIN_MIN_BYTES, int(total * 0.05))
+        margin = GPU_Memory_View.card_margin_bytes(total)
         limit = room_end - margin
         if limit < reserved + _POOL_MIN_ROOM_BYTES:
             return None

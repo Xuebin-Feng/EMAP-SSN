@@ -39,7 +39,7 @@ from resources.pLM_models import prot_t5 as prot_t5_plugin
 from tools import Embedding_Injection as inject_tool
 from tools import Generate_Embeddings as gen_tool
 from tools.tool_helpers import Embedding_Batching as batching
-from utilities import HDF5_Storage
+from utilities import GPU_Memory_View, HDF5_Storage
 
 
 class _SyntheticTokenizer:
@@ -98,7 +98,7 @@ class _SyntheticTokenizer:
 
 
 # The real reader of the card's memory, kept before any test replaces it.
-_REAL_MEMORY_READER = batching._device_memory_in_use
+_REAL_MEMORY_READER = GPU_Memory_View.device_memory_in_use
 _REAL_POOL_LIMIT = batching._pool_limit_bytes
 _MIB = 1024 ** 2
 
@@ -115,7 +115,7 @@ class _NoRealNvidiaSmi:
         self._reset_memory_view_state()
         self.addCleanup(self._reset_memory_view_state)
         for patcher in (
-            mock.patch.object(batching, "_device_memory_in_use", return_value=None),
+            mock.patch.object(GPU_Memory_View, "device_memory_in_use", return_value=None),
             mock.patch.object(batching, "_pool_limit_bytes", return_value=None),
         ):
             patcher.start()
@@ -123,8 +123,8 @@ class _NoRealNvidiaSmi:
 
     @staticmethod
     def _reset_memory_view_state():
-        batching._OTHER_PROGRAMS_CACHE.clear()
-        batching._NVIDIA_SMI_MISSING = False
+        GPU_Memory_View._OTHER_PROGRAMS_CACHE.clear()
+        GPU_Memory_View._NVIDIA_SMI_MISSING = False
 
 
 class EmbeddingBatchingTests(_NoRealNvidiaSmi, unittest.TestCase):
@@ -769,7 +769,7 @@ def _expected_budget(total, effective_free):
 
 
 class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
-    """The nvidia-smi reader and its cache, the pool limit, and the pool release in the run loop."""
+    """The budget beside the second view of the card, the pool limit, and the pool release in the run loop."""
 
     @contextlib.contextmanager
     def _cuda_card(self, *, free_mib, reserved_mib, allocated_mib, run=None, torch_uuid=None):
@@ -787,7 +787,9 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
             stack.enter_context(mock.patch.object(torch.cuda, "get_device_properties", props))
             stack.enter_context(mock.patch.object(torch.version, "cuda", "12.4"))
             if run is not None:
-                stack.enter_context(mock.patch.object(batching, "_device_memory_in_use", _REAL_MEMORY_READER))
+                # tests/__init__.py turns the switch off for the whole run; this block asks the reader.
+                stack.enter_context(mock.patch.object(GPU_Memory_View, "other_programs_switch_on", return_value=True))
+                stack.enter_context(mock.patch.object(GPU_Memory_View, "device_memory_in_use", _REAL_MEMORY_READER))
                 stack.enter_context(mock.patch("subprocess.run", run))
             stack.enter_context(contextlib.redirect_stdout(buffer))
             yield buffer
@@ -800,128 +802,6 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
     def _smi(used_mib, total_mib=_CARD_TOTAL_MIB):
         return mock.Mock(return_value=_smi_result((_CARD_UUID, used_mib, total_mib)))
 
-    # ---- the reader -------------------------------------------------------------------
-
-    def _read(self, run, *, torch_uuid=None, total_mib=_CARD_TOTAL_MIB):
-        with self._cuda_card(
-            free_mib=1, reserved_mib=0, allocated_mib=0, run=run, torch_uuid=torch_uuid
-        ):
-            return _REAL_MEMORY_READER(torch.device("cuda:0"), total_mib * _MIB)
-
-    def test_reader_picks_the_row_by_uuid_ignoring_prefix_and_case(self):
-        run = mock.Mock(
-            return_value=_smi_result(
-                (_OTHER_CARD_UUID, 1000, _CARD_TOTAL_MIB),
-                (_CARD_UUID, 2913, _CARD_TOTAL_MIB),
-            )
-        )
-        # torch reports the same id in capitals; the second view must still find the row.
-        reading = self._read(run, torch_uuid=_CARD_UUID.upper())
-        self.assertEqual(reading, (2913 * _MIB, _CARD_TOTAL_MIB * _MIB))
-        # And without the GPU- prefix, in lower case.
-        reading = self._read(run, torch_uuid=_CARD_UUID[4:].lower())
-        self.assertEqual(reading, (2913 * _MIB, _CARD_TOTAL_MIB * _MIB))
-
-    def test_reader_uses_the_only_row_when_torch_gives_no_uuid(self):
-        run = self._smi(2913)
-        self.assertEqual(self._read(run), (2913 * _MIB, _CARD_TOTAL_MIB * _MIB))
-
-    def test_reader_uses_the_only_row_when_its_uuid_does_not_match(self):
-        run = self._smi(2913)
-        reading = self._read(run, torch_uuid=_OTHER_CARD_UUID)
-        self.assertEqual(reading, (2913 * _MIB, _CARD_TOTAL_MIB * _MIB))
-
-    def test_reader_returns_none_for_two_rows_without_a_match(self):
-        run = mock.Mock(
-            return_value=_smi_result(
-                (_OTHER_CARD_UUID, 1000, _CARD_TOTAL_MIB),
-                (_CARD_UUID, 2913, _CARD_TOTAL_MIB),
-            )
-        )
-        self.assertIsNone(self._read(run))
-        self.assertIsNone(self._read(run, torch_uuid="GPU-ffffffff-0000-4000-8000-000000000000"))
-
-    def test_reader_returns_none_for_unreadable_fields(self):
-        for label, row in (
-            ("not available", (_CARD_UUID, "[N/A]", _CARD_TOTAL_MIB)),
-            ("empty used", (_CARD_UUID, "", _CARD_TOTAL_MIB)),
-            ("text used", (_CARD_UUID, "many", _CARD_TOTAL_MIB)),
-            ("not available total", (_CARD_UUID, 2913, "[N/A]")),
-        ):
-            with self.subTest(case=label):
-                run = mock.Mock(return_value=_smi_result(row))
-                self.assertIsNone(self._read(run))
-        with self.subTest(case="no output"):
-            self.assertIsNone(self._read(mock.Mock(return_value=_smi_result())))
-        with self.subTest(case="short row"):
-            run = mock.Mock(
-                return_value=subprocess.CompletedProcess([], 0, stdout="2913, 12282\n", stderr="")
-            )
-            self.assertIsNone(self._read(run))
-
-    def test_reader_returns_none_for_a_non_zero_return_code(self):
-        run = mock.Mock(
-            return_value=_smi_result((_CARD_UUID, 2913, _CARD_TOTAL_MIB), returncode=9)
-        )
-        self.assertIsNone(self._read(run))
-
-    def test_reader_returns_none_on_timeout_and_may_try_again_later(self):
-        run = mock.Mock(side_effect=subprocess.TimeoutExpired("nvidia-smi", 5))
-        self.assertIsNone(self._read(run))
-        self.assertIsNone(self._read(run))
-        self.assertEqual(run.call_count, 2)
-
-    def test_reader_never_raises_on_unexpected_errors(self):
-        run = mock.Mock(side_effect=ValueError("surprise"))
-        self.assertIsNone(self._read(run))
-
-    def test_reader_returns_none_for_a_missing_program_and_never_starts_it_again(self):
-        run = mock.Mock(side_effect=FileNotFoundError("nvidia-smi"))
-        self.assertIsNone(self._read(run))
-        self.assertTrue(batching._NVIDIA_SMI_MISSING)
-        self.assertIsNone(self._read(run))
-        self.assertEqual(run.call_count, 1)
-        # Even a working program is left alone for the life of the process.
-        working = self._smi(2913)
-        self.assertIsNone(self._read(working))
-        working.assert_not_called()
-
-    def test_reader_returns_none_when_the_total_differs_by_more_than_five_percent(self):
-        too_big = int(_CARD_TOTAL_MIB * 1.06)
-        too_small = int(_CARD_TOTAL_MIB * 0.94)
-        for smi_total in (too_big, too_small, 24564):
-            with self.subTest(smi_total=smi_total):
-                self.assertIsNone(self._read(self._smi(2913, smi_total)))
-        close_enough = int(_CARD_TOTAL_MIB * 1.04)
-        self.assertEqual(
-            self._read(self._smi(2913, close_enough)),
-            (2913 * _MIB, close_enough * _MIB),
-        )
-
-    def test_reader_skips_rocm_builds_without_starting_anything(self):
-        run = self._smi(2913)
-        with self._cuda_card(free_mib=1, reserved_mib=0, allocated_mib=0, run=run):
-            with mock.patch.object(torch.version, "cuda", None):
-                reading = _REAL_MEMORY_READER(torch.device("cuda:0"), _CARD_TOTAL_MIB * _MIB)
-        self.assertIsNone(reading)
-        run.assert_not_called()
-
-    def test_reader_starts_nvidia_smi_with_a_timeout_and_without_a_console_window(self):
-        run = self._smi(2913)
-        self.assertIsNotNone(self._read(run))
-        args, kwargs = run.call_args
-        self.assertEqual(args[0][0], "nvidia-smi")
-        self.assertIn("--query-gpu=uuid,memory.used,memory.total", args[0])
-        self.assertIn("--format=csv,noheader,nounits", args[0])
-        self.assertEqual(kwargs["timeout"], 5)
-        self.assertIs(kwargs["capture_output"], True)
-        self.assertIs(kwargs["text"], True)
-        self.assertIs(kwargs["check"], False)
-        if sys.platform == "win32":
-            self.assertEqual(kwargs["creationflags"], getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        else:
-            self.assertNotIn("creationflags", kwargs)
-
     # ---- the budget ignores the second view --------------------------------------------
 
     def test_budget_of_a_cuda_card_is_todays_value_even_when_others_hold_a_lot(self):
@@ -932,7 +812,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
             free_mib=free, reserved_mib=reserved, allocated_mib=allocated, run=run
         ):
             with mock.patch.object(
-                batching, "_device_memory_in_use", side_effect=AssertionError("budget must not read it")
+                GPU_Memory_View, "device_memory_in_use", side_effect=AssertionError("budget must not read it")
             ) as reader:
                 budget = batching._available_activation_bytes(torch.device("cuda:0"))
         self.assertEqual(
@@ -941,52 +821,6 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         reader.assert_not_called()
         run.assert_not_called()
 
-    # ---- the cache --------------------------------------------------------------------
-
-    def _others(self, run, reserved_mib=3000):
-        with self._cuda_card(free_mib=1, reserved_mib=0, allocated_mib=0, run=run):
-            return batching._other_programs_bytes(
-                torch.device("cuda:0"), reserved_mib * _MIB, _CARD_TOTAL_MIB * _MIB
-            )
-
-    def test_cache_starts_nvidia_smi_once_per_thirty_seconds(self):
-        clock = [1000.0]
-        run = self._smi(3000 + 2950)
-        with mock.patch("time.monotonic", side_effect=lambda: clock[0]):
-            first = self._others(run)
-            clock[0] += 29.0
-            second = self._others(run)
-            self.assertEqual(run.call_count, 1)
-            self.assertEqual(first, 2950 * _MIB)
-            self.assertEqual(first, second)
-            clock[0] += 2.0  # 31 s after the first read
-            self.assertEqual(self._others(run), 2950 * _MIB)
-            self.assertEqual(run.call_count, 2)
-
-    def test_cache_gives_the_cached_value_for_a_different_reserved_size_within_thirty_seconds(self):
-        clock = [1000.0]
-        run = self._smi(3000 + 2950)
-        with mock.patch("time.monotonic", side_effect=lambda: clock[0]):
-            self.assertEqual(self._others(run, reserved_mib=3000), 2950 * _MIB)
-            clock[0] += 5.0
-            self.assertEqual(self._others(run, reserved_mib=4000), 2950 * _MIB)
-            self.assertEqual(run.call_count, 1)
-            clock[0] += 30.0
-            self.assertEqual(self._others(run, reserved_mib=4000), 1950 * _MIB)
-            self.assertEqual(run.call_count, 2)
-
-    def test_cache_remembers_an_unknown_answer_for_the_same_thirty_seconds(self):
-        clock = [1000.0]
-        run = mock.Mock(side_effect=subprocess.TimeoutExpired("nvidia-smi", 5))
-        with mock.patch("time.monotonic", side_effect=lambda: clock[0]):
-            self.assertIsNone(self._others(run))
-            clock[0] += 10.0
-            self.assertIsNone(self._others(run))
-            self.assertEqual(run.call_count, 1)
-            clock[0] += 25.0
-            self.assertIsNone(self._others(run))
-            self.assertEqual(run.call_count, 2)
-
     # ---- the limit of torch's cached pool ---------------------------------------------
 
     def _pool_limit(self, *, free_mib, reserved_mib, used_mib=None, device="cuda:0", windows=True):
@@ -994,7 +828,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
         with self._cuda_card(
             free_mib=free_mib, reserved_mib=reserved_mib, allocated_mib=0, run=run
         ), mock.patch.object(
-            batching, "_card_limit_is_not_enforced", return_value=windows
+            GPU_Memory_View, "card_limit_is_not_enforced", return_value=windows
         ), mock.patch.object(batching, "_pool_limit_bytes", _REAL_POOL_LIMIT):
             return batching._pool_limit_bytes(torch.device(device))
 
@@ -1052,7 +886,7 @@ class DeviceMemoryViewTests(_NoRealNvidiaSmi, unittest.TestCase):
 
     def test_pool_limit_is_none_without_an_exception_when_mem_get_info_raises(self):
         with self._cuda_card(free_mib=6006, reserved_mib=4700, allocated_mib=0), \
-                mock.patch.object(batching, "_card_limit_is_not_enforced", return_value=True), \
+                mock.patch.object(GPU_Memory_View, "card_limit_is_not_enforced", return_value=True), \
                 mock.patch.object(batching, "_pool_limit_bytes", _REAL_POOL_LIMIT), \
                 mock.patch.object(torch.cuda, "mem_get_info", side_effect=RuntimeError("no")):
             self.assertIsNone(batching._pool_limit_bytes(torch.device("cuda:0")))

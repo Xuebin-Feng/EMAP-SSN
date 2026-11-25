@@ -396,6 +396,7 @@ modules = [
     "test_tool_help_pages",
     "test_tool_pipeline",
     "test_tool_settings_cli",
+    "test_gpu_memory_view",
     "test_tool_supervisor",
 ]
 
