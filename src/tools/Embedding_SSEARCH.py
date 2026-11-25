@@ -49,6 +49,7 @@ except ModuleNotFoundError:
 from utilities import Tool_Supervisor
 Tool_Supervisor.supervise(__name__, __file__)  # a run of this script starts under a light parent; nothing else here
 
+import atexit
 import h5py
 import numpy as np
 import pandas as pd
@@ -59,6 +60,8 @@ import gc
 import threading
 import time
 import math
+from dataclasses import dataclass
+from multiprocessing.shared_memory import SharedMemory
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
@@ -329,6 +332,65 @@ def normalize_score(raw_score, align_len, len_i, len_j, mode):
 # --- HDF5 MULTIPROCESSING INITIALIZATION ---
 worker_hf = None
 worker_device = None
+worker_query_shm = None
+worker_query_name = None
+worker_query_emb = None
+
+
+@dataclass(frozen=True)
+class _SharedQueryRef:
+    """Lightweight IPC handle referencing a query embedding in OS shared memory."""
+
+    name: str
+    shape: tuple
+    dtype: str
+
+
+def _attach_shared_memory(name):
+    """Attach to an existing SharedMemory block created by the parent process.
+
+    Python 3.13+ supports ``track=False``. On Python < 3.13 under ``spawn``,
+    workers share the parent's ``resource_tracker``, so registering the existing
+    name is an idempotent set add and the parent's ``unlink()`` performs the
+    single matching unregister (calling ``unregister`` in workers would race
+    and raise ``KeyError`` in ``resource_tracker``).
+    """
+    try:
+        return SharedMemory(name=name, create=False, track=False)
+    except TypeError:
+        return SharedMemory(name=name, create=False)
+
+
+def _close_worker_shared_query():
+    global worker_query_shm, worker_query_name, worker_query_emb
+    worker_query_emb = None
+    worker_query_name = None
+    if worker_query_shm is not None:
+        try:
+            worker_query_shm.close()
+        except Exception:
+            pass
+        worker_query_shm = None
+
+
+atexit.register(_close_worker_shared_query)
+
+
+def _resolve_worker_query(q_emb):
+    """Resolve a ``_SharedQueryRef`` once per worker into a zero-copy NumPy view."""
+    if not isinstance(q_emb, _SharedQueryRef):
+        return q_emb
+    global worker_query_shm, worker_query_name, worker_query_emb
+    if worker_query_name != q_emb.name or worker_query_emb is None:
+        _close_worker_shared_query()
+        shm = _attach_shared_memory(q_emb.name)
+        worker_query_shm = shm
+        worker_query_name = q_emb.name
+        worker_query_emb = np.ndarray(
+            q_emb.shape, dtype=np.dtype(q_emb.dtype), buffer=shm.buf
+        )
+    return worker_query_emb
+
 
 def init_worker(h5_path):
     global worker_hf, worker_device
@@ -460,6 +522,7 @@ def finish_search_batch(tasks, target_lengths, matrices):
 def search_cpu_worker(args):
     idx, header, safe_h, q_emb, mode, gap, norm_mode, q_seq, t_seq, similarity_matrix = args
     global worker_hf, worker_device
+    q_emb = _resolve_worker_query(q_emb)
     t_emb = worker_hf["embeddings"][safe_h][:]
     mat = compute_score_matrix_torch(q_emb, t_emb, worker_device)
     return finish_search(
@@ -827,9 +890,43 @@ def _run_serial_search(tasks, input_h5, show_progress=False, timing=None):
 
 
 def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
+    tasks = list(tasks)
+    if not tasks:
+        return []
     results = []
     workers = max(1, int(workers))
     ready = _POOL_CONTEXT.Queue() if timing is not None else None
+    query_shm = None
+    pool_tasks = tasks
+    first_q = tasks[0][3]
+    if (
+        isinstance(first_q, np.ndarray)
+        and first_q.nbytes > 0
+        and all(t[3] is first_q for t in tasks)
+    ):
+        try:
+            q_arr = np.ascontiguousarray(first_q)
+            query_shm = SharedMemory(create=True, size=q_arr.nbytes)
+            shm_view = np.ndarray(q_arr.shape, dtype=q_arr.dtype, buffer=query_shm.buf)
+            shm_view[:] = q_arr
+            del shm_view
+            ref = _SharedQueryRef(query_shm.name, q_arr.shape, q_arr.dtype.str)
+            pool_tasks = (
+                (t[0], t[1], t[2], ref, t[4], t[5], t[6], t[7], t[8], t[9])
+                for t in tasks
+            )
+        except OSError:
+            if query_shm is not None:
+                try:
+                    query_shm.close()
+                except Exception:
+                    pass
+                try:
+                    query_shm.unlink()
+                except Exception:
+                    pass
+                query_shm = None
+            pool_tasks = tasks
     try:
         with Pool(
             processes=workers,
@@ -843,7 +940,7 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
                         raise RuntimeError(error)
                 timing.start()
             chunksize = max(1, min(50, math.ceil(len(tasks) / (4 * workers))))
-            iterator = pool.imap_unordered(search_cpu_worker, tasks, chunksize=chunksize)
+            iterator = pool.imap_unordered(search_cpu_worker, pool_tasks, chunksize=chunksize)
             for result in tqdm(iterator, total=len(tasks), disable=not show_progress):
                 results.append(result)
             if timing is not None:
@@ -851,6 +948,15 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
         if timing is not None:
             timing.finish()
     finally:
+        if query_shm is not None:
+            try:
+                query_shm.close()
+            except Exception:
+                pass
+            try:
+                query_shm.unlink()
+            except FileNotFoundError:
+                pass
         if ready is not None:
             ready.close()
             ready.join_thread()

@@ -648,6 +648,63 @@ class PoolStartupTests(unittest.TestCase):
                     ssearch.worker_hf.close()
                 ssearch.worker_hf = None
 
+    def test_cpu_pool_tasks_send_shared_memory_ref_not_query_array(self):
+        # A 4 MB query across 200 targets must not be pickled into Pool task chunks.
+        big_query = np.zeros((1024, 1024), dtype=np.float32)  # 4 MiB
+        tasks = [
+            (i, f"t{i}", f"t{i}", big_query, "local", -2.0, "longer_sequence", "A" * 1024, "A" * 40, "BLOSUM62")
+            for i in range(200)
+        ]
+        captured = []
+
+        class InspectPool:
+            def __init__(self, processes, initializer, initargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def imap_unordered(self, function, items, chunksize):
+                captured.extend(items)
+                return iter(())
+
+        with mock.patch.object(ssearch, "Pool", InspectPool):
+            ssearch._run_cpu_search(tasks, 4, "embeddings.h5", False)
+
+        self.assertEqual(len(captured), 200)
+        self.assertIsInstance(captured[0][3], ssearch._SharedQueryRef)
+        # Pickling an entire 50-task chunk stays tiny (< 8 KiB) instead of 4 MiB.
+        self.assertLess(len(pickle.dumps(captured[:50])), 8 * 1024)
+
+    def test_cpu_pool_falls_back_cleanly_if_shared_memory_unavailable(self):
+        query = np.ones((12, 8), dtype=np.float32)
+        tasks = [(0, "t0", "t0", query, "local", -2.0, "longer_sequence", "A" * 12, "A" * 12, "BLOSUM62")]
+        captured = []
+
+        class InspectPool:
+            def __init__(self, processes, initializer, initargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def imap_unordered(self, function, items, chunksize):
+                captured.extend(items)
+                return iter(())
+
+        with mock.patch.object(ssearch, "SharedMemory", side_effect=PermissionError("no /dev/shm")), \
+                mock.patch.object(ssearch, "Pool", InspectPool):
+            ssearch._run_cpu_search(tasks, 2, "embeddings.h5", False)
+
+        self.assertEqual(len(captured), 1)
+        self.assertIs(captured[0][3], query)
+
 
 class TiledSampleTests(unittest.TestCase):
     """A tiled plan is timed on targets of one tile block, as windows of consecutive lengths."""
