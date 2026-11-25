@@ -321,6 +321,7 @@ modules = [
     "test_network_kernels",
     "test_network_kernels_batch",
     "test_parse_blast_output",
+    "test_partial_ram_window",
     "test_population_std_singletons",
     "test_prefilter_calibration",
     "test_similarity_matrices",

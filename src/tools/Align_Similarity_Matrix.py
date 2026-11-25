@@ -101,6 +101,7 @@ from Embedding_Alignment_Engine import (
     BENCHMARK_TRIAL_SECONDS,
     run_bounded_cpu_trial,
     EmbeddingTileStore,
+    WindowedPairSession,
     bf16_accelerator_support,
     bf16_validation_notice,
     build_adaptive_tile_plans,
@@ -116,6 +117,7 @@ from Embedding_Alignment_Engine import (
     matched_benchmark_task_halves,
     normalize_execution_mode,
     normalize_precision_setting,
+    plan_windowed_budgets,
     precision_compute_dtype,
     precision_element_bytes,
     run_tiled_accelerator_pipeline,
@@ -2777,27 +2779,128 @@ def run_job_distributor():
         except ValueError as error:
             print(f"\n❌ Invalid precision configuration:\n{error}")
             return 1
-        pending_iterator = _iter_pending_pairs(safe_headers, computed_mask, required_mask)
-        first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
-        ranked_plans = _benchmark_processing_plans(
-            first_batch,
-            WORKERS,
-            FULL_INPUT_HDF5,
-            batch_id,
-            embedding_store=active_embedding_store,
-            sequence_lengths=active_sequence_lengths,
-            matmul_precision=active_matmul_precision,
+
+        window_device = None
+        if manual_candidate is not None:
+            if not manual_candidate.is_cpu:
+                window_device = manual_candidate.device
+        else:
+            avail_candidates = Hardware_Utils.get_available_devices()
+            window_device = next(
+                (c.device for c in avail_candidates if not c.is_cpu),
+                None,
+            )
+        window_budgets = (
+            plan_windowed_budgets(
+                active_embedding_store,
+                device=window_device,
+                compute_element_bytes=precision_element_bytes(active_matmul_precision),
+            )
+            if window_device is not None
+            else None
         )
-        batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
-        pbar = tqdm(
-            total=batches_to_run,
-            desc="Overall Progress",
-            unit="batch",
-        )
-        
-        for task in chain(first_batch, pending_iterator):
-            current_batch.append(task)
-            if len(current_batch) >= BATCH_SIZE:
+
+        if window_budgets is not None:
+            anchor_b, slab_b = window_budgets
+            print(
+                f"[Memory] Activating partial-RAM sliding window "
+                f"(anchor={anchor_b / (1024 ** 3):.2f} GiB, "
+                f"2x slab={2 * slab_b / (1024 ** 3):.2f} GiB)."
+            )
+            with WindowedPairSession.from_masks(
+                active_embedding_store,
+                safe_headers,
+                computed_mask,
+                required_mask,
+                anchor_bytes=anchor_b,
+                slab_bytes=slab_b,
+                batch_size=int(BATCH_SIZE),
+            ) as window_session:
+                batch_iter = window_session.iter_batches()
+                first_batch = next(batch_iter, [])
+                ranked_plans = _benchmark_processing_plans(
+                    first_batch,
+                    WORKERS,
+                    FULL_INPUT_HDF5,
+                    batch_id,
+                    embedding_store=active_embedding_store,
+                    sequence_lengths=active_sequence_lengths,
+                    matmul_precision=active_matmul_precision,
+                )
+                if ranked_plans and ranked_plans[active_plan_index].candidate.is_cpu:
+                    window_session.release_window()
+                pbar = tqdm(
+                    total=int(num_tasks),
+                    desc="Overall Progress",
+                    unit="pair",
+                )
+                try:
+                    for batch in chain([first_batch] if first_batch else [], batch_iter):
+                        if (
+                            active_plan_index < len(ranked_plans)
+                            and ranked_plans[active_plan_index].candidate.is_cpu
+                        ):
+                            window_session.release_window()
+                        active_plan_index = _run_batch_with_ranked_plans(
+                            ranked_plans,
+                            active_plan_index,
+                            batch,
+                            batch_id,
+                            WORKERS,
+                            FULL_INPUT_HDF5,
+                            current_checksum,
+                            current_model_name,
+                            current_saving_mode,
+                            current_gap_penalties,
+                        )
+                        if (
+                            active_plan_index < len(ranked_plans)
+                            and ranked_plans[active_plan_index].candidate.is_cpu
+                        ):
+                            window_session.release_window()
+                        batch_id += 1
+                        pbar.update(len(batch))
+                finally:
+                    pbar.close()
+        else:
+            pending_iterator = _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+            first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
+            ranked_plans = _benchmark_processing_plans(
+                first_batch,
+                WORKERS,
+                FULL_INPUT_HDF5,
+                batch_id,
+                embedding_store=active_embedding_store,
+                sequence_lengths=active_sequence_lengths,
+                matmul_precision=active_matmul_precision,
+            )
+            batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
+            pbar = tqdm(
+                total=batches_to_run,
+                desc="Overall Progress",
+                unit="batch",
+            )
+            
+            for task in chain(first_batch, pending_iterator):
+                current_batch.append(task)
+                if len(current_batch) >= BATCH_SIZE:
+                    active_plan_index = _run_batch_with_ranked_plans(
+                        ranked_plans,
+                        active_plan_index,
+                        current_batch,
+                        batch_id,
+                        WORKERS,
+                        FULL_INPUT_HDF5,
+                        current_checksum,
+                        current_model_name,
+                        current_saving_mode,
+                        current_gap_penalties,
+                    )
+                    batch_id += 1
+                    current_batch = []
+                    pbar.update(1)
+
+            if len(current_batch) > 0:
                 active_plan_index = _run_batch_with_ranked_plans(
                     ranked_plans,
                     active_plan_index,
@@ -2810,26 +2913,9 @@ def run_job_distributor():
                     current_saving_mode,
                     current_gap_penalties,
                 )
-                batch_id += 1
-                current_batch = []
                 pbar.update(1)
-
-        if len(current_batch) > 0:
-            active_plan_index = _run_batch_with_ranked_plans(
-                ranked_plans,
-                active_plan_index,
-                current_batch,
-                batch_id,
-                WORKERS,
-                FULL_INPUT_HDF5,
-                current_checksum,
-                current_model_name,
-                current_saving_mode,
-                current_gap_penalties,
-            )
-            pbar.update(1)
-            
-        pbar.close()
+                
+            pbar.close()
     elif cached_precision is not None:
         active_matmul_precision = cached_precision
     elif precision_setting in {"tf32", "bf16"}:

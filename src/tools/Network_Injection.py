@@ -106,6 +106,7 @@ from Embedding_Alignment_Engine import (
     BENCHMARK_TRIAL_SECONDS,
     run_bounded_cpu_trial,
     EmbeddingTileStore,
+    WindowedPairSession,
     bf16_accelerator_support,
     bf16_validation_notice,
     build_adaptive_tile_plans,
@@ -120,6 +121,7 @@ from Embedding_Alignment_Engine import (
     is_nvidia_cuda,
     matched_benchmark_task_halves,
     normalize_execution_mode,
+    plan_windowed_budgets,
     precision_element_bytes,
     run_tiled_accelerator_pipeline,
     tiled_accelerator_support,
@@ -2061,12 +2063,13 @@ def run_injection():
             low, high = np.searchsorted(pending_keys, (base, base + new_N))
             return pending_keys[low:high] - base
 
+        avail_devices = Hardware_Utils.get_available_devices()
+        manual_candidate = Hardware_Utils.resolve_device_selection(
+            DEVICE_SELECTION,
+            avail_devices,
+        )
         precision_tasks = None
         if inherited_precision == "bf16":
-            manual_candidate = Hardware_Utils.resolve_device_selection(
-                DEVICE_SELECTION,
-                Hardware_Utils.get_available_devices(),
-            )
             if manual_candidate is not None and manual_candidate.is_cpu:
                 precision_warmup = []
                 precision_timed = [next(iter_pending_tasks())]
@@ -2080,24 +2083,32 @@ def run_injection():
                     accelerator_half,
                 )
             precision_tasks = precision_warmup + precision_timed
-        pending_iterator = iter_pending_tasks()
-        first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
-        ranked_plans = _benchmark_injection_plans(
-            first_batch,
-            WORKERS,
-            NEW_EMBEDDINGS,
-            embedding_store,
-            sequence_lengths,
-            inherited_precision,
-            precision_tasks=precision_tasks,
-        )
-        active_plan_index = 0
 
-        def publish_batch(batch, current_id):
-            nonlocal active_plan_index
+        window_device = None
+        if manual_candidate is not None:
+            if not manual_candidate.is_cpu:
+                window_device = manual_candidate.device
+        else:
+            window_device = next(
+                (c.device for c in avail_devices if not c.is_cpu),
+                None,
+            )
+        window_budgets = (
+            plan_windowed_budgets(
+                embedding_store,
+                device=window_device,
+                compute_element_bytes=precision_element_bytes(inherited_precision),
+            )
+            if window_device is not None
+            else None
+        )
+
+        def publish_batch(batch, current_id, ranked_plans, active_plan_index_ref, window_session=None):
             last_error = None
-            while active_plan_index < len(ranked_plans):
-                selected_plan = ranked_plans[active_plan_index]
+            while active_plan_index_ref[0] < len(ranked_plans):
+                selected_plan = ranked_plans[active_plan_index_ref[0]]
+                if selected_plan.candidate.is_cpu and window_session is not None:
+                    window_session.release_window()
                 try:
                     process_batch(
                         batch,
@@ -2121,9 +2132,11 @@ def run_injection():
                     return
                 except (RuntimeError, NotImplementedError, MemoryError) as error:
                     last_error = error
-                    active_plan_index += 1
-                    if active_plan_index < len(ranked_plans):
-                        fallback = ranked_plans[active_plan_index]
+                    active_plan_index_ref[0] += 1
+                    if active_plan_index_ref[0] < len(ranked_plans):
+                        fallback = ranked_plans[active_plan_index_ref[0]]
+                        if fallback.candidate.is_cpu and window_session is not None:
+                            window_session.release_window()
                         cause = error.__cause__ if error.__cause__ is not None else error
                         detail = str(cause).strip().splitlines()[0][:200] if str(cause).strip() else ""
                         detail_suffix = f" ({detail})" if detail else ""
@@ -2136,21 +2149,80 @@ def run_injection():
                 "Every benchmarked Network Injection plan failed."
             ) from last_error
 
-        current_batch = []
         batch_id = next_batch_id
-        
-        pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
-        for t in chain(first_batch, pending_iterator):
-            current_batch.append(t)
-            if len(current_batch) >= BATCH_SIZE:
-                publish_batch(current_batch, batch_id)
-                batch_id += 1; pbar.update(1)
-                current_batch = []
-                
-        if current_batch:
-            publish_batch(current_batch, batch_id)
-            pbar.update(1)
-        pbar.close()
+        active_plan_index_ref = [0]
+
+        if window_budgets is not None:
+            anchor_b, slab_b = window_budgets
+            print(
+                f"[Memory] Activating partial-RAM sliding window "
+                f"(anchor={anchor_b / (1024 ** 3):.2f} GiB, "
+                f"2x slab={2 * slab_b / (1024 ** 3):.2f} GiB)."
+            )
+            with WindowedPairSession.from_pending_keys(
+                embedding_store,
+                safe_new_headers,
+                pending_keys,
+                anchor_bytes=anchor_b,
+                slab_bytes=slab_b,
+                batch_size=int(BATCH_SIZE),
+            ) as window_session:
+                batch_iter = window_session.iter_batches()
+                first_batch = next(batch_iter, [])
+                ranked_plans = _benchmark_injection_plans(
+                    first_batch,
+                    WORKERS,
+                    NEW_EMBEDDINGS,
+                    embedding_store,
+                    sequence_lengths,
+                    inherited_precision,
+                    precision_tasks=precision_tasks,
+                )
+                if ranked_plans and ranked_plans[0].candidate.is_cpu:
+                    window_session.release_window()
+                pbar = tqdm(total=int(num_tasks), desc="Progress", unit="pair")
+                try:
+                    for batch in chain([first_batch] if first_batch else [], batch_iter):
+                        publish_batch(
+                            batch,
+                            batch_id,
+                            ranked_plans,
+                            active_plan_index_ref,
+                            window_session=window_session,
+                        )
+                        batch_id += 1
+                        pbar.update(len(batch))
+                finally:
+                    pbar.close()
+        else:
+            pending_iterator = iter_pending_tasks()
+            first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
+            ranked_plans = _benchmark_injection_plans(
+                first_batch,
+                WORKERS,
+                NEW_EMBEDDINGS,
+                embedding_store,
+                sequence_lengths,
+                inherited_precision,
+                precision_tasks=precision_tasks,
+            )
+            current_batch = []
+            pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
+            for t in chain(first_batch, pending_iterator):
+                current_batch.append(t)
+                if len(current_batch) >= BATCH_SIZE:
+                    publish_batch(
+                        current_batch, batch_id, ranked_plans, active_plan_index_ref
+                    )
+                    batch_id += 1; pbar.update(1)
+                    current_batch = []
+                    
+            if current_batch:
+                publish_batch(
+                    current_batch, batch_id, ranked_plans, active_plan_index_ref
+                )
+                pbar.update(1)
+            pbar.close()
         
     compile_final_output(
         new_headers=new_headers,

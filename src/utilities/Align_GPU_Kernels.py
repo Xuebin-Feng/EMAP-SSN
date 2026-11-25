@@ -1723,6 +1723,38 @@ def _upload_and_normalize_indices(indices, lengths, feature_dim, store, group, d
         return gpu_out, starts
 
 
+def _active_task_block_ids(tasks, n_seqs, lengths, feature_dim, element_bytes, per_block):
+    """Pack only sequences present in ``tasks`` into tight GPU blocks of <= ``per_block`` bytes.
+
+    Groups high-degree hubs together first while preserving ascending index order within
+    each tier, so sparse/injection/windowed subsets never shatter across global block
+    boundaries into dozens of tiny GPU tiles.
+    """
+    deg = {}
+    for t in tasks:
+        u, v = int(t[0]), int(t[1])
+        deg[u] = deg.get(u, 0) + 1
+        deg[v] = deg.get(v, 0) + 1
+    if not deg:
+        return np.zeros(n_seqs, dtype=np.int32)
+    max_deg = max(deg.values())
+    hub_cut = max(2, int(max_deg * 0.5))
+    ordered = sorted(deg.keys(), key=lambda i: (0 if deg[i] >= hub_cut else 1, i))
+    per_block = max(1, int(per_block))
+    row_bytes = max(1, int(feature_dim) * max(1, int(element_bytes)))
+    block_ids = np.zeros(n_seqs, dtype=np.int32)
+    blk = 0
+    used = 0
+    for idx in ordered:
+        sz = int(lengths[idx]) * row_bytes
+        if used and used + sz > per_block:
+            blk += 1
+            used = 0
+        block_ids[idx] = blk
+        used += sz
+    return block_ids
+
+
 def run_fused_gpu_alignment_pipeline(
     tasks,
     *,
@@ -1776,7 +1808,9 @@ def run_fused_gpu_alignment_pipeline(
         min_tile_bytes = max(1, max_task_len * 2 * feature_dim * element_bytes)
         tile_cache_budget = max(min_tile_bytes, min(tile_cache_budget, int(tile_cache_budget * ratio)))
     per_block = max(1, tile_cache_budget // 2)
-    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
+    block_ids = _active_task_block_ids(
+        tasks, len(lengths), lengths, feature_dim, element_bytes, per_block
+    )
     exact_bound = float32_exact_local_bound(global_gap, local_gap)
     use_f64_always = exact_bound is None
     bound_val = float(exact_bound) if exact_bound is not None else 0.0
@@ -1807,9 +1841,14 @@ def run_fused_gpu_alignment_pipeline(
         if allocator_cap_ctx is not None and backend is not None:
             cap_stack.enter_context(allocator_cap_ctx(backend, plan))
 
+        all_in_ram = getattr(store, "fully_cached", False)
+        if not all_in_ram and hasattr(store, "all_cached"):
+            all_task_indices = {int(t[0]) for t in tasks}
+            all_task_indices.update(int(t[1]) for t in tasks)
+            all_in_ram = bool(store.all_cached(all_task_indices))
         h5_ctx = (
             nullcontext(None)
-            if getattr(store, "fully_cached", False)
+            if all_in_ram
             else h5py.File(store.path, "r", libver="latest", swmr=True)
         )
 

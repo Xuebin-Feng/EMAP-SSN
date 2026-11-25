@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict, deque
 from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
+from itertools import chain
 import os
 import queue
 import threading
@@ -1063,8 +1064,98 @@ def cuda_memory_plan(*args, **kwargs):
     return accelerator_memory_plan(*args, **kwargs)
 
 
+class _WindowSlabPrefetcher(threading.Thread):
+    """Background HDF5 reader filling standby RAM slab buffers for windowed alignment.
+
+    Owns its own read-only SWMR ``h5py.File`` handle so HDF5 objects are never
+    shared across threads, and always closes that handle when stopped or joined.
+    """
+
+    def __init__(self, store, slab_bufs):
+        super().__init__(name="embedding-window-prefetch", daemon=True)
+        self._store = store
+        self._slab_bufs = slab_bufs
+        self._req = queue.Queue(maxsize=1)
+        self._done = queue.Queue()
+        self._stop = threading.Event()
+        self._pending = False
+
+    def submit(self, slot, indices):
+        if self._pending:
+            raise RuntimeError("A slab prefetch is already in flight.")
+        self._pending = True
+        self._req.put((int(slot), list(indices)))
+
+    def wait_result(self):
+        if not self._pending:
+            return None
+        slot, slab_map, read_count, read_bytes, error = self._done.get()
+        self._pending = False
+        if error is not None:
+            raise error
+        return slot, slab_map, read_count, read_bytes
+
+    def run(self):
+        try:
+            with h5py.File(self._store.path, "r", libver="latest", swmr=True) as hf:
+                group = hf["embeddings"]
+                while not self._stop.is_set():
+                    try:
+                        item = self._req.get(timeout=0.05)
+                    except queue.Empty:
+                        continue
+                    if item is None:
+                        return
+                    slot, indices = item
+                    try:
+                        buf = self._slab_bufs[slot]
+                        slab_map = {}
+                        cursor = 0
+                        read_bytes = 0
+                        for idx in indices:
+                            if self._stop.is_set():
+                                self._done.put((slot, {}, 0, 0, None))
+                                return
+                            idx = int(idx)
+                            rows = self._store.shapes[idx][0]
+                            out = buf[cursor:cursor + rows]
+                            dataset = h5py.h5d.open(
+                                group.id, self._store.headers[idx].encode("utf-8")
+                            )
+                            dataset.read(
+                                h5py.h5s.ALL,
+                                h5py.h5s.ALL,
+                                out,
+                                h5py.h5t.py_create(out.dtype),
+                            )
+                            slab_map[idx] = (cursor, cursor + rows)
+                            cursor += rows
+                            read_bytes += self._store.source_bytes[idx]
+                        self._done.put((slot, slab_map, len(indices), read_bytes, None))
+                    except BaseException as error:
+                        self._done.put((slot, None, 0, 0, error))
+        except BaseException as error:
+            if self._pending:
+                self._done.put((-1, None, 0, 0, error))
+
+    def close(self):
+        self._stop.set()
+        try:
+            while not self._req.empty():
+                self._req.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            self._req.put_nowait(None)
+        except queue.Full:
+            pass
+        if self.ident is not None:
+            self.join(timeout=10.0)
+        self._pending = False
+
+
 class EmbeddingTileStore:
-    """Describe an embedding database and optionally keep it packed in RAM."""
+    """Describe an embedding database and keep all or a sliding window in RAM."""
 
     def __init__(self, path, headers, host_cache_setting="auto"):
         self.path = os.fspath(path)
@@ -1094,8 +1185,16 @@ class EmbeddingTileStore:
 
         self.total_source_bytes = int(sum(self.source_bytes))
         self.total_float32_bytes = int(sum(self.float32_bytes))
+        self.disk_reads = 0
+        self.disk_read_bytes = 0
         self._packed = None
         self._offsets = None
+        self._anchor_buf = None
+        self._anchor_map = {}
+        self._slab_bufs = [None, None]
+        self._active_slab_slot = -1
+        self._active_slab_map = {}
+        self._prefetcher = None
         if self.host_cache_bytes and self.total_source_bytes <= self.host_cache_bytes:
             self._load_full_cache()
 
@@ -1105,16 +1204,65 @@ class EmbeddingTileStore:
 
     @property
     def cached_bytes(self):
-        return self.total_source_bytes if self.fully_cached else 0
+        if self.fully_cached:
+            return self.total_source_bytes
+        return self.window_cached_bytes
+
+    @property
+    def uniform_dtype(self):
+        if not self.dtypes:
+            return None
+        first = self.dtypes[0]
+        if any(dtype != first for dtype in self.dtypes):
+            return None
+        return first
+
+    @property
+    def supports_windowed_cache(self):
+        return (
+            not self.fully_cached
+            and self.host_cache_bytes > 0
+            and bool(self.headers)
+            and self.uniform_dtype is not None
+        )
+
+    @property
+    def window_active(self):
+        return self._anchor_buf is not None or self._active_slab_slot >= 0
+
+    @property
+    def window_cached_bytes(self):
+        total = 0
+        if self._anchor_buf is not None:
+            total += int(self._anchor_buf.nbytes)
+        for buf in self._slab_bufs:
+            if buf is not None:
+                total += int(buf.nbytes)
+        return total
+
+    def all_cached(self, indices):
+        """Return True if every sequence index in ``indices`` is currently resident in RAM."""
+        if self._packed is not None:
+            return True
+        if not self._anchor_map and not self._active_slab_map:
+            return False
+        anchor = self._anchor_map
+        slab = self._active_slab_map
+        return all((int(idx) in anchor or int(idx) in slab) for idx in indices)
 
     def _load_full_cache(self):
         if not self.headers:
             return
-        common_dtype = self.dtypes[0]
-        if any(dtype != common_dtype for dtype in self.dtypes):
+        common_dtype = self.uniform_dtype
+        if common_dtype is None:
             return
         total_rows = sum(shape[0] for shape in self.shapes)
-        packed = np.empty((total_rows, self.feature_dimension), dtype=common_dtype)
+        try:
+            packed = np.empty((total_rows, self.feature_dimension), dtype=common_dtype)
+        except MemoryError:
+            self._packed = None
+            self._offsets = None
+            return
         offsets = np.zeros(len(self.headers) + 1, dtype=np.int64)
         with h5py.File(self.path, "r", libver="latest", swmr=True) as hf:
             group = hf["embeddings"]
@@ -1124,14 +1272,143 @@ class EmbeddingTileStore:
                 packed[cursor:cursor + rows] = group[header][:]
                 cursor += rows
                 offsets[index + 1] = cursor
+                self.disk_reads += 1
+                self.disk_read_bytes += self.source_bytes[index]
         self._packed = packed
         self._offsets = offsets
+
+    def open_window(self, anchor_rows_cap, slab_rows_cap):
+        """Allocate reusable RAM anchor + double-buffered slab arrays and start prefetcher."""
+        self.clear_window()
+        common_dtype = self.uniform_dtype
+        if common_dtype is None or self.feature_dimension is None:
+            return False
+        anchor_rows_cap = max(0, int(anchor_rows_cap))
+        slab_rows_cap = max(0, int(slab_rows_cap))
+        if anchor_rows_cap <= 0:
+            return False
+        try:
+            anchor_buf = np.empty((anchor_rows_cap, self.feature_dimension), dtype=common_dtype)
+            if slab_rows_cap > 0:
+                slab_bufs = [
+                    np.empty((slab_rows_cap, self.feature_dimension), dtype=common_dtype),
+                    np.empty((slab_rows_cap, self.feature_dimension), dtype=common_dtype),
+                ]
+            else:
+                slab_bufs = [None, None]
+        except MemoryError:
+            self.clear_window()
+            return False
+        self._anchor_buf = anchor_buf
+        self._anchor_map = {}
+        self._slab_bufs = slab_bufs
+        self._active_slab_slot = -1
+        self._active_slab_map = {}
+        if slab_rows_cap > 0:
+            self._prefetcher = _WindowSlabPrefetcher(self, self._slab_bufs)
+            self._prefetcher.start()
+        return True
+
+    def load_anchor(self, indices):
+        """Populate the reusable anchor buffer with ``indices`` (reusing RAM hits if present)."""
+        if self._anchor_buf is None:
+            raise RuntimeError("Windowed anchor buffer is not open.")
+        indices = [int(i) for i in indices]
+        need_rows = sum(self.shapes[i][0] for i in indices)
+        if need_rows > self._anchor_buf.shape[0]:
+            raise ValueError(
+                f"Anchor load requires {need_rows} rows, exceeding capacity {self._anchor_buf.shape[0]}."
+            )
+        old_slab_map = self._active_slab_map
+        old_slab_buf = (
+            self._slab_bufs[self._active_slab_slot]
+            if self._active_slab_slot >= 0
+            else None
+        )
+        new_map = {}
+        disk_needed = []
+        cursor = 0
+        for idx in indices:
+            rows = self.shapes[idx][0]
+            span = old_slab_map.get(idx) if old_slab_buf is not None else None
+            if span is not None:
+                self._anchor_buf[cursor:cursor + rows] = old_slab_buf[span[0]:span[1]]
+            else:
+                disk_needed.append((idx, cursor, rows))
+            new_map[idx] = (cursor, cursor + rows)
+            cursor += rows
+        if disk_needed:
+            with h5py.File(self.path, "r", libver="latest", swmr=True) as hf:
+                group = hf["embeddings"]
+                for idx, dst_start, rows in disk_needed:
+                    out = self._anchor_buf[dst_start:dst_start + rows]
+                    dataset = h5py.h5d.open(
+                        group.id, self.headers[idx].encode("utf-8")
+                    )
+                    dataset.read(
+                        h5py.h5s.ALL,
+                        h5py.h5s.ALL,
+                        out,
+                        h5py.h5t.py_create(out.dtype),
+                    )
+                    self.disk_reads += 1
+                    self.disk_read_bytes += self.source_bytes[idx]
+        self._anchor_map = new_map
+        # Clear any stale active slab from a previous anchor to avoid holding mismatched indices.
+        self._active_slab_map = {}
+
+    def prefetch_slab(self, indices):
+        """Start asynchronous disk read of ``indices`` into the standby slab buffer."""
+        if self._prefetcher is None:
+            raise RuntimeError("Window slab prefetcher is not active.")
+        standby = 0 if self._active_slab_slot != 0 else 1
+        indices = [int(i) for i in indices]
+        need_rows = sum(self.shapes[i][0] for i in indices)
+        if need_rows > self._slab_bufs[standby].shape[0]:
+            raise ValueError(
+                f"Slab prefetch requires {need_rows} rows, exceeding capacity {self._slab_bufs[standby].shape[0]}."
+            )
+        self._prefetcher.submit(standby, indices)
+
+    def activate_prefetched_slab(self):
+        """Wait for the in-flight slab prefetch and swap it in as the active RAM slab."""
+        if self._prefetcher is None:
+            return
+        result = self._prefetcher.wait_result()
+        if result is None:
+            return
+        slot, slab_map, read_count, read_bytes = result
+        self._active_slab_slot = slot
+        self._active_slab_map = slab_map
+        self.disk_reads += read_count
+        self.disk_read_bytes += read_bytes
+
+    def clear_window(self):
+        """Stop the prefetch thread and release all windowed RAM buffers."""
+        if self._prefetcher is not None:
+            try:
+                self._prefetcher.close()
+            finally:
+                self._prefetcher = None
+        self._anchor_map = {}
+        self._active_slab_map = {}
+        self._active_slab_slot = -1
+        self._anchor_buf = None
+        self._slab_bufs = [None, None]
 
     def get(self, index, h5_group=None):
         index = int(index)
         if self._packed is not None:
             start, end = self._offsets[index:index + 2]
             return self._packed[int(start):int(end)]
+        span = self._anchor_map.get(index)
+        if span is not None:
+            return self._anchor_buf[span[0]:span[1]]
+        span = self._active_slab_map.get(index)
+        if span is not None:
+            return self._slab_bufs[self._active_slab_slot][span[0]:span[1]]
+        self.disk_reads += 1
+        self.disk_read_bytes += self.source_bytes[index]
         if h5_group is None:
             with h5py.File(self.path, "r", libver="latest", swmr=True) as hf:
                 return hf["embeddings"][self.headers[index]][:]
@@ -1150,11 +1427,22 @@ class EmbeddingTileStore:
         if self._packed is not None:
             start, end = self._offsets[index:index + 2]
             out[...] = self._packed[int(start):int(end)]
-        elif h5_group is not None:
+            return out
+        span = self._anchor_map.get(index)
+        if span is not None:
+            out[...] = self._anchor_buf[span[0]:span[1]]
+            return out
+        span = self._active_slab_map.get(index)
+        if span is not None:
+            out[...] = self._slab_bufs[self._active_slab_slot][span[0]:span[1]]
+            return out
+        if h5_group is not None:
             # h5py's low-level calls: the Dataset wrapper and the selections of read_direct
             # cost about as much as the read itself (91 us against 194 us per 0.5 MB embedding).
             dataset = h5py.h5d.open(h5_group.id, self.headers[index].encode("utf-8"))
             dataset.read(h5py.h5s.ALL, h5py.h5s.ALL, out, h5py.h5t.py_create(out.dtype))
+            self.disk_reads += 1
+            self.disk_read_bytes += self.source_bytes[index]
         else:
             with h5py.File(self.path, "r", libver="latest", swmr=True) as hf:
                 return self.read_into(index, out, hf["embeddings"])
@@ -1182,6 +1470,517 @@ class EmbeddingTileStore:
             block_ids[index] = block
             used += size
         return block_ids
+
+
+def plan_windowed_budgets(store, *, device=None, compute_element_bytes=4):
+    """Return ``(anchor_bytes, slab_bytes)`` for partial-RAM windowing, or ``None``.
+
+    Activates only when ``store`` has a positive host-cache budget that cannot
+    hold the whole embedding file, has uniform dtype, and can fit at least one
+    anchor plus two double-buffered streaming slabs (aligned to GPU half-tile
+    byte size when an accelerator is available).
+    """
+    if not isinstance(store, EmbeddingTileStore) or not store.supports_windowed_cache:
+        return None
+    budget = int(store.host_cache_bytes)
+    if budget <= 0 or store.total_source_bytes <= budget:
+        return None
+    max_seq_bytes = max(store.source_bytes) if store.source_bytes else 0
+    if max_seq_bytes <= 0 or budget < max_seq_bytes * 3:
+        return None
+
+    src_itemsize = max(1, int(store.uniform_dtype.itemsize))
+    elem_bytes = max(1, int(compute_element_bytes))
+    gpu_half_src = None
+    if device is not None:
+        dev_type = getattr(device, "type", str(device).split(":", 1)[0])
+        if dev_type in SUPPORTED_TILED_BACKENDS:
+            try:
+                plan = accelerator_memory_plan(
+                    device, lanes=2, compute_element_bytes=elem_bytes
+                )
+                gpu_half_src = max(
+                    max_seq_bytes,
+                    int((plan.tile_cache_bytes // 2) * src_itemsize // elem_bytes),
+                )
+            except Exception:
+                gpu_half_src = None
+    if gpu_half_src is None:
+        gpu_half_src = max(max_seq_bytes, budget // 5)
+
+    slab_bytes = min(gpu_half_src, max(max_seq_bytes, int(budget * 0.15)))
+    anchor_bytes = budget - 2 * slab_bytes
+    if anchor_bytes < max_seq_bytes:
+        slab_bytes = max(max_seq_bytes, (budget - max_seq_bytes) // 2)
+        anchor_bytes = budget - 2 * slab_bytes
+    if anchor_bytes < max_seq_bytes or slab_bytes < max_seq_bytes:
+        return None
+    return int(anchor_bytes), int(slab_bytes)
+
+
+def _byte_partition_indices(indices, source_bytes, max_bytes):
+    """Group ``indices`` in given order into contiguous byte-bounded chunks."""
+    max_bytes = max(1, int(max_bytes))
+    groups = []
+    cur = []
+    used = 0
+    for idx in indices:
+        idx = int(idx)
+        size = int(source_bytes[idx])
+        if cur and used + size > max_bytes:
+            groups.append(cur)
+            cur = []
+            used = 0
+        cur.append(idx)
+        used += size
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _rows_for_indices(store, indices):
+    return sum(int(store.shapes[int(idx)][0]) for idx in indices)
+
+
+class WindowedPairSession:
+    """Two-level partial-RAM (anchor + double-buffered slab) batch producer.
+
+    Supports both mask-based all-vs-all / sparse prefiltered runs
+    (``from_masks``) and sorted ``int64`` key runs (``from_pending_keys``,
+    e.g. ``Network_Injection``). Every emitted batch belongs strictly to
+    ``anchor_p x anchor_p`` or ``anchor_p x slab_q`` (with small diagonals
+    optionally combined with ``slab_0``), guaranteeing 100% RAM cache hits
+    during GPU execution while the next slab prefetches asynchronously.
+    """
+
+    def __init__(
+        self,
+        store: EmbeddingTileStore,
+        safe_headers,
+        *,
+        anchor_bytes: int,
+        slab_bytes: int,
+        batch_size: int,
+        mode: str,
+        computed_mask=None,
+        required_mask=None,
+        pending_keys=None,
+    ):
+        self.store = store
+        self.safe_headers = list(safe_headers)
+        self.anchor_bytes = max(1, int(anchor_bytes))
+        self.slab_bytes = max(1, int(slab_bytes))
+        self.batch_size = max(1, int(batch_size))
+        self.mode = mode
+        self._computed_mask = computed_mask
+        self._required_mask = required_mask
+        self._pending_keys = pending_keys
+        self._window_enabled = False
+        self._closed = False
+        self.anchors_loaded = 0
+        self.slabs_loaded = 0
+        self.slabs_skipped = 0
+        self.batches_emitted = 0
+
+        if mode == "masks":
+            self._prepare_mask_schedule()
+        elif mode == "keys":
+            self._prepare_key_schedule()
+        else:
+            raise ValueError(f"Unknown WindowedPairSession mode: {mode!r}")
+
+    @classmethod
+    def from_masks(
+        cls,
+        store: EmbeddingTileStore,
+        safe_headers,
+        computed_mask,
+        required_mask,
+        *,
+        anchor_bytes: int,
+        slab_bytes: int,
+        batch_size: int,
+    ):
+        return cls(
+            store,
+            safe_headers,
+            anchor_bytes=anchor_bytes,
+            slab_bytes=slab_bytes,
+            batch_size=batch_size,
+            mode="masks",
+            computed_mask=computed_mask,
+            required_mask=required_mask,
+        )
+
+    @classmethod
+    def from_pending_keys(
+        cls,
+        store: EmbeddingTileStore,
+        safe_headers,
+        pending_keys,
+        *,
+        anchor_bytes: int,
+        slab_bytes: int,
+        batch_size: int,
+    ):
+        return cls(
+            store,
+            safe_headers,
+            anchor_bytes=anchor_bytes,
+            slab_bytes=slab_bytes,
+            batch_size=batch_size,
+            mode="keys",
+            pending_keys=np.asarray(pending_keys, dtype=np.int64),
+        )
+
+    def _prepare_mask_schedule(self):
+        n = len(self.safe_headers)
+        # Partition 0..n-1 into contiguous slab-sized GPU blocks, then group into RAM anchors.
+        self._gpu_blocks = _byte_partition_indices(
+            range(n), self.store.source_bytes, self.slab_bytes
+        )
+        block_bytes = [
+            sum(int(self.store.source_bytes[i]) for i in blk) for blk in self._gpu_blocks
+        ]
+        self._anchors = []  # list of lists of gpu_block indices
+        cur_blocks = []
+        used = 0
+        for b_idx, b_sz in enumerate(block_bytes):
+            if cur_blocks and used + b_sz > self.anchor_bytes:
+                self._anchors.append(cur_blocks)
+                cur_blocks = []
+                used = 0
+            cur_blocks.append(b_idx)
+            used += b_sz
+        if cur_blocks:
+            self._anchors.append(cur_blocks)
+
+        self._anchor_rows_cap = max(
+            (
+                sum(_rows_for_indices(self.store, self._gpu_blocks[b]) for b in ab)
+                for ab in self._anchors
+            ),
+            default=0,
+        )
+        # Packed sparse slabs never exceed slab_bytes; cap slab rows to max possible rows in slab_bytes.
+        max_blk_rows = max(
+            (_rows_for_indices(self.store, blk) for blk in self._gpu_blocks),
+            default=0,
+        )
+        row_bytes = max(
+            1,
+            int(self.store.feature_dimension or 1)
+            * max(1, int(self.store.uniform_dtype.itemsize if self.store.uniform_dtype is not None else 4)),
+        )
+        budget_slab_rows = self.slab_bytes // row_bytes
+        self._slab_rows_cap = (
+            max(max_blk_rows, budget_slab_rows) if len(self._anchors) > 1 else 0
+        )
+
+    def _prepare_key_schedule(self):
+        keys = self._pending_keys
+        n = len(self.safe_headers)
+        self._key_stages = []
+        if keys.size == 0 or n == 0:
+            self._anchor_rows_cap = 0
+            self._slab_rows_cap = 0
+            return
+
+        u = keys // n
+        v = keys % n
+        deg = np.bincount(u, minlength=n).astype(np.int64)
+        deg += np.bincount(v, minlength=n).astype(np.int64)
+        active = np.flatnonzero(deg > 0)
+        # Put high-degree hubs (e.g., new sequences in Network Injection) into Anchor 0
+        # while keeping remaining sequences in ascending index order for sequential disk I/O
+        # and tight intra-block locality.
+        max_deg = int(deg[active].max()) if active.size else 0
+        hub_cut = max(2, int(max_deg * 0.35))
+        order = sorted(
+            active.tolist(),
+            key=lambda idx: (0 if int(deg[idx]) >= hub_cut else 1, -int(deg[idx]) if int(deg[idx]) >= hub_cut else idx),
+        )
+        anchors = _byte_partition_indices(order, self.store.source_bytes, self.anchor_bytes)
+
+        anchor_of = np.full(n, -1, dtype=np.int32)
+        for a_idx, seqs in enumerate(anchors):
+            anchor_of[seqs] = a_idx
+
+        au = anchor_of[u]
+        av = anchor_of[v]
+        a_lo = np.minimum(au, av)
+        a_hi = np.maximum(au, av)
+
+        # Group all pending keys by their lower anchor in one O(E log E) sort.
+        sort_idx = np.argsort(a_lo, kind="stable")
+        keys_sorted = keys[sort_idx]
+        a_lo_s = a_lo[sort_idx]
+        a_hi_s = a_hi[sort_idx]
+
+        starts = np.searchsorted(a_lo_s, np.arange(len(anchors)), side="left")
+        ends = np.searchsorted(a_lo_s, np.arange(len(anchors)), side="right")
+
+        max_anchor_rows = 0
+        max_slab_rows = 0
+        for a_idx, (s_pos, e_pos) in enumerate(zip(starts.tolist(), ends.tolist())):
+            if s_pos >= e_pos:
+                continue
+            stage_keys = keys_sorted[s_pos:e_pos]
+            stage_hi = a_hi_s[s_pos:e_pos]
+            diag_mask = stage_hi == a_idx
+            diag_keys = stage_keys[diag_mask]
+            ext_keys = stage_keys[~diag_mask]
+
+            # Collect only sequences of this anchor that participate in this stage.
+            su = stage_keys // n
+            sv = stage_keys % n
+            in_anchor = np.concatenate((su[anchor_of[su] == a_idx], sv[anchor_of[sv] == a_idx]))
+            active_anchor = np.unique(in_anchor).tolist()
+            max_anchor_rows = max(max_anchor_rows, _rows_for_indices(self.store, active_anchor))
+
+            # Order diagonal keys cleanly by (u, v).
+            if diag_keys.size > 1:
+                diag_keys = np.sort(diag_keys)
+
+            # Group external keys by byte-bounded slabs of their external endpoints.
+            slabs = []
+            if ext_keys.size > 0:
+                eu = ext_keys // n
+                ev = ext_keys % n
+                ext_end = np.where(anchor_of[eu] == a_idx, ev, eu)
+                unique_ext = np.unique(ext_end).tolist()
+                slab_groups = _byte_partition_indices(
+                    unique_ext, self.store.source_bytes, self.slab_bytes
+                )
+                slab_of = np.full(n, -1, dtype=np.int32)
+                for sl_idx, sl_seqs in enumerate(slab_groups):
+                    slab_of[sl_seqs] = sl_idx
+                    max_slab_rows = max(max_slab_rows, _rows_for_indices(self.store, sl_seqs))
+                ext_slab_ids = slab_of[ext_end]
+                sl_order = np.argsort(ext_slab_ids, kind="stable")
+                ext_sorted = ext_keys[sl_order]
+                ext_sid_sorted = ext_slab_ids[sl_order]
+                sl_starts = np.searchsorted(ext_sid_sorted, np.arange(len(slab_groups)), side="left")
+                sl_ends = np.searchsorted(ext_sid_sorted, np.arange(len(slab_groups)), side="right")
+                for sl_seqs, sl_s, sl_e in zip(slab_groups, sl_starts.tolist(), sl_ends.tolist()):
+                    if sl_s < sl_e:
+                        slabs.append((sl_seqs, ext_sorted[sl_s:sl_e]))
+
+            self._key_stages.append((active_anchor, diag_keys, slabs))
+
+        self._anchor_rows_cap = max_anchor_rows
+        self._slab_rows_cap = max_slab_rows
+
+    def __enter__(self):
+        if self._anchor_rows_cap > 0 and self.store.supports_windowed_cache:
+            self._window_enabled = self.store.open_window(
+                self._anchor_rows_cap, self._slab_rows_cap
+            )
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def release_window(self):
+        """Release RAM buffers (e.g., on CPU fallback) while keeping batch iteration active."""
+        if self._window_enabled:
+            self._window_enabled = False
+            self.store.clear_window()
+
+    def close(self):
+        if not self._closed:
+            self._closed = True
+            self._window_enabled = False
+            self.store.clear_window()
+
+    def _chunk_pair_tuples(self, pair_iter):
+        batch = []
+        limit = self.batch_size
+        for item in pair_iter:
+            batch.append(item)
+            if len(batch) >= limit:
+                self.batches_emitted += 1
+                yield batch
+                batch = []
+        if batch:
+            self.batches_emitted += 1
+            yield batch
+
+    def _keys_to_tuples(self, keys):
+        headers = self.safe_headers
+        n = len(headers)
+        for start in range(0, keys.size, 65536):
+            chunk = keys[start:start + 65536]
+            for r, c in zip((chunk // n).tolist(), (chunk % n).tolist()):
+                yield (r, c, headers[r], headers[c])
+
+    def _iter_mask_diag_tuples(self, anchor_blocks):
+        headers = self.safe_headers
+        comp = self._computed_mask
+        req = self._required_mask
+        for idx_a, b_r in enumerate(anchor_blocks):
+            rows_r = self._gpu_blocks[b_r]
+            r0, r1 = rows_r[0], rows_r[-1] + 1
+            for b_c in anchor_blocks[idx_a:]:
+                cols_c = self._gpu_blocks[b_c]
+                c0, c1 = cols_c[0], cols_c[-1] + 1
+                sub = ~comp[r0:r1, c0:c1]
+                if req is not None:
+                    sub &= req[r0:r1, c0:c1]
+                if b_r == b_c:
+                    sub = np.triu(sub, k=1)
+                rr, cc = np.nonzero(sub)
+                if rr.size == 0:
+                    continue
+                for r, c in zip((rr + r0).tolist(), (cc + c0).tolist()):
+                    yield (r, c, headers[r], headers[c])
+
+    def _iter_mask_slab_tuples(self, anchor_blocks, packed_slab_cols):
+        headers = self.safe_headers
+        comp = self._computed_mask
+        req = self._required_mask
+        cols_arr = np.asarray(packed_slab_cols, dtype=np.int64)
+        for b_r in anchor_blocks:
+            rows_r = self._gpu_blocks[b_r]
+            r0, r1 = rows_r[0], rows_r[-1] + 1
+            sub = ~comp[r0:r1, cols_arr]
+            if req is not None:
+                sub &= req[r0:r1, cols_arr]
+            rr, cc = np.nonzero(sub)
+            if rr.size == 0:
+                continue
+            for r, c in zip((rr + r0).tolist(), cols_arr[cc].tolist()):
+                yield (r, c, headers[r], headers[c])
+
+    def _iter_mask_batches(self):
+        comp = self._computed_mask
+        req = self._required_mask
+        n = len(self.safe_headers)
+        src_bytes = self.store.source_bytes
+        merge_diag_threshold = min(self.batch_size, 16384)
+
+        for a_idx, anchor_blocks in enumerate(self._anchors):
+            r0 = self._gpu_blocks[anchor_blocks[0]][0]
+            r1 = self._gpu_blocks[anchor_blocks[-1]][-1] + 1
+
+            # Determine active sequences in this anchor and total diagonal pairs.
+            row_active = np.zeros(r1 - r0, dtype=bool)
+            diag_count = 0
+            # Diagonal scan
+            diag_sub = ~comp[r0:r1, r0:r1]
+            if req is not None:
+                diag_sub &= req[r0:r1, r0:r1]
+            diag_sub = np.triu(diag_sub, k=1)
+            diag_count = int(np.count_nonzero(diag_sub))
+            if diag_count > 0:
+                row_active |= diag_sub.any(axis=1)
+                row_active |= diag_sub.any(axis=0)
+            del diag_sub
+
+            # Off-diagonal scan across subsequent GPU blocks; pack sparse active columns up to slab_bytes.
+            packed_slabs = []
+            cur_cols = []
+            cur_bytes = 0
+            last_blk = anchor_blocks[-1]
+            for b_q in range(last_blk + 1, len(self._gpu_blocks)):
+                cols_q = self._gpu_blocks[b_q]
+                c0, c1 = cols_q[0], cols_q[-1] + 1
+                sub = ~comp[r0:r1, c0:c1]
+                if req is not None:
+                    sub &= req[r0:r1, c0:c1]
+                col_any = sub.any(axis=0)
+                if not col_any.any():
+                    self.slabs_skipped += 1
+                    continue
+                row_active |= sub.any(axis=1)
+                active_cols = (np.flatnonzero(col_any) + c0).tolist()
+                for col in active_cols:
+                    sz = int(src_bytes[col])
+                    if cur_cols and cur_bytes + sz > self.slab_bytes:
+                        packed_slabs.append(cur_cols)
+                        cur_cols = []
+                        cur_bytes = 0
+                    cur_cols.append(col)
+                    cur_bytes += sz
+            if cur_cols:
+                packed_slabs.append(cur_cols)
+
+            if diag_count == 0 and not packed_slabs:
+                continue
+
+            active_anchor = (np.flatnonzero(row_active) + r0).tolist()
+            if self._window_enabled:
+                self.store.load_anchor(active_anchor)
+                self.anchors_loaded += 1
+                if packed_slabs:
+                    self.store.prefetch_slab(packed_slabs[0])
+
+            # Decide whether to run diagonal standalone (overlapping slab_0 prefetch) or combine with slab_0.
+            start_slab = 0
+            if diag_count > 0 and (not packed_slabs or diag_count >= merge_diag_threshold):
+                yield from self._chunk_pair_tuples(self._iter_mask_diag_tuples(anchor_blocks))
+            elif diag_count > 0 and packed_slabs:
+                if self._window_enabled:
+                    self.store.activate_prefetched_slab()
+                    self.slabs_loaded += 1
+                    if len(packed_slabs) > 1:
+                        self.store.prefetch_slab(packed_slabs[1])
+                yield from self._chunk_pair_tuples(
+                    chain(
+                        self._iter_mask_diag_tuples(anchor_blocks),
+                        self._iter_mask_slab_tuples(anchor_blocks, packed_slabs[0]),
+                    )
+                )
+                start_slab = 1
+
+            for k in range(start_slab, len(packed_slabs)):
+                if self._window_enabled:
+                    self.store.activate_prefetched_slab()
+                    self.slabs_loaded += 1
+                    if k + 1 < len(packed_slabs):
+                        self.store.prefetch_slab(packed_slabs[k + 1])
+                yield from self._chunk_pair_tuples(
+                    self._iter_mask_slab_tuples(anchor_blocks, packed_slabs[k])
+                )
+
+    def _iter_key_batches(self):
+        merge_diag_threshold = min(self.batch_size, 16384)
+        for active_anchor, diag_keys, slabs in self._key_stages:
+            if self._window_enabled:
+                self.store.load_anchor(active_anchor)
+                self.anchors_loaded += 1
+                if slabs:
+                    self.store.prefetch_slab(slabs[0][0])
+
+            diag_count = int(diag_keys.size)
+            start_slab = 0
+            if diag_count > 0 and (not slabs or diag_count >= merge_diag_threshold):
+                yield from self._chunk_pair_tuples(self._keys_to_tuples(diag_keys))
+            elif diag_count > 0 and slabs:
+                if self._window_enabled:
+                    self.store.activate_prefetched_slab()
+                    self.slabs_loaded += 1
+                    if len(slabs) > 1:
+                        self.store.prefetch_slab(slabs[1][0])
+                yield from self._chunk_pair_tuples(
+                    chain(self._keys_to_tuples(diag_keys), self._keys_to_tuples(slabs[0][1]))
+                )
+                start_slab = 1
+
+            for k in range(start_slab, len(slabs)):
+                if self._window_enabled:
+                    self.store.activate_prefetched_slab()
+                    self.slabs_loaded += 1
+                    if k + 1 < len(slabs):
+                        self.store.prefetch_slab(slabs[k + 1][0])
+                yield from self._chunk_pair_tuples(self._keys_to_tuples(slabs[k][1]))
+
+    def iter_batches(self):
+        if self.mode == "masks":
+            yield from self._iter_mask_batches()
+        else:
+            yield from self._iter_key_batches()
 
 
 def _store_resident_bytes(store, lengths, element_bytes):
