@@ -2402,9 +2402,16 @@ _REGRESSION_TITLE = Message("Isotonic Regression Fit")
 # theme's (Studio_Theme tokens), from the statistics report's histogram tint
 # to the theme colour's darkest text shade.
 _DENSITY_SHADES = ("histogram", "separator", "accent", "accent_text")
-# Hexagons across and up the plot; for a 10 x 6 inch window's plot, about
-# twice as wide as it is tall, these keep them about regular.
-_DENSITY_GRID = (64, 20)
+# Hexagons across the observed pairs' own x range, at least, and across the whole plot at most:
+# a plot of only the observed pairs takes the fewest (64), and one widened by calibration pairs
+# far below them takes more, so the observed band keeps about 10 columns. Up the plot the count
+# follows from the plot's width over its height (2 for the 10 x 6 inch window, 1.5 beside the
+# held-out panels), which keeps the hexagons about regular: the pair (64, 20) of a 2:1 plot.
+_HEXAGON_SHAPE = 1.6
+_DENSITY_COLUMNS = (64, 110)
+_OBSERVED_COLUMNS = 10
+_PLOT_ASPECT = 2.0
+_PANELLED_PLOT_ASPECT = 1.5
 # The fit's line, in points, and the ring in the chart's surface colour
 # around it, which keeps it apart from the hexagons it crosses.
 _FIT_WIDTH = 2.25
@@ -2452,6 +2459,31 @@ def panel_statistics(check):
     )
 
 
+def density_grid(x, y, calibration_x=None, calibration_y=None, aspect=_PLOT_ASPECT):
+    """The main chart's hexbin extent and gridsize: (xmin, xmax, ymin, ymax) over every plotted pair, and (nx, ny).
+
+    The extent spans the observed pairs and the calibration pairs together, so the hexagons stay
+    regular on a plot that the calibration dots widen. nx gives the observed pairs' x range about
+    _OBSERVED_COLUMNS columns (within _DENSITY_COLUMNS); ny keeps the hexagons regular for a plot
+    aspect times as wide as it is tall.
+    """
+    xs = [np.asarray(x)]
+    ys = [np.asarray(y)]
+    if calibration_x is not None:
+        xs.append(np.asarray(calibration_x))
+        ys.append(np.asarray(calibration_y))
+    low_x, high_x = float(min(a.min() for a in xs)), float(max(a.max() for a in xs))
+    low_y, high_y = float(min(a.min() for a in ys)), float(max(a.max() for a in ys))
+    # A single value on an axis still needs a width.
+    high_x = high_x if high_x > low_x else low_x + 1.0
+    high_y = high_y if high_y > low_y else low_y + 1.0
+    observed = float(np.ptp(xs[0]))
+    wanted = _OBSERVED_COLUMNS * (high_x - low_x) / observed if observed > 0 else _DENSITY_COLUMNS[1]
+    columns = int(round(min(max(wanted, _DENSITY_COLUMNS[0]), _DENSITY_COLUMNS[1])))
+    rows = max(1, int(round(columns / aspect / _HEXAGON_SHAPE)))
+    return (low_x, high_x, low_y, high_y), (columns, rows)
+
+
 def _count_ticks(top):
     """The colour bar's ticks for 1 to top pairs: the powers of ten, or 1 and top below 10."""
     ticks = [10 ** power for power in range(int(np.log10(top)) + 1)]
@@ -2487,9 +2519,10 @@ def plot_regression_fit(iso_reg, x, y, rho, r2, pairs, calibration=None, held_ou
         set_translator(previous)
 
 
-# The calibration pairs' dots: their area in points², and how opaque they are.
-_CALIBRATION_DOT = 9
-_CALIBRATION_ALPHA = 0.6
+# The calibration pairs' dots: their area in points², and how opaque they are. Small and faint,
+# so that the tens of thousands of a large sample show their density instead of one solid block.
+_CALIBRATION_DOT = 2
+_CALIBRATION_ALPHA = 0.08
 # The space between the lines above the plot, in points.
 _HEADER_LINE = 16
 
@@ -2605,8 +2638,13 @@ def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language, calibration=No
             )
         axes.set_facecolor(tokens["surface"])
         # Thin edges in each hexagon's own colour close the hairline seams between them.
+        extent, grid = density_grid(
+            x, y, calibration.calibration_x if sampled else None,
+            calibration.calibration_y if sampled else None,
+            _PANELLED_PLOT_ASPECT if panelled else _PLOT_ASPECT,
+        )
         cells = axes.hexbin(
-            x, y, gridsize=_DENSITY_GRID, mincnt=1, cmap=shades, norm=LogNorm(),
+            x, y, gridsize=grid, extent=extent, mincnt=1, cmap=shades, norm=LogNorm(),
             linewidths=0.2, edgecolors="face",
         )
         # A colour bar needs two counts apart, even when every hexagon holds one pair.

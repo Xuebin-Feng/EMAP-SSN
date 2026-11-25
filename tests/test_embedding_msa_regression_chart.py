@@ -720,6 +720,49 @@ class RegressionChartTests(unittest.TestCase):
         self.assertIn("Isotonic fit alone", texts)
         self.assertEqual(len(figure.axes), 4)
 
+    def test_the_hexagons_span_every_plotted_pair_and_stay_regular(self):
+        fit = self.calibrated()
+        figure = self.draw(pairs=2_060, calibration=fit)
+        cells = self.hexagons(figure)
+        extent, (columns, rows) = Embedding_MSA.density_grid(
+            self.x, self.y, fit.calibration_x, fit.calibration_y, Embedding_MSA._PANELLED_PLOT_ASPECT
+        )
+        # The grid spans the observed and the calibration pairs together.
+        self.assertEqual(extent[0], float(min(self.x.min(), fit.calibration_x.min())))
+        self.assertEqual(extent[1], float(max(self.x.max(), fit.calibration_x.max())))
+        self.assertEqual(extent[2], float(min(self.y.min(), fit.calibration_y.min())))
+        self.assertEqual(extent[3], float(max(self.y.max(), fit.calibration_y.max())))
+        self.assertLess(extent[0], float(self.x.min()), "the sample reaches below the observed pairs")
+        # The observed band keeps about ten columns and the count up the plot follows the plot's shape.
+        self.assertGreaterEqual(columns, 64)
+        # A sample far below a narrow observed band: that band still gets about ten columns.
+        wide, (wide_columns, _) = Embedding_MSA.density_grid(
+            np.array([0.89, 1.0]), np.array([1.0, 7.0]), np.array([0.15]), np.array([0.6]))
+        self.assertGreater(wide_columns, 64)
+        self.assertAlmostEqual(wide_columns * 0.11 / (wide[1] - wide[0]), 10, delta=1)
+        self.assertEqual(rows, round(columns / Embedding_MSA._PANELLED_PLOT_ASPECT / Embedding_MSA._HEXAGON_SHAPE))
+        # The hexagons' own width in x units is the grid's, not the observed pairs' range over it.
+        offsets = np.asarray(cells.get_offsets())
+        step = np.diff(np.unique(np.round(offsets[:, 0], 9)))
+        self.assertAlmostEqual(float(step.min()), (extent[1] - extent[0]) / columns / 2, places=6)
+        # The chart's x axis is as wide as the grid: nothing is stretched into stripes.
+        low, high = figure.axes[0].get_xlim()
+        self.assertLessEqual(low, extent[0])
+        self.assertGreaterEqual(high, extent[1])
+        # Without a sample the observed pairs fill the plot, with the grid the chart always had.
+        extent, grid = Embedding_MSA.density_grid(self.x, self.y)
+        self.assertEqual(grid, (64, 20))
+        self.assertEqual(extent, (float(self.x.min()), float(self.x.max()), float(self.y.min()), float(self.y.max())))
+
+    def test_the_calibration_dots_are_small_and_faint(self):
+        from matplotlib.collections import PathCollection
+
+        figure = self.draw(pairs=2_060, calibration=self.calibrated())
+        (dots,) = [item for item in figure.axes[0].collections if isinstance(item, PathCollection)]
+        self.assertLessEqual(float(dots.get_sizes()[0]), 3)
+        self.assertLessEqual(dots.get_alpha(), 0.3)
+        self.assertEqual(float(dots.get_sizes()[0]), Embedding_MSA._CALIBRATION_DOT)
+
     def test_a_run_without_a_sample_draws_as_before(self):
         from matplotlib.collections import PathCollection
 
