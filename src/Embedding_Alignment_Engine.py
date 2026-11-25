@@ -33,6 +33,7 @@ import numpy as np
 import psutil
 import torch
 from utilities import Align_GPU_Kernels
+from utilities import GPU_Memory_View
 from utilities import Tool_Supervisor
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -854,6 +855,8 @@ class AcceleratorBackend:
             total_bytes = int(total_bytes)
             free_bytes = int(free_bytes)
             reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
+            if self.device_type == "cuda":
+                reserve = _reserve_beside_other_programs(self.device, free_bytes, total_bytes, reserve)
             return AcceleratorMemorySnapshot(
                 backend=self.device_type,
                 free_bytes=free_bytes,
@@ -943,6 +946,36 @@ class AcceleratorBackend:
         if self.supports_async_streams:
             return True, "stream, event, and allocator APIs are available"
         return True, "default queue and working-set memory APIs are available"
+
+
+_other_programs_announced = set()  # device keys the "other programs" line was printed for
+
+
+def _reserve_beside_other_programs(device, free_bytes, total_bytes, reserve, out=print):
+    """Raise a CUDA snapshot's reserve so that plans leave out the memory other programs hold (Windows).
+
+    On Windows the free figure of mem_get_info does not see other programs, so the usable memory is
+    taken as the smaller of today's and ``room - margin``, where room is the card minus what other
+    programs hold and torch's reserved pool. Only the reserve changes, never the free figure; every
+    other case (not Windows, reader unknown, switch off) returns ``reserve`` unchanged. Never raises.
+    """
+    try:
+        view = GPU_Memory_View.room_beside_other_programs(device, total_bytes)
+        if view is None:
+            return reserve
+        room, others = view
+        raised = max(reserve, int(free_bytes) - (int(room) - GPU_Memory_View.card_margin_bytes(total_bytes)))
+        if raised > reserve:
+            key = str(device)
+            if key not in _other_programs_announced:
+                _other_programs_announced.add(key)
+                out(
+                    f"[Hardware] Other programs hold {others / GIB:.1f} GB of the "
+                    f"{int(total_bytes) / GIB:.1f} GB on {device}; GPU plans leave that memory to them."
+                )
+        return raised
+    except Exception:
+        return reserve
 
 
 def get_accelerator_backend(device):

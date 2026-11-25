@@ -5,6 +5,7 @@ phase handling. Tests that combine the engine with Align_Similarity_Matrix
 callbacks live in test_align_similarity_matrix_pipeline.py.
 """
 import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -25,6 +26,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Embedding_Alignment_Engine as alignment_engine  # noqa: E402
+from utilities import GPU_Memory_View  # noqa: E402
 
 from tests.alignment_fixtures import RecordingTrial  # noqa: E402
 
@@ -935,6 +937,163 @@ class AllocatorCapTests(unittest.TestCase):
                 plan.memory_plan.allocator_cap_bytes,
                 plan.estimate.additional_bytes + alignment_engine.ALLOCATOR_CAP_SLACK_BYTES,
             )
+
+
+MIB = 1024 ** 2
+
+
+class OtherProgramsSnapshotTests(unittest.TestCase):
+    """A CUDA snapshot leaves out the memory other programs hold, on Windows only (no GPU, no nvidia-smi).
+
+    The recorded card: total 12,282 MiB, CUDA free 11,106 MiB. Today's reserve there is
+    max(2,048 MiB, 15 % = 1,842 MiB) = 2,048 MiB, so today's usable memory is 11,106 - 2,048 = 9,058 MiB.
+    The margin is int(total * 0.05) bytes (614.1 MiB). With the rule
+    usable = min(today's, room - margin) and room = total - others - torch's reserved pool:
+      others 1,762 MiB: room 10,520, room - margin 9,905.9 > 9,058   -> unchanged;
+      others 2,868 MiB: room  9,414, room - margin 8,799.9 < 9,058   -> reserve raised to free - usable.
+    """
+
+    TOTAL = 12282 * MIB
+    FREE = 11106 * MIB
+
+    def setUp(self):
+        GPU_Memory_View._OTHER_PROGRAMS_CACHE.clear()
+        alignment_engine._other_programs_announced.clear()
+        self.addCleanup(GPU_Memory_View._OTHER_PROGRAMS_CACHE.clear)
+        self.addCleanup(alignment_engine._other_programs_announced.clear)
+
+    def _backend(self, device_type="cuda", free=None):
+        """An AcceleratorBackend over a fake torch module that answers mem_get_info (no CUDA init)."""
+        backend = alignment_engine.AcceleratorBackend.__new__(alignment_engine.AcceleratorBackend)
+        backend.device = torch.device(f"{device_type}:0")
+        backend.device_type = device_type
+        backend._memory_module = None
+        backend.module = SimpleNamespace(
+            mem_get_info=lambda device: (self.FREE if free is None else free, self.TOTAL),
+            device=lambda device: contextlib.nullcontext(),
+            Stream=object, Event=object, stream=lambda stream: contextlib.nullcontext(),
+        )
+        return backend
+
+    @contextlib.contextmanager
+    def _card(self, *, used_mib, reserved_mib=0, windows=True):
+        """The reader answers ``used_mib`` (None: unknown); yields (stdout buffer, the reader mock)."""
+        reader = mock.Mock(return_value=None if used_mib is None else (used_mib * MIB, self.TOTAL))
+        buffer = io.StringIO()
+        with mock.patch.object(GPU_Memory_View, "other_programs_switch_on", return_value=True), \
+                mock.patch.object(GPU_Memory_View, "card_limit_is_not_enforced", return_value=windows), \
+                mock.patch.object(GPU_Memory_View, "device_memory_in_use", reader), \
+                mock.patch.object(torch.cuda, "memory_reserved", return_value=reserved_mib * MIB), \
+                contextlib.redirect_stdout(buffer):
+            yield buffer, reader
+
+    def _todays(self, snapshot):
+        self.assertEqual(snapshot.free_bytes, self.FREE)
+        self.assertEqual(snapshot.total_bytes, self.TOTAL)
+        self.assertEqual(snapshot.reserve_bytes, max(alignment_engine.MIN_CUDA_RESERVE, int(self.TOTAL * 0.15)))
+        self.assertEqual(snapshot.reserve_bytes, 2048 * MIB)
+        self.assertEqual(snapshot.usable_bytes, 9058 * MIB)
+        self.assertEqual(snapshot.source, "mem_get_info")
+
+    def test_off_windows_the_snapshot_is_todays_and_the_reader_is_not_asked(self):
+        with self._card(used_mib=2868, windows=False) as (out, reader):
+            snapshot = self._backend().memory_snapshot()
+        self._todays(snapshot)
+        reader.assert_not_called()
+        self.assertEqual(out.getvalue(), "")
+
+    def test_on_windows_with_an_unknown_reader_the_snapshot_is_todays(self):
+        with self._card(used_mib=None) as (out, reader):
+            snapshot = self._backend().memory_snapshot()
+        self._todays(snapshot)
+        self.assertEqual(out.getvalue(), "")
+
+    def test_with_the_switch_off_the_snapshot_is_todays_and_nothing_is_read(self):
+        with self._card(used_mib=2868) as (out, reader), \
+                mock.patch.object(GPU_Memory_View, "other_programs_switch_on", return_value=False):
+            snapshot = self._backend().memory_snapshot()
+        self._todays(snapshot)
+        reader.assert_not_called()
+
+    def test_other_programs_below_todays_reserve_leave_the_snapshot_unchanged(self):
+        with self._card(used_mib=1762) as (out, reader):
+            snapshot = self._backend().memory_snapshot()
+        self._todays(snapshot)
+        reader.assert_called()
+        self.assertEqual(out.getvalue(), "")
+
+    def test_other_programs_holding_2868_mib_raise_the_reserve_and_the_line_prints_once(self):
+        margin = int(self.TOTAL * 0.05)
+        usable = (12282 - 2868) * MIB - margin
+        with self._card(used_mib=2868) as (out, reader):
+            backend = self._backend()
+            snapshot = backend.memory_snapshot()
+            again = backend.memory_snapshot()
+        self.assertEqual(snapshot.usable_bytes, usable)
+        self.assertEqual(snapshot.reserve_bytes, self.FREE - usable)
+        self.assertLess(snapshot.usable_bytes, 9058 * MIB)
+        self.assertEqual(snapshot.free_bytes, self.FREE)  # never changed
+        self.assertEqual(snapshot.total_bytes, self.TOTAL)
+        self.assertEqual(snapshot.source, "mem_get_info")
+        self.assertEqual(again, snapshot)
+        self.assertEqual(
+            out.getvalue(),
+            "[Hardware] Other programs hold 2.8 GB of the 12.0 GB on cuda:0; "
+            "GPU plans leave that memory to them.\n",
+        )
+        self.assertEqual(reader.call_count, 1)  # the second snapshot used the 30 s cache
+
+    def test_the_pool_torch_holds_is_left_out_of_the_room_too(self):
+        margin = int(self.TOTAL * 0.05)
+        free = 10106 * MIB  # CUDA free: 11,106 less the 1,000 MiB torch holds
+        with self._card(used_mib=5000 + 1000, reserved_mib=1000) as (out, reader):
+            snapshot = self._backend(free=free).memory_snapshot()
+        self.assertEqual(snapshot.usable_bytes, (12282 - 5000 - 1000) * MIB - margin)
+        self.assertEqual(snapshot.reserve_bytes, free - snapshot.usable_bytes)
+        self.assertEqual(snapshot.free_bytes, free)
+
+    def test_other_programs_holding_more_than_the_card_leave_nothing_usable(self):
+        with self._card(used_mib=13000) as (out, reader):
+            backend = self._backend()
+            snapshot = backend.memory_snapshot()
+            supported, reason = backend.supports_tiled(require_memory=True)
+        self.assertEqual(snapshot.usable_bytes, 0)
+        self.assertFalse(supported)
+        self.assertEqual(reason, "torch.cuda reported no safely usable accelerator memory")
+
+    def test_a_plan_made_from_the_device_carries_the_raised_reserve(self):
+        margin = int(self.TOTAL * 0.05)
+        usable = (12282 - 2868) * MIB - margin
+        with self._card(used_mib=2868) as (out, reader), \
+                mock.patch.object(alignment_engine, "get_accelerator_backend", return_value=self._backend()):
+            plan = alignment_engine.accelerator_memory_plan(torch.device("cuda:0"), lanes=1)
+        self.assertEqual(plan.reserve_bytes, self.FREE - usable)
+        self.assertEqual(plan.usable_bytes, usable)
+        self.assertEqual(plan.free_bytes, self.FREE)
+        cap = alignment_engine.allocator_cap_bytes(plan)
+        self.assertIsNotNone(cap)
+        self.assertLessEqual(cap, plan.total_bytes - plan.reserve_bytes)
+
+    def test_xpu_and_mps_backends_never_ask_for_other_programs_memory(self):
+        with mock.patch.object(GPU_Memory_View, "room_beside_other_programs") as room:
+            xpu = self._backend(device_type="xpu").memory_snapshot()
+            self.assertEqual(xpu.reserve_bytes, max(alignment_engine.MIN_CUDA_RESERVE, int(self.TOTAL * 0.15)))
+            with mock.patch.object(
+                alignment_engine.torch.mps, "recommended_max_memory", return_value=12 * alignment_engine.GIB, create=True
+            ), mock.patch.object(
+                alignment_engine.torch.mps, "driver_allocated_memory", return_value=2 * alignment_engine.GIB, create=True
+            ), mock.patch.object(
+                alignment_engine, "system_memory_bytes",
+                return_value=(16 * alignment_engine.GIB, 8 * alignment_engine.GIB),
+            ):
+                alignment_engine.AcceleratorBackend(torch.device("mps")).memory_snapshot()
+        room.assert_not_called()
+
+    def test_a_failing_reader_never_makes_the_snapshot_raise(self):
+        with self._card(used_mib=2868) as (out, reader), \
+                mock.patch.object(GPU_Memory_View, "room_beside_other_programs", side_effect=RuntimeError("boom")):
+            snapshot = self._backend().memory_snapshot()
+        self._todays(snapshot)
 
 
 if __name__ == "__main__":
