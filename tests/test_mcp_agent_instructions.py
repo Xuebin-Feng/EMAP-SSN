@@ -65,6 +65,12 @@ class GuideLoadingTests(unittest.TestCase):
         # The guide stays under its cap, 2,000 words: the test above holds it too.
         self.assertLessEqual(len(guide.split()), 2000)
 
+    def test_the_guide_requires_starting_sequence_pipelines_with_sanitization_and_reporting(self):
+        guide = " ".join(_load_agent_instructions().split())
+        self.assertIn("always start with sanitize_sequences", guide)
+        self.assertIn("immediately report the sanitization result", guide)
+        self.assertIn("go/no-go decision", guide)
+
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),
                       UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):

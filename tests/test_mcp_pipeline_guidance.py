@@ -77,6 +77,22 @@ class PipelineGuideTests(unittest.TestCase):
         for workflow in Pipeline_Guide.workflows():
             self.assertTrue(workflow["goal"] and workflow["steps"])
 
+    def test_sequence_set_workflows_require_sanitize_sequences_first_and_immediate_report(self):
+        notes = " ".join(Pipeline_Guide.tool_guide("sanitize_sequences")["notes"])
+        self.assertIn("Always start with sanitize_sequences", notes)
+        self.assertIn("immediately report the sanitization result", notes)
+        self.assertIn("go/no-go decision", notes)
+        raw_workflows = [
+            wf for wf in Pipeline_Guide.workflows()
+            if "from a raw FASTA" in wf["goal"]
+        ]
+        self.assertEqual(len(raw_workflows), 2)
+        for wf in raw_workflows:
+            first_step = wf["steps"][0]
+            self.assertTrue(first_step.startswith("sanitize_sequences first"), first_step)
+            self.assertNotIn("optional", first_step.lower())
+            self.assertIn("go/no-go decision", first_step)
+
     def test_the_blast_tools_offer_the_efi_alignment_score_beside_the_e_value(self):
         from mcp_server.pipeline.Pipeline_Settings import _CONTRACTS
 

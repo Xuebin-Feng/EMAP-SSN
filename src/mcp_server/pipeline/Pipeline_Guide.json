@@ -25,7 +25,7 @@
       ],
       "next": ["generate_embeddings", "align_substitution_matrix", "predict_structures (BATCH_INPUT true, to fold its sequences)", "start_layout_job (as the node FASTA)"],
       "notes": [
-        "Embedding, BLAST and layout steps apply the same cleanup in memory, but not the length or header filters, so run this tool when sequences must be filtered or when you want the cleaned FASTA as a file.",
+        "Always start with sanitize_sequences when running a pipeline from a sequence set (unless the user explicitly asks to skip it on an already-sanitized FASTA). As soon as it succeeds, read its stdout log with read_log and immediately report the sanitization result (kept/removed counts, duplicates merged, and sequence length summary) to the user before continuing, because these results can change the go/no-go decision or filter settings. Downstream embedding, BLAST and layout steps apply residue/header cleanup in memory, but not length or header filters.",
         "MIN_SEQ_LENGTH and MAX_SEQ_LENGTH are inclusive, 0 disables a bound, and they apply only when ENABLE_LENGTH_FILTER is true.",
         "REMOVE_BY_HEADER_STRING is one case-sensitive substring matched against raw headers. inspect_file reports header_terms (headers mentioning partial, fragment, putative and similar words, by exact spelling) and example headers; to drop a second spelling, run the tool again on its own output."
       ]
@@ -285,8 +285,8 @@
     {
       "goal": "Embedding-based SSN and layout from a raw FASTA",
       "steps": [
-        "sanitize_sequences (optional: needed for length or header filters)",
-        "generate_embeddings on the FASTA to analyze",
+        "sanitize_sequences first; read its stdout log with read_log and report the sanitization result immediately before continuing, as it can change the go/no-go decision or filter settings",
+        "generate_embeddings on the sanitized FASTA",
         "align_similarity_matrix on the new embedding file",
         "network_statistics on the network, with that FASTA, to choose an edge filter",
         "export_layout_settings with node_fasta_file and input_hdf5, then start_layout_job with the exported settings_document"
@@ -295,7 +295,7 @@
     {
       "goal": "BLAST-based SSN and layout from a raw FASTA",
       "steps": [
-        "sanitize_sequences (optional)",
+        "sanitize_sequences first; read its stdout log with read_log and report the sanitization result immediately before continuing, as it can change the go/no-go decision or filter settings",
         "align_substitution_matrix (needs BLAST+, which get_compute_capabilities reports; SCORE_METRIC picks -log10(E-value) or the EFI alignment score)",
         "network_statistics, then export_layout_settings and start_layout_job"
       ]

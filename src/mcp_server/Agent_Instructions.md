@@ -33,6 +33,13 @@ format need checking; it does not search directories. Use
 `emapssn_pipeline(action="get_compute_capabilities")` when device availability affects a
 choice; it does not establish that a computation will fit in memory or succeed.
 
+When starting a pipeline from a sequence set (FASTA), always start with
+sanitize_sequences unless the user explicitly skips it on an already-sanitized
+file. As soon as sanitize_sequences finishes, read its log with
+`emapssn_pipeline(action="read_log")` and immediately report the sanitization
+result (kept/removed counts, duplicates, and length summary) before proceeding,
+because it can change the go/no-go decision or filter settings.
+
 Prepare exactly one input form: `parameters`, `settings_document`, or `settings_path`.
 Optional `directories` accompanies `parameters` only. Use native JSON numbers and
 booleans. Call `emapssn_pipeline(action="validate_settings")`, examine `valid` and
