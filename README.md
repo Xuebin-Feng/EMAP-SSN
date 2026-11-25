@@ -360,7 +360,7 @@ and the [Viewer Command Reference](docs/list_of_commands.html) for command synta
 *   **Interactive Visualization**: PySide6 and VisPy provide a 2D canvas for panning, zooming, selecting, and formatting nodes and edges. Performance depends on the dataset and rendering hardware.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
-*   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProtT5, ProstT5, Ankh), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
+*   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProtT5, ProstT5, Ankh, Ankh3), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
 *   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
 *   **Scriptable Workflows**: Export tool and layout JSON for batch execution, or use the local MCP server for pipeline jobs, Viewer commands, and bounded scientific data inspection.
 
@@ -992,7 +992,7 @@ The managed environment also installs the official `mcp` 2.2.0 Python SDK and
 its Pydantic runtime dependency; both are MIT-licensed and are not bundled in
 the source repository.
 
-The optional Ankh weights are licensed separately under **CC BY-NC-SA 4.0** and
+The optional Ankh and Ankh3 weights are licensed separately under **CC BY-NC-SA 4.0** and
 are restricted to non-commercial use. The application labels these models and
 requires explicit acknowledgement before accessing their files; the integration
 code remains Apache-2.0 and does not redistribute the weights.

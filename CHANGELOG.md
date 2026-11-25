@@ -14,20 +14,23 @@ still change before version 1.0.0.
   your own tree file (Newick, NEXUS, PhyloXML, NeXML, JSON). Clades link both ways with
   the network, respond to `#clade:N#` in commands and MCP, fold and export to PNG or SVG,
   and share the Viewer's color legend.
-- **Major compute speedups across alignment, embeddings, MSA, and layouts.** Runtime-compiled
-  CUDA/ROCm GPU kernels fuse residue-embedding alignment and SSEARCH on-device; local pLM
-  plugins run with length-sorted dynamic FP32 batching; Embedding MSA uses disk-cached Numba
-  kernels, compact Neighbor-Joining, 2-row affine DP, and lazy tree-replay FASTA writing;
-  and SSN GPU/CPU physics, Gustavson MCL, UMAP k-NN, and parallel AMG run substantially
-  faster with disk-cached kernels.
+- **Major compute speedups and memory-bounded scaling across alignment, embeddings, MSA, and
+  layouts.** Runtime-compiled CUDA/ROCm GPU kernels fuse residue-embedding alignment and
+  SSEARCH on-device; a 2-level partial-RAM sliding window with Linux cgroup/SLURM memory
+  clamping and block-streamed prefiltering keeps large alignment and Network Injection runs
+  bounded in RAM; local pLM plugins run with length-sorted dynamic FP32 batching; Embedding
+  MSA uses disk-cached Numba kernels, compact Neighbor-Joining, 2-row affine DP, and lazy
+  tree-replay FASTA writing; and SSN GPU/CPU physics, Gustavson MCL, UMAP k-NN, and parallel
+  AMG run substantially faster with disk-cached kernels.
 - **Calibrated chain-assisted imputation and smarter Network Injection.** Embedding MSA
   aligns a calibration sample of a sparse network's missing pairs, estimates skipped pairs
   from both embedding similarity and chains of computed pairs, and gives every sparse
   network the full all-pairs consensus. Network Injection cuts on Edge Pre-filtering's
   shared similarity, preserves the input network's pair share, and selects pairs on sorted
   arrays.
-- **ProtT5, Embedding Import, float16 defaults, and parallel Biohub requests.** Generate
-  Embeddings adds ProtT5-XL-U50, saves float16 by default (halving file sizes and memory),
+- **ProtT5, Ankh3, Embedding Import, float16 defaults, and parallel Biohub requests.**
+  Generate Embeddings adds ProtT5-XL-U50 and Ankh3 (Large and XL, `[NLU]` and `[S2S]`, with
+  CC-BY-NC-SA-4.0 acknowledgement), saves float16 by default (halving file sizes and memory),
   and sends parallel requests to Biohub's ESM C 6B API (`API_PARALLEL_REQUESTS`). A new
   Embedding Import tool converts external per-residue embeddings (HDF5, `.npz`, `.npy`)
   into EMAP-SSN databases without rerunning a model.
@@ -41,12 +44,13 @@ still change before version 1.0.0.
   kept separate from E-value networks (`[BLAST-EFI]` / `[DIAMOND-EFI]`), and the Tools
   window can download and SHA-256-verify NCBI BLAST+ 2.17.0 on demand. Pairwise Embedding
   Alignment and SSEARCH also report sequence similarity and gaps.
-- **Viewer analysis, legends, and Fold View upgrades.** New `distribution`, `identity`, and
-  single-node `spectrum` similarity modes join cluster centres and MSA Mean/Min %ID in
-  `cluster` and `subcluster` tables, command aliases (`colour`, `dist`, `spec`, `align`,
-  `embed`, `ref`), and a shared interactive Legend card in both the Viewer and Tree View.
-  Fold View adds a Properties coloring group (solvent accessibility, hydrophobicity, charge)
-  and a Representation tab to restyle every structure at once.
+- **Viewer analysis, legends, CVD-safe palettes, and Fold View upgrades.** New `distribution`,
+  `identity`, and single-node `spectrum` similarity modes join cluster centres, MSA Mean/Min
+  %ID, and CVD-safe CIEDE2000 categorical palettes for `cluster` and `subcluster`, command
+  aliases (`colour`, `dist`, `spec`, `align`, `embed`, `ref`), and a shared interactive Legend
+  card in both the Viewer and Tree View. Fold View adds a Properties coloring group (solvent
+  accessibility, hydrophobicity, charge), CPK Atoms coloring, a collapsible missing-layer
+  disclosure, and a Representation tab to restyle every structure at once.
 - **High contrast mode, accessibility, and GPU crash recovery.** A global High Contrast mode
   covers all desktop windows and Viewer web pages, paired with a full web accessibility
   audit and monospace clipboard copying from the Console. GPU alignment and embedding tools
@@ -503,6 +507,27 @@ still change before version 1.0.0.
     is asked before the download.
   - **MCP:** jobs accept `prot_t5` as the model, and the server's guide lists its
     embedding width.
+- **Ankh3 embeddings.** Generate Embeddings, Embedding Injection, and Pairwise Embedding
+  Alignment add a standalone plugin (`src/resources/pLM_models/ankh3.py`) offering four
+  local Ankh3 models from `ElnaggarLab/ankh3-large` and `ElnaggarLab/ankh3-xl`:
+  `ankh3_large` (Ankh3 Large, 1,536 values per residue, `[NLU]`), `ankh3_large_s2s`
+  (Ankh3 Large (S2S), 1,536 values, `[S2S]`), `ankh3_xl` (Ankh3 XL, 2,560 values,
+  `[NLU]`), and `ankh3_xl_s2s` (Ankh3 XL (S2S), 2,560 values, `[S2S]`).
+  - **Tokenizer alignment and loading:** loads the encoder in float32 with `T5Tokenizer`
+    and wraps `.bin`-only Hub loads in `safetensors_conversion_disabled()` so Transformers
+    does not pull a background safetensors conversion copy. At load time, a probe checks
+    residue alignment and repairs Transformers 5's Rust `T5Tokenizer` pre-tokenizer
+    (`prepend_scheme="never"`) whenever a prepended word-start mark would emit a leading
+    `<unk>` and shift residue positions by one.
+  - **Preprocessing and batching:** takes unspaced sequences prefixed with `[NLU]` or
+    `[S2S]`, keeps `X`, `B`, `U`, `Z`, and `O` (mapping `J`, `.`, and `-` to `X`), slices
+    off the prefix and `</s>`, and runs length-sorted dynamic FP32 batching alongside the
+    other local pLM plugins.
+  - **License:** weights are under CC-BY-NC-SA-4.0 (non-commercial, attribution,
+    ShareAlike), so explicit acknowledgement is required via `MODEL_USAGE_TERMS` before
+    accessing model files, and checkpoints are recorded in `THIRD_PARTY_LICENSES.md`.
+  - **MCP:** pipeline jobs accept all four model IDs, and `Pipeline_Guide.json` records
+    their dimensions in `model_embedding_widths`.
 - **Embedding Import, for embeddings computed elsewhere.** A new tool, the last card of the
   Tools window's Sequence & Embedding Preparation tab and the MCP pipeline tool
   `embedding_import`, converts per-residue embeddings into an embedding database without
@@ -570,6 +595,12 @@ still change before version 1.0.0.
     is drawn as a cartoon, as before.
   - A line under the kinds says what the chosen one shows. The card opens on Colors each
     time the page is opened, and nothing stores which tab was open.
+- **The Fold View adds CPK Atoms coloring under More colorings.** Choosing **Atoms**
+  (`builtin:element-symbol`) colors every atom by chemical element using Mol*'s
+  `element-symbol` theme with CPK element coloring on carbons too (instead of chain ID)
+  so Carbon (C), Nitrogen (N), Oxygen (O), and Sulfur (S) match the canvas legend. The
+  Colors card shows a short CPK note explaining that all-atom views reveal N, O, and S,
+  and saved sessions restore the coloring.
 
 ### Changed
 
@@ -624,8 +655,10 @@ still change before version 1.0.0.
     file records nothing of the cut. The similarity it cuts on (max-pooled embeddings,
     cosine × (shorter/longer)²) is now one shared function for Align Similarity Matrix,
     Embedding MSA and Network Injection, computed the same way in each, so the three get
-    identical values. While it is computed it holds 12 bytes per pair of sequences
-    (2.0 GB for 12,927 sequences).
+    identical values. Embedding MSA still holds the dense matrix (12 bytes per pair of
+    sequences, 2.0 GB for 12,927 sequences), while Align Similarity Matrix and Network
+    Injection automatically switch to block-streamed upper-triangle calculation above
+    256 MiB (~4,700 sequences; see Changed below).
   - Tested offline on 15 dense networks with 20–75% of their pairs hidden as the prefilter
     would hide them: the 12,927-sequence fold-type IV PLP-dependent enzyme set with E1,
     Ankh base and ESM C 600M, and four HomFam families with Ankh base, ESM C 600M and
@@ -765,8 +798,10 @@ still change before version 1.0.0.
   - A network file from a development build that stored a calibration sample still
     loads: its sample pairs stay as edges and count neither for K nor for the lowest
     edge.
-  - It needs the memory Edge Pre-filtering needs, 12 bytes per pair of sequences of the
-    new set while the similarity is computed (about 23 GB for 44,000 sequences).
+  - Small sets (up to 256 MiB dense similarity, ~4,700 sequences) compute the dense
+    matrix, while larger sets automatically switch to block-streamed upper-triangle
+    strips with compact sorted `int64` pair keys, keeping memory bounded (under ~1 GiB
+    plus kept pair keys even at 100,000 sequences; see Changed below).
 - **Network Injection picks its pairs faster and in less memory.** Pair selection and
   the final merge went through every pair in Python. They now work on sorted arrays of
   pair numbers. On the 12,927-sequence set above, with the earlier version's cut, pair
@@ -816,6 +851,13 @@ still change before version 1.0.0.
   neighbor-joining tree (about 30 s at 8,000 sequences before the compact NJ rewrite, and
   still hours over many replicates on large sets), so MCP still overrides `BOOTSTRAP_TREE`
   to false. A settings file run from the command line keeps the setting.
+- **MCP workflow guidance requires sanitization-first reporting for raw FASTA pipelines.**
+  `src/mcp_server/Agent_Instructions.md` and `src/mcp_server/pipeline/Pipeline_Guide.json`
+  now instruct MCP clients to start sequence pipelines from raw FASTA files with
+  `sanitize_sequences` (unless the user explicitly skips it on an already-sanitized file)
+  and to immediately read its stdout via `emapssn_pipeline(action="read_log")` and report
+  kept/removed counts, merged duplicates, and the length summary before continuing, since
+  those results can change filter settings or go/no-go decisions.
 - **`meta` succeeds when its page is already open.** It used to fail with "The metadata
   interface is already open in your browser."; it now succeeds with that note, as `tree`,
   `esmfold` and `agent` do. A request that has nothing to change is not an error.
@@ -850,6 +892,19 @@ still change before version 1.0.0.
 - **`spectrum` gives nodes with no value `cluster`'s noise color.** Nodes whose property
   value is missing, non-numeric or infinite used to be an opaque gray; they now get the
   translucent light gray `cluster` gives unclustered nodes, as `distribution` gives gaps.
+- **`cluster` and `subcluster` use CVD-safe CIEDE2000 categorical palettes.**
+  `src/desktop/Node_Colors.py` replaces the previous cluster color generators with
+  fixed-prefix perceptually separated palettes so the largest clusters keep stable colors
+  as parameters change:
+  - **`CLUSTER_PALETTE`:** a 7-color hand-tuned CVD-safe core (minimum CIEDE2000 ≥ 24.6 in
+    normal vision, ≥ 14.0 under deuteranopia, ≥ 13.7 under protanopia, and ≥ 12.1 under
+    tritanopia) followed by 57 tiered-chroma CIEDE2000 farthest-point (Glasbey) colors kept
+    clear of white, dark backgrounds, black outlines, and gray `NOISE_COLOR`.
+  - **`SUBCLUSTER_PALETTE`:** a 5-color bold high-chroma CVD-aware core plus 59 CIEDE2000
+    farthest-point colors whose top 8 entries stay separated by CIEDE2000 ≥ 12 from the top
+    8 main cluster colors so a subclustered group stands out against neighboring clusters.
+  - **Beyond 64 groups:** counts above 64 extend dynamically by farthest-point CIEDE2000
+    sampling over the bounded sRGB gamut, cached per base palette tuple.
 - **VR notes what the headset cannot show after any command.** The VR terminal's
   "(Not shown in the headset: ...)" note used to follow a fixed list of commands. It now
   follows any command that changes node shapes, transparency, node positions after the
@@ -981,8 +1036,8 @@ still change before version 1.0.0.
   The Colors card repeated them. It now keeps only the texts: pLDDT's description and
   the caution for opened files, a layer's source and description and its no-data warning,
   the descriptions of the Properties colorings (Solvent accessibility, Hydrophobicity and
-  Charge), and the note of Structure color. Secondary structure and Residue position have
-  no box there.
+  Charge), and the notes of Structure color and Atoms (CPK element coloring). Secondary
+  structure and Residue position have no box there.
   - The legend over the canvas names pLDDT's band limits (50, 70 and 90) above its bar,
     shows a "No data" key for a layer that covers a structure in part, keeps the two end
     labels of a bar at least 12 px apart, and can be read by a screen reader. The legend
@@ -996,7 +1051,8 @@ still change before version 1.0.0.
   its own, above the others. With more layers than fit in a few rows, pLDDT stays in
   view above their filter and list.
 - **Structure color is under More colorings** in the Fold View's Colors card, with
-  Residue position. A structure's own row still offers it. More colorings is open when
+  Residue position and Atoms (CPK element coloring). A structure's own row still offers
+  Structure color. More colorings is open when
   the page starts, where it started closed, and it opens by itself when the scene's
   coloring becomes one inside it, as when a saved session is restored. Closed by hand, it
   stays closed while that coloring is drawn.
@@ -1014,6 +1070,16 @@ still change before version 1.0.0.
 - **The small titles of the Fold View are written as their texts are,** with a capital at
   the start only. The titles of the groups in the Colors card and the headings of the
   Help dialog were drawn in capitals.
+- **Fold View refines missing-layer notices and structure card layout.**
+  - **Collapsible missing-layer disclosure:** missing-layer notes in the Colors card are
+    condensed into a one-line `<details>` disclosure (for example, "1 structure has no
+    extra layers." or "No extra layers. Fold with an alignment loaded.") that expands on
+    demand to list each structure's reason, preserving both its open state and keyboard
+    focus across card redraws.
+  - **Responsive structure rows:** an expanded structure row keeps its name on a single
+    ellipsis-truncated line with a full-name hover tooltip, and places its Representation
+    and Color selects side-by-side in a two-column grid whenever `.srow-body` is at least
+    340 px wide (staying stacked in narrower panels).
 - **Runtime-compiled fused GPU kernels accelerate pairwise embedding alignment and
   SSEARCH.** `src/utilities/Align_GPU_Kernels.py` compiles four zero-header CUDA/HIP kernels
   at runtime with PyTorch's bundled NVRTC or hiprtc (`--fmad=false` / `-ffp-contract=off`),
@@ -1035,12 +1101,32 @@ still change before version 1.0.0.
     high-degree hubs (such as in Network Injection) into dense blocks. The tile planner
     Pareto-prunes redundant plans, avoids multi-tile VRAM leaks, and reuses pinned host
     buffers through `_PinnedHostBufferPool` across alignment and SSEARCH.
+- **2-level partial-RAM sliding window, cgroup/SLURM memory clamping, and block-streamed
+  prefiltering bound host memory on large datasets.**
+  - **Sliding RAM window (`WindowedPairSession`):** when an embedding database exceeds
+    `HOST_CACHE_GB`, tiled runs of `Align_Similarity_Matrix` and `Network_Injection`
+    partition work into a RAM-resident anchor plus two double-buffered asynchronous HDF5
+    streaming slabs (aligned to the GPU half-tile budget) so GPU batches hit RAM while the
+    next slab prefetches in the background. Windowing is skipped by a single-batch VRAM
+    guard when a single batch's full compute working set already fits in the GPU tile
+    cache, and the window is released automatically on scalar or CPU failover.
+  - **Linux cgroup and SLURM quota clamping:** `system_memory_bytes()` in
+    `src/Embedding_Alignment_Engine.py` now clamps physical RAM totals and availability to
+    Linux cgroup v1/v2 memory limits and SLURM job quotas (`SLURM_MEM_PER_NODE` and
+    `SLURM_MEM_PER_CPU`), preventing `HOST_CACHE_GB="auto"` from oversubscribing container
+    or HPC allocations.
+  - **Block-streamed prefiltering and compact `int64` pair keys:** above 256 MiB dense
+    similarity (~4,700 sequences, `STREAMED_SIMILARITY_BYTES`), `Align_Similarity_Matrix`
+    and `Network_Injection` automatically switch from dense `pair_similarity` to
+    `StreamedPairSimilarity` (`src/utilities/Prefilter_Calibration.py`), computing exact
+    2-pass histogram-bracketed upper-triangle percentiles (matching `np.percentile`) and
+    emitting compact sorted `int64` pair keys (`r * n + c`) with no `N × N` mask arrays.
 - **Local protein language models run with length-sorted dynamic FP32 batching.**
-  `src/tools/tool_helpers/Embedding_Batching.py` packs sequences across all six local pLM
-  plugins (ESM-2, ESM C, ProtBERT, ProtT5, ProstT5 and Ankh) into microbatches bounded by
-  linear activation memory, quadratic attention memory (for T5 relative-position-bias
-  models) and a 15% padding cap while keeping strict FP32 compute precision (matching
-  single-sequence FP32 within `< 1e-4`).
+  `src/tools/tool_helpers/Embedding_Batching.py` packs sequences across all seven local pLM
+  plugins (ESM-2, ESM C, ProtBERT, ProtT5, ProstT5, Ankh and Ankh3) into microbatches
+  bounded by linear activation memory, quadratic attention memory (for T5
+  relative-position-bias models) and a 15% padding cap while keeping strict FP32 compute
+  precision (matching single-sequence FP32 within `< 1e-4`).
   - **Longest-first OOM backoff and device-side FP16 conversion:** batches execute
     longest-first so peak memory hits on the first batch and halves automatically on OOM.
     Downcasting to float16 runs on-device before D2H transfer (with a guard keeping
@@ -1470,10 +1556,11 @@ still change before version 1.0.0.
   developer tools `git` is a stub that opens that dialog. The benchmark now checks for
   the stub first and leaves the commit out. The test runner made the same call, the
   likely cause of the two dialogs during the third round's suite, and checks first too.
-  Also for the suite on a Mac: the test that ends a program with a real crash is
-  skipped, because macOS files a crash report for each one, and the language test skips
-  when the window does not get the keyboard back after its list closes. Not yet
-  confirmed on a Mac.
+  Also for the suite on a Mac: both the test that ends a program with a real crash and
+  `test_viewer_mouse_gestures.py`'s double-click child-process test (which hit OpenGL
+  without a GL context and died with SIGSEGV) are skipped up front, because macOS files
+  a crash report for each one, and the language test skips when the window does not get
+  the keyboard back after its list closes. Not yet confirmed on a Mac.
 - **A tiled GPU alignment could fill the whole graphics card, and then crash.** PyTorch
   keeps the GPU memory it has taken, to use it again. A tiled run's microbatches differ in
   size, so it kept taking more: on one job (3,479 sequences, 2,560-wide embeddings, a
