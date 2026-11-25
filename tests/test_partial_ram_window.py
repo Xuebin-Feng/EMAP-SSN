@@ -1442,6 +1442,350 @@ class PartialRAMWindowTests(unittest.TestCase):
             req_keys.tolist(),
         )
 
+    def test_resolve_host_cache_bytes_clamps_explicit_when_safe_limit_is_zero(self):
+        """HIGH #3: explicit HOST_CACHE_GB is clamped to 0 when total>0 and available<=reserve."""
+        gib = engine.GIB
+
+        # 1) 8 GiB Docker/SLURM container: reserve = max(8 GiB, 25%) = 8 GiB -> safe_limit = 0.
+        with mock.patch.object(engine, "system_memory_bytes", return_value=(8 * gib, 6 * gib)):
+            self.assertEqual(engine.resolve_host_cache_bytes("auto"), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(16), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(4), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(0), 0)
+
+        # 2) Larger host under memory pressure: total=32 GiB, available=8 GiB == reserve -> safe_limit = 0.
+        with mock.patch.object(engine, "system_memory_bytes", return_value=(32 * gib, 8 * gib)):
+            self.assertEqual(engine.resolve_host_cache_bytes("auto"), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(16), 0)
+
+        # 3) total>0 with zero available memory -> safe_limit = 0, explicit still clamped to 0.
+        with mock.patch.object(engine, "system_memory_bytes", return_value=(16 * gib, 0)):
+            self.assertEqual(engine.resolve_host_cache_bytes("auto"), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(8), 0)
+
+        # 4) System memory unreadable (0, 0): 'auto' returns 0, explicit setting passes through.
+        with mock.patch.object(engine, "system_memory_bytes", return_value=(0, 0)):
+            self.assertEqual(engine.resolve_host_cache_bytes("auto"), 0)
+            self.assertEqual(engine.resolve_host_cache_bytes(16), 16 * gib)
+
+        # 5) Normal headroom: explicit request capped at safe_limit (20 - 16 = 4 GiB).
+        with mock.patch.object(engine, "system_memory_bytes", return_value=(64 * gib, 20 * gib)):
+            self.assertEqual(engine.resolve_host_cache_bytes("auto"), 4 * gib)
+            self.assertEqual(engine.resolve_host_cache_bytes(16), 4 * gib)
+            self.assertEqual(engine.resolve_host_cache_bytes(2), 2 * gib)
+
+    def test_plan_windowed_budgets_skips_mps_and_unified_memory(self):
+        """HIGH #1: unified-memory MPS never allocates a host window alongside its GPU tile cache."""
+        gib = engine.GIB
+        lengths = [100] * 20
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, lengths, dim=64, dtype=np.float16)
+            # Each seq = 12,800 B; total = 256,000 B; budget = 102,400 B (40%).
+            store = self._store_with_budget(path, headers, 102_400)
+            self.assertIsNotNone(engine.plan_windowed_budgets(store))
+
+            # 1) MPS device (torch.device and string forms) returns None immediately without calling planner.
+            with mock.patch.object(
+                engine,
+                "accelerator_memory_plan",
+                side_effect=AssertionError("MPS should skip window planning immediately"),
+            ):
+                self.assertIsNone(engine.plan_windowed_budgets(store, device=torch.device("mps")))
+                self.assertIsNone(engine.plan_windowed_budgets(store, device="mps"))
+                self.assertIsNone(engine.plan_windowed_budgets(store, device="mps:0"))
+
+            # 2) Any device whose AcceleratorMemoryPlan reports unified_memory=True returns None.
+            unified_plan = engine.AcceleratorMemoryPlan(
+                free_bytes=16 * gib,
+                total_bytes=16 * gib,
+                usable_bytes=12 * gib,
+                tile_cache_bytes=64_000,
+                matrix_pool_bytes=64_000,
+                matrix_bytes=32_000,
+                reserve_bytes=4 * gib,
+                lanes=2,
+                inflight_slots=1,
+                unified_memory=True,
+            )
+            with mock.patch.object(engine, "accelerator_memory_plan", return_value=unified_plan):
+                self.assertIsNone(
+                    engine.plan_windowed_budgets(
+                        store, device=torch.device("cuda:0"), num_tasks=200, batch_size=50
+                    )
+                )
+
+            # 3) accelerator_memory_plan propagates snapshot.unified_memory accurately.
+            mps_plan = engine.accelerator_memory_plan(
+                torch.device("mps"), memory_info=(8 * gib, 16 * gib)
+            )
+            cuda_plan = engine.accelerator_memory_plan(
+                torch.device("cuda:0"), memory_info=(8 * gib, 16 * gib)
+            )
+            self.assertTrue(mps_plan.unified_memory)
+            self.assertFalse(cuda_plan.unified_memory)
+
+            # 4) Discrete CUDA plan (unified_memory=False) still activates windowing for multi-batch.
+            discrete_plan = engine.AcceleratorMemoryPlan(
+                free_bytes=16 * gib,
+                total_bytes=16 * gib,
+                usable_bytes=12 * gib,
+                tile_cache_bytes=64_000,
+                matrix_pool_bytes=64_000,
+                matrix_bytes=32_000,
+                reserve_bytes=4 * gib,
+                lanes=2,
+                inflight_slots=4,
+                unified_memory=False,
+            )
+            with mock.patch.object(engine, "accelerator_memory_plan", return_value=discrete_plan):
+                budgets = engine.plan_windowed_budgets(
+                    store, device=torch.device("cuda:0"), num_tasks=200, batch_size=50
+                )
+            self.assertIsNotNone(budgets)
+            self.assertLessEqual(budgets[0] + 2 * budgets[1], 102_400)
+
+    def test_cgroup_v1_hierarchical_memory_limit(self):
+        """MEDIUM #3: cgroup v1 reads hierarchical_memory_limit when limit_in_bytes is unlimited or looser."""
+        gib = engine.GIB
+        host_total = 512 * gib
+        unlimited_v1 = (1 << 63) - 4096
+
+        def run_case(tmp, name, limit_raw, usage_raw, stat_text):
+            root = os.path.join(tmp, name)
+            job_dir = os.path.join(root, "slurm", "job_9")
+            os.makedirs(job_dir)
+            if limit_raw is not None:
+                with open(os.path.join(job_dir, "memory.limit_in_bytes"), "w") as f:
+                    f.write(str(limit_raw) + "\n")
+            if usage_raw is not None:
+                with open(os.path.join(job_dir, "memory.usage_in_bytes"), "w") as f:
+                    f.write(str(usage_raw) + "\n")
+            if stat_text is not None:
+                with open(os.path.join(job_dir, "memory.stat"), "w") as f:
+                    f.write(stat_text)
+            proc_cg = os.path.join(tmp, f"proc_{name}")
+            with open(proc_cg, "w") as f:
+                f.write("4:memory:/slurm/job_9\n")
+            return engine._cgroup_v1_limits(
+                host_total, proc_cgroup=proc_cg, cgroup_root=root
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # 1) limit_in_bytes is unlimited sentinel (~2^63) -> falls back to hierarchical_memory_limit.
+            res1 = run_case(
+                tmp,
+                "sentinel",
+                unlimited_v1,
+                5 * gib,
+                f"hierarchical_memory_limit {16 * gib}\ntotal_inactive_file {1 * gib}\n",
+            )
+            self.assertEqual(res1, (16 * gib, 12 * gib))
+
+            # 2) limit_in_bytes >= host_total -> falls back to hierarchical_memory_limit with inactive_file.
+            res2 = run_case(
+                tmp,
+                "ge_host",
+                host_total,
+                6 * gib,
+                f"hierarchical_memory_limit {20 * gib}\ninactive_file {2 * gib}\n",
+            )
+            self.assertEqual(res2, (20 * gib, 16 * gib))
+
+            # 3) Both valid, hierarchical_memory_limit tighter -> min(limit, h_limit).
+            res3 = run_case(
+                tmp,
+                "both_h_tighter",
+                32 * gib,
+                4 * gib,
+                f"hierarchical_memory_limit {12 * gib}\ntotal_inactive_file {1 * gib}\n",
+            )
+            self.assertEqual(res3, (12 * gib, 9 * gib))
+
+            # 4) Both valid, limit_in_bytes tighter -> min(limit, h_limit).
+            res4 = run_case(
+                tmp,
+                "both_l_tighter",
+                12 * gib,
+                4 * gib,
+                f"hierarchical_memory_limit {32 * gib}\n",
+            )
+            self.assertEqual(res4, (12 * gib, 8 * gib))
+
+            # 5) Both unlimited -> None.
+            res5 = run_case(
+                tmp,
+                "both_unlimited",
+                unlimited_v1,
+                2 * gib,
+                f"hierarchical_memory_limit {unlimited_v1}\n",
+            )
+            self.assertIsNone(res5)
+
+            # 6) limit_in_bytes unlimited, hierarchical_memory_limit invalid (0 / >= host / non-int) -> None.
+            self.assertIsNone(
+                run_case(tmp, "h_zero", unlimited_v1, 2 * gib, "hierarchical_memory_limit 0\n")
+            )
+            self.assertIsNone(
+                run_case(tmp, "h_ge_host", unlimited_v1, 2 * gib, f"hierarchical_memory_limit {host_total}\n")
+            )
+            self.assertIsNone(
+                run_case(tmp, "h_bad", unlimited_v1, 2 * gib, "hierarchical_memory_limit notanint\n")
+            )
+
+            # 7) limit_in_bytes absent, valid hierarchical_memory_limit, no usage file -> (h_limit, h_limit).
+            res7 = run_case(
+                tmp,
+                "missing_limit_and_usage",
+                None,
+                None,
+                f"hierarchical_memory_limit {10 * gib}\n",
+            )
+            self.assertEqual(res7, (10 * gib, 10 * gib))
+
+    def test_non_fused_tiled_pipelines_skip_h5_open_when_all_cached(self):
+        """MEDIUM #1: sync (MPS) and async (XPU/non-fused CUDA) tiled pipelines skip h5py.File when RAM-resident."""
+
+        class FakeEvent:
+            def record(self, stream):
+                return None
+
+            def query(self):
+                return True
+
+            def synchronize(self):
+                return None
+
+        class FakeAsyncBackend:
+            device_type = "xpu"
+            supports_async_streams = True
+
+            def supports_tiled(self, require_memory=True):
+                return True, "mock XPU"
+
+            def create_stream(self):
+                return object()
+
+            def stream_context(self, stream):
+                return mock.MagicMock()
+
+            def create_event(self):
+                return FakeEvent()
+
+            def empty_cache(self):
+                return None
+
+        class FakeSyncMpsBackend:
+            device_type = "mps"
+            supports_async_streams = False
+
+            def supports_tiled(self, require_memory=True):
+                return True, "mock MPS"
+
+            def synchronize(self):
+                return None
+
+            def empty_cache(self):
+                return None
+
+        def fake_normalize(array, device, precision="float32"):
+            tensor = torch.as_tensor(array, dtype=torch.float32)
+            return torch.nn.functional.normalize(tensor, p=2, dim=-1)
+
+        def align_cb(args):
+            row, col, matrix = args
+            return (
+                int(row),
+                int(col),
+                float(matrix.sum()),
+                int(matrix.shape[0]),
+                float(matrix.max()),
+                int(matrix.shape[1]),
+            )
+
+        lengths = [16, 20, 18, 22, 14, 24]
+        tasks = [(0, 1, "s000", "s001"), (0, 2, "s000", "s002"), (1, 2, "s001", "s002")]
+        plan = engine.AcceleratorMemoryPlan(
+            free_bytes=1 << 30,
+            total_bytes=1 << 30,
+            usable_bytes=1 << 30,
+            tile_cache_bytes=1 << 20,
+            matrix_pool_bytes=1 << 20,
+            matrix_bytes=1 << 19,
+            reserve_bytes=0,
+            lanes=1,
+            inflight_slots=2,
+        )
+        real_h5_file = h5py.File
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path, headers = self._make_h5(tmp, lengths, dim=16, dtype=np.float16, seed=123)
+            total_bytes = sum(L * 16 * 2 for L in lengths)
+
+            def run_mode(store, backend, device, run_tasks):
+                with mock.patch.object(
+                    engine, "get_accelerator_backend", return_value=backend
+                ), mock.patch.object(
+                    engine, "_to_normalized_accelerator", side_effect=fake_normalize
+                ), mock.patch.object(
+                    engine.h5py, "File", side_effect=real_h5_file
+                ) as h5_open:
+                    res = engine.run_tiled_accelerator_pipeline(
+                        run_tasks,
+                        store=store,
+                        lengths=lengths,
+                        device=device,
+                        workers=2,
+                        lanes=1,
+                        alignment_callback=align_cb,
+                        memory_plan_override=plan,
+                    )
+                return sorted(res), h5_open.call_count
+
+            for label, backend, device in (
+                ("sync_mps", FakeSyncMpsBackend(), torch.device("mps")),
+                ("async_xpu", FakeAsyncBackend(), torch.device("xpu:0")),
+            ):
+                with self.subTest(backend=label):
+                    # Baseline uncached store -> opens HDF5 once per pipeline call.
+                    uncached = self._store_with_budget(path, headers, 0)
+                    ref_res, open_uncached = run_mode(uncached, backend, device, tasks)
+                    self.assertEqual(open_uncached, 1)
+                    self.assertEqual(len(ref_res), len(tasks))
+
+                    # 1) Fully RAM-cached store -> 0 h5py.File opens, exact same results.
+                    full_store = self._store_with_budget(path, headers, total_bytes * 4)
+                    self.assertTrue(full_store.fully_cached)
+                    reads_before = full_store.disk_reads
+                    full_res, open_full = run_mode(full_store, backend, device, tasks)
+                    self.assertEqual(open_full, 0)
+                    self.assertEqual(full_store.disk_reads, reads_before)
+                    self.assertEqual(full_res, ref_res)
+
+                    # 2) Partial-RAM windowed store with all batch indices in anchor+slab -> 0 opens.
+                    win_store = self._store_with_budget(path, headers, int(total_bytes * 0.5))
+                    self.assertFalse(win_store.fully_cached)
+                    self.assertTrue(win_store.open_window(anchor_rows_cap=40, slab_rows_cap=40))
+                    try:
+                        win_store.load_anchor([0, 1])
+                        win_store.prefetch_slab([2])
+                        win_store.activate_prefetched_slab()
+                        self.assertTrue(win_store.all_cached({0, 1, 2}))
+                        reads_before = win_store.disk_reads
+                        win_res, open_win = run_mode(win_store, backend, device, tasks)
+                        self.assertEqual(open_win, 0)
+                        self.assertEqual(win_store.disk_reads, reads_before)
+                        self.assertEqual(win_res, ref_res)
+
+                        # 3) Partial miss (index 5 not in anchor or slab) -> opens HDF5 once cleanly.
+                        miss_tasks = [(0, 5, "s000", "s005")]
+                        self.assertFalse(win_store.all_cached({0, 5}))
+                        miss_res, open_miss = run_mode(win_store, backend, device, miss_tasks)
+                        self.assertEqual(open_miss, 1)
+                        self.assertEqual(len(miss_res), 1)
+                        self.assertEqual(miss_res[0][:2], (0, 5))
+                    finally:
+                        win_store.clear_window()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -393,10 +393,10 @@ def _parse_int_limit(text):
     return value if value > 0 else None
 
 
-def _read_cgroup_stat_field(stat_path, *field_names):
+def _read_cgroup_stat_field(stat_path, *field_names, default=0):
     text = _read_text_file(stat_path)
     if not text:
-        return 0
+        return default
     wanted = set(field_names)
     values = {}
     for line in text.splitlines():
@@ -409,7 +409,7 @@ def _read_cgroup_stat_field(stat_path, *field_names):
     for name in field_names:
         if name in values:
             return max(0, values[name])
-    return 0
+    return default
 
 
 def _cgroup_ancestors(root_dir, rel_path):
@@ -487,11 +487,35 @@ def _cgroup_v1_limits(
     # Linux cgroup v1 reports ~2^63 - PAGE_SIZE when unlimited.
     unlimited_sentinel = 1 << 60
     for directory in _cgroup_ancestors(cgroup_root, rel_path):
-        limit = _parse_int_limit(
+        stat_path = os.path.join(directory, "memory.stat")
+        raw_limit = _parse_int_limit(
             _read_text_file(os.path.join(directory, "memory.limit_in_bytes"))
         )
-        if limit is None or limit >= host_total or limit >= unlimited_sentinel:
+        valid_limit = (
+            raw_limit
+            if raw_limit is not None
+            and 0 < raw_limit < host_total
+            and raw_limit < unlimited_sentinel
+            else None
+        )
+        raw_h_limit = _read_cgroup_stat_field(
+            stat_path, "hierarchical_memory_limit", default=None
+        )
+        valid_h_limit = (
+            raw_h_limit
+            if raw_h_limit is not None
+            and 0 < raw_h_limit < host_total
+            and raw_h_limit < unlimited_sentinel
+            else None
+        )
+        if valid_limit is None and valid_h_limit is None:
             continue
+        if valid_limit is None:
+            limit = valid_h_limit
+        elif valid_h_limit is None:
+            limit = valid_limit
+        else:
+            limit = min(valid_limit, valid_h_limit)
         usage = _parse_int_limit(
             _read_text_file(os.path.join(directory, "memory.usage_in_bytes"))
         )
@@ -499,7 +523,7 @@ def _cgroup_v1_limits(
             avail = limit
         else:
             reclaimable = _read_cgroup_stat_field(
-                os.path.join(directory, "memory.stat"),
+                stat_path,
                 "total_inactive_file",
                 "inactive_file",
             )
@@ -638,7 +662,7 @@ def resolve_host_cache_bytes(setting):
         raise ValueError("HOST_CACHE_GB must be 'auto' or a non-negative number.") from error
     if not np.isfinite(requested) or requested < 0:
         raise ValueError("HOST_CACHE_GB must be 'auto' or a non-negative number.")
-    return min(int(requested * GIB), safe_limit) if safe_limit else int(requested * GIB)
+    return min(int(requested * GIB), safe_limit) if total else int(requested * GIB)
 
 
 def normalize_precision_setting(value):
@@ -1064,6 +1088,7 @@ class AcceleratorMemoryPlan:
     compute_element_bytes: int = 4
     # What the dry run says this plan needs, plus slack; 0 = derive it from the budgets (allocator_cap_bytes).
     allocator_cap_bytes: int = 0
+    unified_memory: bool = False
 
 
 # Compatibility for existing Network Injection, SSEARCH, and tests.
@@ -1291,6 +1316,7 @@ def accelerator_memory_plan(
         profile_name=str(profile_name),
         memory_source=snapshot.source,
         compute_element_bytes=max(1, int(compute_element_bytes)),
+        unified_memory=bool(snapshot.unified_memory),
     )
 
 
@@ -1750,8 +1776,10 @@ def plan_windowed_budgets(
     Activates only when ``store`` has a positive host-cache budget that cannot
     hold the whole embedding file, has uniform dtype, and can fit at least one
     anchor plus two double-buffered streaming slabs (aligned to GPU half-tile
-    byte size when an accelerator is available). Skips windowing for single-batch
-    runs whose entire compute working set already fits in the GPU tile cache.
+    byte size when an accelerator is available). Skips windowing for unified-
+    memory devices (such as Apple Silicon MPS) so host RAM is not double-booked
+    alongside GPU tiles, and for single-batch runs whose entire compute working
+    set already fits in the GPU tile cache.
     """
     if not isinstance(store, EmbeddingTileStore) or not store.supports_windowed_cache:
         return None
@@ -1766,12 +1794,18 @@ def plan_windowed_budgets(
     elem_bytes = max(1, int(compute_element_bytes))
     gpu_half_src = None
     if device is not None:
-        dev_type = getattr(device, "type", str(device).split(":", 1)[0])
+        dev_type = str(
+            getattr(device, "type", str(device).split(":", 1)[0])
+        ).strip().lower()
+        if dev_type == "mps":
+            return None
         if dev_type in SUPPORTED_TILED_BACKENDS:
             try:
                 plan = accelerator_memory_plan(
                     device, lanes=2, compute_element_bytes=elem_bytes
                 )
+                if getattr(plan, "unified_memory", False) is True:
+                    return None
                 total_compute_bytes = int(sum(store.compute_bytes(elem_bytes)))
                 if (
                     num_tasks is not None
@@ -2980,6 +3014,20 @@ def build_adaptive_tile_plans(
     )
 
 
+def _open_store_h5_if_needed(store, tasks):
+    """Return an HDF5 handle context manager only when ``tasks`` needs disk reads."""
+    if not tasks:
+        return nullcontext(None)
+    all_in_ram = getattr(store, "fully_cached", False) is True
+    if not all_in_ram and callable(getattr(store, "all_cached", None)):
+        all_task_indices = {int(task[0]) for task in tasks}
+        all_task_indices.update(int(task[1]) for task in tasks)
+        all_in_ram = store.all_cached(all_task_indices) is True
+    if all_in_ram:
+        return nullcontext(None)
+    return h5py.File(store.path, "r", libver="latest", swmr=True)
+
+
 def _run_synchronous_tiled_pipeline(
     tasks,
     *,
@@ -3019,12 +3067,12 @@ def _run_synchronous_tiled_pipeline(
             results.clear()
 
     with cuda_matmul_precision(precision), torch.inference_mode(), \
-            h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
+            _open_store_h5_if_needed(store, tasks) as hf, \
             ThreadPoolExecutor(
                 max_workers=max(1, int(workers)),
                 thread_name_prefix="alignment-cpu",
             ) as cpu_executor:
-        group = hf["embeddings"]
+        group = None if hf is None else hf["embeddings"]
 
         def run_phase(phase_tasks):
             for tile_tasks in _partition_tiles(phase_tasks, block_ids):
@@ -3363,12 +3411,12 @@ def run_tiled_accelerator_pipeline(
 
     try:
         with cuda_matmul_precision(precision), torch.inference_mode(), \
-                h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
+                _open_store_h5_if_needed(store, tasks) as hf, \
                 ThreadPoolExecutor(
                     max_workers=max(1, int(workers)),
                     thread_name_prefix="alignment-cpu",
                 ) as cpu_executor:
-            group = hf["embeddings"]
+            group = None if hf is None else hf["embeddings"]
 
             def run_phase(phase_tasks):
                 nonlocal stream_cursor
