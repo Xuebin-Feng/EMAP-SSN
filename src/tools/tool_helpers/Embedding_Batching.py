@@ -132,6 +132,133 @@ def _model_memory_profile(model_obj):
     return bytes_per_token, bytes_per_quad, is_t5
 
 
+# Second view of a CUDA card (see _device_memory_in_use). On Windows (WDDM) the CUDA
+# runtime reports free memory without counting what other programs (the desktop,
+# browsers) hold, so a run can overfill the card and spill into shared system memory
+# without any message. nvidia-smi counts the memory resident on the card for every
+# process; the budget takes the smaller of the two views.
+_OTHER_PROGRAMS_TTL_SECONDS = 30.0
+_OTHER_PROGRAMS_MIN_NOTICE_BYTES = 256 * 1024 ** 2
+_OTHER_PROGRAMS_CACHE = {}  # device key -> (time.monotonic() stamp, bytes or None)
+_OTHER_PROGRAMS_SAID = set()  # device keys the console line was already printed for
+_NVIDIA_SMI_MISSING = False  # the program could not be started: never try again
+
+
+def _normalized_gpu_uuid(value):
+    text = str(value).strip().lower()
+    return text[4:] if text.startswith("gpu-") else text
+
+
+def _device_memory_in_use(device, total_bytes):
+    """Return ``(used_bytes, total_bytes)`` of the card as nvidia-smi sees it, or None.
+
+    ``total_bytes`` is the total CUDA reported; a row whose total differs by more than
+    5 % is not this card. Never raises.
+    """
+    global _NVIDIA_SMI_MISSING
+    if _NVIDIA_SMI_MISSING:
+        return None
+    try:
+        import subprocess
+        import sys
+
+        import torch
+
+        # A ROCm build of torch also answers to torch.cuda; nvidia-smi says nothing about that card.
+        if getattr(torch.version, "cuda", None) is None:
+            return None
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            proc = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=uuid,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+                **kwargs,
+            )
+        except OSError:
+            _NVIDIA_SMI_MISSING = True
+            return None
+        if proc.returncode != 0:
+            return None
+        rows = []
+        for line in str(proc.stdout).splitlines():
+            if not line.strip():
+                continue
+            fields = [field.strip() for field in line.split(",")]
+            if len(fields) != 3:
+                rows.append(None)
+                continue
+            rows.append((_normalized_gpu_uuid(fields[0]), fields[1], fields[2]))
+        if not rows:
+            return None
+        torch_uuid = None
+        try:
+            torch_uuid = getattr(torch.cuda.get_device_properties(device), "uuid", None)
+        except Exception:
+            torch_uuid = None
+        chosen = None
+        if torch_uuid is not None:
+            wanted = _normalized_gpu_uuid(torch_uuid)
+            for row in rows:
+                if row is not None and row[0] == wanted:
+                    chosen = row
+                    break
+        if chosen is None and len(rows) == 1:
+            chosen = rows[0]
+        if chosen is None:
+            return None
+        used_bytes = int(chosen[1]) * 1024 ** 2
+        smi_total_bytes = int(chosen[2]) * 1024 ** 2
+        if int(total_bytes) <= 0 or abs(smi_total_bytes - int(total_bytes)) > 0.05 * int(total_bytes):
+            return None
+        return used_bytes, smi_total_bytes
+    except Exception:
+        return None
+
+
+def _other_programs_bytes(device, reserved_bytes, total_bytes):
+    """Bytes on the card that are not this process's torch pool, or None when unknown.
+
+    Cached per device for 30 s (an unknown answer too), so a missing or slow
+    nvidia-smi cannot be started again and again.
+    """
+    import time
+
+    key = str(device)
+    now = time.monotonic()
+    cached = _OTHER_PROGRAMS_CACHE.get(key)
+    if cached is not None and 0 <= now - cached[0] < _OTHER_PROGRAMS_TTL_SECONDS:
+        return cached[1]
+    others = None
+    reading = _device_memory_in_use(device, total_bytes)
+    if reading is not None:
+        # This process's small CUDA context lands in "others": fine and conservative.
+        others = max(0, int(reading[0]) - int(reserved_bytes))
+    _OTHER_PROGRAMS_CACHE[key] = (now, others)
+    return others
+
+
+def _say_other_programs_once(device, others_bytes, total_bytes):
+    key = str(device)
+    if key in _OTHER_PROGRAMS_SAID:
+        return
+    _OTHER_PROGRAMS_SAID.add(key)
+    gib = 1024 ** 3
+    print(
+        f"[Hardware] Other programs hold {others_bytes / gib:.1f} GB of the "
+        f"{total_bytes / gib:.1f} GB of GPU memory on {device}; "
+        "embedding batches are sized for what is left."
+    )
+
+
 def _available_activation_bytes(device):
     """Estimate conservative activation memory budget on ``device``."""
     import torch
@@ -142,15 +269,31 @@ def _available_activation_bytes(device):
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info(dev)
             reusable = 0
+            reserved = allocated = 0
+            readable = False
             try:
                 if hasattr(torch.cuda, "memory_reserved") and hasattr(torch.cuda, "memory_allocated"):
-                    reusable = max(
-                        0,
-                        int(torch.cuda.memory_reserved(dev)) - int(torch.cuda.memory_allocated(dev)),
-                    )
+                    reserved = int(torch.cuda.memory_reserved(dev))
+                    allocated = int(torch.cuda.memory_allocated(dev))
+                    reusable = max(0, reserved - allocated)
+                    readable = True
             except Exception:
                 reusable = 0
+                reserved = allocated = 0
+                readable = False
             effective_free = min(int(total_bytes), int(free_bytes) + reusable)
+            if readable:
+                # Take the smaller of two views of the card; any failure keeps the first.
+                try:
+                    others = _other_programs_bytes(dev, reserved, int(total_bytes))
+                    if others is not None:
+                        second_view = max(0, int(total_bytes) - others - allocated)
+                        lowered_by = effective_free - second_view
+                        effective_free = min(effective_free, second_view)
+                        if lowered_by >= _OTHER_PROGRAMS_MIN_NOTICE_BYTES:
+                            _say_other_programs_once(dev, others, int(total_bytes))
+                except Exception:
+                    pass
             reserve = max(512 * 1024 ** 2, int(total_bytes * 0.18))
             return max(128 * 1024 ** 2, int(max(0, effective_free - reserve) * 0.50))
         except Exception:
