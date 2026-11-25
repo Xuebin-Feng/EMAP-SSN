@@ -804,7 +804,7 @@
                     <div class="syntax-content">cluster [mode] [parameter] [min_size]</div>
                     <button class="copy-btn" onclick="copyText('cluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The cluster command partitions the currently loaded sequence similarity network into topology-derived communities that may serve as candidate subfamilies. It applies visually distinct color-coded labels generated dynamically using a custom HLS color generator that mimics the pastel look of <code>tab20c</code>, automatically scaling the number of distinct hues and lightness levels based on the number of clusters to color, and records these boundaries for downstream tools (such as sub-alignment and group extraction).</p>
+                <p><strong>Overview:</strong> The cluster command partitions the currently loaded sequence similarity network into topology-derived communities that may serve as candidate subfamilies. It assigns visually distinct color-coded labels from a color-vision-deficiency (CVD)-safe categorical palette built in CIEDE2000 perceptual color space (a fixed 64-color base sequence that extends dynamically in CIEDE2000 space past 64 clusters while keeping clear contrast against white, black, and noise grey), and records these boundaries for downstream tools (such as sub-alignment and group extraction).</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -861,7 +861,7 @@
                     <li>Clustering is a destructive action to the visual state (overwrites node colors), but can be reverted with the <code>undo</code> command.</li>
                     <li>Running <code>cluster</code> replaces the current clusters, so it also removes the generated <code>subcluster_N_M</code> groups of the previous clustering and reports how many it removed. Custom groups with lookalike names, such as <code>subcluster_0_2</code>, are kept, and <code>undo</code> brings the removed groups back.</li>
                     <li>Clustering parameters are cached. Downstream sequence alignment tools automatically construct output directories named after your specific parameters (e.g., <code>LEIDEN_1.0_Min10</code>).</li>
-                    <li>The command uses a dynamic color generator operating in HLS color space. It automatically scales the balance of distinct hues and lightness shades based on the number of clusters, ensuring maximum readability, visual distinction, and a clean pastel layout without requiring external dependencies.</li>
+                    <li>Cluster colors come from a fixed-prefix categorical palette of 64 base colors: a 7-color color-vision-deficiency (CVD)-safe core followed by 57 tiered-chroma colors chosen by CIEDE2000 farthest-point sampling. Because clusters are numbered by size, the largest clusters keep stable, maximally distinguishable colors as parameters change. Past 64 clusters, additional colors are extended dynamically in CIEDE2000 perceptual space from a gamut bounded away from white, dark backgrounds, black, and noise grey.</li>
                 </ul>
             </section>
 
@@ -878,7 +878,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. Running <code>cluster</code> again removes these generated groups, because they describe the clusters it replaces. The Console report uses the same highly saturated subcluster palette.</p>
+                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored using a bold, high-chroma, CVD-aware subcluster palette and nodes below <code>min_size</code> are colored gray. Running <code>cluster</code> again removes these generated groups, because they describe the clusters it replaces. The Console report uses the same subcluster palette.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -911,7 +911,7 @@
                 <div class="subheading">Important Notes</div>
                 <ul>
                     <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state. <code>subcluster clear</code> removes only generated labels, whose N and M are positive integers without leading zeros. Custom groups with lookalike names, such as <code>subcluster_0_2</code>, <code>subcluster_001_2</code>, and <code>subcluster_2_002</code>, are kept, and subclustering <code>cluster_2</code> again replaces only its generated labels. It leaves colors as they are.</li>
-                    <li>The Console statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
+                    <li>Both the viewer nodes and the Console statistics report use a bold, high-chroma, CVD-aware subcluster palette of 64 base colors: a 5-color bold core followed by 59 high-chroma CIEDE2000 farthest-point colors, with the top 8 subcluster colors (including the 5-color core) separated by CIEDE2000 &ge; 12 from the top 8 main cluster colors so a subclustered community stands out cleanly against surrounding clusters. Past 64 subclusters, additional colors are extended dynamically in CIEDE2000 perceptual space.</li>
                 </ul>
             </section>
 

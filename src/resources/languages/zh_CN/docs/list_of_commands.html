@@ -793,7 +793,7 @@
 
 <div class="section-divider" id="sec-analysis" data-source-sha256="11d08bd3b5ae42526bc455b04a25f732b753f4911885a431f6328f71cd362068">分析</div>
 
-            <section class="command-card" id="cmd-cluster" data-source-sha256="831af6ba80b46cbe1345fb27085af17506b342782e980a20c4557d86e063d892">
+            <section class="command-card" id="cmd-cluster" data-source-sha256="580739b6312541bdd6f49e57761f32fddeaedbd78964d4ab53f9adc264ab66ad">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">cluster</span>
@@ -805,7 +805,7 @@
                     <div class="syntax-content">cluster [mode] [parameter] [min_size]</div>
                     <button class="copy-btn" onclick="copyText('cluster', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>cluster 命令把当前加载的序列相似性网络划分为由拓扑得出的社区，这些社区可作为候选亚家族。它会用自定义的 HLS 颜色生成器动态生成视觉上彼此区分的彩色标签（模仿 <code>tab20c</code> 的柔和色调），根据要着色的簇的数量自动调整不同色相和明度级别的数量，并记录这些边界，供下游工具（如子比对和分组提取）使用。</p>
+                <p><strong>概述：</strong>cluster 命令把当前加载的序列相似性网络划分为由拓扑得出的社区，这些社区可作为候选亚家族。它采用在 CIEDE2000 感知色彩空间中构建的色觉障碍（CVD）友好型分类调色板为各簇分配视觉上易于区分的彩色标签（由 64 种基础颜色组成，超过 64 个簇时在 CIEDE2000 空间中动态扩展，同时与白色、黑色和噪声灰色保持清晰对比度），并记录这些边界，供下游工具（如子比对和分组提取）使用。</p>
                 
                 <div class="subheading">参数</div>
                 <ul>
@@ -862,12 +862,12 @@
                     <li>聚类会改写可视状态（覆盖节点颜色），但可以用 <code>undo</code> 命令还原。</li>
                     <li>运行 <code>cluster</code> 会替换当前的簇，因此也会移除上一次聚类生成的 <code>subcluster_N_M</code> 分组并报告移除了多少个。名称相似的自定义分组（如 <code>subcluster_0_2</code>）会保留，且 <code>undo</code> 可以把被移除的分组找回来。</li>
                     <li>聚类参数会被缓存。下游的序列比对工具会自动构造以具体聚类参数命名的输出目录（例如 <code>LEIDEN_1.0_Min10</code>）。</li>
-                    <li>该命令使用在 HLS 色彩空间中工作的动态颜色生成器，根据簇的数量自动调整不同色相和明度的比例，在不需要外部依赖的情况下确保最佳的可读性、清晰的视觉区分和干净的柔和配色。</li>
+                    <li>簇的颜色取自包含 64 种基础颜色的固定前缀分类调色板：前 7 种为色觉障碍（CVD）友好核心色，随后 57 种为通过 CIEDE2000 最远点采样选取的分级彩度颜色。由于簇按大小编号，调整参数时最大的几个簇会保持稳定且最易区分的颜色。超过 64 个簇时，会在 CIEDE2000 感知色彩空间中从远离白色、深色背景、黑色和噪声灰色的色域内动态扩展出更多颜色。</li>
                 </ul>
             </section>
 
 
-            <section class="command-card" id="cmd-subcluster" data-source-sha256="8bf148527213eb53b6369cbf36458f6c8a0bc07c1b89d2005fd6f0fad69200dc">
+            <section class="command-card" id="cmd-subcluster" data-source-sha256="17bf9ef6ec6edbb679697e94336b1300d847b34880b66e9d6b2c1e60ddccb4f6">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">subcluster</span>
@@ -879,7 +879,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>对指定的拓扑簇执行子聚类，创建名为 <code>subcluster_N_M</code> 的自定义分组标签（其中 N 是原始簇 ID，M 是子簇（subcluster）ID）。子簇与簇一样按大小编号，因此 <code>subcluster_N_1</code> 是最大的；大小相同时按其最小成员节点索引排序。主拓扑簇标签会保留，而目标簇中的节点会按子簇重新着色，小于 <code>min_size</code> 的节点着灰色。再次运行 <code>cluster</code> 会移除这些生成的分组，因为它们描述的是被替换的簇。控制台窗口中的报告使用同样高饱和度的子簇调色板。</p>
+                <p><strong>概述：</strong>对指定的拓扑簇执行子聚类，创建名为 <code>subcluster_N_M</code> 的自定义分组标签（其中 N 是原始簇 ID，M 是子簇（subcluster）ID）。子簇与簇一样按大小编号，因此 <code>subcluster_N_1</code> 是最大的；大小相同时按其最小成员节点索引排序。主拓扑簇标签会保留，而目标簇中的节点会使用醒目的高彩度、兼顾色觉障碍（CVD）的子簇调色板重新着色，小于 <code>min_size</code> 的节点着灰色。再次运行 <code>cluster</code> 会移除这些生成的分组，因为它们描述的是被替换的簇。控制台窗口中的报告使用同一套子簇调色板。</p>
                 
                 <div class="subheading">参数</div>
                 <ul>
@@ -912,7 +912,7 @@
                 <div class="subheading">重要说明</div>
                 <ul>
                     <li>子聚类会覆盖目标簇内的颜色，但保留其主簇标签。使用 <code>undo</code> 可恢复之前的状态。<code>subcluster clear</code> 只移除生成的标签，其 N 和 M 都是不带前导零的正整数。名称相似的自定义分组（如 <code>subcluster_0_2</code>、<code>subcluster_001_2</code> 和 <code>subcluster_2_002</code>）会保留，再次对 <code>cluster_2</code> 子聚类时只会替换它生成的标签。该操作不会改动颜色。</li>
-                    <li>控制台窗口中的统计报告使用丰富的高饱和度 HLS 配色（饱和度 0.95，明度 0.35 - 0.65）着色，以便把子簇与主簇使用的柔和颜色区分开。</li>
+                    <li>查看器节点与控制台统计报告均采用醒目的高彩度、兼顾色觉障碍（CVD）的 64 色基础子簇调色板：前 5 种为醒目核心色，随后 59 种为通过 CIEDE2000 最远点采样选取的高彩度颜色，其中前 8 种颜色（包含 5 种核心色）与主簇前 8 种颜色之间保持 CIEDE2000 &ge; 12 的色差，使子聚类后的社区在周围主簇中清晰凸显。超过 64 个子簇时，会在 CIEDE2000 感知色彩空间中动态扩展出更多颜色。</li>
                 </ul>
             </section>
 
