@@ -772,6 +772,22 @@ still change before version 1.0.0.
     was 0.009, 0.012 and 0.049 higher than with the calibrated fit at 75, 50 and 25% of
     pairs kept. These alignment scores were measured with the harness on an earlier
     build, not with this one.
+- **Embedding MSA's regression chart shows the chain + calibration fill and how both estimates
+  match the held-out pairs.** With a calibration sample, the chart (Show Regression Plot, in the
+  Tools window) used to show only the isotonic fit and its held-out check, although the missing
+  pairs are filled with the chain + calibration estimate.
+  - **Header.** The isotonic fit's line now says it is the isotonic fit's check, and a line
+    below it gives the chain + calibration fill's check on the same held-out pairs (Spearman ρ,
+    MAE, R²). When the fill did not fit in the free memory, a short line says it was not used.
+  - **Held-out panels.** Beside the fit, two panels plot the held-out pairs' estimated scores
+    against their directly computed scores: the isotonic fit alone above and the chain +
+    calibration fill below. They share their axes, hexagons and colour scale, draw a y = x line,
+    and give each estimate's ρ, MAE and R² in a corner. The window is 14 × 6.5 inches.
+  - **Regular hexagons and lighter dots.** The fit's hexagons span the whole plot, the
+    calibration pairs included, so they stay regular when the sample widens it; the observed
+    pairs keep about 10 columns. The calibration dots are smaller and fainter, so their
+    density shows and the fit line stands out. A chart without a sample looks as before.
+  - The new texts are translated into Simplified Chinese, and the help pages describe the chart.
 - **Network Injection chooses a sparse network's pairs by Edge Pre-filtering's similarity
   and keeps the network's share of pairs.** It used to cut on another similarity (the
   cosine of mean-pooled embeddings, without the length ratio), at the lowest value among
