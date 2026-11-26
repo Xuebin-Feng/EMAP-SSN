@@ -5263,7 +5263,7 @@ Command-line usage:
         <location line="+376"/>
         <location filename="../../../commands/subcluster.py" line="+54"/>
         <source>Error: Parameter must be a number.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：参数必须是数字。</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -5271,13 +5271,13 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="+7"/>
         <location line="+16"/>
         <source>Error: Min Size must be an integer.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：最小簇大小必须是整数。</translation>
     </message>
     <message>
         <location line="-7"/>
         <location filename="../../../commands/subcluster.py" line="-7"/>
         <source>Error: Unknown mode or invalid number &apos;{argument}&apos;</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：未知模式或无效数字“{argument}”</translation>
     </message>
     <message>
         <location line="+36"/>
