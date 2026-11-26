@@ -1483,6 +1483,8 @@ def show_status(viewer, message):
     step = _STEP_RECORD.get()
     if step is not None:
         step['wrote'] = True
+    if job is not None:
+        job.showed = True
     if (job is not None and getattr(job, 'deferred', False) and getattr(viewer, 'console_mode', False)
             and hasattr(viewer, 'set_background_job_status')):
         # The queue keeps what its job showed here, so what it writes about the job later keeps it in view.
@@ -1813,8 +1815,7 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     import os
     cmd_str = cmd_str.strip()
     if not cmd_str:
-        with command_step(viewer, silent, typed_only=True):
-            command_failed(viewer, Message("Empty command"))
+        command_failed(viewer, "Empty command")
         return
 
     # Normalize reverse commands (e.g., 'color reset' -> 'reset color', 'help color' -> 'color help')
@@ -1882,10 +1883,15 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
 def _run_module(viewer, module, command_name, args, silent=False):
     from vispy import app
     if not silent and hasattr(viewer, 'console_text'):
+        job = _COMMAND_JOB.get()
+        showed = job is not None and job.showed
         show_status(viewer, Message("Running {command}...", command=command_name))
+        # The engine's own text: it does not stand for anything the command showed.
         step = _STEP_RECORD.get()
         if step is not None:
-            step['wrote'] = False  # The engine's own text: it does not stand for anything the command showed.
+            step['wrote'] = False
+        if job is not None:
+            job.showed = showed
     if not silent and hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
     if hasattr(app, 'process_events'):

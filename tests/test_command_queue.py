@@ -1487,7 +1487,7 @@ class FailureOnTheStatusLineTests(QueueTestCase):
         viewer.console_text.text = "Cmd: colo"
         self.finish_compute()
         last = viewer.status_lines[-1]
-        self.assertIn("cluster_9", last.split("Cancelled")[0])
+        self.assertIn("Cluster 9 is empty or does not exist.", last.split("Cancelled")[0])
         self.assertIn("Cancelled 1 command(s) given after subcluster cluster_9".replace("(s)", ""), last)
         self.assertFalse(any("failed after" in line for line in viewer.status_lines))
 
@@ -1501,8 +1501,21 @@ class FailureOnTheStatusLineTests(QueueTestCase):
             self.finish_compute()
         last = viewer.status_lines[-1]
         self.assertTrue(last.startswith("Error: kernel broke"), last)
-        self.assertLess(last.index("Cancelled"), last.index("failed after"))
-        self.assertGreater(last.index("Cancelled"), last.index("kernel broke"))
+        self.assertLess(last.index("kernel broke"), last.index("failed after"))
+        self.assertLess(last.index("failed after"), last.index("Cancelled"))
+
+    def test_what_an_earlier_step_showed_on_the_status_line_does_not_lead_a_later_failure(self):
+        viewer = self.viewer
+        viewer.console_mode = True                # typing: the start step shows on the status line
+        viewer.type(CLUSTER)
+        self.assertIn("Clustering (JACCARD)...", viewer.status_lines)
+        viewer.console_mode = False               # the line is closed when the job fails: its error is on the console line
+        with mock.patch("utilities.Network_Kernels.jaccard_partition", side_effect=RuntimeError("kernel broke")):
+            self.finish_compute()
+        self.assertTrue(viewer.console_text.text.startswith("Error: kernel broke"), viewer.console_text.text)
+        last = viewer.status_lines[-1]
+        self.assertIn("failed after", last)
+        self.assertNotIn("Clustering (JACCARD)", last)
 
 
 # A command that only reports its failure.
@@ -1515,12 +1528,26 @@ def run(viewer, args):
 '''
 
 
+# Commands that show their own text and report nothing, and that do neither.
+SHOWING_COMMAND = '''
+import Command_Engine
+
+
+def run(viewer, args):
+    Command_Engine.show_status(viewer, "Its own text")
+'''
+SILENT_COMMAND = '''
+def run(viewer, args):
+    pass
+'''
+
+
 class UnshownFailureTests(QueueTestCase):
     """A command that only calls command_failed does not leave the console line at what was typed."""
 
     def setUp(self):
         super().setUp()
-        modules = scratch_commands({"zfail": FAILING_COMMAND})
+        modules = scratch_commands({"zfail": FAILING_COMMAND, "zshow": SHOWING_COMMAND, "znothing": SILENT_COMMAND})
         modules.__enter__()
         self.addCleanup(modules.__exit__, None, None, None)
 
@@ -1587,13 +1614,28 @@ class UnshownFailureTests(QueueTestCase):
             time.sleep(0.002)
         record = portal.get(request['request_id'])
         self.assertEqual(record['status'], 'failed')
-        self.assertEqual(record['commands'][0]['message'], "It broke")
-        self.assertEqual(viewer.console_text.text, "Cmd: colo")
+        self.assertIn("It broke", str(record['commands'][0]))
+        # The engine's own "Running zfail..." already took the line before; the failure adds nothing to it.
+        self.assertEqual(viewer.console_text.text, "Running zfail...")
 
-    def test_an_empty_command_shows_that_it_is_empty(self):
+    def test_enter_on_an_empty_line_leaves_the_console_line_as_it_was(self):
         viewer = self.viewer
         viewer.press_enter("")
-        self.assertEqual(viewer.console_text.text, "Empty command")
+        self.assertEqual(viewer.console_text.text, "Cmd: ")
+
+    def test_a_command_that_shows_its_own_text_and_reports_nothing_keeps_its_text(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("zshow")
+        self.finish_compute()
+        self.assertEqual(viewer.console_text.text, "Its own text")
+
+    def test_a_command_that_shows_nothing_and_reports_nothing_gets_the_queues_text(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("znothing")
+        self.finish_compute()
+        self.assertEqual(viewer.console_text.text, "Command handler did not report an explicit outcome.")
 
 
 if __name__ == "__main__":

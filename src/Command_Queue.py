@@ -148,6 +148,8 @@ class Job:
         # What it last showed on the status line while another command was typed (Command_Engine.show_status):
         # a failed job's reason, which what the queue writes about the job afterwards must not replace.
         self.status_feedback = None
+        # Whether the command showed anything in any of its steps (Command_Engine.show_status).
+        self.showed = False
         # Whether it got as far as computing; a job that failed or was refused before has only its own error to show.
         self.computed = False
         self.status = 'queued'
@@ -436,16 +438,24 @@ class CommandQueue(QtCore.QObject):
             # One light command per event-loop pass, so input and painting go on between them.
             self._schedule(0)
 
-    def _step(self, job, viewer, step):
-        """Run one GUI-thread step of job as the command itself: its context, selection and outcome."""
+    def _step(self, job, viewer, step, bookkeeping=False):
+        """Run one GUI-thread step of job as the command itself: its context, selection and outcome.
+
+        What the job shows on the status line counts for the step that failed, so each step starts with none
+        of it, except the queue's own bookkeeping step, which comes after the step that showed it. That step
+        shows its failure only when the job showed nothing in any step.
+        """
         from Viewer_Command_Portal import bind
+        if not bookkeeping:
+            job.status_feedback = None
         was_active = getattr(viewer, '_command_dispatch_active', False)
         viewer._command_dispatch_active = True
         self.in_turn = True
         value = None
         try:
             with bind(job.context), Command_Engine.command_job(job), Command_Engine.recorded_outcome() as outcome, \
-                    Command_Engine.command_step(viewer, job.silent):
+                    Command_Engine.command_step(
+                        viewer, job.silent or (bookkeeping and job.showed)):
                 try:
                     value = step()
                 except Exception as error:
@@ -606,7 +616,7 @@ class CommandQueue(QtCore.QObject):
             if job.outcome is None:
                 # As the command portal says of a handler that reports nothing.
                 self._step(job, viewer, lambda: Command_Engine.command_failed(
-                    viewer, 'Command handler did not report an explicit outcome.'))
+                    viewer, 'Command handler did not report an explicit outcome.'), bookkeeping=True)
             status = job.outcome if job.outcome in ('succeeded', 'failed', 'cancelled') else 'failed'
         self._copy_progress(job)  # what it last reported, though no status tick came after it
         self._stop_cooperating(job)
@@ -779,5 +789,5 @@ class CommandQueue(QtCore.QObject):
             message = Message("{command} failed after {seconds} s.", command=job.line, seconds=seconds)
         if self.jobs:
             message = JoinedMessage([message, Message("%n more command(s) waiting.", n=len(self.jobs))])
-        texts = [text for text in (note, message) if text is not None]
+        texts = [text for text in (message, note) if text is not None]
         viewer.set_background_job_status(self._after_failure_reason(job, *texts))
