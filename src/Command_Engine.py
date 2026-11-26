@@ -1480,11 +1480,55 @@ def show_status(viewer, message):
     from a command being typed: its feedback goes to the status line above it.
     """
     job = _COMMAND_JOB.get()
+    step = _STEP_RECORD.get()
+    if step is not None:
+        step['wrote'] = True
     if (job is not None and getattr(job, 'deferred', False) and getattr(viewer, 'console_mode', False)
             and hasattr(viewer, 'set_background_job_status')):
+        # The queue keeps what its job showed here, so what it writes about the job later keeps it in view.
+        job.status_feedback = message
         viewer.set_background_job_status(message)
         return
     viewer.console_text.text = display_text(message)
+
+
+# --- A failure no command shown --------------------------------------------------
+# A command that only reports its failure (command_failed) leaves the console line
+# at whatever it showed before, such as the command being typed. The step a typed
+# command or a queue job runs is therefore recorded: what it wrote with show_status,
+# and the failure it reported last. When the step ends failed with nothing written,
+# the failure is shown through show_status, so the usual routing and translation
+# apply. Nothing here changes what command_failed reports to the command portal or
+# what recorded_outcome yields.
+_STEP_RECORD = ContextVar('command_step_record', default=None)
+
+@contextmanager
+def command_step(viewer, silent=False, typed_only=False):
+    """Run the block as one step of a command: show its failure on the console line if it showed nothing.
+
+    typed_only leaves out a command the command portal runs (MCP, Agent), which must not take the line
+    from a command being typed; it is for the steps of a dispatch, which a portal command shares.
+    """
+    record = {'wrote': False, 'failure': None}
+    parent = _STEP_RECORD.get()
+    token = _STEP_RECORD.set(record)
+    try:
+        yield record
+    finally:
+        _STEP_RECORD.reset(token)
+        if parent is not None and record['wrote']:
+            parent['wrote'] = True
+    if typed_only:
+        from Viewer_Command_Portal import CURRENT
+        if CURRENT.get() is not None:
+            return
+    if (record['failure'] is not None and not record['wrote'] and not silent
+            and hasattr(viewer, 'console_text')):
+        show_status(viewer, record['failure'])
+        if parent is not None:
+            parent['wrote'] = True
+        if hasattr(viewer, 'update_console_background'):
+            viewer.update_console_background()
 
 def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""
@@ -1544,6 +1588,9 @@ def command_succeeded(viewer, message=None, artifact=None):
 def command_failed(viewer, message):
     from Viewer_Command_Portal import report
     _record_outcome('failed')
+    step = _STEP_RECORD.get()
+    if step is not None:
+        step['failure'] = message
     report('failed', str(message), viewer=viewer)
 
 def command_cancelled(viewer, message):
@@ -1766,7 +1813,8 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     import os
     cmd_str = cmd_str.strip()
     if not cmd_str:
-        command_failed(viewer, "Empty command")
+        with command_step(viewer, silent, typed_only=True):
+            command_failed(viewer, Message("Empty command"))
         return
 
     # Normalize reverse commands (e.g., 'color reset' -> 'reset color', 'help color' -> 'color help')
@@ -1817,9 +1865,11 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
                 viewer.update_console_background()
         elif queue is not None and queue_kind(command_name, args, command_source(), module) == ORDERED:
             # It runs in its turn, after the commands given before it (Command_Queue).
-            queue.dispatch(module, command_name, args, cmd_str, source=command_source(), silent=silent)
+            with command_step(viewer, silent, typed_only=True):
+                queue.dispatch(module, command_name, args, cmd_str, source=command_source(), silent=silent)
         else:
-            _run_module(viewer, module, command_name, args, silent)
+            with command_step(viewer, silent, typed_only=True):
+                _run_module(viewer, module, command_name, args, silent)
 
     except ModuleNotFoundError as error:
         _report_module_not_found(viewer, command_name, error, silent)
@@ -1833,6 +1883,9 @@ def _run_module(viewer, module, command_name, args, silent=False):
     from vispy import app
     if not silent and hasattr(viewer, 'console_text'):
         show_status(viewer, Message("Running {command}...", command=command_name))
+        step = _STEP_RECORD.get()
+        if step is not None:
+            step['wrote'] = False  # The engine's own text: it does not stand for anything the command showed.
     if not silent and hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
     if hasattr(app, 'process_events'):

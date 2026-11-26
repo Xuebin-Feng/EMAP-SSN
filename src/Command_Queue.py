@@ -145,6 +145,11 @@ class Job:
         self.cooperation = None
         # Its feedback goes to the status line while a command is typed (Command_Engine.show_status).
         self.deferred = True
+        # What it last showed on the status line while another command was typed (Command_Engine.show_status):
+        # a failed job's reason, which what the queue writes about the job afterwards must not replace.
+        self.status_feedback = None
+        # Whether it got as far as computing; a job that failed or was refused before has only its own error to show.
+        self.computed = False
         self.status = 'queued'
         self.finished = False
         self.started = False
@@ -439,7 +444,8 @@ class CommandQueue(QtCore.QObject):
         self.in_turn = True
         value = None
         try:
-            with bind(job.context), Command_Engine.command_job(job), Command_Engine.recorded_outcome() as outcome:
+            with bind(job.context), Command_Engine.command_job(job), Command_Engine.recorded_outcome() as outcome, \
+                    Command_Engine.command_step(viewer, job.silent):
                 try:
                     value = step()
                 except Exception as error:
@@ -458,6 +464,7 @@ class CommandQueue(QtCore.QObject):
         self._event(job, 'running')
         self._update_places()
         if job.plan is LEGACY:
+            job.computed = True  # It does all its work in this one step.
             self._step(job, viewer, lambda: Command_Engine.run_command_module(
                 viewer, job.module, job.name, list(job.args), job.silent))
             self._finish(job, viewer)
@@ -477,6 +484,7 @@ class CommandQueue(QtCore.QObject):
         if inputs is None or job.outcome in ('failed', 'cancelled'):
             self._finish(job, viewer)
             return
+        job.computed = True
         if not job.heavy:
             result = self._step(job, viewer, lambda: job.module.compute(inputs, Progress(job)))
             if job.outcome in ('failed', 'cancelled'):
@@ -493,6 +501,7 @@ class CommandQueue(QtCore.QObject):
     def _cooperate(self, job, viewer, generator):
         """Step the generator a start step returned, a slice at a time, between the runs of the event loop."""
         job.cooperation = generator
+        job.computed = True  # Its work happens in the slices.
         self._show_running()
         self._status_timer.start()
         self._slice(job, viewer)
@@ -612,13 +621,14 @@ class CommandQueue(QtCore.QObject):
             self.jobs.remove(job)
         self.finished.append(job)
         self._event(job, status, message)
+        note = None
         if status in ('failed', 'cancelled') and not job.cancelled_by_request:
-            self._cancel_after_failure(job, viewer)
+            note = self._cancel_after_failure(job, viewer)
         if not any(waiting.status == 'running' and (waiting.heavy or waiting.cooperative) for waiting in self.jobs):
             self._status_timer.stop()
         self._update_places()
         self.changed.emit()
-        self._show_finished(job, viewer)
+        self._show_finished(job, viewer, note)
         self._schedule(0)
 
     def _event(self, job, status, message=None):
@@ -634,12 +644,15 @@ class CommandQueue(QtCore.QObject):
                 job.context.queue_place(position)
 
     def _cancel_after_failure(self, failed, viewer):
-        """A command from the command line failed: cancel the later commands from there, which assumed it worked."""
+        """A command from the command line failed: cancel the later commands from there, which assumed it worked.
+
+        Returns the note it shows on the status line, or None when it cancelled nothing.
+        """
         if failed.source not in COMMAND_LINE_SOURCES:
-            return
+            return None
         later = [job for job in self.jobs if job.source in COMMAND_LINE_SOURCES and job.status == 'queued']
         if not later:
-            return
+            return None
         reason = Message("Cancelled: {command}, given before it, failed.", command=failed.line)
         for job in later:
             job.cancel_requested = True
@@ -649,7 +662,8 @@ class CommandQueue(QtCore.QObject):
                        n=len(later), command=failed.line, commands=", ".join(job.label() for job in later))
         print(note)
         if viewer is not None and hasattr(viewer, 'set_background_job_status'):
-            viewer.set_background_job_status(note)
+            viewer.set_background_job_status(self._after_failure_reason(failed, note))
+        return note
 
     # --- cancelling --------------------------------------------------------
 
@@ -741,7 +755,15 @@ class CommandQueue(QtCore.QObject):
             parts.append(Message("%n more command(s) waiting.", n=waiting))
         viewer.set_background_job_status(JoinedMessage(parts) if len(parts) > 1 else parts[0])
 
-    def _show_finished(self, job, viewer):
+    @staticmethod
+    def _after_failure_reason(job, *texts):
+        """texts, led by the reason job failed when that is what its failure showed on the status line."""
+        parts = list(texts)
+        if job.status == 'failed' and job.status_feedback is not None:
+            parts.insert(0, job.status_feedback)
+        return JoinedMessage(parts) if len(parts) > 1 else parts[0]
+
+    def _show_finished(self, job, viewer, note=None):
         if viewer is None or not hasattr(viewer, 'set_background_job_status') or self._closed:
             return
         if job.cancelled_by_request or not job.started:
@@ -749,8 +771,13 @@ class CommandQueue(QtCore.QObject):
         seconds = f"{job.seconds():.1f}"
         if job.status == 'succeeded':
             message = Message("{command} finished in {seconds} s.", command=job.line, seconds=seconds)
+        elif not job.computed:
+            # Refused or failed before it computed: its own error is all it has to say, as a refusal when it
+            # was given. That error is already on the line, or on the console line.
+            return
         else:
             message = Message("{command} failed after {seconds} s.", command=job.line, seconds=seconds)
         if self.jobs:
             message = JoinedMessage([message, Message("%n more command(s) waiting.", n=len(self.jobs))])
-        viewer.set_background_job_status(message)
+        texts = [text for text in (note, message) if text is not None]
+        viewer.set_background_job_status(self._after_failure_reason(job, *texts))

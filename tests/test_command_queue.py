@@ -126,6 +126,19 @@ class QueueViewer:
         with bind(None):
             ce.execute_command(self, line, record_history=False)
 
+    def press_enter(self, line):
+        """Open the command line, type line and press Enter, through the Viewer's own key handler."""
+        from EMAPSSN_Viewer import MainViewer
+        self.console_mode = True
+        self.input_buffer = line
+        self.cursor_pos = len(line)
+        self.console_text.text = f"Cmd: {line}"
+        self.console_bg = SimpleNamespace(visible=True)
+        self.canvas = SimpleNamespace(update=lambda: None)
+        self._hide_command_caret = lambda: None
+        self.process_command = lambda command, *args: MainViewer.process_command(self, command, *args)
+        MainViewer.on_key_press(self, SimpleNamespace(key='Enter', text='', modifiers=[], handled=False))
+
     def select_by_hand(self, indices):
         """Select nodes with the mouse, as the Viewer's handlers do."""
         self.selected_indices = list(indices)
@@ -1403,6 +1416,184 @@ class GuiResponsivenessTests(QueueTestCase):
         gaps, _seconds = self.timer_gaps(lambda: bool(done))
         blocked_ms = (time.perf_counter() - started) * 1000 - 50
         self.assertGreater(gaps.max(), min(self.MAX_GAP_MS, 0.5 * blocked_ms))
+
+
+
+class CommandLineClosedOnEnterTests(QueueTestCase):
+    """The feedback a command gives during the Enter that submitted it is on the console line;
+    only a command whose turn comes later, while another is typed, uses the status line."""
+
+    def test_a_refused_cluster_shows_its_error_on_the_console_line(self):
+        viewer = self.viewer
+        viewer.press_enter("cluster x")
+        self.assertEqual(viewer.console_text.text, "Error: Unknown mode or invalid number 'x'")
+        self.assertEqual(viewer.queue.pending(), [])
+        self.assertEqual(viewer.status_lines, [])
+        self.assertFalse(viewer.console_mode)
+
+    def test_a_job_refused_in_its_start_step_shows_its_error_on_the_console_line_alone(self):
+        viewer = self.viewer
+        viewer.press_enter("spectrum x")
+        self.assertEqual(
+            viewer.console_text.text,
+            "Error: Target property must be specified as {PROPERTY_NAME}, or select exactly one "
+            "node to color by similarity to it.",
+        )
+        self.assertEqual([job.status for job in viewer.queue.finished], ['failed'])
+        self.assertEqual(viewer.status_lines, [], "a refusal has no lifecycle line")
+
+    def test_the_start_step_of_a_job_that_runs_at_once_is_on_the_console_line(self):
+        viewer = self.viewer
+        viewer.press_enter(CLUSTER)
+        self.assertEqual(viewer.console_text.text, "Clustering (JACCARD)...")
+        self.assertTrue(any(line.startswith("Running ") for line in viewer.status_lines), viewer.status_lines)
+        self.assertFalse(any("Clustering" in line for line in viewer.status_lines))
+        self.finish_compute()
+        self.assertTrue(any("finished in" in line for line in viewer.status_lines), viewer.status_lines)
+
+    def test_a_command_whose_turn_comes_while_another_is_typed_keeps_the_status_line(self):
+        viewer = self.viewer
+        viewer.press_enter(CLUSTER)
+        viewer.press_enter("select #cluster_1#")  # waits for the clustering
+        viewer.console_mode = True                # another command is being typed when its turn comes
+        viewer.console_text.text = "Cmd: colo"
+        self.finish_compute()
+        self.assertEqual(viewer.console_text.text, "Cmd: colo")
+        self.assertIn("Done! Found 2 clusters via JACCARD.", viewer.status_lines)
+
+
+class FailureOnTheStatusLineTests(QueueTestCase):
+    """While another command is typed, a failed job's reason stays on the status line."""
+
+    def test_a_refusal_in_the_start_step_has_no_lifecycle_line(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("spectrum x")
+        viewer.console_mode = True
+        viewer.console_text.text = "Cmd: colo"
+        self.finish_compute()
+        reason = ("Error: Target property must be specified as {PROPERTY_NAME}, or select exactly one "
+                  "node to color by similarity to it.")
+        self.assertEqual(viewer.status_lines[-1], reason)
+        self.assertFalse(any("failed after" in line for line in viewer.status_lines))
+        self.assertEqual(viewer.console_text.text, "Cmd: colo")
+
+    def test_the_cancel_note_follows_the_reason_of_a_refused_job(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("subcluster cluster_9")
+        viewer.type("color red")
+        viewer.console_mode = True
+        viewer.console_text.text = "Cmd: colo"
+        self.finish_compute()
+        last = viewer.status_lines[-1]
+        self.assertIn("cluster_9", last.split("Cancelled")[0])
+        self.assertIn("Cancelled 1 command(s) given after subcluster cluster_9".replace("(s)", ""), last)
+        self.assertFalse(any("failed after" in line for line in viewer.status_lines))
+
+    def test_a_job_that_failed_after_computing_shows_its_reason_before_the_queue_text(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("color red")
+        viewer.console_mode = True
+        viewer.console_text.text = "Cmd: colo"
+        with mock.patch("utilities.Network_Kernels.jaccard_partition", side_effect=RuntimeError("kernel broke")):
+            self.finish_compute()
+        last = viewer.status_lines[-1]
+        self.assertTrue(last.startswith("Error: kernel broke"), last)
+        self.assertLess(last.index("Cancelled"), last.index("failed after"))
+        self.assertGreater(last.index("Cancelled"), last.index("kernel broke"))
+
+
+# A command that only reports its failure.
+FAILING_COMMAND = '''
+import Command_Engine
+
+
+def run(viewer, args):
+    Command_Engine.command_failed(viewer, "It broke")
+'''
+
+
+class UnshownFailureTests(QueueTestCase):
+    """A command that only calls command_failed does not leave the console line at what was typed."""
+
+    def setUp(self):
+        super().setUp()
+        modules = scratch_commands({"zfail": FAILING_COMMAND})
+        modules.__enter__()
+        self.addCleanup(modules.__exit__, None, None, None)
+
+    def test_a_typed_command_that_only_reports_its_failure_shows_it(self):
+        viewer = self.viewer
+        viewer.press_enter("zfail")
+        self.assertEqual(viewer.console_text.text, "It broke")
+
+    def test_a_queued_command_that_only_reports_its_failure_shows_it(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("zfail")
+        self.finish_compute()
+        self.assertEqual(viewer.console_text.text, "It broke")
+
+    def test_it_goes_to_the_status_line_while_another_command_is_typed(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("zfail")
+        viewer.console_mode = True
+        viewer.console_text.text = "Cmd: colo"
+        self.finish_compute()
+        self.assertEqual(viewer.console_text.text, "Cmd: colo")
+        self.assertTrue(viewer.status_lines[-1].startswith("It broke"), viewer.status_lines)
+
+    def test_a_silent_command_shows_nothing(self):
+        viewer = self.viewer
+        viewer.console_text.text = "Cmd: zfail"
+        with bind(None):
+            ce.execute_command(viewer, "zfail", False, True)
+        self.assertEqual(viewer.console_text.text, "Cmd: zfail")
+
+    def test_a_viewer_without_a_console_line_still_works(self):
+        viewer = self.viewer
+        del viewer.console_text
+        with bind(None):
+            ce.execute_command(viewer, "zfail", False)
+
+    def test_a_command_that_wrote_something_is_not_given_a_second_line(self):
+        viewer = self.viewer
+        viewer.console_text.text = "x"
+        with ce.command_step(viewer):
+            ce.show_status(viewer, "Its own text")
+            ce.command_failed(viewer, "It broke")
+        self.assertEqual(viewer.console_text.text, "Its own text")
+
+    def test_the_outer_record_of_an_enclosing_run_keeps_the_failure(self):
+        viewer = self.viewer
+        with ce.recorded_outcome() as outcome:
+            viewer.type("zfail")
+        self.assertEqual(outcome['status'], 'failed')
+        self.assertEqual(viewer.console_text.text, "It broke")
+
+    def test_a_portal_command_does_not_take_the_line_but_reports_as_before(self):
+        viewer = self.viewer
+        viewer.command_portal = portal = ViewerCommandPortal(viewer)
+        self.addCleanup(portal.shutdown)
+        viewer.console_mode = True
+        viewer.console_text.text = "Cmd: colo"
+        request = portal.submit('z1', ["zfail"])
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and portal.get(request['request_id'])['status'] not in ('succeeded', 'failed'):
+            self.app.processEvents()
+            time.sleep(0.002)
+        record = portal.get(request['request_id'])
+        self.assertEqual(record['status'], 'failed')
+        self.assertEqual(record['commands'][0]['message'], "It broke")
+        self.assertEqual(viewer.console_text.text, "Cmd: colo")
+
+    def test_an_empty_command_shows_that_it_is_empty(self):
+        viewer = self.viewer
+        viewer.press_enter("")
+        self.assertEqual(viewer.console_text.text, "Empty command")
 
 
 if __name__ == "__main__":

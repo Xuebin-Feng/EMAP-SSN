@@ -3264,9 +3264,16 @@ class MainViewer:
                     self._update_console_text()
                     self._show_click_status(Message("Continued: type the rest and press Enter."))
                     return
+                # The command line closes before the command runs: what the command shows during this Enter
+                # (its plan, a queue job's start step when it runs at once) belongs on the console line.
+                # Only feedback of a command that runs later, while another is typed, goes to the status line.
                 self._hide_command_caret()
-                self.process_command(self.input_buffer)
-                self.console_mode = False; self.console_bg.visible = False; self.canvas.update()
+                command = self.input_buffer
+                self.console_mode = False; self.console_bg.visible = False
+                try:
+                    self.process_command(command)
+                finally:
+                    self.canvas.update()
                 
             elif event.key == 'Backspace':
                 if self.cursor_pos > 0:
