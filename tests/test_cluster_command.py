@@ -1418,5 +1418,26 @@ class FirstUseOnTheGuiThreadTests(unittest.TestCase):
                             self.assertIn("Missing librar", output)
 
 
+
+class ParseRefusalConsoleLineTests(unittest.TestCase):
+    """A refused argument is shown on the console line, as the other refusals are."""
+
+    def test_every_parse_refusal_replaces_the_typed_text_on_the_console_line(self):
+        cases = [
+            (["x"], "Error: Unknown mode or invalid number 'x'"),
+            (["mcl", "two"], "Error: Parameter must be a number."),
+            (["jaccard", "0.2", "big"], "Error: Min Size must be an integer."),
+            (["2", "big"], "Error: Min Size must be an integer."),
+        ]
+        for args, message in cases:
+            with self.subTest(args=args):
+                viewer = network_viewer(7, BARBELL_EDGES)
+                viewer.console_text.text = "Cmd: cluster " + " ".join(args)
+                _succeeded, failed, output = run_command(cluster, viewer, args)
+                self.assertEqual(viewer.console_text.text, message)
+                self.assertIn(message, output)
+                failed.assert_called_once_with(viewer, message)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -592,28 +592,32 @@ def plan(viewer, args):
             if len(args) >= 2:
                 try: param1 = float(args[1])
                 except ValueError:
-                    print("Error: Parameter must be a number.")
-                    Command_Engine.command_failed(viewer, "Error: Parameter must be a number.")
+                    refusal = Message("Error: Parameter must be a number.")
+                    Command_Engine.print_help(viewer, refusal, report_message=False)
+                    Command_Engine.command_failed(viewer, refusal)
                     return None
             if len(args) >= 3:
                 try: min_sz = int(args[2])
                 except ValueError:
-                    print("Error: Min Size must be an integer.")
-                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    refusal = Message("Error: Min Size must be an integer.")
+                    Command_Engine.print_help(viewer, refusal, report_message=False)
+                    Command_Engine.command_failed(viewer, refusal)
                     return None
         else:
             taken = 2
             # A bare number is the resolution of the default mode, Leiden.
             try: param1 = float(args[0])
             except ValueError:
-                print(f"Error: Unknown mode or invalid number '{args[0]}'")
-                Command_Engine.command_failed(viewer, f"Error: Unknown mode or invalid number '{args[0]}'")
+                refusal = Message("Error: Unknown mode or invalid number '{argument}'", argument=args[0])
+                Command_Engine.print_help(viewer, refusal, report_message=False)
+                Command_Engine.command_failed(viewer, refusal)
                 return None
             if len(args) >= 2:
                 try: min_sz = int(args[1])
                 except ValueError:
-                    print("Error: Min Size must be an integer.")
-                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    refusal = Message("Error: Min Size must be an integer.")
+                    Command_Engine.print_help(viewer, refusal, report_message=False)
+                    Command_Engine.command_failed(viewer, refusal)
                     return None
 
     # Nothing may follow the arguments the form takes.

@@ -1294,5 +1294,26 @@ class SubclusterModuleTests(unittest.TestCase):
             self.assertIn(line, text)
 
 
+
+class SubclusterParseRefusalConsoleLineTests(unittest.TestCase):
+    """A refused argument is shown on the console line, as the other refusals are."""
+
+    def test_every_parse_refusal_replaces_the_typed_text_on_the_console_line(self):
+        cases = [
+            (["cluster_1", "x"], "Error: Unknown mode or invalid number 'x'"),
+            (["cluster_1", "mcl", "two"], "Error: Parameter must be a number."),
+            (["cluster_1", "jaccard", "0.2", "big"], "Error: Min Size must be an integer."),
+            (["cluster_1", "2", "big"], "Error: Min Size must be an integer."),
+        ]
+        for args, message in cases:
+            with self.subTest(args=args):
+                viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+                viewer.console_text.text = "Cmd: subcluster " + " ".join(args)
+                _succeeded, failed, output = run_command(subcluster_command, viewer, args)
+                self.assertEqual(viewer.console_text.text, message)
+                self.assertIn(message, output)
+                failed.assert_called_once_with(viewer, message)
+
+
 if __name__ == "__main__":
     unittest.main()
