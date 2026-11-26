@@ -40,6 +40,12 @@ file. As soon as sanitize_sequences finishes, read its log with
 result (kept/removed counts, duplicates, and length summary) before proceeding,
 because it can change the go/no-go decision or filter settings.
 
+When embeddings are needed for only part of a protein (e.g., a single domain),
+prefer running generate_embeddings on the full-length sequences and slicing the
+target region with embedding_cropping rather than embedding the domain directly,
+because full-length embeddings capture full-protein context rather than
+domain-only information.
+
 Prepare exactly one input form: `parameters`, `settings_document`, or `settings_path`.
 Optional `directories` accompanies `parameters` only. Use native JSON numbers and
 booleans. Call `emapssn_pipeline(action="validate_settings")`, examine `valid` and

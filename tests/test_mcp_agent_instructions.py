@@ -71,6 +71,13 @@ class GuideLoadingTests(unittest.TestCase):
         self.assertIn("immediately report the sanitization result", guide)
         self.assertIn("go/no-go decision", guide)
 
+    def test_the_guide_prefers_full_length_embeddings_sliced_with_embedding_cropping(self):
+        guide = " ".join(_load_agent_instructions().split())
+        self.assertIn("single domain", guide)
+        self.assertIn("generate_embeddings on the full-length sequences", guide)
+        self.assertIn("embedding_cropping", guide)
+        self.assertIn("full-protein context", guide)
+
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),
                       UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):

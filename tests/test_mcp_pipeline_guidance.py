@@ -93,6 +93,23 @@ class PipelineGuideTests(unittest.TestCase):
             self.assertNotIn("optional", first_step.lower())
             self.assertIn("go/no-go decision", first_step)
 
+    def test_partial_sequence_embedding_guidance_prefers_full_length_then_cropping(self):
+        for tool_id in ("generate_embeddings", "embedding_cropping"):
+            with self.subTest(tool=tool_id):
+                notes = " ".join(Pipeline_Guide.tool_guide(tool_id)["notes"])
+                self.assertIn("full-length", notes)
+                self.assertIn("embedding_cropping", notes)
+                self.assertIn("full-protein", notes)
+                self.assertIn("domain-specific", notes)
+        domain_workflows = [
+            wf for wf in Pipeline_Guide.workflows()
+            if "Domain or fragment" in wf["goal"]
+        ]
+        self.assertEqual(len(domain_workflows), 1)
+        steps = " ".join(domain_workflows[0]["steps"])
+        self.assertIn("full-protein information", steps)
+        self.assertIn("embedding_cropping", steps)
+
     def test_the_blast_tools_offer_the_efi_alignment_score_beside_the_e_value(self):
         from mcp_server.pipeline.Pipeline_Settings import _CONTRACTS
 

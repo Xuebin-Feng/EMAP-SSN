@@ -42,6 +42,7 @@
       "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_injection", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "A GPU is strongly recommended. Local models download their weights on first use. esmc_6b runs on a remote API and needs a Biohub token stored beforehand by the user (the job cannot prompt for it). Ankh and Ankh3 models need a one-time license acknowledgement made by the user outside MCP: python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID.",
       "notes": [
+        "When the user needs embeddings for only part of a sequence (for example, a single domain from a larger protein) and full-length sequences are available, prefer generating full-length embeddings first and then slicing to the target region with embedding_cropping rather than embedding only the target domain directly, because full-length embeddings capture full-protein contextual information rather than just domain-specific information.",
         "get_tool_schema lists each model's availability on this machine under model_availability.",
         "Use one model for every file you intend to combine: injection, extraction, cropping and network injection reuse the source file's model.",
         "No model is best for every family. Reuse the model of related existing files when there are any; otherwise a mid-sized local model such as esm2_t33_650m, esmc_300m or esmc_600m is a common starting point, and larger models cost more time and disk.",
@@ -117,7 +118,10 @@
         {"directory": "EMBED_DIR", "name": "<CROPPED_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified"}
       ],
       "next": ["align_similarity_matrix", "embedding_msa", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
-      "requirements": "CPU only; no model is run."
+      "requirements": "CPU only; no model is run.",
+      "notes": [
+        "When the user wants embeddings for only part of a protein (such as a single domain out of a larger protein) and full-length sequences are available, generate full-length embeddings with generate_embeddings first and slice to the needed region with embedding_cropping instead of embedding the isolated domain directly, because full-length embeddings capture full-protein information rather than only domain-specific information."
+      ]
     },
     "embedding_import": {
       "stage": "embed sequences",
@@ -339,8 +343,8 @@
       "goal": "Domain or fragment network that keeps full-length context",
       "steps": [
         "If starting from a raw full-length FASTA, run sanitize_sequences first, read its stdout log with read_log, and report the sanitization result immediately before continuing",
-        "generate_embeddings on the full-length sequences",
-        "embedding_cropping with a FASTA of the fragments (same headers, exact substrings)",
+        "generate_embeddings on the full-length sequences (prefer this over embedding isolated domains directly, because full-length embeddings capture full-protein information rather than only domain-specific information)",
+        "embedding_cropping with a FASTA of the fragments (same headers, exact substrings) to slice the full-length embeddings to the needed region",
         "align_similarity_matrix on the cropped embeddings, then a layout with the fragment FASTA"
       ]
     },
