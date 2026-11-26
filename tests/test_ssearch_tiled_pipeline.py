@@ -241,13 +241,28 @@ class ReadIntoTests(unittest.TestCase):
     def test_a_fully_cached_store_copies_from_memory(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.make_file(directory, np.float16)
-            store = engine.EmbeddingTileStore(path, [f"h{i}" for i in range(4)], host_cache_setting=1)
+            with mock.patch.object(engine, "system_memory_bytes", return_value=(64 * engine.GIB, 48 * engine.GIB)):
+                store = engine.EmbeddingTileStore(path, [f"h{i}" for i in range(4)], host_cache_setting=1)
             self.assertTrue(store.fully_cached)
             with mock.patch.object(engine.h5py, "File", side_effect=AssertionError("opened the file")):
                 for index in range(4):
                     out = np.empty(store.shapes[index], dtype=np.float16)
                     store.read_into(index, out)
                     np.testing.assert_array_equal(out, store.get(index))
+
+    def test_a_store_without_a_budget_reads_from_the_file(self):
+        # The case of a machine short of memory: 3 GiB available leaves no host-cache budget.
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.make_file(directory, np.float16)
+            with mock.patch.object(engine, "system_memory_bytes", return_value=(16 * engine.GIB, 3 * engine.GIB)):
+                store = engine.EmbeddingTileStore(path, [f"h{i}" for i in range(4)], host_cache_setting=1)
+            self.assertEqual(store.host_cache_bytes, 0)
+            self.assertFalse(store.fully_cached)
+            with h5py.File(path, "r") as hf:
+                for index in range(4):
+                    out = np.empty(store.shapes[index], dtype=np.float16)
+                    store.read_into(index, out)
+                    np.testing.assert_array_equal(out, hf["embeddings"][f"h{index}"][...])
 
     def test_a_missing_embedding_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
