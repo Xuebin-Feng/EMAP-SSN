@@ -1707,6 +1707,33 @@ still change before version 1.0.0.
   hold at the Mac's pixel scale. Both tests now follow the driver and the pixel scale,
   and a small pick scene (under a thousand pixels on nodes) may have one tie. Shown on
   Windows with the Mac's driver limit and scale set by hand; not yet confirmed on a Mac.
+- **The Viewer's command line did not show some command errors.** After Enter, a
+  refused command could leave the line at what was typed, such as "Cmd: cluster x",
+  with the error only in the Console. Such a command now ends with its error on the
+  command line and the same error in the Console.
+  - **`cluster` and `subcluster`:** four argument checks in each (a parameter that is
+    not a number, a minimum size that is not an integer, an unknown mode) only printed
+    their error. They now show it on the command line, as their other checks do.
+  - **Commands that wait their turn in the command queue:** the command line counted as
+    still being typed until the command had run. An error from a command refused at its
+    turn, such as `spectrum x` with no single node selected, therefore went to the
+    status line above, where "spectrum x failed after 0.0 s." replaced it at once. The
+    command line now closes when Enter is pressed, so the error shows on it. For the
+    same reason a command that starts at once shows its first message, such as
+    "Clustering (LEIDEN)...", on the command line while it runs.
+  - **No "failed after" line for a refusal:** a command refused at its turn, before it
+    computed anything, shows only its error, as a command refused on Enter does. A
+    command that fails after computing keeps its "failed after" line.
+  - **While another command is being typed,** a queued command's error still goes to
+    the status line, and it now stays there: the queue's own text ("failed after", the
+    note about the later commands it cancelled) follows it instead of replacing it.
+  - **No help page before an error:** `spectrum` and `subcluster` printed their whole
+    help page to the Console before an argument error. They now print the error alone;
+    `spectrum help`, `subcluster help` and a bare `subcluster` print the page as before.
+  - **Commands that report a failure and show nothing,** such as a plugin of your own,
+    now have that failure shown for them. A command that showed its own text keeps it.
+  - Tested through the Viewer's own key handler on a stand-in Viewer; not yet looked at
+    in a real window.
 
 ## [0.5.0] - 2026-10-30
 
