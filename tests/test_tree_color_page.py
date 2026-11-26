@@ -1425,6 +1425,35 @@ class StrokeAndGestureTests(LayoutCase):
         self.assertNotIn(2, {p["width"] for passes in groups for p in passes})
 
 
+class TreePageStaticSafetyTests(unittest.TestCase):
+    """Static checks on Tree View's shipped HTML and JS files (no server or WebEngine needed)."""
+
+    UNSAFE_SINK_RE = re.compile(
+        r"\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write(?:ln)?|"
+        r"eval\s*\(|new\s+Function\b|Function\s*\(|set(?:Timeout|Interval)\s*\(\s*['\"`])"
+    )
+    # The external tree-file readers recognise "bootstrap" as an input format token
+    # (Newick/NEXUS metacomments, Auspice/nested JSON, NeXML meta properties);
+    # no UI-rendering file may label Tree View's own split stability with the word.
+    PARSER_FILES = frozenset({"tree_read.js", "tree_read_json.js", "tree_read_xml.js"})
+
+    def test_the_pages_files_use_no_markup_or_code_from_text(self):
+        html = (WEB_DIR / "tree.html").read_text(encoding="utf-8")
+        loaded_scripts = set(re.findall(r'<script\s+src="/(tree[^"]*\.js)"', html))
+        self.assertTrue(loaded_scripts)
+        self.assertIn("tree.html", PAGE_FILES)
+        self.assertLessEqual(loaded_scripts, set(PAGE_FILES))
+        for name in PAGE_FILES:
+            source = (WEB_DIR / name).read_text(encoding="utf-8")
+            with self.subTest(file=name, check="unsafe_sinks"):
+                matches = self.UNSAFE_SINK_RE.findall(source)
+                self.assertEqual(matches, [], f"unsafe sink(s) in {name}: {matches}")
+            if name not in self.PARSER_FILES:
+                with self.subTest(file=name, word="bootstrap"):
+                    # The legend says, once, what the stability is not; nothing is ever labelled with the word.
+                    self.assertNotIn("bootstrap", source.replace(LEGEND_NOT_BOOTSTRAP, "").lower())
+
+
 class TextAndSafetyTests(TreePageMixin, unittest.TestCase):
     """A header is the file's text, shown as text; the page runs no code it did not ship, and asks for no file."""
 
@@ -1466,18 +1495,6 @@ class TextAndSafetyTests(TreePageMixin, unittest.TestCase):
         self.assertEqual(self.state("TreeView.runSearch('<b>')"), 1)
         self.assertEqual(self.state("TreeView.runSearch('&amp;')"), 1)
         self.assertEqual(self.state("TreeView.runSearch('onerror')"), 1)
-
-    def test_the_pages_files_use_no_markup_or_code_from_text(self):
-        for name in PAGE_FILES:
-            source = (WEB_DIR / name).read_text(encoding="utf-8")
-            if name.endswith(".js"):
-                for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function",
-                                  "setTimeout(\"", "setTimeout('", "setInterval(\"", "setInterval('", "Function("):
-                    with self.subTest(file=name, forbidden=forbidden):
-                        self.assertNotIn(forbidden, source)
-            with self.subTest(file=name, word="bootstrap"):
-                # The legend says, once, what the stability is not; nothing is ever labelled with the word.
-                self.assertNotIn("bootstrap", source.replace(LEGEND_NOT_BOOTSTRAP, "").lower())
 
     def test_the_page_asks_the_viewer_for_the_tree_and_never_names_a_file(self):
         requested = self.state("performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname)")

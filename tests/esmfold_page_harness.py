@@ -14,7 +14,6 @@ in a child process that has WebGL, and skips where there is none.
 Not collected by unittest; import with ``from tests.esmfold_page_harness import ...``.
 """
 
-import http.client
 import json
 import os
 import tempfile
@@ -23,52 +22,19 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-# Set before Qt WebEngine starts Chromium, as tests/test_agent_composer.py does.
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
-from PySide6.QtCore import QUrl
-from PySide6.QtWebEngineCore import QWebEnginePage
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication
+# web_page_harness sets the offscreen platform and the GPU flag before Qt WebEngine starts Chromium.
+from tests.web_page_harness import ConsolePage, http_get, page_headers  # noqa: E402, F401
+
+from PySide6.QtCore import QUrl  # noqa: E402
+from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 # What the page's console says when a save it had in flight is aborted by the navigation that leaves the page.
 ABORTED_SAVE = ("ErrorMessageLevel", "Network error during auto-save: TypeError: Failed to fetch")
-
-
-class ConsolePage(QWebEnginePage):
-    """A page that keeps what its scripts write to the console, as (level, message, line, source)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.messages = []
-
-    def javaScriptConsoleMessage(self, level, message, line, source):
-        self.messages.append((level.name, message, line, source))
-
-
-def http_get(server, path, headers=None):
-    """GET path from the real server; returns (status, headers, body bytes)."""
-    port = server.server_address[1]
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    try:
-        connection.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
-        for name, value in {"Host": f"127.0.0.1:{port}", **(headers or {})}.items():
-            connection.putheader(name, value)
-        connection.endheaders()
-        response = connection.getresponse()
-        return response.status, response.headers, response.read()
-    finally:
-        connection.close()
-
-
-def page_headers(server):
-    """What Chromium sends for a same-origin fetch from a bundled page."""
-    port = server.server_address[1]
-    return {"Origin": f"http://127.0.0.1:{port}", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
 
 
 def make_viewer():

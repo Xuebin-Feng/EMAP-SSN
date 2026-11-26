@@ -11,14 +11,14 @@ pairwise distance, which at 44,000 leaves is 8 GB.
 Not collected by unittest; import with ``from tests.tree_fixtures import ...``.
 """
 
-import http.client
 import os
 import pathlib
 import sys
-import tempfile
 from types import SimpleNamespace
 
 import numpy as np
+
+from tests.web_page_harness import http_get, page_headers  # noqa: F401
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -197,39 +197,7 @@ def give_edges(viewer, pairs, scores, *, threshold=None, evalue=False):
     return viewer
 
 
-class TemporaryTreeFolder:
-    """A temporary folder, removed with the test that made it (use with addCleanup)."""
-
-    def __init__(self):
-        self._folder = tempfile.TemporaryDirectory()
-        self.path = pathlib.Path(self._folder.name)
-
-    def cleanup(self):
-        self._folder.cleanup()
-
-
 # ---- The real web server over a Viewer that has only what the server and the tree backend read ----------------------
-
-def http_get(server, path, headers=None):
-    """GET path from the real server; returns (status, headers, body bytes)."""
-    port = server.server_address[1]
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    try:
-        connection.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
-        for name, value in {"Host": f"127.0.0.1:{port}", **(headers or {})}.items():
-            connection.putheader(name, value)
-        connection.endheaders()
-        response = connection.getresponse()
-        return response.status, response.headers, response.read()
-    finally:
-        connection.close()
-
-
-def page_headers(server):
-    """What Chromium sends for a same-origin fetch from a bundled page."""
-    port = server.server_address[1]
-    return {"Origin": f"http://127.0.0.1:{port}", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
-
 
 def server_viewer():
     """The little a Viewer must have for the real web server to run over it.

@@ -19,10 +19,10 @@ import tempfile
 import time
 from unittest import mock
 
-# esmfold_page_harness sets the offscreen platform and the GPU flag before Qt WebEngine starts Chromium.
-from tests.esmfold_page_harness import ConsolePage
+# web_page_harness sets the offscreen platform and the GPU flag before Qt WebEngine starts Chromium.
+from tests.web_page_harness import ConsolePage, http_get, page_headers  # noqa: F401
 from tests import tree_fixtures
-from tests.tree_fixtures import http_get, page_headers, server_viewer  # noqa: F401
+from tests.tree_fixtures import server_viewer  # noqa: F401
 
 from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView

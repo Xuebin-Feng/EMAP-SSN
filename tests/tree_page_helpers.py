@@ -5,10 +5,11 @@
 """What Tree View's page tests share (not collected by unittest).
 
 The tests of the page are in test_tree_page.py, test_tree_detail_page.py, test_tree_color_page.py,
-test_tree_selection_page.py, test_tree_appearance_page.py, test_tree_source_page.py and test_tree_open_page.py, which
-each open tree.html in Qt WebEngine over tests/tree_page_harness.py. This module holds what more than one of them
-uses: the page's file names, JavaScript snippets, the eight-leaf tree and its colours, the spies on the drawing, and
-the page over a neighbor-joining tree of 60 leaves. Import with ``from tests.tree_page_helpers import ...``.
+test_tree_selection_page.py, test_tree_appearance_page.py, test_tree_source_page.py, test_tree_open_page.py and
+test_tree_image_page.py, which each open tree.html in Qt WebEngine over tests/tree_page_harness.py. This module holds
+what more than one of them uses: the page's file names, JavaScript snippets, the eight-leaf tree and its colours,
+the spies on the drawing, and the page over a neighbor-joining tree of 60 leaves. Import with
+``from tests.tree_page_helpers import ...``.
 """
 
 import json
@@ -26,8 +27,7 @@ from tests.tree_fixtures import TREE_NAME, headers_of, make_alignment_folder, ne
 from tests.tree_page_harness import TreePageMixin  # noqa: E402
 
 WEB_DIR = SRC_DIR / "web_ui"
-PAGE_FILES = ["tree.html", "tree_model.js", "tree_color.js", "tree_layout.js", "tree_render.js", "tree_nav.js", "tree_select.js",
-              "tree_minimap.js", "tree_legend.js", "tree_image.js", "tree_session.js"]
+PAGE_FILES = ("tree.html", *sorted(path.name for path in WEB_DIR.glob("tree*.js")))
 
 # The legend's sentence about the split stability, the one place the page uses the word.
 LEGEND_NOT_BOOTSTRAP = "Stability under distance noise, not bootstrap support."
