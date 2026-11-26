@@ -689,10 +689,6 @@ class ToolsWindowTests(unittest.TestCase):
         path = next(p for p in window.script_data if Path(p).name == "Predict_Structures.py")
         return window, path, root
 
-    def row(self, window, path, name):
-        label, widget = None, window.script_data[path]["inputs"][name]["widget"]
-        return widget
-
     def test_the_card_is_in_manual_tools_right_before_benchmark_and_offers_the_contracts_fields(self):
         window, path, _ = self.window()
         inputs = window.script_data[path]["inputs"]
@@ -802,9 +798,12 @@ class ToolsWindowTests(unittest.TestCase):
     def test_the_other_tools_still_run_from_the_shared_file_with_no_snapshot(self):
         window, _, root = self.window()
         path = next(p for p in window.script_data if Path(p).name == "Embedding_SSEARCH.py")
-        launched = self.run_from_window(window, path)
-        if launched:  # the dropdown inputs may be empty here; what matters is that no snapshot is made for it
-            self.assertEqual(Path(launched[0][-1]).name, "Embedding_SSEARCH.py")
+        with mock.patch("EMAPSSN_Tools.QMessageBox.critical", side_effect=AssertionError("unexpected error dialog")):
+            launched = self.run_from_window(window, path)
+        self.assertEqual(len(launched), 1)
+        self.assertEqual(Path(launched[0][-1]).name, "Embedding_SSEARCH.py")
+        saved = json.loads((root / "tools_settings.json").read_text(encoding="utf-8"))
+        self.assertIn("Embedding_SSEARCH.py", saved)
 
     def test_an_export_may_hold_the_path_and_the_window_redrawn_keeps_it_for_the_session(self):
         window, path, _ = self.window()

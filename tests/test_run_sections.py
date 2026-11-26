@@ -103,6 +103,20 @@ class SectionsFileTests(unittest.TestCase):
         self.assertNotIn("run_sections", modules)
         self.assertIn("test_run_sections", modules)
 
+    def test_full_suite_files_cover_test_startup_helpers_and_explicit_rules_hold(self):
+        selector = Selector(load_config(), root=PROJECT_ROOT)
+        for path in ("tests/__init__.py", "tests/session_folder.py", "tests/desktop_openers.py"):
+            with self.subTest(full_suite=path):
+                self.assertIsNone(selector.explain(path)[0])
+        contracts = selector.explain("src/mcp_server/pipeline/Pipeline_Settings_Contracts.json")[0]
+        self.assertLessEqual({"mcp", "tools"}, contracts)
+        for path in ("tests/sections.toml", "tests/run_sections.py"):
+            with self.subTest(runner_file=path):
+                self.assertIn("platform", selector.explain(path)[0])
+        # git_availability.py names Run_Benchmark.py only in a docstring, so it must not pull
+        # unrelated sections that import git_availability into benchmark edits.
+        self.assertEqual(selector.explain("src/resources/benchmark/Run_Benchmark.py")[0], {"tools"})
+
 
 class FoldViewSectionsTests(unittest.TestCase):
     """The Fold View page's tests have sections of their own, and what changes them selects those sections.
@@ -160,12 +174,23 @@ class FoldViewSectionsTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertLessEqual(self.PAGE_SECTIONS | {"plugins", "viewer"}, self.selector.explain(path)[0])
 
-    def test_the_command_the_worker_and_the_backend_select_plugins_and_not_every_page_section(self):
-        for path in ("src/commands/esmfold.py", "src/resources/esmfold/esmfold_worker.py", "src/web_ui/esmfold_backend.py"):
+    def test_the_command_and_the_worker_select_plugins_and_not_every_page_section(self):
+        for path in ("src/commands/esmfold.py", "src/resources/esmfold/esmfold_worker.py"):
             with self.subTest(path=path):
                 chosen = self.selector.explain(path)[0]
                 self.assertIn("plugins", chosen)
+                self.assertNotIn("platform", chosen)
                 self.assertNotEqual(self.PAGE_SECTIONS - chosen, set(), "a change here would run every page section")
+
+    def test_the_backend_selects_plugins_and_every_page_section_and_not_platform(self):
+        chosen = self.selector.explain("src/web_ui/esmfold_backend.py")[0]
+        self.assertLessEqual(self.PAGE_SECTIONS | {"plugins"}, chosen)
+        self.assertNotIn("platform", chosen)
+
+    def test_residue_layers_selects_plugins_tools_and_every_page_section_and_not_platform(self):
+        chosen = self.selector.explain("src/web_ui/residue_layers.py")[0]
+        self.assertLessEqual(self.PAGE_SECTIONS | {"plugins", "tools"}, chosen)
+        self.assertNotIn("platform", chosen)
 
 
 class TreeViewSectionsTests(unittest.TestCase):
@@ -213,6 +238,11 @@ class TreeViewSectionsTests(unittest.TestCase):
         for path in ("src/web_ui/tree_backend.py", "src/commands/tree.py"):
             with self.subTest(path=path):
                 self.assertLessEqual(self.PAGE_SECTIONS | {"plugins"}, self.selector.explain(path)[0])
+
+    def test_the_snapshot_selects_commands_plugins_and_every_page_section(self):
+        chosen = self.selector.explain("src/web_ui/tree_snapshot.py")[0]
+        self.assertLessEqual(self.PAGE_SECTIONS | {"commands", "plugins"}, chosen)
+        self.assertNotIn("platform", chosen)
 
 
 class AssignmentTests(unittest.TestCase):
@@ -342,10 +372,53 @@ class SelectionTests(unittest.TestCase):
 
     def test_python_source_changes_add_the_repository_checks_not_already_running(self):
         self.assertFalse(self.selector.select(["docs/guide.md", "assets/logo.png"]).repo_checks)
-        selection = self.selector.select([".\\src\\lonely.py"])
-        self.assertTrue(selection.repo_checks)
+        self.assertFalse(self.selector.select(["src/page.html", "src/other/script.js"]).repo_checks)
+        for path in (".\\src\\lonely.py", "src/web_ui/tree.js", "src/web_ui/tree.html",
+                     "tests/test_alpha.py", "tests/helper.py", "tests/__init__.py"):
+            with self.subTest(path=path):
+                self.assertTrue(self.selector.select([path]).repo_checks)
         self.assertEqual(self.selector.pending_repo_checks({"beta"}), ["tests.test_alpha.AlphaTests"])
         self.assertEqual(self.selector.pending_repo_checks({"alpha", "beta"}), [])
+
+    def test_docstrings_do_not_create_false_references_while_code_strings_still_do(self):
+        files = dict(self.FILES)
+        files["tests/test_alpha.py"] = '''\
+            """Module docstring naming src/lonely.py and page.html and Named_Module."""
+            import core
+
+            class AlphaCase:
+                """Class docstring naming src/lonely.py and page.html."""
+
+                def method(self):
+                    """Function docstring naming src/lonely.py and Named_Module."""
+                    return "src/shared.py"
+
+                async def async_method(self):
+                    """Async docstring naming src/lonely.py."""
+                    return None
+            '''
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            write(root, files)
+            index = ReferenceIndex(root, files=sorted(files))
+            refs = index.refs("tests/test_alpha.py")
+            self.assertEqual(refs, {"src/core.py", "src/shared.py"})
+            selector = Selector(load_config(root), root=root, index=index)
+            self.assertEqual(selector.explain("src/lonely.py")[0], set())
+
+    def test_test_run_sections_is_excluded_from_reverse_indexing(self):
+        files = dict(self.FILES)
+        files["tests/sections.toml"] += "\n[sections.platform]\nmodules = [\"test_run_sections\"]\n"
+        files["tests/test_run_sections.py"] = 'PATHS = ("src/core.py", "src/lonely.py", "page.html")\n'
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            write(root, files)
+            selector = Selector(load_config(root), root=root,
+                                index=ReferenceIndex(root, files=sorted(files)))
+            self.assertEqual(selector.explain("tests/test_run_sections.py")[0], {"platform"})
+            self.assertEqual(selector.explain("src/core.py")[0], {"alpha"})
+            self.assertEqual(selector.explain("src/lonely.py")[0], set())
+            self.assertEqual(selector.explain("src/page.html")[0], {"beta"})
 
 
 class LogTests(unittest.TestCase):
@@ -487,6 +560,47 @@ class RunTests(unittest.TestCase):
         code, out = self.run_main("nonexistent")
         self.assertEqual(code, 2)
         self.assertIn("unknown section(s): nonexistent", out)
+
+    def test_skipping_a_section_keeps_its_repository_checks(self):
+        write(self.root, {
+            "tests/sections.toml": """\
+                [sections.good]
+                modules = ["test_pass"]
+                [sections.guard]
+                modules = ["test_guard"]
+                [repo_checks]
+                tests = ["tests.test_guard.GuardTests.test_scan"]
+                """,
+            "src/core.py": "VALUE = 1\n",
+            "tests/test_pass.py": """\
+                import unittest
+                TARGET = "src/core.py"
+                class PassTests(unittest.TestCase):
+                    def test_ok(self):
+                        pass
+                """,
+            "tests/test_guard.py": """\
+                import unittest
+                TARGET = "src/core.py"
+                class GuardTests(unittest.TestCase):
+                    def test_scan(self):
+                        pass
+                    def test_other(self):
+                        self.fail("only test_scan should run when guard is skipped")
+                """,
+        })
+        code, out = self.run_main("--files", "src/core.py", "--skip", "guard")
+        self.assertEqual(code, 0, out)
+        self.assertIn("repo-checks", out)
+        self.assertIn("2 tests in", out)
+        self.assertTrue((self.logs / "repo-checks.log").is_file())
+        self.assertFalse((self.logs / "guard.log").exists())
+
+        with mock.patch.object(run_sections, "changed_files", return_value=["src/core.py"]):
+            code, out = self.run_main("--changed", "--skip", "guard", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("tests.test_guard.GuardTests.test_scan", out)
+        self.assertNotIn("tests.test_guard\n", out)
 
 
 class PlatformTests(unittest.TestCase):
@@ -764,6 +878,22 @@ class SessionFolderTests(unittest.TestCase):
         self.assertIn("temp: its session folder could not be removed", out)
         self.assertIn("in use", out)
 
+    def test_runner_startup_sweeps_stale_session_folders_and_ignores_sweep_errors(self):
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait(timeout=10)
+        stale = Path(run_sections.session_folder.create("dead"))
+        self.addCleanup(shutil.rmtree, stale, True)
+        (stale / run_sections.session_folder.OWNER_FILE).write_text(
+            f'{{"pid": {dead.pid}, "started": 1.0}}', encoding="utf-8")
+        code, out = self.run_main("temp")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(stale.exists(), "startup sweep should remove dead session folders")
+
+        with mock.patch.object(run_sections.session_folder, "sweep", side_effect=OSError("cannot sweep")) as sweep:
+            code, out = self.run_main("temp")
+        self.assertEqual(code, 0, out)
+        sweep.assert_called_once()
+
 
 class LogFolderTests(unittest.TestCase):
     """The runner's own logs are kept for the newest ten runs."""
@@ -786,6 +916,18 @@ class LogFolderTests(unittest.TestCase):
             self.assertEqual(runs, sorted([*names[3:], new.name]), "the new one and the nine newest before it")
             self.assertEqual(sorted(entry.name for entry in Path(base).iterdir() if entry.name not in runs),
                              ["20260101-000000", "durations.json", "notes"])
+
+    def test_save_durations_prunes_sections_no_longer_in_config(self):
+        with tempfile.TemporaryDirectory() as base, mock.patch.object(run_sections, "LOG_BASE", Path(base)):
+            Path(base, "durations.json").write_text(
+                '{"alpha": 10.0, "beta": 20.0, "removed_section": 99.0}', encoding="utf-8")
+            results = [
+                run_sections.Result("alpha", "ok", seconds=12.34),
+                run_sections.Result("repo-checks", "ok", seconds=3.21),
+                run_sections.Result("beta", "timeout", seconds=60.0),
+            ]
+            run_sections.save_durations(results, {"alpha", "beta"})
+            self.assertEqual(run_sections.load_durations(), {"alpha": 12.3, "beta": 20.0})
 
 
 class MacGroupAnswerTests(unittest.TestCase):

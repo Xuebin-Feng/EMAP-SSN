@@ -20,7 +20,8 @@ which other sections ran. Sections run in parallel.
 section; a file a test module (or one of its helper modules) imports or names
 to that module's section; a file only other source files use to the sections of
 its nearest users; plus the path rules in sections.toml. A partial run that
-touches src/**/*.py also runs the repository-wide checks listed there.
+touches src/**/*.py, src/web_ui/**/*.{js,html} or tests/**/*.py also runs the
+repository-wide checks listed there.
 
 A section can declare `platforms` in sections.toml: the sys.platform names (win32,
 linux, darwin) it runs on. On any other system the runner starts nothing for it, however
@@ -403,6 +404,13 @@ class ReferenceIndex:
             return found
         in_vr = path.startswith("opt_vr/")
         package = path.rsplit("/", 1)[0] if "/" in path else ""
+        docstrings = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.body and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                    and isinstance(node.body[0].value.value, str)):
+                docstrings.add(node.body[0].value)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -420,7 +428,8 @@ class ReferenceIndex:
                     found |= self._resolve(node.module, in_vr)
                     for alias in node.names:
                         found |= self._submodule(node.module, alias.name, in_vr)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) < 400:
+            elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                  and node not in docstrings and len(node.value) < 400):
                 value = node.value
                 for name in FILE_NAME.findall(value):
                     found |= self.by_basename.get(name, set())
@@ -513,6 +522,8 @@ class Selector:
         if self._by_target is None:
             by_target = defaultdict(set)
             for module in self.modules:
+                if module == "test_run_sections":
+                    continue
                 for target in module_references(self.index, module):
                     by_target[target].add(module)
             vr_targets = set()
@@ -563,19 +574,27 @@ class Selector:
             reasons.append("no test module reaches it")
         return sections, reasons
 
+    @staticmethod
+    def _triggers_repo_checks(path):
+        return (
+            (path.startswith("src/") and path.endswith(".py"))
+            or (path.startswith("src/web_ui/") and path.endswith((".js", ".html")))
+            or (path.startswith("tests/") and path.endswith(".py"))
+        )
+
     def select(self, paths):
         selection = Selection()
         for path in map(normalise, paths):
             sections, reasons = self.explain(path)
             selection.reasons[path] = reasons
+            if self._triggers_repo_checks(path):
+                selection.repo_checks = True
             if sections is None:
                 selection.everything = True
                 continue
             selection.sections |= sections
             if not sections:
                 selection.unreferenced.append(path)
-            if path.startswith("src/") and path.endswith(".py"):
-                selection.repo_checks = True
         return selection
 
     def pending_repo_checks(self, selected):
@@ -888,7 +907,8 @@ def load_durations():
 
 
 def save_durations(results, full_sections):
-    durations = load_durations()
+    durations = {name: seconds for name, seconds in load_durations().items()
+                 if name in full_sections}
     for result in results:
         if result.status in ("ok", "failed") and result.name in full_sections:
             durations[result.name] = round(result.seconds, 1)
@@ -1026,6 +1046,8 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
 
     chosen = set(args.sections)
     repo_checks = []
+    selector = None
+    selection = None
     if args.all:
         chosen |= set(sections)
     if args.changed or args.files:
@@ -1044,9 +1066,9 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
             for reason in reasons:
                 print(f"      {reason}", file=out)
         chosen |= set(sections) if selection.everything else selection.sections & set(sections)
-        if selection.repo_checks and not args.all:
-            repo_checks = selector.pending_repo_checks(chosen)
     chosen -= set(args.skip)
+    if selection is not None and selection.repo_checks and not args.all:
+        repo_checks = selector.pending_repo_checks(chosen)
     to_run = [sections[name] for name in sections if name in chosen]
     if repo_checks:
         to_run.append(Section(REPO_CHECKS, "repository-wide checks", tests=repo_checks, seconds=10))
@@ -1073,6 +1095,10 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
                   file=out)
         return 0
 
+    try:
+        session_folder.sweep()
+    except Exception:
+        pass
     log_dir = args.log_dir or new_log_dir()
     runner = Runner(root, log_dir, args.jobs, args.timeout, verbose=args.verbose,
                     patterns=args.patterns, out=out, platform=platform)

@@ -19,7 +19,7 @@
 
 [sections.commands]
 description = "Viewer commands, selection expressions, undo/redo, alignment panel"
-seconds = 80
+seconds = 150
 modules = [
     "test_alignment_offset",
     "test_alignment_profiles",
@@ -70,7 +70,7 @@ modules = [
 
 [sections.viewer]
 description = "Viewer window, command portal, inspection, sessions, web server"
-seconds = 35
+seconds = 370
 modules = [
     "test_browser_page_opening",
     "test_console_overlay_wrapping",
@@ -114,7 +114,7 @@ modules = [
 
 [sections.plugins]
 description = "Agent and metadata pages and backends, the esmfold command, worker and backend, Biohub and ESMC APIs"
-seconds = 40
+seconds = 120
 modules = [
     "test_agent_backend",
     "test_agent_composer",
@@ -255,7 +255,7 @@ modules = [
 
 [sections.mcp]
 description = "MCP server, workflow dispatch, pipeline jobs and settings, Viewer lifecycle"
-seconds = 60
+seconds = 120
 modules = [
     "test_compute_capabilities",
     "test_mcp_agent_instructions",
@@ -302,7 +302,7 @@ modules = [
 
 [sections.alignment]
 description = "Similarity and substitution matrix tools, SSEARCH, PWA, injection, BLAST"
-seconds = 30
+seconds = 100
 modules = [
     "test_align_gpu_kernels",
     "test_align_library",
@@ -331,7 +331,7 @@ modules = [
 
 [sections.embeddings]
 description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
-seconds = 25
+seconds = 120
 modules = [
     "test_ankh3",
     "test_chain_fill",
@@ -361,7 +361,7 @@ modules = [
 
 [sections.config]
 description = "Config window: profiles, cache dropdown, launch, responsive layout"
-seconds = 25
+seconds = 260
 modules = [
     "test_color_picker",
     "test_combo_popup",
@@ -383,7 +383,7 @@ modules = [
 
 [sections.tools]
 description = "Tools window, tool pipeline and settings CLI, help pages, benchmark"
-seconds = 15
+seconds = 240
 modules = [
     "test_background_job_scheduler",
     "test_benchmark",
@@ -402,7 +402,7 @@ modules = [
 
 [sections.language]
 description = "Language option, catalogs, translated pages, untranslated-text checks"
-seconds = 35
+seconds = 120
 modules = [
     "test_docs_translation",
     "test_language_option",
@@ -416,7 +416,7 @@ modules = [
 
 [sections.theme]
 description = "Studio theme, theme colours, fonts, text-sized controls"
-seconds = 45
+seconds = 280
 modules = [
     "test_application_fonts",
     "test_docs_style",
@@ -428,7 +428,7 @@ modules = [
 
 [sections.platform]
 description = "Launchers, installer, GPU detection, app settings, this runner"
-seconds = 10
+seconds = 190
 modules = [
     "test_app_settings",
     "test_application_window_activation",
@@ -454,20 +454,24 @@ modules = [
 
 [sections.opt_vr]
 description = "The VR suite (opt_vr/tests, run by discovery inside opt_vr)"
-seconds = 70
+seconds = 230
 cwd = "opt_vr"
 discover = true
 platforms = ["win32"]
 
 # Files that change what every test sees: any change to them selects every section.
 [full_suite]
-paths = ["tests/__init__.py"]
+paths = ["tests/__init__.py", "tests/session_folder.py", "tests/desktop_openers.py"]
 
 # Files the reference scan cannot connect to tests, because the code reaches them
 # through a folder scan or by name at run time.
 [[rules]]
 paths = ["src/commands/*.py"]
 sections = ["commands"]
+
+[[rules]]
+paths = ["src/mcp_server/pipeline/Pipeline_Settings_Contracts.json"]
+sections = ["mcp", "tools"]
 
 [[rules]]
 paths = ["src/web_ui/plugins/**", "src/resources/agent/**", "src/resources/meta/**"]
@@ -482,6 +486,10 @@ paths = [
 ]
 sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
+[[rules]]
+paths = ["src/web_ui/residue_layers.py"]
+sections = ["plugins", "tools"]
+
 # Tree View's page, its scripts and the helpers that open it reach its page section through the web server, not
 # through an import. Its backend and the helpers it shares with the backend's tests select the sections that run them.
 [[rules]]
@@ -492,10 +500,20 @@ sections = ["tree_core", "tree_detail", "tree_color", "tree_select", "tree_look"
 paths = ["src/web_ui/tree_backend.py", "src/commands/tree.py", "tests/tree_fixtures.py", "src/utilities/Guide_Tree_File.py"]
 sections = ["plugins", "tree_core", "tree_detail", "tree_color", "tree_select", "tree_look", "tree_open"]
 
+[[rules]]
+paths = ["src/web_ui/tree_snapshot.py"]
+sections = ["commands", "plugins", "tree_core", "tree_detail", "tree_color", "tree_select", "tree_look", "tree_open"]
+
 # The desktop probe (tests/desktop_probe) is loaded by file path and as a package of its own, which the reference
 # scan cannot follow: a change to any of its files runs the section of its tests.
 [[rules]]
 paths = ["tests/desktop_probe/**"]
+sections = ["platform"]
+
+# The runner and its configuration are tested by test_run_sections, which is excluded from the reverse
+# reference index so its own --explain test strings do not pull platform into unrelated edits.
+[[rules]]
+paths = ["tests/sections.toml", "tests/run_sections.py"]
 sections = ["platform"]
 
 # The vendored Mol* (molstar.js, its stylesheets, licence and notices) is what the page tests load.
@@ -503,10 +521,15 @@ sections = ["platform"]
 paths = ["src/resources/esmfold/molstar*", "src/resources/esmfold/*.molstar*", "src/resources/esmfold/NOTICES.*"]
 sections = ["plugins", "viewer", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
-# What the Fold View page is served by and fed from. (The page sections that run the command or read what
-# the worker writes are found by the reference scan.)
+# What the Fold View page is served by and fed from. Its backend reaches every page section through the web
+# server, not through an import. (The page sections that run the command or read what the worker writes are
+# found by the reference scan.)
 [[rules]]
-paths = ["src/web_ui/esmfold_backend.py", "src/commands/esmfold*.py"]
+paths = ["src/web_ui/esmfold_backend.py"]
+sections = ["plugins", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
+
+[[rules]]
+paths = ["src/commands/esmfold*.py"]
 sections = ["plugins"]
 
 [[rules]]
@@ -546,14 +569,23 @@ sections = ["platform"]
 paths = ["opt_vr", "opt_vr/**"]
 sections = ["opt_vr"]
 
-# Checks that read every src/**/*.py file. A partial run (--changed) adds them
-# whenever a Python file under src/ changed, unless their own section runs anyway.
+# Checks that scan across the repository. A partial run (--changed / --files) adds them
+# whenever a Python file under src/ or tests/, or a .js/.html file under src/web_ui/,
+# changed, unless their own section runs anyway.
 [repo_checks]
 tests = [
     "tests.test_benchmark_record.RecordedDecisionTests.test_every_caller_of_rank_benchmark_results_names_its_decision",
+    "tests.test_command_declarations.CentralCodeNamesNoCommandTests.test_no_central_file_names_a_command_imports_one_or_holds_a_table_of_them",
+    "tests.test_console_capture.EntryPointTests.test_only_the_window_entry_points_start_a_capture",
+    "tests.test_console_capture.HardExitTests.test_it_is_the_only_hard_exit_in_the_program_and_the_hidden_viewers_fallback_uses_it",
+    "tests.test_desktop_open.RoutingTests.test_only_the_opener_and_its_documented_exceptions_reach_the_desktop_directly",
+    "tests.test_launcher_stub.TaskbarIdentityTests.test_config_and_tools_set_their_own_id_with_the_small_icon_and_no_window_opens_a_large_one",
     "tests.test_localization.ConsoleLineWriteGuardTests",
+    "tests.test_run_sections.GitAvailabilityTests.test_every_python_file_that_runs_git_asks_first",
     "tests.test_studio_theme.StudioIconTests.test_every_icon_the_code_names_is_bundled",
     "tests.test_terminal_launcher.CallerIntegrationTests",
     "tests.test_untranslated_text.CanvasTextTests",
     "tests.test_update_translations.RepositoryCatalogTests",
+    "tests.test_web_plugin_discovery.CentralCodeNamesNoPageTests",
+    "tests.test_web_plugin_discovery.EveryPageIsDeclaredTests",
 ]
