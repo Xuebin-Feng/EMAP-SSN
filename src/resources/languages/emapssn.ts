@@ -3631,6 +3631,18 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Error: Parameter must be a number.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Min Size must be an integer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unknown mode or invalid number &apos;{argument}&apos;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished"></translation>
     </message>

@@ -5087,22 +5087,22 @@ Command-line usage:
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Engine.py" line="+205"/>
+        <location filename="../../../Command_Engine.py" line="+254"/>
         <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
         <translation type="unfinished">错误：脚本第 {line} 行以反斜杠结尾，但其后没有可供该命令续写的行。未运行任何命令。</translation>
     </message>
     <message>
-        <location line="+203"/>
+        <location line="+207"/>
         <source>Running {command}...</source>
         <translation type="unfinished">正在运行 {command}…</translation>
     </message>
     <message>
-        <location line="-20"/>
+        <location line="-24"/>
         <source>Error: No &apos;run&apos; in {command}</source>
         <translation type="unfinished">错误：{command} 中没有 &apos;run&apos;</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+64"/>
         <location filename="../../../commands/help.py" line="+139"/>
         <source>Unknown command: {command}</source>
         <translation type="unfinished">未知命令：{command}</translation>
@@ -5260,7 +5260,27 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+424"/>
+        <location line="+376"/>
+        <location filename="../../../commands/subcluster.py" line="+54"/>
+        <source>Error: Parameter must be a number.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <location line="+16"/>
+        <location filename="../../../commands/subcluster.py" line="+7"/>
+        <location line="+16"/>
+        <source>Error: Min Size must be an integer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-7"/>
+        <location filename="../../../commands/subcluster.py" line="-7"/>
+        <source>Error: Unknown mode or invalid number &apos;{argument}&apos;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -5290,7 +5310,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../../../commands/subcluster.py" line="+369"/>
+        <location filename="../../../commands/subcluster.py" line="+302"/>
         <source>Noise</source>
         <translation type="unfinished">噪声</translation>
     </message>
@@ -6002,7 +6022,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-689"/>
+        <location filename="../../../commands/cluster.py" line="-693"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+73"/>
         <location filename="../../../commands/hide.py" line="+58"/>
@@ -6013,7 +6033,7 @@ Command-line usage:
         <location filename="../../../commands/reference.py" line="+106"/>
         <location filename="../../../commands/run.py" line="-50"/>
         <location filename="../../../commands/save.py" line="+49"/>
-        <location filename="../../../commands/subcluster.py" line="-249"/>
+        <location filename="../../../commands/subcluster.py" line="-252"/>
         <location filename="../../../commands/tree.py" line="+6"/>
         <location filename="../../../commands/undo.py" line="+73"/>
         <location line="+15"/>
@@ -7264,7 +7284,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法读取网络文件“{path}”（{error}）。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Error: Target property must be specified as {syntax}, or select exactly one node to color by similarity to it.</source>
         <translation type="unfinished">错误：必须以 {syntax} 的形式指定目标属性，或者恰好选中一个节点，按与它的相似度着色。</translation>
     </message>
@@ -7311,7 +7331,7 @@ Command-line usage:
         <translation type="unfinished">所选节点为{color}（{hex}）；与它没有得分的 {missing} 个节点着噪声色，并被排除在范围之外。</translation>
     </message>
     <message>
-        <location line="-539"/>
+        <location line="-538"/>
         <location line="+65"/>
         <source>Spectrum</source>
         <translation type="unfinished">渐变色</translation>
@@ -7327,12 +7347,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location line="+319"/>
+        <location line="+318"/>
         <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
         <translation type="unfinished">错误：未知的配色方案“{scheme}”。请使用 matplotlib 颜色映射名称，例如 viridis；完整列表见 &apos;spectrum help&apos;。</translation>
     </message>
     <message>
-        <location line="-309"/>
+        <location line="-308"/>
         <source>Error: No metadata loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载元数据。</translation>
     </message>
@@ -7348,18 +7368,18 @@ Command-line usage:
     </message>
     <message>
         <location line="+29"/>
-        <location line="+285"/>
+        <location line="+284"/>
         <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
         <translation type="unfinished">没有节点符合筛选条件（只为可见节点着色）。</translation>
     </message>
     <message>
-        <location line="-260"/>
+        <location line="-259"/>
         <source>Warning: No valid numerical values found in &apos;{property}&apos; for the selected nodes.</source>
         <translation type="unfinished">警告：所选节点的“{property}”中没有有效的数值。</translation>
     </message>
     <message>
         <location line="+54"/>
-        <location line="+306"/>
+        <location line="+305"/>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished">（最小值：{min}，最大值：{max}）</translation>
     </message>
@@ -7369,12 +7389,12 @@ Command-line usage:
         <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
     <message>
-        <location line="+162"/>
+        <location line="+161"/>
         <source>Error: First argument must be &apos;clear&apos; or exactly one cluster, written cluster_N or #cluster_N# (got &apos;{argument}&apos;).</source>
         <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或恰好一个簇，写作 cluster_N 或 #cluster_N#（实际为“{argument}”）。</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+105"/>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished">没有要清除的子簇分组。</translation>
     </message>
@@ -7390,12 +7410,12 @@ Command-line usage:
         <translation type="obsolete">错误：第一个参数必须是 &apos;clear&apos; 或形如 &apos;cluster_N&apos; 的簇名称（实际为“{argument}”）。</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-105"/>
         <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
         <translation type="unfinished">错误：请将簇写成 {canonical}，不要带前导零。</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+123"/>
         <source>Error: No clusters are currently defined. Run &apos;cluster&apos; first.</source>
         <translation type="unfinished">错误：当前未定义任何簇。请先运行 &apos;cluster&apos;。</translation>
     </message>
@@ -7689,7 +7709,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已续行：请输入其余部分，然后按 Enter。</translation>
     </message>
     <message>
-        <location line="+339"/>
+        <location line="+346"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -9584,7 +9604,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+30"/>
         <source>Spearman ρ {rho} · R² {r2} · {count} observed pair</source>
         <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
     </message>
@@ -9594,7 +9614,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
     </message>
     <message>
-        <location line="+212"/>
+        <location line="+243"/>
         <source>Length-adjusted embedding cosine similarity</source>
         <translation type="unfinished">长度校正的 embedding 余弦相似性</translation>
     </message>
@@ -9604,13 +9624,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">归一化网络得分</translation>
     </message>
     <message>
-        <location line="-66"/>
-        <location line="+77"/>
+        <location line="-71"/>
+        <location line="+82"/>
         <source>Pairs per hexagon</source>
         <translation type="unfinished">每个六边形中的序列对数</translation>
     </message>
     <message>
-        <location line="-215"/>
+        <location line="-246"/>
         <source>Isotonic fit, held-out check on {count} calibration pairs · Spearman ρ {rho} · MAE {mae} · R² {r2}</source>
         <translation type="unfinished">保序拟合，在 {count} 个校准序列对上的留出检验 · Spearman ρ {rho} · MAE {mae} · R² {r2}</translation>
     </message>
@@ -9625,7 +9645,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">ρ {rho} · MAE {mae} · R² {r2}</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+91"/>
         <source>Isotonic fit alone</source>
         <translation type="unfinished">仅保序拟合</translation>
     </message>
@@ -9645,7 +9665,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">直接计算的得分</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+99"/>
         <source>Observed pairs (random sample of {count})</source>
         <translation type="unfinished">已观测的序列对（随机抽取 {count} 个）</translation>
     </message>
@@ -9859,7 +9879,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Queue.py" line="+347"/>
+        <location filename="../../../Command_Queue.py" line="+354"/>
         <source>The command queue is shutting down.</source>
         <translation type="unfinished">命令队列正在关闭。</translation>
     </message>
@@ -9883,7 +9903,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">{command}：正在等待 {ahead_command}。</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+281"/>
         <source>Cancelled: {command}, given before it, failed.</source>
         <translation type="unfinished">已取消：在它之前提交的 {command} 失败了。</translation>
     </message>
@@ -9895,7 +9915,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Cancelled before it finished.</source>
         <translation type="unfinished">在完成前已取消。</translation>
     </message>
@@ -9927,12 +9947,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">正在运行 {command}（{seconds} 秒）。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+21"/>
         <source>{command} finished in {seconds} s.</source>
         <translation type="unfinished">{command} 已完成，用时 {seconds} 秒。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+6"/>
         <source>{command} failed after {seconds} s.</source>
         <translation type="unfinished">{command} 在 {seconds} 秒后失败。</translation>
     </message>
@@ -9945,8 +9965,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">正在运行 #{job} {command}（{seconds} 秒）。</translation>
     </message>
     <message numerus="yes">
-        <location line="-12"/>
-        <location line="+14"/>
+        <location line="-24"/>
+        <location line="+26"/>
         <source>%n more command(s) waiting.</source>
         <translation type="unfinished">
             <numerusform>另有 %n 条命令在等待。</numerusform>
@@ -16705,7 +16725,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2498"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2505"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -16770,7 +16790,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2178"/>
+        <location line="+2185"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
