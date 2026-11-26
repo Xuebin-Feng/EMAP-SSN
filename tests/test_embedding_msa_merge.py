@@ -267,6 +267,209 @@ class MergeEquivalenceTests(unittest.TestCase):
                 )
 
 
+class LazyProfileMergeTests(unittest.TestCase):
+    """Direct coverage of the live lazy-profile merge and top-down FASTA replay."""
+
+    def test_random_merges_match_reference_bit_for_bit(self):
+        rng = np.random.default_rng(14)
+        negative_zeros = 0
+        for trial in range(200):
+            count_a, count_b = (int(value) for value in rng.integers(1, 9, size=2))
+            width_a, width_b = (int(value) for value in rng.integers(1, 80, size=2))
+            ids_a = list(range(count_a))
+            ids_b = list(range(100, 100 + count_b))
+            emb_a = random_profile(rng, width_a, count_a)
+            emb_b = random_profile(rng, width_b, count_b)
+            path = random_path(rng, width_a, width_b)
+            with self.subTest(trial=trial):
+                merged, moves = Embedding_MSA.merge_profiles_lazy(
+                    width_a, count_a, width_b, count_b, path, emb_a, emb_b
+                )
+                expected = reference_merge(
+                    StringCluster(random_rows(rng, count_a, width_a), ids_a),
+                    StringCluster(random_rows(rng, count_b, width_b), ids_b),
+                    path,
+                    emb_a,
+                    emb_b,
+                )
+                self.assertEqual(merged.dtype, np.float16)
+                self.assertEqual(merged.shape, expected.embedding.shape)
+                self.assertEqual(
+                    merged.view(np.uint16).tobytes(),
+                    expected.embedding.view(np.uint16).tobytes(),
+                )
+                self.assertEqual(moves.dtype, np.int8)
+                self.assertTrue(moves.flags.c_contiguous)
+                np.testing.assert_array_equal(moves, path[::-1])
+                negative_zeros += int(
+                    np.sum(np.signbit(expected.embedding) & (expected.embedding == 0))
+                )
+        # Ensure the trials thoroughly exercised -0.0 sign bits.
+        self.assertGreater(negative_zeros, 500)
+
+    def test_negative_zero_in_a_b_only_column_keeps_its_sign(self):
+        emb_a = np.ones((1, 4), dtype=np.float32)
+        emb_b = np.asarray([[-0.0, 0.0, -0.5, 0.5]], dtype=np.float16)
+        # Last column first: A's column, preceded by B's inserted column.
+        path = np.asarray([2, 3], dtype=np.int8)
+        merged, moves = Embedding_MSA.merge_profiles_lazy(1, 1, 1, 1, path, emb_a, emb_b)
+        expected = reference_merge(
+            StringCluster(["A"], [0]), StringCluster(["C"], [1]), path, emb_a, emb_b
+        )
+        self.assertEqual(merged.dtype, np.float16)
+        self.assertEqual(
+            merged.view(np.uint16).tobytes(),
+            expected.embedding.view(np.uint16).tobytes(),
+        )
+        self.assertTrue(np.signbit(merged[0, 0]))
+        self.assertFalse(np.signbit(merged[0, 1]))
+        self.assertEqual(moves.dtype, np.int8)
+        np.testing.assert_array_equal(moves, np.asarray([3, 2], dtype=np.int8))
+
+    def test_path_that_misplaces_columns_is_rejected(self):
+        one_column = np.ones((1, 4), dtype=np.float32)
+        two_columns = np.ones((2, 4), dtype=np.float32)
+        cases = {
+            "skips A's column": (1, 2, np.asarray([3, 3], np.int8), one_column, two_columns),
+            "repeats A's column": (
+                1,
+                2,
+                np.asarray([2, 2, 3, 3], np.int8),
+                one_column,
+                two_columns,
+            ),
+            "profile row count disagrees with width": (
+                1,
+                1,
+                np.asarray([1], np.int8),
+                two_columns,
+                one_column,
+            ),
+            "B profile row count disagrees with width": (
+                1,
+                1,
+                np.asarray([1], np.int8),
+                one_column,
+                two_columns,
+            ),
+        }
+        for name, (width_a, width_b, path, emb_a, emb_b) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(
+                ValueError, "does not place every column"
+            ):
+                Embedding_MSA.merge_profiles_lazy(width_a, 1, width_b, 1, path, emb_a, emb_b)
+
+    def test_write_lazy_alignment_fasta_replays_multi_merge_tree_matching_reference(self):
+        rng = np.random.default_rng(15)
+        valid_headers = ["seq_0", "seq_1", "seq_2", "seq_3", "seq_4", "seq_5"]
+        raw_sequences = {
+            "seq_0": "ACDEF",
+            "seq_1": "MKTAYIA",
+            "seq_2": "GHIK",
+            "seq_3": "NPQRSTVW",
+            "seq_4": "LMN",
+            "seq_5": "CDEFGH",
+        }
+        num_seqs = len(valid_headers)
+        leaf_alignments = Embedding_MSA.encode_leaf_alignments(raw_sequences, valid_headers)
+        leaf_profiles = [
+            random_profile(rng, len(raw_sequences[header]), 1) for header in valid_headers
+        ]
+
+        # Non-trivial 6-leaf merge tree mixing leaf-leaf, internal-leaf, leaf-internal,
+        # and internal-internal merges with a scrambled ids_a + ids_b leaf ordering.
+        linkage = np.asarray(
+            [
+                [3, 1, 0.2, 2],  # node 6: [3, 1]
+                [4, 0, 0.3, 2],  # node 7: [4, 0]
+                [6, 5, 0.4, 3],  # node 8: [3, 1, 5]
+                [2, 7, 0.5, 3],  # node 9: [2, 4, 0]
+                [9, 8, 0.6, 6],  # node 10: [2, 4, 0, 3, 1, 5]
+            ],
+            dtype=np.float64,
+        )
+        num_merges = len(linkage)
+        merge_order = Embedding_MSA.heavy_first_merge_order(linkage, num_seqs)
+
+        active_profiles = {}
+        active_widths = {i: leaf_alignments[i].shape[0] for i in range(num_seqs)}
+        active_counts = {i: 1 for i in range(num_seqs)}
+        merge_children = [None] * num_merges
+        merge_moves = [None] * num_merges
+
+        ref_clusters = {
+            i: StringCluster([raw_sequences[header]], [i], leaf_profiles[i])
+            for i, header in enumerate(valid_headers)
+        }
+
+        for iteration in merge_order:
+            idx_a = int(linkage[iteration, 0])
+            idx_b = int(linkage[iteration, 1])
+            emb_a = active_profiles.pop(idx_a) if idx_a >= num_seqs else leaf_profiles[idx_a]
+            emb_b = active_profiles.pop(idx_b) if idx_b >= num_seqs else leaf_profiles[idx_b]
+            width_a = active_widths.pop(idx_a)
+            width_b = active_widths.pop(idx_b)
+            count_a = active_counts.pop(idx_a)
+            count_b = active_counts.pop(idx_b)
+
+            # Force matches, deletes, and inserts at every merge so gaps propagate across levels.
+            matches = max(1, min(width_a, width_b) // 2)
+            path = random_path(rng, width_a, width_b, matches=matches)
+
+            merged_profile, moves = Embedding_MSA.merge_profiles_lazy(
+                width_a, count_a, width_b, count_b, path, emb_a, emb_b
+            )
+            new_idx = num_seqs + iteration
+            active_profiles[new_idx] = merged_profile
+            active_widths[new_idx] = moves.shape[0]
+            active_counts[new_idx] = count_a + count_b
+            merge_children[iteration] = (idx_a, idx_b)
+            merge_moves[iteration] = moves
+
+            ref_a = ref_clusters.pop(idx_a)
+            ref_b = ref_clusters.pop(idx_b)
+            ref_merged = reference_merge(ref_a, ref_b, path, ref_a.embedding, ref_b.embedding)
+            self.assertEqual(
+                merged_profile.view(np.uint16).tobytes(),
+                ref_merged.embedding.view(np.uint16).tobytes(),
+            )
+            ref_clusters[new_idx] = ref_merged
+
+        root_idx = num_seqs + num_merges - 1
+        final_width = active_widths[root_idx]
+        ref_root = ref_clusters[root_idx]
+        self.assertEqual(ref_root.ids, [2, 4, 0, 3, 1, 5])
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = pathlib.Path(directory) / "replayed.fasta"
+            Embedding_MSA.write_lazy_alignment_fasta(
+                str(output_path),
+                root_idx,
+                num_seqs,
+                merge_children,
+                merge_moves,
+                leaf_alignments,
+                valid_headers,
+                final_width,
+            )
+            actual_bytes = output_path.read_bytes()
+
+        expected_bytes = "".join(
+            f">{valid_headers[index]}\n{sequence}\n"
+            for index, sequence in zip(ref_root.ids, ref_root.sequences)
+        ).encode("utf-8")
+        self.assertEqual(actual_bytes, expected_bytes)
+
+        lines = actual_bytes.decode("utf-8").splitlines()
+        actual_headers = [line[1:] for line in lines[0::2]]
+        actual_sequences = lines[1::2]
+        self.assertEqual(actual_headers, [valid_headers[i] for i in [2, 4, 0, 3, 1, 5]])
+        self.assertEqual(actual_sequences, ref_root.sequences)
+        for header, aligned in zip(actual_headers, actual_sequences):
+            self.assertEqual(len(aligned), final_width)
+            self.assertEqual(aligned.replace("-", ""), raw_sequences[header])
+
+
 class LeafAlignmentTests(unittest.TestCase):
     def test_sequences_encode_as_one_sequence_columns(self):
         leaves = Embedding_MSA.encode_leaf_alignments(

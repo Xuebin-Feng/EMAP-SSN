@@ -6,7 +6,9 @@
 model license gate (always against a temporary acceptance file) and the
 switch that keeps a .bin-only Hub checkpoint from fetching a converted copy."""
 
+import contextlib
 from datetime import datetime, timezone
+import io
 import json
 import os
 import pathlib
@@ -15,12 +17,17 @@ import tempfile
 import unittest
 from unittest import mock
 
+import numpy as np
+import torch
+from transformers import BatchEncoding, T5Config, T5EncoderModel
+
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from resources.pLM_models import ankh  # noqa: E402
 from tools.tool_helpers import Model_Plugins as PLM_Plugin_Utils  # noqa: E402
 
 
@@ -393,6 +400,255 @@ class SafetensorsConversionSwitchTests(unittest.TestCase):
                 loader.assert_called_once()
                 self.assertEqual(seen["during"], "1")
                 self.assertNotIn(self.SWITCH, os.environ)
+
+
+class _FakeAnkhTokenizer:
+    """In-memory tokenizer mimicking Ankh's unspaced bare-AA vocab and T5 Metaspace behavior."""
+
+    eos_token_id = 1
+    unk_token_id = 2
+
+    def __init__(self, *, pre_tokenizer=None, prepend_unk=False):
+        self.vocab = {"<pad>": 0, "</s>": 1, "<unk>": 2}
+        for offset, ch in enumerate("ACDEFGHIKLMNPQRSTVWYXBZUO", start=3):
+            self.vocab[ch] = offset
+        self.prepend_unk = prepend_unk
+        self.seen_inputs = []
+
+        class _Backend:
+            def __init__(self, initial_pre_tokenizer):
+                self.pre_tokenizer = initial_pre_tokenizer
+
+        self._tokenizer = _Backend(pre_tokenizer)
+
+    def _encode_one(self, text):
+        pre_tok = self._tokenizer.pre_tokenizer
+        if pre_tok is not None:
+            # Run the real tokenizers pre-tokenizer so prepend_scheme="always"
+            # inserts "▁" (absent from Ankh's vocab -> <unk>) and "never" does not.
+            pieces = [piece for piece, _ in pre_tok.pre_tokenize_str(text)]
+            ids = [self.vocab.get(ch, self.unk_token_id) for piece in pieces for ch in piece]
+        else:
+            ids = [self.unk_token_id] if self.prepend_unk else []
+            for ch in text:
+                ids.append(self.vocab.get(ch, self.unk_token_id))
+        ids.append(self.eos_token_id)
+        return ids
+
+    def __call__(self, texts, return_tensors=None, padding=False):
+        self.seen_inputs.append(texts)
+        single = isinstance(texts, str)
+        rows = [self._encode_one(texts)] if single else [self._encode_one(t) for t in texts]
+        if return_tensors == "pt":
+            max_len = max(len(r) for r in rows) if padding else len(rows[0])
+            input_ids = [r + [0] * (max_len - len(r)) for r in rows]
+            attention_mask = [[1] * len(r) + [0] * (max_len - len(r)) for r in rows]
+            return BatchEncoding(
+                {
+                    "input_ids": torch.tensor(input_ids, dtype=torch.long),
+                    "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+                }
+            )
+        return {"input_ids": rows[0] if single else rows}
+
+
+class AnkhPluginTests(unittest.TestCase):
+    """Direct unit tests for the Ankh v1 pLM plugin (src/resources/pLM_models/ankh.py)."""
+
+    def _tiny_encoder(self):
+        torch.manual_seed(0)
+        cfg = T5Config(
+            vocab_size=32,
+            d_model=32,
+            d_kv=8,
+            d_ff=64,
+            num_layers=2,
+            num_heads=4,
+            pad_token_id=0,
+            eos_token_id=1,
+            feed_forward_proj="gated-gelu",
+        )
+        return T5EncoderModel(cfg).to(dtype=torch.float32).eval()
+
+    def test_clean_sequence_handles_standard_ambiguous_nonstandard_and_trimming(self):
+        self.assertEqual(
+            ankh._clean_sequence("acdefghiklmnpqrstvwyxbzuo"),
+            "ACDEFGHIKLMNPQRSTVWYXBZUO",
+        )
+        self.assertEqual(ankh._clean_sequence("--??..**mkta**..??--"), "MKTA")
+        self.assertEqual(ankh._clean_sequence("  --a--  "), "A")
+        self.assertEqual(ankh._clean_sequence("**a-b.j*xuzoc**"), "AXBXXXXUZOC")
+        self.assertEqual(ankh._clean_sequence("m k\tt-a"), "MXKXTXA")
+        self.assertEqual(ankh._clean_sequence("---...***   "), "")
+        self.assertEqual(ankh._clean_sequence(""), "")
+
+    def test_tokenized_residue_count_and_already_aligned_tokenizer_untouched(self):
+        aligned_tok = _FakeAnkhTokenizer(pre_tokenizer=None, prepend_unk=False)
+        self.assertEqual(ankh._tokenized_residue_count(aligned_tok), len(ankh._ALIGNMENT_PROBE))
+        result = ankh._residue_aligned_tokenizer(aligned_tok)
+        self.assertIs(result, aligned_tok)
+        self.assertIsNone(aligned_tok._tokenizer.pre_tokenizer)
+
+    def test_residue_aligned_tokenizer_repairs_transformers5_metaspace_leading_unk(self):
+        from tokenizers.pre_tokenizers import Metaspace
+
+        bad_pre = Metaspace(replacement="▁", prepend_scheme="always", split=True)
+        tok = _FakeAnkhTokenizer(pre_tokenizer=bad_pre)
+        before_ids = tok(ankh._ALIGNMENT_PROBE)["input_ids"]
+        self.assertEqual(before_ids[0], tok.unk_token_id)
+        self.assertEqual(ankh._tokenized_residue_count(tok), len(ankh._ALIGNMENT_PROBE) + 1)
+
+        repaired = ankh._residue_aligned_tokenizer(tok)
+        self.assertIs(repaired, tok)
+        self.assertEqual(ankh._tokenized_residue_count(tok), len(ankh._ALIGNMENT_PROBE))
+
+        state = json.loads(tok._tokenizer.pre_tokenizer.__getstate__().decode("utf-8"))
+        self.assertEqual(state["type"], "Sequence")
+        metaspace_cfg = state["pretokenizers"][1]
+        self.assertEqual(metaspace_cfg["type"], "Metaspace")
+        self.assertEqual(metaspace_cfg["prepend_scheme"], "never")
+
+        after_ids = tok(ankh._ALIGNMENT_PROBE)["input_ids"]
+        self.assertEqual(len(after_ids), len(ankh._ALIGNMENT_PROBE) + 1)
+        self.assertNotIn(tok.unk_token_id, after_ids)
+        self.assertEqual(after_ids[-1], tok.eos_token_id)
+
+    def test_residue_aligned_tokenizer_raises_when_unrepairable_or_still_misaligned(self):
+        class _NoBackendTokenizer:
+            def __call__(self, text):
+                return {"input_ids": [2, 10, 11, 12, 13, 1]}
+
+        with self.subTest("cannot remove prefix"), self.assertRaisesRegex(
+            RuntimeError, "word-start prefix could not be removed"
+        ):
+            ankh._residue_aligned_tokenizer(_NoBackendTokenizer())
+
+        class _StillMisalignedTokenizer:
+            def __init__(self):
+                self._tokenizer = type("_Backend", (), {"pre_tokenizer": None})()
+
+            def __call__(self, text):
+                return {"input_ids": [2, 10, 11, 12, 13, 1]}
+
+        with self.subTest("still fails probe after repair"), self.assertRaisesRegex(
+            RuntimeError, "not residue-aligned"
+        ):
+            ankh._residue_aligned_tokenizer(_StillMisalignedTokenizer())
+
+    def test_load_model_enforces_license_gate_before_touching_hub(self):
+        for model_name in ankh.SUPPORTED_MODELS:
+            with self.subTest(model_name=model_name):
+                with mock.patch.object(
+                    ankh,
+                    "require_model_license_acceptance",
+                    side_effect=PLM_Plugin_Utils.ModelLicenseAcceptanceRequired("accept first"),
+                ) as gate, mock.patch(
+                    "transformers.AutoTokenizer.from_pretrained"
+                ) as tok_loader, mock.patch(
+                    "transformers.T5EncoderModel.from_pretrained"
+                ) as model_loader:
+                    with self.assertRaises(PLM_Plugin_Utils.ModelLicenseAcceptanceRequired):
+                        ankh.load_model(model_name, torch.device("cpu"))
+                gate.assert_called_once_with(model_name, ankh.MODEL_USAGE_TERMS[model_name])
+                tok_loader.assert_not_called()
+                model_loader.assert_not_called()
+
+    def test_load_model_loads_auto_tokenizer_and_fp32_t5_encoder_on_device_in_eval_mode(self):
+        from tokenizers.pre_tokenizers import Metaspace
+
+        expected_repos = {
+            "ankh_base": "ElnaggarLab/ankh-base",
+            "ankh_large": "ElnaggarLab/ankh-large",
+        }
+        device = torch.device("cpu")
+        for model_name, repo in expected_repos.items():
+            with self.subTest(model_name=model_name):
+                bad_pre = Metaspace(replacement="▁", prepend_scheme="always", split=True)
+                fake_tok = _FakeAnkhTokenizer(pre_tokenizer=bad_pre)
+                fake_model = mock.Mock()
+                fake_model.to.return_value = fake_model
+
+                with mock.patch.object(
+                    ankh, "require_model_license_acceptance"
+                ) as gate, mock.patch(
+                    "transformers.AutoTokenizer.from_pretrained", return_value=fake_tok
+                ) as tok_loader, mock.patch(
+                    "transformers.T5EncoderModel.from_pretrained", return_value=fake_model
+                ) as model_loader, contextlib.redirect_stdout(io.StringIO()):
+                    tok, mod = ankh.load_model(model_name, device)
+
+                gate.assert_called_once_with(model_name, ankh.MODEL_USAGE_TERMS[model_name])
+                tok_loader.assert_called_once_with(repo)
+                model_loader.assert_called_once_with(repo, dtype=torch.float32)
+                fake_model.to.assert_called_once_with(device)
+                fake_model.eval.assert_called_once_with()
+                self.assertIs(tok, fake_tok)
+                self.assertIs(mod, fake_model)
+                self.assertEqual(ankh._tokenized_residue_count(tok), len(ankh._ALIGNMENT_PROBE))
+
+    def test_get_embedding_and_batch_slice_residues_in_fp32_and_convert_target_dtype(self):
+        model = self._tiny_encoder()
+        tok = _FakeAnkhTokenizer(pre_tokenizer=None, prepend_unk=False)
+        device = torch.device("cpu")
+        model_obj = (tok, model)
+        seqs = ["ACDEFGHIKLMNPQRSTVWY", "MKTA-BZJ"]
+
+        # Exact single-vs-batch equivalence and residue lengths (20 and 8).
+        single = [ankh.get_embedding(s, model_obj, device, np.float32) for s in seqs]
+        batched = ankh.get_embeddings_batch(seqs, model_obj, device, np.float32)
+        self.assertEqual([a.shape for a in single], [(20, 32), (8, 32)])
+        for a, b in zip(single, batched):
+            self.assertEqual(a.shape, b.shape)
+            self.assertEqual(a.dtype, np.dtype(np.float32))
+            self.assertEqual(b.dtype, np.dtype(np.float32))
+            self.assertLess(float(np.max(np.abs(a - b))), 1e-5)
+
+        # Spy on model.forward to verify strict FP32 compute and exact :-1 / 0:length slicing
+        # (no trailing </s> and no extra prefix token) even when storing float16.
+        captured = []
+        orig_forward = model.forward
+
+        def spy_forward(**kwargs):
+            out = orig_forward(**kwargs)
+            captured.append(out.last_hidden_state.detach().clone())
+            return out
+
+        with mock.patch.object(model, "forward", side_effect=spy_forward):
+            single_f32 = ankh.get_embedding("MKTA", model_obj, device, np.float32)
+            single_f16 = ankh.get_embedding("MKTA", model_obj, device, np.float16)
+            batch_f16 = ankh.get_embeddings_batch(["MKTA", "ACDEF"], model_obj, device, np.float16)
+
+        self.assertEqual(len(captured), 3)
+        for hidden in captured:
+            self.assertEqual(hidden.dtype, torch.float32)
+
+        # Single forward received 4 residues + 1 trailing </s> = 5 tokens (no prefix token).
+        self.assertEqual(tuple(captured[0].shape), (1, 5, 32))
+        np.testing.assert_allclose(single_f32, captured[0][0, :4].numpy(), atol=1e-6)
+        self.assertEqual((single_f16.shape, single_f16.dtype), ((4, 32), np.dtype(np.float16)))
+        np.testing.assert_array_equal(single_f16, captured[1][0, :4].to(torch.float16).numpy())
+
+        # Batch forward received max(4, 5) + 1 trailing </s> = 6 tokens; each row sliced at offset 0.
+        self.assertEqual(tuple(captured[2].shape), (2, 6, 32))
+        self.assertEqual([(a.shape, a.dtype) for a in batch_f16], [
+            ((4, 32), np.dtype(np.float16)),
+            ((5, 32), np.dtype(np.float16)),
+        ])
+        np.testing.assert_array_equal(batch_f16[0], captured[2][0, :4].to(torch.float16).numpy())
+        np.testing.assert_array_equal(batch_f16[1], captured[2][1, :5].to(torch.float16).numpy())
+
+    def test_empty_sequences_handling_and_value_error(self):
+        model = self._tiny_encoder()
+        tok = _FakeAnkhTokenizer(pre_tokenizer=None, prepend_unk=False)
+        model_obj = (tok, model)
+        device = torch.device("cpu")
+
+        self.assertEqual(ankh.get_embeddings_batch([], model_obj, device, np.float32), [])
+        with self.assertRaisesRegex(ValueError, "no supported amino-acid"):
+            ankh.get_embedding("---***", model_obj, device, np.float32)
+        with self.assertRaisesRegex(ValueError, "no supported amino-acid"):
+            ankh.get_embeddings_batch(["MKTA", "---***"], model_obj, device, np.float32)
+        self.assertEqual(tok.seen_inputs, [])
 
 
 if __name__ == "__main__":

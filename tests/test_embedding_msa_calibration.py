@@ -250,7 +250,7 @@ class SampleTests(CalibrationRunTestCase):
 
 class SharedSimilarityTests(CalibrationRunTestCase):
     def test_align_prefilter_and_the_msa_get_the_same_matrix_from_the_same_inputs(self):
-        # Both real code paths run: the MSA's builder up to its guide tree, and Align's prefilter_pairs on the
+        # Both real code paths run: the MSA's builder up to its guide tree, and Align's prefilter_pair_keys on the
         # embeddings file and the very headers and lengths the MSA gave the rule. A spy on the shared function
         # keeps the matrix each of them was handed.
         from utilities import Align_Library
@@ -272,14 +272,25 @@ class SharedSimilarityTests(CalibrationRunTestCase):
             with mock.patch.multiple(
                 align, FULL_INPUT_HDF5=str(fixture.embed_dir / EMBED_NAME), PREFILTER_STRENGTH=50
             ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                required, record = align.prefilter_pairs(headers, lengths.tolist())
+                required_keys, record = align.prefilter_pair_keys(headers, lengths.tolist())
         self.assertEqual(len(seen), 2)
         from_align = seen[1][2]
         self.assertEqual(from_align.shape, from_msa.shape)
         self.assertEqual(from_align.tobytes(), from_msa.tobytes())
-        # Align's cut is that matrix's 50th percentile of the upper triangle.
-        upper = np.triu(np.ones(from_msa.shape, dtype=bool), k=1)
-        self.assertEqual(record.threshold, float(np.percentile(from_msa[upper], 50)))
+        # Align's cut is that matrix's 50th percentile of the upper triangle, and its kept keys match it.
+        n = from_msa.shape[0]
+        upper_rows, upper_cols = np.triu_indices(n, k=1)
+        upper_values = from_msa[upper_rows, upper_cols]
+        expected_threshold = float(np.percentile(upper_values, 50))
+        kept_mask = upper_values >= expected_threshold
+        expected_keys = (
+            upper_rows[kept_mask].astype(np.int64) * n + upper_cols[kept_mask].astype(np.int64)
+        )
+        self.assertEqual(record.threshold, expected_threshold)
+        self.assertEqual(required_keys.dtype, np.int64)
+        np.testing.assert_array_equal(required_keys, expected_keys)
+        self.assertEqual(record.kept, int(expected_keys.size))
+        self.assertEqual(record.skipped, int(upper_values.size - expected_keys.size))
 
 
 class NetworkEmbeddingsTests(CalibrationRunTestCase):
