@@ -259,10 +259,11 @@ class ReadIntoTests(unittest.TestCase):
             self.assertEqual(store.host_cache_bytes, 0)
             self.assertFalse(store.fully_cached)
             with h5py.File(path, "r") as hf:
-                for index in range(4):
-                    out = np.empty(store.shapes[index], dtype=np.float16)
-                    store.read_into(index, out)
-                    np.testing.assert_array_equal(out, hf["embeddings"][f"h{index}"][...])
+                expected = [hf["embeddings"][f"h{index}"][...] for index in range(4)]
+            for index in range(4):
+                out = np.empty(store.shapes[index], dtype=np.float16)
+                store.read_into(index, out)
+                np.testing.assert_array_equal(out, expected[index])
 
     def test_a_missing_embedding_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
