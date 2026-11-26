@@ -244,7 +244,6 @@ def plan(viewer, args):
     # --- Parse Cluster Name ---
     digits = cluster_name_digits(args[0])
     if digits is None:
-        print_help()
         msg = Message(
             "Error: First argument must be 'clear' or exactly one cluster, "
             "written cluster_N or #cluster_N# (got '{argument}').",

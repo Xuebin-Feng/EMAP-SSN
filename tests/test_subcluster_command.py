@@ -1315,5 +1315,17 @@ class SubclusterParseRefusalConsoleLineTests(unittest.TestCase):
                 failed.assert_called_once_with(viewer, message)
 
 
+
+class SubclusterRefusalHasNoHelpPageTests(unittest.TestCase):
+    """A first argument that is no cluster is refused in the error's own words, without the help page."""
+
+    def test_the_refusal_prints_its_error_and_not_the_help_page(self):
+        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        _succeeded, failed, output = run_command(subcluster_command, viewer, ["cluster_x"])
+        failed.assert_called_once_with(viewer, ONE_CLUSTER.format(argument="cluster_x"))
+        self.assertIn("Error: First argument must be", output)
+        self.assertNotIn("regardless of the similarity slider", output)
+
+
 if __name__ == "__main__":
     unittest.main()

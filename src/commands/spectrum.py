@@ -613,7 +613,6 @@ def start_by_similarity(viewer, plan):
     """At its turn: check one node is selected and the network file is there; return the scan's inputs, or None."""
     selected = Command_Engine.command_selection(viewer)
     if len(selected) != 1:
-        print_help()
         msg = Message(
             "Error: Target property must be specified as {syntax}, or select exactly one "
             "node to color by similarity to it.",

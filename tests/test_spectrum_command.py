@@ -635,5 +635,20 @@ class SpectrumSimilarityModeTests(unittest.TestCase):
         self.assertFalse(spectrum.plan(viewer, ["{Length}"]).heavy)
 
 
+
+class SpectrumRefusalHasNoHelpPageTests(unittest.TestCase):
+    """A refusal says what to do in its own text; it does not print the whole help page."""
+
+    def test_the_similarity_refusal_prints_its_error_and_not_the_help_page(self):
+        for selected in ((), (0, 1)):
+            with self.subTest(selected=selected):
+                viewer = SpectrumSimilarityModeTests.make_viewer(None, selected=selected)
+                output = io.StringIO()
+                with mock.patch.object(sys, "stdout", output):
+                    spectrum.run(viewer, ["viridis"])
+                self.assertIn("Error: Target property must be specified as", output.getvalue())
+                self.assertNotIn("Spectrum Coloring Tool", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
