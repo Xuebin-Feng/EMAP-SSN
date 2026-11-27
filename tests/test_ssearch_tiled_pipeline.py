@@ -36,6 +36,7 @@ for path in (
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Embedding_SSEARCH as ssearch
     import Embedding_Alignment_Engine as engine
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import SearchTiming  # noqa: E402
 
 RESIDUES = list("ACDEFGHIKLMNPQRSTVWY")
@@ -362,10 +363,13 @@ class FixedQueryHarness:
         path = os.path.join(directory, "embeddings.h5")
         lengths = rng.integers(*length_range, size=targets)
         query = rng.normal(size=(self.QUERY_ROWS, self.FEATURES)).astype(dtype)
-        with h5py.File(path, "w") as hf:
-            group = hf.create_group("embeddings")
-            for index, length in enumerate(lengths):
-                group.create_dataset(f"t{index}", data=rng.normal(size=(int(length), self.FEATURES)).astype(dtype))
+        write_embedding_arrays(
+            path,
+            {
+                f"t{index}": rng.normal(size=(int(length), self.FEATURES)).astype(dtype)
+                for index, length in enumerate(lengths)
+            },
+        )
         query_sequence = "".join(rng.choice(RESIDUES, size=self.QUERY_ROWS))
         tasks = [
             (index, f"t{index}", f"t{index}", query, mode, gap, norm, query_sequence,

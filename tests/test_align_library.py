@@ -20,6 +20,7 @@ for path in (SRC_DIR, TOOLS_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 from utilities import Align_Library  # noqa: E402
 from utilities import Hardware_Acceleration as hardware  # noqa: E402
 
@@ -32,10 +33,14 @@ THREAD_VARIABLES = align.THREAD_VARIABLES
 def write_embeddings(path, count=8, features=12, seed=1):
     rng = np.random.default_rng(seed)
     names = [f"s{k}" for k in range(count)]
-    with h5py.File(path, "w") as hf:
-        group = hf.create_group("embeddings")
-        for name in names:
-            group.create_dataset(name, data=rng.standard_normal((int(rng.integers(9, 30)), features)).astype(np.float32))
+    write_embedding_arrays(
+        path,
+        {
+            name: rng.standard_normal((int(rng.integers(9, 30)), features)).astype(np.float32)
+            for name in names
+        },
+        saving_mode="float32",
+    )
     return names
 
 

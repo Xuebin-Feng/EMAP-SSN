@@ -36,6 +36,7 @@ for path in (
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Embedding_SSEARCH as ssearch
     import Embedding_Alignment_Engine as alignment_engine
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 from tools.tool_helpers import Tool_Pipeline as tool_pipeline  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     SearchPlan,
@@ -434,10 +435,13 @@ class RealCpuTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "embeddings.h5")
             lengths = (8, 12, 17)
-            with h5py.File(path, "w") as hf:
-                group = hf.create_group("embeddings")
-                for index, length in enumerate(lengths):
-                    group.create_dataset(f"h{index}", data=rng.normal(size=(length, 8)).astype(np.float32))
+            write_embedding_arrays(
+                path,
+                {
+                    f"h{index}": rng.normal(size=(length, 8)).astype(np.float32)
+                    for index, length in enumerate(lengths)
+                },
+            )
             query = rng.normal(size=(10, 8)).astype(np.float32)
             residues = np.array(list("ACDX"))
             query_seq = "".join(rng.choice(residues, size=10))

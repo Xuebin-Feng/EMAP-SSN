@@ -21,7 +21,7 @@ from unittest import mock
 
 import numpy as np
 import scipy.cluster.hierarchy as sch
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -264,6 +264,83 @@ class NeighborJoiningBranchLengthTests(unittest.TestCase):
             np.array([3.0]), 2, return_branch_lengths=True
         )
         np.testing.assert_array_equal(lengths, [[1.5, 1.5]])
+
+    def test_compact_nj_clustered_and_ties_deterministic_across_threads(self):
+        rng = np.random.default_rng(77)
+        pts = rng.standard_normal((120, 8))
+        centers = rng.standard_normal((6, 8)) * 3.0
+        pts += centers[rng.integers(0, 6, size=120)]
+        dc = pdist(pts).astype(np.float64)
+
+        z1, bl1 = Embedding_MSA.neighbor_joining_condensed(dc, 120, threads=1, return_branch_lengths=True)
+        z4, bl4 = Embedding_MSA.neighbor_joining_condensed(dc, 120, threads=4, return_branch_lengths=True)
+        np.testing.assert_array_equal(z1, z4)
+        np.testing.assert_array_equal(bl1, bl4)
+
+    def test_compact_nj_edge_cases_empty_singleton_nan_and_extreme_values(self):
+        # N = 0 and N = 1 must return empty linkage/branch arrays cleanly.
+        for n in (0, 1):
+            z, bl = Embedding_MSA.neighbor_joining_compact_kernel(np.zeros((n, n), dtype=np.float64))
+            self.assertEqual(z.shape, (0, 4))
+            self.assertEqual(bl.shape, (0, 2))
+
+        def assert_valid_merges(z, n):
+            self.assertEqual(z.shape, (n - 1, 4))
+            active = set(range(n))
+            for step in range(n - 1):
+                c1, c2 = int(z[step, 0]), int(z[step, 1])
+                self.assertLess(c1, c2)
+                self.assertIn(c1, active)
+                self.assertIn(c2, active)
+                active.remove(c1)
+                active.remove(c2)
+                active.add(n + step)
+            self.assertEqual(active, {2 * n - 2})
+
+        # N = 5 with all-NaN, partial-NaN, and extreme > 1e15 distances (no self-merge).
+        d_nan5 = np.full((5, 5), np.nan, dtype=np.float64)
+        z, bl = Embedding_MSA.neighbor_joining_compact_kernel(d_nan5.copy())
+        assert_valid_merges(z, 5)
+        self.assertEqual(bl.shape, (4, 2))
+
+        d_big5 = np.full((5, 5), 1e20, dtype=np.float64)
+        np.fill_diagonal(d_big5, 0.0)
+        d_big5[1, 3] = d_big5[3, 1] = 1e19
+        z_big5, _ = Embedding_MSA.neighbor_joining_compact_kernel(d_big5.copy())
+        assert_valid_merges(z_big5, 5)
+
+        # N = 80 (k >= 64): all-NaN, sparse finite (< 4 finite rows so n_top < 4!), and extreme 1e20.
+        d_nan80 = np.full((80, 80), np.nan, dtype=np.float64)
+        z_nan80, _ = Embedding_MSA.neighbor_joining_compact_kernel(d_nan80.copy())
+        assert_valid_merges(z_nan80, 80)
+
+        d_sparse_nan80 = np.full((80, 80), np.nan, dtype=np.float64)
+        d_sparse_nan80[0, :] = 1.0
+        d_sparse_nan80[:, 0] = 1.0
+        d_sparse_nan80[1, :] = 2.0
+        d_sparse_nan80[:, 1] = 2.0
+        np.fill_diagonal(d_sparse_nan80, 0.0)
+        z_sparse80, _ = Embedding_MSA.neighbor_joining_compact_kernel(d_sparse_nan80.copy())
+        assert_valid_merges(z_sparse80, 80)
+
+        d_big80 = np.full((80, 80), 1e20, dtype=np.float64)
+        np.fill_diagonal(d_big80, 0.0)
+        z_big80, _ = Embedding_MSA.neighbor_joining_compact_kernel(d_big80.copy())
+        assert_valid_merges(z_big80, 80)
+
+    def test_neighbor_joining_condensed_does_not_mutate_caller_matrix(self):
+        rng = np.random.default_rng(55)
+        n = 12
+        for dtype in (np.float32, np.float64):
+            with self.subTest(dtype=dtype):
+                dc = rng.uniform(0.1, 2.0, n * (n - 1) // 2).astype(dtype)
+                dc_orig = dc.copy()
+                z, bl = Embedding_MSA.neighbor_joining_condensed(dc, n, return_branch_lengths=True)
+                np.testing.assert_array_equal(dc, dc_orig)
+                d_sq = np.ascontiguousarray(squareform(dc_orig), dtype=np.float64)
+                z_ref, bl_ref = Embedding_MSA.neighbor_joining_compact_kernel(d_sq)
+                np.testing.assert_array_equal(z, z_ref)
+                np.testing.assert_array_equal(bl, bl_ref)
 
 
 class GuideTreeBranchTests(unittest.TestCase):

@@ -33,27 +33,22 @@ from utilities import HDF5_Storage as Embedding_HDF5
 import Embedding_Injection
 import Embedding_SSEARCH
 import Generate_Embeddings
+from tests.embedding_fixtures import write_embedding_arrays
 from tools.tool_helpers import Remote_Requests
 
 
 def create_complete_database(path, records, model_name="test_model", saving_mode="float16"):
-    headers = [header for header, _ in records]
-    sequences = [sequence for _, sequence in records]
     dtype = Embedding_HDF5.dtype_for_saving_mode(saving_mode)
-    with h5py.File(path, "w") as hf:
-        group = Embedding_HDF5.create_metadata_first_file(
-            hf,
-            headers,
-            sequences,
-            model_name,
-            saving_mode,
-        )
-        for index, (header, sequence) in enumerate(records):
-            group.create_dataset(
-                header,
-                data=np.full((len(sequence), 3), index + 1, dtype=dtype),
-            )
-        Embedding_HDF5.mark_generation_complete(hf)
+    write_embedding_arrays(
+        path,
+        {
+            header: np.full((len(sequence), 3), index + 1, dtype=dtype)
+            for index, (header, sequence) in enumerate(records)
+        },
+        sequences=[sequence for _, sequence in records],
+        model_name=model_name,
+        saving_mode=saving_mode,
+    )
 
 
 class FakePlugin:
@@ -779,22 +774,19 @@ class EmbeddingCroppingTests(unittest.TestCase):
         # Every row holds different values, so a wrong offset changes them.
         self.rows = {}
         records = [("Full", "MKACDEF"), ("Repeat", "AAGAA"), ("NoMatch", "WWW")]
-        with h5py.File(self.source, "w") as hf:
-            group = Embedding_HDF5.create_metadata_first_file(
-                hf,
-                [header for header, _ in records],
-                [sequence for _, sequence in records],
-                "test_model",
-                "float16",
-            )
-            start = 0
-            for header, sequence in records:
-                size = 3 * len(sequence)
-                data = np.arange(start, start + size, dtype=np.float16)
-                self.rows[header] = data.reshape(len(sequence), 3)
-                group.create_dataset(header, data=self.rows[header])
-                start += size
-            Embedding_HDF5.mark_generation_complete(hf)
+        start = 0
+        for header, sequence in records:
+            size = 3 * len(sequence)
+            data = np.arange(start, start + size, dtype=np.float16)
+            self.rows[header] = data.reshape(len(sequence), 3)
+            start += size
+        write_embedding_arrays(
+            self.source,
+            self.rows,
+            sequences=[sequence for _, sequence in records],
+            model_name="test_model",
+            saving_mode="float16",
+        )
 
     def write_crops(self, text):
         path = self.root / "cropped.fasta"
@@ -875,23 +867,20 @@ class EmbeddingCroppingTests(unittest.TestCase):
             ("OneRes", "VWYAC"),
         ]
         rows = {}
-        with h5py.File(source_f32, "w") as hf:
-            group = Embedding_HDF5.create_metadata_first_file(
-                hf,
-                [h for h, _ in records],
-                [s for _, s in records],
-                "prot_t5",
-                "float32",
+        base = 0
+        for header, sequence in records:
+            arr = np.arange(base, base + 4 * len(sequence), dtype=np.float32).reshape(
+                len(sequence), 4
             )
-            base = 0
-            for header, sequence in records:
-                arr = np.arange(base, base + 4 * len(sequence), dtype=np.float32).reshape(
-                    len(sequence), 4
-                )
-                rows[header] = arr
-                group.create_dataset(header, data=arr)
-                base += 4 * len(sequence)
-            Embedding_HDF5.mark_generation_complete(hf)
+            rows[header] = arr
+            base += 4 * len(sequence)
+        write_embedding_arrays(
+            source_f32,
+            rows,
+            sequences=[s for _, s in records],
+            model_name="prot_t5",
+            saving_mode="float32",
+        )
 
         cropped = self.write_crops(
             ">Prefix\nMKA\n>Suffix\nLMN\n>Whole\nPQRST\n>OneRes\nC\n"
@@ -972,23 +961,20 @@ class EmbeddingExtractionTests(unittest.TestCase):
         self.source = self.root / "source.h5"
         self.rows = {}
         records = [("Alpha_One", "ACDEF"), ("Beta", "GHIK"), ("Gamma", "LMNPQR")]
-        with h5py.File(self.source, "w") as hf:
-            group = Embedding_HDF5.create_metadata_first_file(
-                hf,
-                [h for h, _ in records],
-                [s for _, s in records],
-                "esmc_300m",
-                "float32",
+        start = 0
+        for header, sequence in records:
+            arr = np.arange(start, start + 4 * len(sequence), dtype=np.float32).reshape(
+                len(sequence), 4
             )
-            start = 0
-            for header, sequence in records:
-                arr = np.arange(start, start + 4 * len(sequence), dtype=np.float32).reshape(
-                    len(sequence), 4
-                )
-                self.rows[header] = arr
-                group.create_dataset(header, data=arr)
-                start += 4 * len(sequence)
-            Embedding_HDF5.mark_generation_complete(hf)
+            self.rows[header] = arr
+            start += 4 * len(sequence)
+        write_embedding_arrays(
+            self.source,
+            self.rows,
+            sequences=[s for _, s in records],
+            model_name="esmc_300m",
+            saving_mode="float32",
+        )
 
     def test_load_target_records_handles_fasta_and_text_sanitization_and_errors(self):
         txt = self.root / "ids.txt"

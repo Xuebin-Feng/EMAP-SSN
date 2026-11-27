@@ -554,5 +554,70 @@ class SeededSpectralStartTests(unittest.TestCase):
             np.testing.assert_array_equal(layouts[0], layouts[2])
 
 
+class UMAPPrecomputedKnnKernelTests(unittest.TestCase):
+    """Parallel Numba CSR top-K UMAP k-NN builder (K <= 64 and K > 64)."""
+
+    def test_umap_csr_topk_matches_pandas_for_small_and_large_k(self):
+        import pandas as pd
+
+        rng = np.random.default_rng(314)
+        n = 150
+        src = rng.integers(0, n, 2500, dtype=np.int32)
+        dst = rng.integers(0, n, 2500, dtype=np.int32)
+        # Include exact ties and duplicate edges with differing distances
+        dists = rng.choice(np.array([0.0, 0.25, 0.5, 1.0, 2.0], dtype=np.float32), size=2500)
+
+        for k in (15, 75):
+            idx_opt, dist_opt = Layout_Engine_UMAP.build_precomputed_knn(src, dst, dists, n, k)
+            # Pandas exact reference sorted by (u, d, v)
+            df = pd.DataFrame({
+                "u": np.concatenate([src, dst]),
+                "v": np.concatenate([dst, src]),
+                "d": np.concatenate([dists, dists]),
+            })
+            df = df[df["u"] != df["v"]].sort_values(["u", "d", "v"]).drop_duplicates(["u", "v"])
+            top = df.groupby("u").head(k)
+            ref_idx = np.full((n, k + 1), -1, dtype=np.int32)
+            ref_dist = np.full((n, k + 1), np.inf, dtype=np.float32)
+            ref_idx[:, 0] = np.arange(n)
+            ref_dist[:, 0] = 0.0
+            top = top.assign(rank=top.groupby("u").cumcount() + 1)
+            ref_idx[top["u"].values, top["rank"].values] = top["v"].values
+            ref_dist[top["u"].values, top["rank"].values] = top["d"].values
+
+            np.testing.assert_array_equal(idx_opt, ref_idx)
+            np.testing.assert_array_equal(dist_opt, ref_dist)
+
+    def test_umap_csr_bounds_check_and_nonfinite_distances(self):
+        # Out-of-bounds endpoints raise ValueError instead of segfaulting.
+        for src, dst, n in (
+            (np.array([-1], dtype=np.int32), np.array([0], dtype=np.int32), 5),
+            (np.array([0], dtype=np.int32), np.array([5], dtype=np.int32), 5),
+            (np.array([0], dtype=np.int32), np.array([0], dtype=np.int32), 0),
+        ):
+            with self.assertRaises(ValueError):
+                Layout_Engine_UMAP.build_precomputed_knn(src, dst, np.array([0.5], dtype=np.float32), n, 2)
+
+        # Non-finite distances (NaN, +inf, -inf) must be skipped cleanly for both K <= 64 and K > 64.
+        rng = np.random.default_rng(4242)
+        n = 90
+        src = rng.integers(0, n, 1800, dtype=np.int32)
+        dst = rng.integers(0, n, 1800, dtype=np.int32)
+        dists_clean = rng.uniform(0.0, 5.0, 1800).astype(np.float32)
+
+        bad_src = np.array([0, 0, 1, 2, 3], dtype=np.int32)
+        bad_dst = np.array([1, 2, 3, 4, 5], dtype=np.int32)
+        bad_d = np.array([np.nan, np.inf, -np.inf, np.nan, np.inf], dtype=np.float32)
+        src_mixed = np.concatenate([bad_src, src])
+        dst_mixed = np.concatenate([bad_dst, dst])
+        dists_mixed = np.concatenate([bad_d, dists_clean])
+
+        for k in (10, 70):
+            idx_ref, dist_ref = Layout_Engine_UMAP.build_precomputed_knn(src, dst, dists_clean, n, k)
+            idx_got, dist_got = Layout_Engine_UMAP.build_precomputed_knn(src_mixed, dst_mixed, dists_mixed, n, k)
+            np.testing.assert_array_equal(idx_got, idx_ref)
+            np.testing.assert_array_equal(dist_got, dist_ref)
+
+
 if __name__ == "__main__":
     unittest.main()

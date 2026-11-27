@@ -9,6 +9,7 @@ float16 profiles.
 
 import gc
 import io
+import os
 import pathlib
 import sys
 import tempfile
@@ -18,15 +19,16 @@ from unittest import mock
 
 import h5py
 import numpy as np
+import scipy.cluster.hierarchy as sch
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-UTILITIES_DIR = PROJECT_ROOT / "src" / "utilities"
-TOOLS_DIR = PROJECT_ROOT / "src" / "tools"
-if str(UTILITIES_DIR) not in sys.path:
-    sys.path.insert(0, str(UTILITIES_DIR))
-if str(TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLS_DIR))
+SRC_DIR = PROJECT_ROOT / "src"
+UTILITIES_DIR = SRC_DIR / "utilities"
+TOOLS_DIR = SRC_DIR / "tools"
+for _folder in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
+    if str(_folder) not in sys.path:
+        sys.path.insert(0, str(_folder))
 
 import Embedding_MSA
 from tests.msa_fixtures import (
@@ -398,6 +400,139 @@ class LazyProfileMergeTests(unittest.TestCase):
         for header, aligned in zip(actual_headers, actual_sequences):
             self.assertEqual(len(aligned), final_width)
             self.assertEqual(aligned.replace("-", ""), raw_sequences[header])
+
+    def test_lazy_profile_merge_and_tree_replay_match_eager_merge_byte_for_byte(self):
+        rng = np.random.default_rng(1234)
+        n_seq = 16
+        dim = 32
+        alphabet = np.frombuffer(b"ACDEFGHIKLMNPQRSTVWY", dtype=np.uint8)
+        headers = [f"seq_{i}" for i in range(n_seq)]
+        lengths = rng.integers(25, 65, size=n_seq).tolist()
+        seqs = {
+            h: rng.choice(alphabet, size=L).tobytes().decode("ascii")
+            for h, L in zip(headers, lengths)
+        }
+        embs = [
+            Embedding_MSA._normalize_residue_embeddings(rng.standard_normal((L, dim)).astype(np.float32))
+            for L in lengths
+        ]
+        Z = sch.linkage(rng.random(n_seq * (n_seq - 1) // 2), method="average")
+
+        # Self-contained eager string/profile reference (no dependency on retired merge_clusters)
+        def eager_merge_ref(seqs_a, ids_a, emb_a, seqs_b, ids_b, emb_b, path):
+            moves = path[::-1]
+            out_a = ["" for _ in seqs_a]
+            out_b = ["" for _ in seqs_b]
+            vecs = []
+            ia = ib = 0
+            wa, wb = float(len(ids_a)), float(len(ids_b))
+            tw = wa + wb
+            for mv in moves:
+                if mv == 1:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += s[ia]
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += s[ib]
+                    vecs.append((emb_a[ia].astype(np.float32) * wa + emb_b[ib].astype(np.float32) * wb) / tw)
+                    ia += 1
+                    ib += 1
+                elif mv == 2:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += s[ia]
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += "-"
+                    vecs.append((emb_a[ia].astype(np.float32) * wa) / tw)
+                    ia += 1
+                elif mv == 3:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += "-"
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += s[ib]
+                    vecs.append((emb_b[ib].astype(np.float32) * wb) / tw)
+                    ib += 1
+            return out_a + out_b, ids_a + ids_b, np.stack(vecs, axis=0).astype(np.float16)
+
+        ref_clusters = {i: ([seqs[headers[i]]], [i], embs[i]) for i in range(n_seq)}
+        for step, link in enumerate(Z):
+            a, b = int(link[0]), int(link[1])
+            sa, ia, ea = ref_clusters.pop(a)
+            sb, ib, eb = ref_clusters.pop(b)
+            score = Embedding_MSA.compute_score_matrix_torch(ea, eb, "cpu")
+            path = Embedding_MSA.run_global_traceback(score, -1.0, -0.1)
+            ref_clusters[n_seq + step] = eager_merge_ref(sa, ia, ea, sb, ib, eb, path)
+        ref_seqs, ref_ids, ref_root_emb = ref_clusters[2 * n_seq - 2]
+        expected_fasta = "".join(
+            f">{headers[idx]}\n{row}\n" for idx, row in zip(ref_ids, ref_seqs)
+        ).encode("utf-8")
+
+        # Lazy tree-replay path (both sequential and heavy-first DFS order)
+        for order_name, merge_order in (
+            ("sequential", list(range(len(Z)))),
+            ("heavy_first", Embedding_MSA.heavy_first_merge_order(Z, n_seq)),
+        ):
+            with self.subTest(order=order_name):
+                leaves_lazy = Embedding_MSA.encode_leaf_alignments(seqs, headers)
+                active_profiles = {i: embs[i] for i in range(n_seq)}
+                active_widths = {i: leaves_lazy[i].shape[0] for i in range(n_seq)}
+                active_counts = {i: 1 for i in range(n_seq)}
+                merge_children = [None] * len(Z)
+                merge_moves = [None] * len(Z)
+                for step in merge_order:
+                    link = Z[step]
+                    a, b = int(link[0]), int(link[1])
+                    ea, eb = active_profiles.pop(a), active_profiles.pop(b)
+                    wa, wb = active_widths.pop(a), active_widths.pop(b)
+                    ca, cb = active_counts.pop(a), active_counts.pop(b)
+                    score = Embedding_MSA.compute_score_matrix_torch(ea, eb, "cpu")
+                    path = Embedding_MSA.run_global_traceback(score, -1.0, -0.1)
+                    prof, moves = Embedding_MSA.merge_profiles_lazy(wa, ca, wb, cb, path, ea, eb)
+                    nid = n_seq + step
+                    active_profiles[nid] = prof
+                    active_widths[nid] = moves.shape[0]
+                    active_counts[nid] = ca + cb
+                    merge_children[step] = (a, b)
+                    merge_moves[step] = moves
+
+                with tempfile.TemporaryDirectory() as td:
+                    out_path = os.path.join(td, "lazy.fasta")
+                    Embedding_MSA.write_lazy_alignment_fasta(
+                        out_path,
+                        2 * n_seq - 2,
+                        n_seq,
+                        merge_children,
+                        merge_moves,
+                        leaves_lazy,
+                        headers,
+                        active_widths[2 * n_seq - 2],
+                    )
+                    with open(out_path, "rb") as handle:
+                        actual_fasta = handle.read()
+
+                self.assertEqual(actual_fasta, expected_fasta)
+                # Also verify root float16 profile is bit-identical!
+                np.testing.assert_array_equal(
+                    ref_root_emb.view(np.uint16),
+                    active_profiles[2 * n_seq - 2].view(np.uint16),
+                )
+
+    def test_msa_kernels_module_alias_and_readonly_cache_fallback(self):
+        from utilities import MSA_Kernels as mk
+
+        self.assertIs(sys.modules["MSA_Kernels"], sys.modules["utilities.MSA_Kernels"])
+        calls = []
+
+        def fake_jit(*args, **kwargs):
+            calls.append(kwargs.get("cache"))
+            if kwargs.get("cache"):
+                def fail(fn):
+                    raise RuntimeError("cannot cache function 'sample': no locator available")
+                return fail
+            return lambda fn: fn
+
+        with mock.patch.object(mk, "jit", side_effect=fake_jit):
+            fn = mk._compile_cached(lambda x: x + 1)
+        self.assertEqual(calls, [True, False])
+        self.assertEqual(fn(2), 3)
 
 
 class LeafAlignmentTests(unittest.TestCase):

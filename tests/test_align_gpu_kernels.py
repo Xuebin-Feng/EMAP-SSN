@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 import Embedding_Alignment_Engine as engine
+from tests.embedding_fixtures import write_embedding_arrays
 from tools import Align_Similarity_Matrix as align_tool
 from tools import Embedding_SSEARCH as ssearch_tool
 from utilities import Align_GPU_Kernels
@@ -186,13 +187,13 @@ class AlignGPUKernelsTests(unittest.TestCase):
         rng = np.random.default_rng(seed)
         headers = [f"seq_{i}" for i in range(len(lengths))]
         path = os.path.join(temp_dir, "embs.h5")
-        with h5py.File(path, "w") as hf:
-            grp = hf.create_group("embeddings")
-            for header, length in zip(headers, lengths):
-                grp.create_dataset(
-                    header,
-                    data=rng.standard_normal((length, dim)).astype(dtype),
-                )
+        write_embedding_arrays(
+            path,
+            {
+                header: rng.standard_normal((length, dim)).astype(dtype)
+                for header, length in zip(headers, lengths)
+            },
+        )
         cache_arg = "auto" if host_cache is None else host_cache
         store = engine.EmbeddingTileStore(path, headers, host_cache_setting=cache_arg)
         return path, headers, store
@@ -1110,10 +1111,7 @@ class AlignGPUKernelsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "tied_embs.h5")
-            with h5py.File(path, "w") as hf:
-                grp = hf.create_group("embeddings")
-                for header, emb in zip(headers, all_embs):
-                    grp.create_dataset(header, data=emb)
+            write_embedding_arrays(path, dict(zip(headers, all_embs)))
             store = engine.EmbeddingTileStore(path, headers, host_cache_setting="auto")
 
             short_ids = list(range(len(short_embs)))

@@ -27,12 +27,12 @@ from scipy.spatial.distance import squareform
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-UTILITIES_DIR = PROJECT_ROOT / "src" / "utilities"
-TOOLS_DIR = PROJECT_ROOT / "src" / "tools"
-if str(UTILITIES_DIR) not in sys.path:
-    sys.path.insert(0, str(UTILITIES_DIR))
-if str(TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLS_DIR))
+SRC_DIR = PROJECT_ROOT / "src"
+UTILITIES_DIR = SRC_DIR / "utilities"
+TOOLS_DIR = SRC_DIR / "tools"
+for _folder in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
+    if str(_folder) not in sys.path:
+        sys.path.insert(0, str(_folder))
 
 import Embedding_MSA
 from tests.msa_fixtures import (
@@ -230,6 +230,23 @@ class EdgeIndexMappingTests(unittest.TestCase):
                 mapped = Embedding_MSA.map_network_indices(indices, table)
                 self.assertEqual(mapped.dtype, np.int32)
                 self.assertEqual(mapped.tolist(), expected)
+
+    def test_populate_condensed_matrix_ignores_self_loops(self):
+        n = 5
+        sentinel = np.float32(99.0)
+        cond = np.full(n * (n - 1) // 2, sentinel, dtype=np.float32)
+        edge_i = np.array([0, 0, 2, 4, 3], dtype=np.int32)
+        edge_j = np.array([0, 1, 2, 4, 1], dtype=np.int32)
+        edge_d = np.array([7.0, 1.5, 8.0, 9.0, 2.5], dtype=np.float32)
+
+        Embedding_MSA.populate_condensed_matrix(cond, n, edge_i, edge_j, edge_d)
+        expected = np.full(n * (n - 1) // 2, sentinel, dtype=np.float32)
+        # (0, 1) -> idx 0; (1, 3) -> 5*1 - 1 + 3 - 1 - 1 = 5
+        expected[0] = np.float32(1.5)
+        expected[5] = np.float32(2.5)
+        np.testing.assert_array_equal(cond, expected)
+        # Specifically ensure self-loop (0, 0) did not wrap around to cond[-1].
+        self.assertEqual(cond[-1], sentinel)
 
 
 class StreamedEdgeFilterTests(ArrayAssertions, unittest.TestCase):
@@ -453,6 +470,50 @@ class CopheneticAccumulationTests(ArrayAssertions, unittest.TestCase):
         nonempty = np.ones(3, dtype=np.float32)
         Embedding_MSA.add_replicates_batch_to_consensus([], 3, nonempty)
         self.assertSameArray(nonempty, np.ones(3, dtype=np.float32))
+
+    def test_batched_consensus_upgma_and_nj_match_serial_bit_for_bit(self):
+        rng = np.random.default_rng(20261123)
+        num_seqs = 65
+        m = num_seqs * (num_seqs - 1) // 2
+        trees = [sch.linkage(rng.random(m), method="average") for _ in range(12)]
+
+        # UPGMA
+        ref = np.zeros(m, dtype=np.float32)
+        for Z in trees:
+            ref += sch.cophenet(Z).astype(np.float32)
+        batched = np.zeros(m, dtype=np.float32)
+        Embedding_MSA.add_replicates_batch_to_consensus([(Z, None) for Z in trees], num_seqs, batched)
+        np.testing.assert_array_equal(ref.view(np.uint32), batched.view(np.uint32))
+
+        # NJ path lengths: single-tree batches in order vs multi-tree batch
+        nj_reps = []
+        ref_nj = np.zeros(m, dtype=np.float32)
+        for _ in range(6):
+            dc = rng.random(m).astype(np.float64)
+            Z, bl = Embedding_MSA.neighbor_joining_condensed(dc, num_seqs, return_branch_lengths=True)
+            nj_reps.append((Z, bl))
+            Embedding_MSA.add_replicates_batch_to_consensus([(Z, bl)], num_seqs, ref_nj)
+        batched_nj = np.zeros(m, dtype=np.float32)
+        Embedding_MSA.add_replicates_batch_to_consensus(nj_reps, num_seqs, batched_nj)
+        np.testing.assert_array_equal(ref_nj.view(np.uint32), batched_nj.view(np.uint32))
+
+    def test_consensus_accumulation_uses_limited_threads(self):
+        from utilities import Numba_Threads
+
+        rng = np.random.default_rng(101)
+        num_seqs = 10
+        m = num_seqs * (num_seqs - 1) // 2
+        dists = rng.random(m)
+        z_upgma = sch.linkage(dists, method="average")
+        z_nj, bl_nj = Embedding_MSA.neighbor_joining_condensed(dists, num_seqs, return_branch_lengths=True)
+        acc_upgma = np.zeros(m, dtype=np.float32)
+        acc_nj = np.zeros(m, dtype=np.float32)
+
+        with mock.patch.object(Numba_Threads, "limited_threads", wraps=Numba_Threads.limited_threads) as spy:
+            Embedding_MSA.add_replicates_batch_to_consensus([(z_upgma, None)], num_seqs, acc_upgma, threads=2)
+            Embedding_MSA.add_replicates_batch_to_consensus([(z_nj, bl_nj)], num_seqs, acc_nj, threads=2)
+        self.assertEqual(spy.call_count, 2)
+        self.assertEqual([call.args[0] for call in spy.call_args_list], [2, 2])
 
 
 class ConsensusFinalizeTests(ArrayAssertions, unittest.TestCase):

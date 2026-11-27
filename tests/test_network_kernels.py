@@ -1158,5 +1158,175 @@ class ModularityCentreTests(unittest.TestCase):
         )
 
 
+class MCLGustavsonKernelTests(unittest.TestCase):
+    """Fused parallel Gustavson MCL expand-inflate-normalize-prune & sparse_allclose."""
+
+    def test_fused_gustavson_mcl_matches_reference_markov_clustering(self):
+        from markov_clustering import mcl
+        import scipy.sparse as sp
+
+        rng = np.random.default_rng(77)
+        for trial in range(5):
+            n = 120
+            k_cl = 4
+            sz = n // k_cl
+            ea, eb, sc = [], [], []
+            for c in range(k_cl):
+                u = rng.integers(c * sz, (c + 1) * sz, 250)
+                v = rng.integers(c * sz, (c + 1) * sz, 250)
+                m = u < v
+                ea.append(u[m]); eb.append(v[m]); sc.append(rng.uniform(0.5, 1.0, m.sum()))
+            u, v = rng.integers(0, n, 40), rng.integers(0, n, 40)
+            m = u < v
+            ea.append(u[m]); eb.append(v[m]); sc.append(rng.uniform(0.05, 0.15, m.sum()))
+            edges = np.column_stack((np.concatenate(ea), np.concatenate(eb)))
+            weights = np.concatenate(sc)
+            rows = np.concatenate([edges[:, 0], edges[:, 1]])
+            cols = np.concatenate([edges[:, 1], edges[:, 0]])
+            mat = sp.csr_matrix((np.concatenate([weights, weights]), (rows, cols)), shape=(n, n))
+
+            for inflation in (1.5, 2.0, 3.0):
+                # Reference using markov_clustering directly
+                ref_m = mcl.normalize(network_kernels._mcl_add_self_loops(mat))
+                for _ in range(100):
+                    last = ref_m.copy()
+                    ref_m = mcl.iterate(ref_m, 2, inflation)
+                    ref_m = network_kernels._mcl_prune(ref_m, 0.001)
+                    if mcl.converged(ref_m, last):
+                        break
+                ref_clusters = network_kernels._mcl_get_clusters(ref_m, with_attractors=True)
+                got_clusters = network_kernels.markov_clusters_and_attractors(mat, inflation)
+                self.assertEqual(got_clusters, ref_clusters)
+                # Also exercise the parallel Gustavson Numba path directly on small graphs
+                numba_flow = network_kernels._converged_mcl_flow_numba(
+                    mcl.normalize(network_kernels._mcl_add_self_loops(mat)), inflation, 0.001, None
+                )
+                self.assertEqual(
+                    network_kernels._mcl_get_clusters(numba_flow, with_attractors=True),
+                    ref_clusters,
+                )
+
+    def test_gustavson_mcl_threshold_boundary_nan_empty_and_large_graph(self):
+        from markov_clustering import mcl
+        import scipy.sparse as sp
+        from utilities import Numba_Threads
+
+        # 1. Threshold boundary (0.001) on denominators where val * (1.0 / col_sum) < 0.001 <= val / col_sum.
+        for denom in (73, 84, 107):
+            with self.subTest(denom=denom):
+                w_small = np.float64(denom) * 0.001
+                w_large = np.float64(denom) * 0.999
+                # M[:, 0] = [0, 1, 0], M[:, 1] = [0, w_small, w_large], M[:, 2] = [0, 0, 0]:
+                # Then (M^2)[:, 0] = [0, w_small, w_large] with exact col_sum = float(denom).
+                m_test = sp.csc_matrix(
+                    np.array([
+                        [0.0, 0.0, 0.0],
+                        [1.0, w_small, 0.0],
+                        [0.0, w_large, 0.0],
+                    ], dtype=np.float64)
+                )
+                m_test.sort_indices()
+                ref_step = network_kernels._mcl_prune(mcl.iterate(m_test, 2, 1.0), 0.001)
+                with Numba_Threads.limited_threads(1):
+                    acc3 = np.zeros((network_kernels.numba.config.NUMBA_NUM_THREADS, 3), dtype=np.float64)
+                    st3 = np.zeros((network_kernels.numba.config.NUMBA_NUM_THREADS, 3), dtype=np.int32)
+                    tc3 = np.empty((network_kernels.numba.config.NUMBA_NUM_THREADS, 3), dtype=np.int32)
+                    oi3 = np.empty((3, 3), dtype=np.int32)
+                    ov3 = np.empty((3, 3), dtype=np.float64)
+                    oc3 = np.empty(3, dtype=np.int32)
+                    network_kernels._mcl_step_batch_kernel(
+                        m_test.indptr.astype(np.int64),
+                        m_test.indices.astype(np.int32),
+                        m_test.data.astype(np.float64),
+                        0, 3, 1.0, 0.001, 1,
+                        acc3, st3, tc3, oi3, ov3, oc3,
+                    )
+                self.assertEqual(int(oc3[0]), ref_step.getcol(0).nnz)
+                self.assertEqual(oi3[0, :oc3[0]].tolist(), ref_step.getcol(0).indices.tolist())
+
+        # 2. _mcl_sparse_allclose_kernel must return False on NaN in any branch.
+        a_indptr = np.array([0, 2], dtype=np.int64)
+        a_indices = np.array([0, 1], dtype=np.int32)
+        b_indptr = np.array([0, 2], dtype=np.int64)
+        b_indices = np.array([0, 1], dtype=np.int32)
+        self.assertFalse(network_kernels._mcl_sparse_allclose_kernel(
+            a_indptr, a_indices, np.array([np.nan, 0.5], dtype=np.float64),
+            b_indptr, b_indices, np.array([np.nan, 0.5], dtype=np.float64),
+            1e-5, 1e-8,
+        ))
+        self.assertFalse(network_kernels._mcl_sparse_allclose_kernel(
+            np.array([0, 1], dtype=np.int64), np.array([0], dtype=np.int32), np.array([np.nan], dtype=np.float64),
+            np.array([0, 1], dtype=np.int64), np.array([1], dtype=np.int32), np.array([0.0], dtype=np.float64),
+            1e-5, 1e-8,
+        ))
+        self.assertFalse(network_kernels._mcl_sparse_allclose_kernel(
+            np.array([0, 1], dtype=np.int64), np.array([1], dtype=np.int32), np.array([0.0], dtype=np.float64),
+            np.array([0, 1], dtype=np.int64), np.array([0], dtype=np.int32), np.array([np.nan], dtype=np.float64),
+            1e-5, 1e-8,
+        ))
+        self.assertFalse(network_kernels._mcl_sparse_allclose_kernel(
+            np.array([0, 1], dtype=np.int64), np.array([0], dtype=np.int32), np.array([np.nan], dtype=np.float64),
+            np.array([0, 0], dtype=np.int64), np.array([], dtype=np.int32), np.array([], dtype=np.float64),
+            1e-5, 1e-8,
+        ))
+        self.assertFalse(network_kernels._mcl_sparse_allclose_kernel(
+            np.array([0, 0], dtype=np.int64), np.array([], dtype=np.int32), np.array([], dtype=np.float64),
+            np.array([0, 1], dtype=np.int64), np.array([0], dtype=np.int32), np.array([np.nan], dtype=np.float64),
+            1e-5, 1e-8,
+        ))
+
+        # 3. n == 0 succeeds cleanly.
+        empty_csc = sp.csc_matrix((0, 0), dtype=np.float64)
+        out_empty = network_kernels._converged_mcl_flow_numba(empty_csc, 2.0, 0.001, None)
+        self.assertEqual(out_empty.shape, (0, 0))
+        self.assertEqual(out_empty.nnz, 0)
+
+        # 4. Public markov_clusters_and_attractors on n = 1005 hits Numba path and matches reference.
+        rng = np.random.default_rng(2026)
+        n_large = 1005
+        n_cl = 15
+        sz = n_large // n_cl
+        ea, eb, sc = [], [], []
+        for c in range(n_cl):
+            lo, hi = c * sz, (c + 1) * sz
+            nodes = np.arange(lo, hi, dtype=np.int32)
+            # Ring + chords inside each cluster for fast convergence
+            ea.append(nodes); eb.append(np.roll(nodes, -1)); sc.append(np.full(sz, 1.0))
+            u = rng.integers(lo, hi, sz * 3)
+            v = rng.integers(lo, hi, sz * 3)
+            m = u < v
+            ea.append(u[m]); eb.append(v[m]); sc.append(rng.uniform(0.6, 1.0, m.sum()))
+        # Sparse weak bridges between adjacent clusters
+        for c in range(n_cl - 1):
+            ea.append(np.array([c * sz], dtype=np.int32))
+            eb.append(np.array([(c + 1) * sz], dtype=np.int32))
+            sc.append(np.array([0.05]))
+        u_all = np.concatenate(ea)
+        v_all = np.concatenate(eb)
+        w_all = np.concatenate(sc)
+        mat_large = sp.csr_matrix(
+            (np.concatenate([w_all, w_all]), (np.concatenate([u_all, v_all]), np.concatenate([v_all, u_all]))),
+            shape=(n_large, n_large),
+        )
+        ref_flow = mcl.normalize(network_kernels._mcl_add_self_loops(mat_large))
+        for _ in range(100):
+            last = ref_flow.copy()
+            ref_flow = mcl.iterate(ref_flow, 2, 2.0)
+            ref_flow = network_kernels._mcl_prune(ref_flow, 0.001)
+            if mcl.converged(ref_flow, last):
+                break
+        ref_res = network_kernels._mcl_get_clusters(ref_flow, with_attractors=True)
+        with mock.patch.object(network_kernels, "_converged_mcl_flow_numba", wraps=network_kernels._converged_mcl_flow_numba) as spy:
+            got_res = network_kernels.markov_clusters_and_attractors(mat_large, 2.0)
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(got_res, ref_res)
+
+        # 5. Negative weights on n = 1005 fall back to SciPy reference instead of Numba path.
+        bad_mat = mat_large.copy()
+        bad_mat.data[0] = -0.5
+        with mock.patch.object(network_kernels, "_converged_mcl_flow_numba", side_effect=AssertionError("should fall back")):
+            network_kernels._converged_mcl_flow(bad_mat, 2.0, None)
+
+
 if __name__ == "__main__":
     unittest.main()

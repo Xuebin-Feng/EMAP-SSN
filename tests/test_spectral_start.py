@@ -730,5 +730,86 @@ class ProductTests(unittest.TestCase):
                                        rtol=1e-15, atol=0)
 
 
+class AmgKernelOptimizationTests(unittest.TestCase):
+    """Single-pass Galerkin contraction, O(m^2) deflated inverse, and prolongator guards."""
+
+    def test_spectral_galerkin_and_deflated_inverse_match_reference(self):
+        rng = np.random.default_rng(99)
+        n = 800
+        u = rng.integers(0, n, 4000, dtype=np.int32)
+        v = rng.integers(0, n, 4000, dtype=np.int32)
+        m = u < v
+        edges = np.column_stack((u[m], v[m]))
+        scores = rng.uniform(0.2, 1.0, len(edges))
+        lap, rd = Spectral_Start.normalized_laplacian(edges, scores, n)
+        csr = lap.tocsr()
+
+        agg, count = Spectral_Start._standard_aggregation(csr.indptr, csr.indices)
+        P, coarse_cand = Spectral_Start._tentative_prolongator(agg, count, rd.astype(np.float64))
+        R = P.T.tocsr()
+        ref_coarse = (R @ csr @ P).tocsr()
+        ref_coarse.sort_indices()
+        got_coarse = Spectral_Start._galerkin_contract(csr, P, R, agg, count)
+        np.testing.assert_allclose(got_coarse.toarray(), ref_coarse.toarray(), rtol=1e-12, atol=1e-13)
+
+        # Check O(m^2) deflated inverse against O(m^3) reference
+        from scipy.linalg import pinvh
+        dense = ref_coarse.toarray()
+        unit = coarse_cand / np.linalg.norm(coarse_cand)
+        outside = np.eye(len(unit)) - np.outer(unit, unit)
+        ref_inv = outside @ pinvh(dense + np.outer(unit, unit)) @ outside
+        got_inv = Spectral_Start._deflated_inverse(dense, coarse_cand)
+        np.testing.assert_allclose(got_inv, ref_inv, rtol=1e-12, atol=1e-12)
+
+    def test_spectral_start_zero_weight_row_and_prolongator_validation(self):
+        import warnings
+
+        # Zero-weight edge gives an all-zero Laplacian row: must raise ValueError cleanly with no warning.
+        n_spec = 20
+        ring_u = np.arange(1, n_spec, dtype=np.int32)
+        ring_v = np.roll(ring_u, -1)
+        edges = np.vstack([np.array([[0, 1]], dtype=np.int32), np.column_stack((ring_u, ring_v))])
+        scores = np.concatenate([np.array([0.0]), np.ones(len(ring_u), dtype=np.float64)])
+        lap, rd = Spectral_Start.normalized_laplacian(edges, scores, n_spec)
+        csr = lap.tocsr()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with self.assertRaises(ValueError):
+                Spectral_Start._inverse_absolute_row_sums(csr)
+        runtime_warns = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+        self.assertEqual(runtime_warns, [])
+
+        # _lobpcg_axes(amg=True) catches the ValueError cleanly when AMG builds levels, with no warning.
+        with mock.patch.object(Spectral_Start, "AMG_MAX_COARSE", 4), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            axes, reason = Spectral_Start._lobpcg_axes(
+                csr, rd, 2, np.random.default_rng(0).standard_normal((n_spec, 3)), amg=True
+            )
+        runtime_warns = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+        self.assertEqual(runtime_warns, [])
+        self.assertIsNone(axes)
+        self.assertIn("ValueError", reason)
+
+        # _BlockVCycle disables _fast_levels when a prolongator does not have exact 1 nnz per row.
+        a = sp.csr_matrix(np.array([[2.0, -1.0, 0.0], [-1.0, 2.0, -1.0], [0.0, -1.0, 2.0]]))
+        # Row 0 has 2 entries, row 1 has 0 entries, row 2 has 1 entry (nnz == 3 == shape[0]!).
+        p_bad = sp.csr_matrix(np.array([[0.6, 0.4], [0.0, 0.0], [0.0, 1.0]]))
+        r_bad = p_bad.T.tocsr()
+        w = Spectral_Start._inverse_absolute_row_sums(a)[:, None]
+        coarsest = np.eye(2, dtype=np.float64)
+        cycle = Spectral_Start._BlockVCycle(
+            products=[Spectral_Start.laplacian_operator(a)],
+            weights=[w],
+            prolongators=[p_bad],
+            restrictions=[r_bad],
+            coarsest=coarsest,
+            level_csrs=[a],
+        )
+        self.assertIsNone(cycle._fast_levels)
+        rhs = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
+        got = cycle(rhs)
+        self.assertTrue(np.isfinite(got).all())
+
+
 if __name__ == "__main__":
     unittest.main()

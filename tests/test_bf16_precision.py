@@ -31,6 +31,8 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Network_Injection as injection
     import Embedding_Alignment_Engine as engine
 
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
+
 
 def _source_default(script, name):
     """Return the literal a tool script assigns to ``name`` at module level."""
@@ -222,10 +224,13 @@ class Bf16PrecisionTests(unittest.TestCase):
     def test_bf16_fixed_query_estimate_uses_two_byte_residency(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "embeddings.h5")
-            with h5py.File(path, "w") as hf:
-                group = hf.create_group("embeddings")
-                group.create_dataset("a", data=np.ones((3, 8), np.float32))
-                group.create_dataset("b", data=np.ones((5, 8), np.float32))
+            write_embedding_arrays(
+                path,
+                {
+                    "a": np.ones((3, 8), np.float32),
+                    "b": np.ones((5, 8), np.float32),
+                },
+            )
             store = engine.EmbeddingTileStore(path, ["a", "b"], 0)
             kwargs = dict(
                 tasks=[(0,), (1,)],
@@ -698,10 +703,7 @@ class Bf16PrecisionTests(unittest.TestCase):
                 rng.normal(size=(rows, 32)).astype(np.float32)
                 for rows in (5, 7, 9)
             ]
-            with h5py.File(path, "w") as hf:
-                group = hf.create_group("embeddings")
-                for header, array in zip(headers, arrays):
-                    group.create_dataset(header, data=array)
+            write_embedding_arrays(path, dict(zip(headers, arrays)))
             store = engine.EmbeddingTileStore(path, headers, 0)
             results = engine.run_tiled_accelerator_pipeline(
                 [(0, 1, "a", "b"), (0, 2, "a", "c")],
@@ -732,13 +734,13 @@ class Bf16PrecisionTests(unittest.TestCase):
         headers = ["a", "b", "c"]
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "embeddings.h5")
-            with h5py.File(path, "w") as hf:
-                group = hf.create_group("embeddings")
-                for header, rows in zip(headers, (6, 7, 8)):
-                    group.create_dataset(
-                        header,
-                        data=rng.normal(size=(rows, 32)).astype(np.float32),
-                    )
+            write_embedding_arrays(
+                path,
+                {
+                    header: rng.normal(size=(rows, 32)).astype(np.float32)
+                    for header, rows in zip(headers, (6, 7, 8))
+                },
+            )
             store = engine.EmbeddingTileStore(path, headers, 0)
             tasks = [(0, 1, "a", "b"), (0, 2, "a", "c")]
             with mock.patch.object(align, "DEVICE_SELECTION", "cuda:0"), \

@@ -29,6 +29,7 @@ import Embedding_Alignment_Engine as alignment_engine  # noqa: E402
 from utilities import GPU_Memory_View  # noqa: E402
 
 from tests.alignment_fixtures import RecordingTrial  # noqa: E402
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 
 
 class EmbeddingAlignmentEngineTests(unittest.TestCase):
@@ -127,12 +128,10 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             input_h5 = os.path.join(temp_dir, "embeddings.h5")
-            with h5py.File(input_h5, "w") as hf:
-                group = hf.create_group("embeddings")
-                for header in headers:
-                    group.create_dataset(
-                        header, data=np.ones((1, 2), dtype=np.float32)
-                    )
+            write_embedding_arrays(
+                input_h5,
+                {header: np.ones((1, 2), dtype=np.float32) for header in headers},
+            )
             store = alignment_engine.EmbeddingTileStore(input_h5, headers, 0)
             real_h5_file = h5py.File
             with mock.patch.object(
@@ -213,12 +212,10 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             input_h5 = os.path.join(temp_dir, "mps_embeddings.h5")
-            with h5py.File(input_h5, "w") as hf:
-                group = hf.create_group("embeddings")
-                for header in headers:
-                    group.create_dataset(
-                        header, data=np.ones((2, 3), dtype=np.float32)
-                    )
+            write_embedding_arrays(
+                input_h5,
+                {header: np.ones((2, 3), dtype=np.float32) for header in headers},
+            )
             store = alignment_engine.EmbeddingTileStore(input_h5, headers, 0)
             with mock.patch.object(
                 alignment_engine, "get_accelerator_backend", return_value=backend
@@ -272,10 +269,13 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
     def test_embedding_store_uses_full_cache_only_when_budget_allows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             h5_path = os.path.join(temp_dir, "embeddings.h5")
-            with h5py.File(h5_path, "w") as hf:
-                group = hf.create_group("embeddings")
-                group.create_dataset("a", data=np.ones((2, 4), dtype=np.float16))
-                group.create_dataset("b", data=np.ones((3, 4), dtype=np.float16))
+            write_embedding_arrays(
+                h5_path,
+                {
+                    "a": np.ones((2, 4), dtype=np.float16),
+                    "b": np.ones((3, 4), dtype=np.float16),
+                },
+            )
 
             with mock.patch.object(
                 alignment_engine,

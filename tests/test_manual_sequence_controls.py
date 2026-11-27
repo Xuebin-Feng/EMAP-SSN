@@ -8,7 +8,6 @@ from contextlib import redirect_stdout
 from io import StringIO
 from unittest import mock
 
-import h5py
 import numpy as np
 import torch
 
@@ -18,6 +17,8 @@ TOOLS_DIR = os.path.join(SRC_DIR, "tools")
 for directory in (SRC_DIR, TOOLS_DIR):
     if directory not in sys.path:
         sys.path.insert(0, directory)
+
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 
 from Embedding_PWA import (
     prepare_embedding_database,
@@ -103,22 +104,16 @@ class ManualSequenceControlTests(unittest.TestCase):
             database_path = os.path.join(directory, "database.h5")
             headers = ["reference(1)_A", "target"]
             sequences = ["ACDX", "ACDE"]
-            with h5py.File(database_path, "w") as hf:
-                hf.attrs["model_name"] = "test_model"
-                hf.attrs["saving_mode"] = "float32"
-                hf.attrs["num_sequences"] = 2
-                hf.attrs["generation_complete"] = True
-                hf.create_dataset("headers", data=np.asarray(headers, dtype="S"))
-                hf.create_dataset("sequences", data=np.asarray(sequences, dtype="S"))
-                embeddings = hf.create_group("embeddings")
-                embeddings.create_dataset(
-                    headers[0],
-                    data=np.arange(12, dtype=np.float32).reshape(4, 3),
-                )
-                embeddings.create_dataset(
-                    headers[1],
-                    data=np.arange(12, 24, dtype=np.float32).reshape(4, 3),
-                )
+            write_embedding_arrays(
+                database_path,
+                {
+                    headers[0]: np.arange(12, dtype=np.float32).reshape(4, 3),
+                    headers[1]: np.arange(12, 24, dtype=np.float32).reshape(4, 3),
+                },
+                sequences=sequences,
+                model_name="test_model",
+                saving_mode="float32",
+            )
 
             database = prepare_embedding_database(database_path)
             self.assertEqual(database.model_name, "test_model")

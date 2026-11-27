@@ -497,6 +497,20 @@ class KernelForceTests(unittest.TestCase):
             assert_close(self, got, expected, f"springs dims={dims}")
 
 
+class KernelGuardTests(unittest.TestCase):
+    def test_gpu_cutoff_zero_sort_guard(self):
+        if not HAS_TORCH:
+            self.skipTest("PyTorch required")
+        from utilities import Layout_GPU_Kernels as lgk
+
+        rep = object.__new__(lgk.KernelRepulsion)
+        rep.dims = 2
+        for bad_cutoff in (0.0, -5.0, float("nan"), float("inf")):
+            rep._cutoff = bad_cutoff
+            # Must return early without touching pos or dividing by zero.
+            rep._sort(None)
+
+
 @unittest.skipUnless(GPU_AVAILABLE, "no CUDA or ROCm GPU")
 class KernelSimulationTests(unittest.TestCase):
     """SSNSimulationGPU on the GPU: kernels in use, deterministic, same physics."""
@@ -559,6 +573,110 @@ class KernelSimulationTests(unittest.TestCase):
         self.assertIn("runtime-compiled kernels", output.getvalue())
         self.assertTrue(np.isfinite(positions).all())
         self.assertEqual(positions.shape, (24, 3))
+
+    def test_gpu_batched_stepper_and_rollback_match_single_step_bit_for_bit(self):
+        from collections import deque
+        from utilities import Hardware_Acceleration as hw
+
+        rng = np.random.default_rng(123)
+        n = 600
+        pos = rng.uniform(-50.0, 50.0, (n, 2)).astype(np.float32)
+        e_a = np.repeat(np.arange(n, dtype=np.int32), 4)
+        e_b = (e_a + rng.integers(1, 15, size=len(e_a))) % n
+        edges = np.column_stack((e_a, e_b)).astype(np.int32)
+        comp = np.zeros(n, dtype=np.int32)
+        limits = np.full(n, 80.0, dtype=np.float32)
+        active = np.ones(n, dtype=np.bool_)
+        params = {
+            "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 3.0,
+            "COULOMB_K": 10.0, "COULOMB_CUTOFF": 15.0,
+            "MAX_FORCE_LIMIT": 20.0, "MAX_TOTAL_REPULSION_FORCE": 15.0,
+            "MAX_STEPS": 120, "RMSD_WINDOW": 15, "RMSD_THRESHOLD": 1.0,
+            "PERCENTAGE_DROP_THRESHOLD": 0.5,
+        }
+
+        # Compare single-step loop vs step_batch + snapshot/rollback
+        sim_single = ssn_engine.SSNSimulationGPU(pos.copy(), edges, comp, limits, params, active, device=torch.device("cuda:0"))
+        rmsd_single = [sim_single.step(s) for s in range(37)]
+        pos_single = sim_single.get_pos()
+
+        sim_batch = ssn_engine.SSNSimulationGPU(pos.copy(), edges, comp, limits, params, active, device=torch.device("cuda:0"))
+        r_part1 = sim_batch.step_batch(0, 20)
+        snap = sim_batch.snapshot_state()
+        _overshot = sim_batch.step_batch(20, 32)
+        sim_batch.restore_state(snap)
+        r_part2 = sim_batch.step_batch(20, 17)
+        pos_batch = sim_batch.get_pos()
+
+        np.testing.assert_array_equal(pos_single, pos_batch)
+        self.assertEqual(rmsd_single, r_part1 + r_part2)
+
+        # Verify _run_layout_stage early convergence stops at the exact same step
+        cand = hw.DeviceCandidate("cuda:0", "GPU", torch.device("cuda:0"), "cuda", 0, True)
+        buf_batched = io.StringIO()
+        with redirect_stdout(buf_batched):
+            out_batched = ssn_engine._run_layout_stage(cand, pos.copy(), edges, comp, limits, params, active)
+
+        # Compare against manual single-step replay on the same GPU stepper
+        sim_ref = ssn_engine.SSNSimulationGPU(pos.copy(), edges, comp, limits, params, active, device=torch.device("cuda:0"))
+        buf = deque(maxlen=params["RMSD_WINDOW"])
+        hist = []
+        stop_step = None
+        for s in range(params["MAX_STEPS"]):
+            r = sim_ref.step(s)
+            buf.append(r)
+            avg = float(np.mean(buf))
+            if len(buf) == params["RMSD_WINDOW"]:
+                hist.append(avg)
+                if avg < params["RMSD_THRESHOLD"]:
+                    stop_step = s
+                    break
+                if len(hist) >= params["RMSD_WINDOW"] + 10 and s > params["MAX_STEPS"] / 4.0:
+                    cur_t = np.mean(hist[-10:])
+                    old_t = np.mean(hist[-(params["RMSD_WINDOW"] + 10):-params["RMSD_WINDOW"]])
+                    if old_t > 0:
+                        drop = ((old_t - cur_t) / old_t) * 100.0
+                        if drop < -ssn_engine._RISING_RMSD_PERCENT or drop < params["PERCENTAGE_DROP_THRESHOLD"]:
+                            stop_step = s
+                            break
+        self.assertIsNotNone(stop_step)
+        self.assertIn(f"Step {stop_step}", buf_batched.getvalue())
+        np.testing.assert_array_equal(out_batched, sim_ref.get_pos())
+
+    def test_gpu_use_skip_batched_rollback_matches_single_step_bit_for_bit(self):
+        rng = np.random.default_rng(9876)
+        n = 4500  # > SKIP_MIN_NODES (4096) so use_skip=True is exercised
+        pos = rng.uniform(-120.0, 120.0, (n, 2)).astype(np.float32)
+        e_a = np.arange(n, dtype=np.int32)
+        e_b = (e_a + 1) % n
+        edges = np.column_stack((e_a, e_b)).astype(np.int32)
+        comp = np.zeros(n, dtype=np.int32)
+        limits = np.full(n, 200.0, dtype=np.float32)
+        active = np.ones(n, dtype=np.bool_)
+        params = {
+            "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 2.0,
+            "COULOMB_K": 10.0, "COULOMB_CUTOFF": 15.0,
+            "MAX_FORCE_LIMIT": 20.0, "MAX_TOTAL_REPULSION_FORCE": 15.0,
+        }
+
+        sim_single = ssn_engine.SSNSimulationGPU(pos.copy(), edges, comp, limits, params, active, device=torch.device("cuda:0"))
+        self.assertTrue(sim_single.uses_kernels)
+        self.assertTrue(sim_single._repulsion.use_skip)
+        rmsd_single = [sim_single.step(s) for s in range(25)]
+        pos_single = sim_single.get_pos()
+
+        sim_batch = ssn_engine.SSNSimulationGPU(pos.copy(), edges, comp, limits, params, active, device=torch.device("cuda:0"))
+        self.assertTrue(sim_batch._repulsion.use_skip)
+        r_part1 = sim_batch.step_batch(0, 15)
+        snap = sim_batch.snapshot_state()
+        # Overshoot past RESORT_INTERVAL (20) so Morton re-sort occurs before rollback!
+        _overshot = sim_batch.step_batch(15, 20)
+        sim_batch.restore_state(snap)
+        r_part2 = sim_batch.step_batch(15, 10)
+        pos_batch = sim_batch.get_pos()
+
+        np.testing.assert_array_equal(pos_single, pos_batch)
+        self.assertEqual(rmsd_single, r_part1 + r_part2)
 
 
 if __name__ == "__main__":

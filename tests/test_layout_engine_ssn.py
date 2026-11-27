@@ -872,5 +872,124 @@ class BenchmarkHandOffTests(unittest.TestCase):
         self.assertEqual(log.count("Calculating Spectral Layout for sub-component"), 9)
 
 
+class CPUSpatialGridKernelTests(unittest.TestCase):
+    """Exact O(N) contiguous cell-grid repulsion and CPU layout kernel caching."""
+
+    def test_cpu_spatial_grid_matches_serial_bit_for_bit_2d_and_3d(self):
+        from numba import jit
+        from tests.layout_fixtures import _serial_kernel_2d, _serial_kernel_3d
+
+        for dims, ser_fn in ((2, _serial_kernel_2d), (3, _serial_kernel_3d)):
+            ser = jit(nopython=True, fastmath=True)(ser_fn)
+            rng = np.random.default_rng(900 + dims)
+            n = 1200
+            box = 320.0 if dims == 2 else 210.0
+            pos = rng.uniform(-box * 0.5, box * 0.5, (n, dims)).astype(np.float32)
+            # Include a dense hotspot cluster inside the sparse layout to test hybrid node fallback!
+            pos[:260] = rng.normal(0.0, 2.0, (260, dims)).astype(np.float32)
+            vel = rng.normal(0.0, 1.0, (n, dims)).astype(np.float32)
+            edges = np.column_stack((np.arange(n, dtype=np.int32), (np.arange(n, dtype=np.int32) + 1) % n))
+            comp = np.zeros(n, dtype=np.int32)
+            active = np.ones(n, dtype=np.bool_)
+            active_nodes = np.arange(n, dtype=np.int32)
+            limits = np.full(n, box, dtype=np.float32)
+            params = {
+                "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 4.0,
+                "COULOMB_K": 12.0, "MAX_FORCE_LIMIT": 20.0,
+                "MAX_TOTAL_REPULSION_FORCE": 18.0, "COULOMB_CUTOFF": 25.0,
+            }
+
+            p_ref, v_ref = pos.copy(), vel.copy()
+            r_ref = ser(p_ref, v_ref, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, 25.0)
+            sim = ssn_engine.SSNSimulationCPU(pos.copy(), edges, comp, limits, params, active_mask=active)
+            sim.vel[:] = vel
+            r_opt = sim.step(0)
+            np.testing.assert_array_equal(p_ref, sim.pos)
+            np.testing.assert_array_equal(v_ref, sim.vel)
+            self.assertEqual(r_ref, r_opt)
+
+    def test_cpu_spatial_grid_nonfinite_and_boundary_positions_2d_and_3d(self):
+        from numba import jit
+        from tests.layout_fixtures import _serial_kernel_2d, _serial_kernel_3d
+        from utilities import Layout_CPU_Kernels as cpu_k
+        from utilities import Numba_Threads
+
+        for dims, ser_fn, acc_fn in (
+            (2, _serial_kernel_2d, cpu_k.accumulate_repulsion_grouped_2d),
+            (3, _serial_kernel_3d, cpu_k.accumulate_repulsion_grouped_3d),
+        ):
+            with self.subTest(dims=dims):
+                ser = jit(nopython=True, fastmath=True)(ser_fn)
+                rng = np.random.default_rng(1400 + dims)
+                n = 600
+                cutoff = 10.0
+                h = cutoff * 1.0001
+                pos = rng.uniform(0.0, 10.0 * h, (n, dims)).astype(np.float32)
+                # Force exact min/max boundary coordinates aligned to integer multiples of h.
+                pos[0, :] = np.float32(0.0)
+                pos[1, :] = np.float32(10.0 * h)
+                pos[2, :] = np.nextafter(np.float32(10.0 * h), np.float32(0.0))
+                vel = np.zeros((n, dims), dtype=np.float32)
+                edges = np.zeros((0, 2), dtype=np.int32)
+                comp = np.zeros(n, dtype=np.int32)
+                active = np.ones(n, dtype=np.bool_)
+                active_nodes = np.arange(n, dtype=np.int32)
+                limits = np.full(n, 500.0, dtype=np.float32)
+                params = {
+                    "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 4.0,
+                    "COULOMB_K": 12.0, "MAX_FORCE_LIMIT": 20.0,
+                    "MAX_TOTAL_REPULSION_FORCE": 18.0, "COULOMB_CUTOFF": cutoff,
+                }
+
+                p_ref, v_ref = pos.copy(), vel.copy()
+                r_ref = ser(p_ref, v_ref, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, cutoff)
+                sim = ssn_engine.SSNSimulationCPU(pos.copy(), edges, comp, limits, params, active_mask=active)
+                r_opt = sim.step(0)
+                np.testing.assert_array_equal(p_ref, sim.pos)
+                np.testing.assert_array_equal(v_ref, sim.vel)
+                self.assertEqual(r_ref, r_opt)
+
+                # Non-finite coordinates at start, middle, and end of an m >= 512 run must
+                # safely bypass grid construction without heap OOB or crash.
+                members, run_starts, run_ends = cpu_k.group_active_nodes(comp, active_nodes)
+                n_threads = Numba_Threads.numba.config.NUMBA_NUM_THREADS if cpu_k.NUMBA_AVAILABLE else 1
+                for bad_idx, bad_val in ((0, np.nan), (n // 2, np.inf), (n - 1, -np.inf)):
+                    pos_bad = pos.copy()
+                    pos_bad[bad_idx, 0] = np.float32(bad_val)
+                    acc = np.zeros_like(pos_bad)
+                    rep = np.zeros_like(pos_bad)
+                    run_pos = np.empty((n, dims), dtype=pos_bad.dtype)
+                    acc_fn(
+                        pos_bad, acc, rep, run_pos, members, run_starts, run_ends, n_threads,
+                        12.0, 20.0, 18.0, cutoff,
+                    )
+                    # Also exercise through the fastmath=True outer physics kernel.
+                    sim_bad = ssn_engine.SSNSimulationCPU(
+                        pos_bad.copy(), edges, comp, limits, params, active_mask=active
+                    )
+                    sim_bad.step(0)
+
+    def test_cpu_layout_module_alias_and_readonly_cache_fallback(self):
+        from utilities import Layout_CPU_Kernels as cpu_k
+
+        self.assertIs(sys.modules["Layout_CPU_Kernels"], sys.modules["utilities.Layout_CPU_Kernels"])
+        if not cpu_k.NUMBA_AVAILABLE:
+            self.skipTest("Numba required")
+        calls = []
+
+        def fake_jit(*args, **kwargs):
+            calls.append(kwargs.get("cache"))
+            if kwargs.get("cache"):
+                def fail(fn):
+                    raise RuntimeError("cannot cache function 'sample': no locator available")
+                return fail
+            return lambda fn: fn
+
+        with mock.patch.object(cpu_k, "jit", side_effect=fake_jit):
+            fn = cpu_k._compile_cached(lambda x: x + 1)
+        self.assertEqual(calls, [True, False])
+        self.assertEqual(fn(2), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

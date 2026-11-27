@@ -36,6 +36,7 @@ from resources.pLM_models import esmc as esmc_plugin
 from resources.pLM_models import prost_t5 as prost_t5_plugin
 from resources.pLM_models import prot_bert as prot_bert_plugin
 from resources.pLM_models import prot_t5 as prot_t5_plugin
+from tests.embedding_fixtures import write_embedding_arrays
 from tools import Embedding_Injection as inject_tool
 from tools import Generate_Embeddings as gen_tool
 from tools.tool_helpers import Embedding_Batching as batching
@@ -286,13 +287,16 @@ class EmbeddingBatchingTests(_NoRealNvidiaSmi, unittest.TestCase):
             new_fasta = os.path.join(td, "new.fasta")
             out_h5 = os.path.join(td, "out.h5")
 
-            with h5py.File(old_h5, "w") as hf:
-                grp = HDF5_Storage.create_metadata_first_file(
-                    hf, ["s0", "s1"], ["ACDE", "FGHIK"], "fake_model", "float16"
-                )
-                grp.create_dataset("s0", data=np.full((4, 8), 1.0, dtype=np.float16))
-                grp.create_dataset("s1", data=np.full((5, 8), 2.0, dtype=np.float16))
-                HDF5_Storage.mark_generation_complete(hf)
+            write_embedding_arrays(
+                old_h5,
+                {
+                    "s0": np.full((4, 8), 1.0, dtype=np.float16),
+                    "s1": np.full((5, 8), 2.0, dtype=np.float16),
+                },
+                sequences=["ACDE", "FGHIK"],
+                model_name="fake_model",
+                saving_mode="float16",
+            )
 
             with open(new_fasta, "w", encoding="utf-8") as f:
                 f.write(">s0\nACDE\n>s1\nFGHIK\n>s2\nLMNPQR\n>s3\nSTVWY\n")
@@ -640,12 +644,13 @@ class EmbeddingBatchingTests(_NoRealNvidiaSmi, unittest.TestCase):
             new_fasta = os.path.join(td, "new.fasta")
             out_h5 = os.path.join(td, "out.h5")
 
-            with h5py.File(old_h5, "w") as hf:
-                grp = HDF5_Storage.create_metadata_first_file(
-                    hf, ["s0"], ["ACDE"], "fake_model", "float16"
-                )
-                grp.create_dataset("s0", data=np.ones((4, 8), dtype=np.float16))
-                HDF5_Storage.mark_generation_complete(hf)
+            write_embedding_arrays(
+                old_h5,
+                {"s0": np.ones((4, 8), dtype=np.float16)},
+                sequences=["ACDE"],
+                model_name="fake_model",
+                saving_mode="float16",
+            )
 
             with open(new_fasta, "w", encoding="utf-8") as f:
                 f.write(">s0\nACDE\n>s1\nFGHIK\n>s2\nLMNPQ\n")

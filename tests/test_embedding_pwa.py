@@ -17,7 +17,6 @@ from contextlib import redirect_stdout
 from io import StringIO
 from unittest import mock
 
-import h5py
 import numpy as np
 import torch
 
@@ -27,6 +26,8 @@ TOOLS_DIR = os.path.join(SRC_DIR, "tools")
 for directory in (SRC_DIR, TOOLS_DIR):
     if directory not in sys.path:
         sys.path.insert(0, directory)
+
+from tests.embedding_fixtures import write_embedding_arrays  # noqa: E402
 
 import Embedding_PWA as embedding_pwa
 from Embedding_SSEARCH import (
@@ -297,16 +298,13 @@ class PairwiseIdentityReportTests(unittest.TestCase):
         target = reference[[0, 1, 2, 3, 4, 5, 6, 7, 8, 11]] + np.float32(0.01) * (
             rng.normal(size=(10, 6)).astype(np.float32)
         )
-        with h5py.File(database_path, "w") as hf:
-            hf.attrs["model_name"] = "test_model"
-            hf.attrs["saving_mode"] = "float32"
-            hf.attrs["num_sequences"] = 2
-            hf.attrs["generation_complete"] = True
-            hf.create_dataset("headers", data=np.asarray(headers, dtype="S"))
-            hf.create_dataset("sequences", data=np.asarray(sequences, dtype="S"))
-            embeddings = hf.create_group("embeddings")
-            embeddings.create_dataset(headers[0], data=reference)
-            embeddings.create_dataset(headers[1], data=target.astype(np.float32))
+        write_embedding_arrays(
+            database_path,
+            {headers[0]: reference, headers[1]: target.astype(np.float32)},
+            sequences=sequences,
+            model_name="test_model",
+            saving_mode="float32",
+        )
         database = embedding_pwa.prepare_embedding_database(database_path)
         # run_alignment picks its own device; keep the score matrix on the CPU
         # so the test never initializes a GPU.
