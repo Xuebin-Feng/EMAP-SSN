@@ -134,7 +134,7 @@ class ToolChartsTests(unittest.TestCase):
     def test_every_toolbar_action_shows_a_bundled_lucide_icon(self):
         from matplotlib.backends.backend_qt import NavigationToolbar2QT
         from desktop.Studio_Theme import LUCIDE_DIR
-        from tests.test_studio_theme import load_update_icons
+        from tests.theme_fixture import load_update_icons
 
         callbacks = {item[3] for item in NavigationToolbar2QT.toolitems if item[0] is not None}
         self.assertEqual(set(Tool_Charts.TOOLBAR_ICONS), callbacks)

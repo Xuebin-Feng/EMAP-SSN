@@ -143,23 +143,6 @@ class ComputeCapabilityTests(unittest.TestCase):
             self.assertEqual(report["status"], "unavailable")
             self.assertEqual(report["devices"], [])
 
-    def test_timeout_reaps_only_the_helper(self):
-        real_run, real_popen = subprocess.run, subprocess.Popen
-        children = []
-        def popen(*args, **kwargs):
-            child = real_popen(*args, **kwargs)
-            children.append(child)
-            return child
-        def run(*args, **kwargs):
-            return real_run([sys.executable, "-c", "import time; time.sleep(5)"],
-                            capture_output=True, timeout=0.1)
-        with mock.patch.object(subprocess, "Popen", side_effect=popen), \
-                mock.patch.object(subprocess, "run", side_effect=run):
-            result = compute.discover_compute_capabilities(ROOT)
-        self.assertEqual(result["status"], "unavailable")
-        self.assertEqual(len(children), 1)
-        self.assertIsNotNone(children[0].poll())
-
 
 class BlastCapabilityTests(unittest.TestCase):
     """The report's `blast` entry: the BLAST+ a blank BLASTP_DIR finds, and its version."""

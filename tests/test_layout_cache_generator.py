@@ -337,10 +337,10 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             _write_inputs(temp_path)
 
             cases = (
-                (False, "md.h5", "Layout_Engine_SSN", {}),
-                (True, "umap.h5", "Layout_Engine_UMAP", {}),
+                (False, "md.h5", "Layout_Engine_SSN"),
+                (True, "umap.h5", "Layout_Engine_UMAP"),
             )
-            for umap_mode, filename, module_name, legacy in cases:
+            for umap_mode, filename, module_name in cases:
                 with self.subTest(module=module_name):
                     document = _settings_document(
                         temp_path, cache_filename=filename

@@ -1083,7 +1083,6 @@ class PackageConsistencyTests(unittest.TestCase):
 
 class DependencyReadinessTests(unittest.TestCase):
     def test_ready_environment_is_checked_without_installing(self):
-        completed = mock.Mock(returncode=0)
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             python = root / "python"
@@ -1350,7 +1349,7 @@ class InstallerProfileTests(unittest.TestCase):
 
     def test_failed_cuda_falls_through_to_xpu(self):
         report = {
-            "compatibility_revision": 3,
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
             "platform": "windows",
             "os": {"windows_build": 26200},
             "devices": [],
@@ -1414,7 +1413,7 @@ class InstallerProfileTests(unittest.TestCase):
 
     def test_dry_run_prints_every_candidate(self):
         report = {
-            "compatibility_revision": 3, "platform": "windows", "os": {}, "devices": [],
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION, "platform": "windows", "os": {}, "devices": [],
             "ignored_devices": [], "reason": "test",
             "backend_candidates": [
                 {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["a"]},
@@ -2150,7 +2149,7 @@ class EsmStackRecordTests(unittest.TestCase):
         smoke.assert_not_called()
         self.assertIn(self.SKIPPED, lines)
         self.assertNotIn(self.PASSED, lines)
-        self.assertIn("Dependency environment is ready (CPU).", "\n".join(lines).replace("Dependency environment is ready (CPU).", "Dependency environment is ready (CPU)."))
+        self.assertIn("Dependency environment is ready (CPU).", "\n".join(lines))
 
     def test_any_change_the_test_depends_on_reruns_it(self):
         site = lambda venv: _site_packages(venv)  # noqa: E731

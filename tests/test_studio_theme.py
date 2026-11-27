@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The shared window theme (desktop.Studio_Theme) and its bundled Lucide icons."""
-import importlib.util
 import os
 from pathlib import Path
 import re
@@ -36,20 +35,12 @@ from desktop.Studio_Theme import (  # noqa: E402
     studio_palette,
     studio_stylesheet,
 )
-from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from tests.theme_fixture import apply_theme_for_class, load_update_icons  # noqa: E402
 
 
 def flush(app):
     for _ in range(4):
         app.processEvents()
-
-
-def load_update_icons():
-    path = SRC / "resources" / "icons" / "Update_Icons.py"
-    spec = importlib.util.spec_from_file_location("update_icons_under_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class StudioThemeTests(unittest.TestCase):

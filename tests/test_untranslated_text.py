@@ -6,10 +6,8 @@
 
 Each window opens under the pseudo-language made from the real catalog
 (src/resources/languages/emapssn.ts). Text that came from the catalog shows
-bracketed, so whatever shows unbracketed was never marked for translation.
-Until a window's text is marked, all of it shows that way. Once none is
-left, the window joins FULLY_MARKED, and from then on a new unmarked text
-fails its test. Text that is translated must also show whole.
+bracketed, so whatever shows unbracketed was never marked for translation
+and fails its test. Text that is translated must also show whole.
 
 The Viewer is covered by its main window (its title) and by the Console
 window, which shows the page buttons its web plugins register. Its canvas
@@ -65,10 +63,6 @@ from tests.translation_fixtures import (
     unmarked_dialog_texts,
     visible_texts,
 )
-
-# Windows whose every text comes from a catalog. Marking a window's text
-# (language step 6) moves it here.
-FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window", "Console window"})
 
 # Files under src whose every text on the Viewer's canvas comes from a
 # catalog. Marking a file's console messages moves it here.
@@ -214,10 +208,7 @@ class WindowTextTests(WindowTestCase):
         texts = visible_texts(window)
         self.assertTrue(texts, f"{name} shows no text at all")
         unmarked = [(where, text) for where, text in texts if not is_pseudo_translated(text)]
-        if name in FULLY_MARKED:
-            self.assertEqual(unmarked, [], f"{name} shows text not marked for translation")
-        else:
-            self.assertTrue(unmarked, f"Every text in {name} is marked now: add it to FULLY_MARKED.")
+        self.assertEqual(unmarked, [], f"{name} shows text not marked for translation")
         self.assertEqual(self.cut_off_on_every_tab(window), [], f"{name} cuts translated text off")
 
     def cut_off_on_every_tab(self, window):

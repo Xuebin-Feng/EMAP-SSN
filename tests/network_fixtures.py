@@ -1,13 +1,14 @@
-"""Networks and former-code references shared by the edge-filter tests.
+"""Networks and former-code references shared by the edge-filter and statistics tests.
 
 write_network() writes a network in the dtypes real files use, its pairs in no
 particular order (as stored networks are); ArraySource stands in for a ScoreSource
-over arrays in memory. former_pair_scores() and former_threshold_prepare() restate what
-desktop.Viewer_State.prepare_network did before it streamed the pairs (it loaded every
-column, scored them all, and then masked or partitioned): the references the streamed
-output is compared with.
+over arrays in memory. former_pair_scores(), former_threshold_prepare(), and
+legacy_statistics_report() restate what the whole-column readers computed before
+streaming the pairs: the references the streamed output is compared with.
 """
 
+import math
+import os
 import pathlib
 import sys
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import Cache_Manifest as cache_manifest
 from desktop.Viewer_State import _normalize_score
 from utilities import Network_Score_Statistics as scan
 
@@ -184,3 +186,127 @@ def former_threshold_prepare(path, settings, selected):
         [headers[index] for index in kept_indices], edges, edge_scores,
         settings.SIMILARITY_THRESHOLD, printed,
     )
+
+
+def legacy_statistics_report(network_path, fasta_path, score_mode, norm_mode, keep_scores=False):
+    """ConfigGUI.run_statistics' numbers, from whole columns, as at 85bb43e. None: no edges.
+
+    keep_scores adds the sorted scores under "_sorted_scores", for tests of rows the old code made but the new one caps.
+    """
+    from Bio import SeqIO
+
+    with h5py.File(network_path, "r") as hf:
+        metadata = cache_manifest.validate_network_schema(hf)
+        is_blast = metadata.network_type == "blast"
+        kept_mask = None
+        if fasta_path and os.path.exists(fasta_path):
+            fasta_ids = set()
+            fasta_headers = set()
+            with open(fasta_path) as handle:
+                for rec in SeqIO.parse(handle, "fasta"):
+                    fasta_ids.add(rec.id)
+                    fasta_headers.add(rec.description)
+            raw_headers = hf["headers"][:]
+            headers = [h.decode("utf-8") if isinstance(h, bytes) else h for h in raw_headers]
+            net_headers_set = set(headers)
+            net_id_set = {h.split()[0] for h in headers}
+            missing_nodes = [hid for hid in fasta_ids if hid not in net_id_set and hid not in net_headers_set]
+            if missing_nodes:
+                raise ValueError(f"missing {len(missing_nodes)}")
+            valid_indices = []
+            for i, h in enumerate(headers):
+                rec_id = h.split()[0]
+                if h in fasta_headers or rec_id in fasta_ids:
+                    valid_indices.append(i)
+            if len(valid_indices) < len(headers):
+                kept_mask = np.zeros(len(headers), dtype=bool)
+                kept_mask[valid_indices] = True
+
+        sources = hf["i"][:]
+        targets = hf["j"][:]
+        if is_blast:
+            raw_scores = hf["score"][:]
+        else:
+            if score_mode == "local":
+                raw_scores = hf["l_score"][:].astype(np.float32, copy=False)
+                length_name = "l_len"
+            else:
+                raw_scores = hf["g_score"][:].astype(np.float32, copy=False)
+                length_name = "g_len"
+            align_lens = None
+            if norm_mode not in ("shorter_sequence", "longer_sequence", "average_sequence"):
+                align_lens = hf[length_name][:].astype(np.float32)
+            if "seq_lens" in hf:
+                seq_lens = hf["seq_lens"][:]
+            else:
+                seq_lens = np.ones(int(max(sources.max(), targets.max())) + 1)
+
+        if kept_mask is not None:
+            valid_edges_mask = kept_mask[sources] & kept_mask[targets]
+            raw_scores = raw_scores[valid_edges_mask]
+            sources = sources[valid_edges_mask]
+            targets = targets[valid_edges_mask]
+            if not is_blast and align_lens is not None:
+                align_lens = align_lens[valid_edges_mask]
+
+        if is_blast:
+            scores = raw_scores.astype(np.float32)
+        else:
+            epsilon = 1e-6
+            if norm_mode == "alignment_length":
+                denom = align_lens
+            else:
+                len_src = seq_lens[sources].astype(np.float32)
+                len_dst = seq_lens[targets].astype(np.float32)
+                if norm_mode == "shorter_sequence": denom = np.minimum(len_src, len_dst)
+                elif norm_mode == "longer_sequence": denom = np.maximum(len_src, len_dst)
+                elif norm_mode == "average_sequence": denom = (len_src + len_dst) / 2.0
+                else: denom = align_lens
+            denom = np.maximum(denom, epsilon)
+            scores = (raw_scores / denom).astype(np.float32)
+
+    if len(scores) == 0:
+        return None
+    max_score = np.max(scores)
+    min_score = np.min(scores)
+    avg_score = np.mean(scores)
+    sorted_scores = np.sort(scores)
+    stored_edges = len(sorted_scores)
+    total_nodes = np.sum(kept_mask) if kept_mask is not None else len(headers)
+    theoretical_max_edges = (total_nodes * (total_nodes - 1)) / 2.0
+    if is_blast:
+        start_val = int(math.floor(min_score))
+        limit_step_1 = min(100, int(math.ceil(max_score)))
+        thresh_low = np.arange(start_val, limit_step_1 + 1, 1)
+        if max_score > 100:
+            thresh_high = np.arange(105, int(math.ceil(max_score)) + 5, 5)
+            thresholds = np.concatenate([thresh_low, thresh_high])
+        else:
+            thresholds = thresh_low
+    else:
+        start_val = math.floor(min_score * 10) / 10.0
+        thresholds = np.arange(start_val, max_score + 0.1, 0.1)
+    indices = np.searchsorted(sorted_scores, thresholds, side="left")
+    counts = stored_edges - indices
+    rows = []
+    for thresh, count in zip(thresholds, counts):
+        pct = (count / theoretical_max_edges) * 100.0 if theoretical_max_edges > 0 else 0
+        value = f"{int(thresh)}" if is_blast else f"{thresh:.1f}"
+        rows.append((value, f"{count}", f"{pct:.2f}%"))
+    report = {
+        "model": metadata.model_name,
+        "fasta": os.path.basename(fasta_path),
+        "nodes": int(total_nodes),
+        "blast": is_blast,
+        "score_mode": score_mode,
+        "normalization": norm_mode,
+        "stored_edges": int(stored_edges),
+        "possible_edges": int(theoretical_max_edges),
+        "maximum": float(max_score),
+        "minimum": float(min_score),
+        "mean": float(avg_score),
+        "rows": rows,
+    }
+    if keep_scores:
+        report["_sorted_scores"] = sorted_scores
+    return report

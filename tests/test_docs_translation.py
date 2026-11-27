@@ -31,6 +31,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -1132,6 +1133,16 @@ class BrowserTests(unittest.TestCase):
         self.QTimer.singleShot(milliseconds, loop.quit)
         loop.exec()
 
+    def wait_until(self, predicate, *, timeout_ms=5000, interval_ms=15, message="condition"):
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        while True:
+            value = predicate()
+            if value:
+                return value
+            if time.monotonic() >= deadline:
+                self.fail(f"Timed out waiting for {message}")
+            self.pump(interval_ms)
+
     def run_js(self, code):
         result = {}
         loop = self.QEventLoop()
@@ -1146,14 +1157,42 @@ class BrowserTests(unittest.TestCase):
         self.assertIn("value", result, "the page did not answer: " + code)
         return result["value"]
 
-    def load(self, url):
+    def _wait_for_ready(self):
+        ready_js = (
+            "document.readyState === 'complete' && typeof window.docsLanguageTarget === 'function' && ("
+            "!location.hash || (() => {"
+            "  var target = document.getElementById(location.hash.slice(1));"
+            "  if (!target) return true;"
+            "  var box = target.getBoundingClientRect();"
+            "  var atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;"
+            "  var inPlace = (box.top <= window.innerHeight * 0.2 || atEnd) && box.bottom > 0 && box.top < window.innerHeight;"
+            "  var highlighted = !target.classList.contains('command-card') || target.classList.contains('highlight-card');"
+            "  return inPlace && highlighted;"
+            "})())"
+        )
+        self.wait_until(lambda: self.run_js(ready_js), message="page to finish loading and settle")
+
+    def _wait_for_load(self, trigger):
+        loaded = []
         loop = self.QEventLoop()
-        self.view.loadFinished.connect(lambda ok: loop.quit())
-        self.view.load(url)
-        self.QTimer.singleShot(20000, loop.quit)
-        loop.exec()
-        self.pump(600)
-        self.assertEqual(self.run_js("document.readyState"), "complete")
+
+        def finished(ok):
+            loaded.append(ok)
+            loop.quit()
+
+        self.view.loadFinished.connect(finished)
+        try:
+            trigger()
+            if not loaded:
+                self.QTimer.singleShot(20000, loop.quit)
+                loop.exec()
+        finally:
+            self.view.loadFinished.disconnect(finished)
+        self.assertEqual(loaded, [True])
+        self._wait_for_ready()
+
+    def load(self, url):
+        self._wait_for_load(lambda: self.view.load(url))
 
     def open(self, path, fragment=None):
         url = self.QUrl.fromLocalFile(str(path))
@@ -1163,7 +1202,15 @@ class BrowserTests(unittest.TestCase):
 
     def scroll_to(self, section):
         self.run_js("document.documentElement.style.scrollBehavior = 'auto'; document.getElementById('%s').scrollIntoView()" % section)
-        self.pump(300)
+        scrolled_js = (
+            "(() => {"
+            "  var target = document.getElementById(%r);"
+            "  var box = target.getBoundingClientRect();"
+            "  var atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;"
+            "  return (box.top >= -1 && box.top <= window.innerHeight * 0.2) || (atEnd && box.bottom > 0 && box.top < window.innerHeight);"
+            "})()"
+        ) % section
+        self.wait_until(lambda: self.run_js(scrolled_js), message=f"scroll to {section}")
 
     OTHER_LANGUAGE = "Array.from(document.querySelector('.lang-switch select').options).find(o => !o.defaultSelected).value"
 
@@ -1173,16 +1220,10 @@ class BrowserTests(unittest.TestCase):
 
     def follow_switch(self):
         """Chooses the other language in the dropdown, as a reader does, and waits for its page."""
-        loop = self.QEventLoop()
-        self.view.loadFinished.connect(lambda ok: loop.quit())
-        self.run_js(
+        self._wait_for_load(lambda: self.run_js(
             "var select = document.querySelector('.lang-switch select'); select.value = %s; "
             "select.dispatchEvent(new Event('change')); 1" % self.OTHER_LANGUAGE
-        )
-        self.QTimer.singleShot(20000, loop.quit)
-        loop.exec()
-        self.pump(600)
-        self.assertEqual(self.run_js("document.readyState"), "complete")
+        ))
 
     def facts(self):
         return json.loads(self.run_js(
@@ -1250,7 +1291,10 @@ class BrowserTests(unittest.TestCase):
     def test_the_switch_finds_the_section_at_the_end_of_the_page_too(self):
         self.open(self.CHINESE, "cmd-agent")
         self.run_js("window.scrollTo(0, document.documentElement.scrollHeight)")
-        self.pump(300)
+        self.wait_until(
+            lambda: self.run_js("window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2"),
+            message="scroll to bottom of page",
+        )
         self.assertEqual(self.switch_link(), UP + "list_of_commands.html#cmd-agent")
 
     def choose_theme(self, theme):
@@ -1314,15 +1358,25 @@ class BrowserTests(unittest.TestCase):
         )
 
     def test_each_page_draws_chinese_in_the_language_font_and_an_english_page_loads_none(self):
+        loaded_js = (
+            "Array.from(document.fonts).filter(f => f.status === 'loaded' && f.unicodeRange.indexOf('4E00') >= 0)"
+            ".map(f => f.family.replace(/[\"']/g, '') + ' ' + f.weight).sort().join(',')"
+        )
         for page, chinese in ((self.CHINESE, True), (self.CHINESE_QUICK, True), (self.ENGLISH, False), (self.ENGLISH_QUICK, False)):
             with self.subTest(page=page.relative_to(ROOT).as_posix()):
                 self.open(page)
-                self.pump(600)
-                loaded = self.run_js(
-                    "Array.from(document.fonts).filter(f => f.status === 'loaded' && f.unicodeRange.indexOf('4E00') >= 0)"
-                    ".map(f => f.family.replace(/[\"']/g, '') + ' ' + f.weight).sort().join(',')"
-                )
-                self.assertEqual(loaded, "EMAP-SSN Language 400,EMAP-SSN Language 700" if chinese else "")
+                expected = "EMAP-SSN Language 400,EMAP-SSN Language 700" if chinese else ""
+                if chinese:
+                    self.wait_until(
+                        lambda: self.run_js(loaded_js) == expected,
+                        message=f"language fonts to load on {page.name}",
+                    )
+                else:
+                    self.wait_until(
+                        lambda: self.run_js("document.fonts.status === 'loaded'"),
+                        message=f"document.fonts to settle on {page.name}",
+                    )
+                self.assertEqual(self.run_js(loaded_js), expected)
 
 
 class ChineseFontTests(unittest.TestCase):

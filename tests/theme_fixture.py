@@ -14,6 +14,7 @@ contrast mode.
 
 Not collected by unittest; import with ``from tests.theme_fixture import ...``.
 """
+import importlib.util
 from pathlib import Path
 import sys
 
@@ -55,3 +56,12 @@ def apply_theme_for_class(test_class, app):
 
     apply_studio_theme(app, DEFAULT_THEME_COLOR, high_contrast=False)
     test_class.addClassCleanup(restore)
+
+
+def load_update_icons():
+    """Load src/resources/icons/Update_Icons.py as a module."""
+    path = SRC / "resources" / "icons" / "Update_Icons.py"
+    spec = importlib.util.spec_from_file_location("update_icons_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

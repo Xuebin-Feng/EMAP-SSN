@@ -164,7 +164,7 @@ class StatisticsWindowTests(unittest.TestCase):
         self.assertIn("Total Nodes Processed: 6", self.report())
 
     def test_the_report_is_the_one_the_whole_column_code_gave(self):
-        from tests.test_network_score_statistics import legacy_statistics_report
+        from tests.network_fixtures import legacy_statistics_report
 
         for fasta in ("all.fasta", "half.fasta"):
             with self.subTest(fasta=fasta):

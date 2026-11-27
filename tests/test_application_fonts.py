@@ -729,13 +729,7 @@ class SimplifiedChineseFontTests(unittest.TestCase):
             ((HELP_PAGES_DIR / page.name).read_text(encoding="utf-8"), page.read_text(encoding="utf-8"))
             for page in pages
         ]
-        # The translated documentation pages are drawn in the same files (their language.css).
-        pages = sorted((LANGUAGES_DIR / "zh_CN" / "docs").glob("*.html"))
-        self.assertEqual([page.name for page in pages], ["list_of_commands.html", "quickstart.html"])
-        pairs += [
-            ((PROJECT_ROOT / "docs" / page.name).read_text(encoding="utf-8"), page.read_text(encoding="utf-8"))
-            for page in pages
-        ]
+        # Translated HTML documentation pages are checked by tests.test_docs_translation.ChineseFontTests.
         catalog = characters_added(pairs)
         self.assertEqual(characters_added([("⚙ Save", "⚙ 保存")]), {"保", "存"}, "the English's own symbols aside")
 

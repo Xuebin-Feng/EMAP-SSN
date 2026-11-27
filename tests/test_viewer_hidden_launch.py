@@ -1,6 +1,6 @@
 """A real hidden Viewer, started and driven through the MCP client (mode="hidden").
 
-Launches the Viewer on the two-node fixture of tests/test_mcp_viewer_lifecycle.py on
+Launches the Viewer on the two-node fixture of tests/mcp_viewer_fixtures.py on
 Qt's native platform with its window kept off screen, and checks what hidden mode is
 for: capture_view and print render while the window is hidden, the window comes on
 screen and goes off again with its state intact, and closing a shown window ends
@@ -25,8 +25,12 @@ import psutil
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from PIL import Image
-from tests import test_mcp_viewer_lifecycle as lifecycle
 from tests import layout_fixtures as fixtures
+from tests.mcp_viewer_fixtures import (
+    create_viewer_fixture,
+    launch_environment,
+    stop_recorded_launches,
+)
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 from utilities.Viewer_Display import display_unavailable_reason
 
@@ -64,11 +68,9 @@ def process_tree(pid):
 
 class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
     def fixture(self):
-        fixture = lifecycle.SettingsTests()
-        fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         sessions = fixture.root / "sessions"
-        self.addCleanup(lifecycle._stop_recorded_launches, sessions)
+        self.addCleanup(stop_recorded_launches, sessions)
         self.results = fixture.root / "results"
         fixture.document["directories"]["ANALYSIS_RESULT_DIR"] = str(self.results)
         fixture.document["directories"]["METADATA_DIR"] = str(fixture.root / "meta")
@@ -112,7 +114,7 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
         if reason:
             self.skipTest(f"A hidden Viewer needs a display: {reason}.")
         fixture, sessions = self.fixture()
-        with mock.patch.dict(os.environ, lifecycle._launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions)),
+        with mock.patch.dict(os.environ, launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions)),
                              clear=True):
             client = MCPViewerClient(fixtures.ROOT)
             started = time.monotonic()
@@ -199,7 +201,7 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(sys.platform.startswith("linux"), "the no-display case is checked for real on Linux")
     async def test_a_hidden_viewer_without_a_display_runs_headless_and_says_why(self):
         fixture, sessions = self.fixture()
-        environment = lifecycle._launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions))
+        environment = launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions))
         for name in ("DISPLAY", "WAYLAND_DISPLAY"):
             environment.pop(name, None)
         with mock.patch.dict(os.environ, environment, clear=True):

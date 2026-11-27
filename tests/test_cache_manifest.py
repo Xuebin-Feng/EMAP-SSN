@@ -978,7 +978,7 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
             settings = {
                 "SAVED_LAYOUT_DIR": str(layout_root),
                 "TARGET_CACHE_PATH": relative_cache,
-                "TARGET_CACHE_MODE": "new",
+                "TARGET_CACHE_MODE": "existing",
                 "NODE_FASTA_FILE": str(fasta_path),
                 "SEQUENCES_FILE": str(fasta_path),
                 "INPUT_HDF5": str(network_path),
@@ -1014,7 +1014,6 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
             ):
                 generate_layout_cache(gen_settings)
 
-            settings["TARGET_CACHE_MODE"] = "existing"
             # load_and_simulate also sets CACHE_MANIFEST_ID and INPUT_IS_EVALUE.
             with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
                                      INPUT_IS_EVALUE=False, **settings):
@@ -1050,7 +1049,6 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                     "node_render_order", data=np.asarray([1, 0], dtype=np.int32)
                 )
 
-            settings["TARGET_CACHE_MODE"] = "existing"
             # load_and_simulate also sets CACHE_MANIFEST_ID and INPUT_IS_EVALUE.
             with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
                                      INPUT_IS_EVALUE=False, **settings):

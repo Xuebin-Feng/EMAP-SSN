@@ -19,7 +19,6 @@ from mcp_server.core.Workflow_Dispatch import (
 )
 from mcp_server.pipeline import Pipeline_Operations as pipeline_ops
 from mcp_server.viewer import Viewer_Operations as viewer_ops
-from mcp_server.viewer import Viewer_Operations as ops
 
 
 class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
@@ -257,7 +256,7 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
             schema = model.model_json_schema()
             invalid = [{}, {'request_id': 'r', 'submission_id': 's'}, {'request_id': ''},
                        {'submission_id': ' '}, {'request_id': 1}, {'submission_id': False}]
-            with mock.patch.object(ops, '_portal_call') as transport:
+            with mock.patch.object(viewer_ops, '_portal_call') as transport:
                 for arguments in invalid:
                     with self.subTest(action=action, arguments=arguments):
                         with self.assertRaises(ToolError):
@@ -267,7 +266,7 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
                 transport.assert_not_called()
             for arguments in ({'request_id': 'r'}, {'submission_id': 's'}, {'request_id': None, 'submission_id': 's'}):
                 jsonschema.validate(arguments, schema)
-                with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value={}) as transport:
+                with mock.patch.object(viewer_ops, '_portal_call', new_callable=mock.AsyncMock, return_value={}) as transport:
                     await dispatch('emapssn_viewer_data', action, arguments, None)
                     forwarded = transport.call_args.args[2]
                     for key, value in arguments.items():
@@ -275,7 +274,7 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_execution_followup_uses_returned_session_on_new_and_retry(self):
         result = {'request_id': 'r', 'session_id': 'origin', 'submission_id': 's', 'status': 'queued'}
-        with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result):
+        with mock.patch.object(viewer_ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result):
             for _ in range(2):
                 response = await dispatch('emapssn_viewer_control', 'execute_commands',
                                           {'submission_id': UUID, 'commands': 'select help'}, None)
@@ -291,7 +290,7 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
         accepted = [UUID, str(uuid.uuid4()), uuid.uuid4().hex, 'a' * 32, 'b' * 128]
         refused = ['', 's', 'task-1', 'x' * 31, 'y' * 129, ' ' * 10, 7, None, ['a' * 40]]
         result = {'request_id': 'r', 'session_id': 'origin', 'submission_id': 's', 'status': 'queued'}
-        with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result) as transport:
+        with mock.patch.object(viewer_ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result) as transport:
             for value in accepted:
                 with self.subTest(accepted=value):
                     await dispatch('emapssn_viewer_control', 'execute_commands',

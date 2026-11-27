@@ -23,72 +23,32 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest import mock
 
-import numpy as np
 import psutil
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from tests import layout_fixtures as fixtures
-from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
+from tests.mcp_viewer_fixtures import (
+    create_viewer_fixture,
+    launch_environment,
+    stop_recorded_launches,
+)
 from desktop.Viewer_State import (
     validate_viewer_document,
     ViewerSettingsError,
-    normalize_viewer_settings,
-    DEFAULTS,
-    encode_document,
     VIEWER_SECTIONS,
 )
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError, MCPViewerTimeout
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
 
-# Launched Viewers must cope with whatever encoding their pipes and log files
-# get: a UTF-8 override, set here or inherited from the shell, once hid a crash
-# on non-UTF-8 output. Launches therefore run without one.
-_ENCODING_OVERRIDES = ("PYTHONIOENCODING", "PYTHONUTF8")
-
-
-def _launch_environment(**values):
-    """os.environ without UTF-8 encoding overrides, plus ``values``."""
-    environment = {name: value for name, value in os.environ.items() if name not in _ENCODING_OVERRIDES}
-    environment.update(values)
-    return environment
-
-
-def _stop_recorded_launches(sessions_root):
-    """Stop every launch process still recorded under ``sessions_root`` (test cleanup).
-
-    A normal launch records two: the session launcher (process.json) and the
-    Viewer its monitor runs (window-process.json). The monitor is detached, so
-    stopping the launcher after it has ended leaves the Viewer.
-    """
-    from mcp_server.viewer import Viewer_Client
-    for name in ("process.json", "window-process.json"):
-        for identity in Path(sessions_root).glob(f"launches/*/{name}"):
-            process = Viewer_Client._recorded_process(identity)
-            if process is not None:
-                try:
-                    Viewer_Client._terminate_tree(process)
-                except MCPViewerError:
-                    pass
-
 
 class SettingsTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        fixtures.write_inputs(self.root)
-        settings = LayoutGenerationSettings.from_document(fixtures.settings_document(self.root), project_root=fixtures.ROOT)
-        with mock.patch("Layout_Engine_SSN.calculate_layout", return_value=(np.array([[0, 0], [1, 1]], dtype=np.float32), 10.0)):
-            self.cache = generate_layout_cache(settings).cache_path
-        self.document = dict(TARGET_CACHE_PATH=self.cache, NODE_FASTA_FILE=str(self.root / "set.fasta"),
-            INPUT_HDF5=str(self.root / "network.h5"), MSA_FILE="", UMAP_MODE=False,
-            ALIGNMENT_SCORE="global", NORM_MODE="alignment_length", SIMILARITY_THRESHOLD=0.1,
-            TOP_EDGE_PERCENT=None,
-            # Launched Viewers create this folder; keep it out of the project.
-            SAVED_LAYOUT_DIR=str(self.root / "layouts"))
-        self.document = encode_document("viewer", {**DEFAULTS, **self.document})
+        fixture = create_viewer_fixture(self)
+        self.root = fixture.root
+        self.cache = fixture.cache
+        self.document = fixture.document
 
     def test_complete_document_and_no_personal_settings(self):
         with mock.patch.dict(os.environ, {"SSN_VIEWER_SETTINGS_PATH": "unrelated.json"}):
@@ -145,8 +105,7 @@ class SettingsTests(unittest.TestCase):
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_validation_preserves_missing_reference_preferences(self):
-        fixture = SettingsTests(); fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         msa_path = fixture.root / "alignment.fasta"
         msa_path.write_text(">Alpha_Beta\nAA\n>Gamma_Delta\nCC\n", encoding="utf-8")
         fixture.document["alignment"].update(
@@ -177,14 +136,13 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             # A normal Viewer opens a window, which needs a display; the launcher
             # then ends with an error, which other tests cover.
             self.skipTest("no display is reachable")
-        fixture = SettingsTests(); fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         # Runs before the folder goes (cleanups run in reverse order), whatever
         # the launch returned: on 2026-10-12 a launch that never became ready
         # left its launcher and Viewer running after the test failed.
-        self.addCleanup(_stop_recorded_launches, fixture.root / "sessions")
+        self.addCleanup(stop_recorded_launches, fixture.root / "sessions")
         # The splash is built but drawn nowhere (the Viewer's window is real, by design).
-        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions"),
+        with mock.patch.dict(os.environ, launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions"),
                                                              SSN_SPLASH_HIDDEN="1"),
                              clear=True):
             client = MCPViewerClient(fixtures.ROOT)
@@ -265,7 +223,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         # The fake loaders sleep for 60 s: stop them even when an assertion fails
         # (cleanups run in reverse order, so before the folder is removed).
-        self.addCleanup(_stop_recorded_launches, root / "sessions")
+        self.addCleanup(stop_recorded_launches, root / "sessions")
         (root / "src").mkdir()
         (root / "src" / "EMAPSSN_Config.py").write_text(
             "import time,sys\nprint('x'*1000000,flush=True)\nprint('Loading phase two',flush=True)\ntime.sleep(60)\n"
@@ -374,10 +332,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await client.close_session("session", launch_id=unknown)
 
     async def test_slow_launch_hands_off_to_wait_session_over_mcp(self):
-        fixture = SettingsTests(); fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         launch_id = None
-        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
+        with mock.patch.dict(os.environ, launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
                              clear=True), \
                 mock.patch.object(tempfile, "tempdir", str(fixture.root)):
             async with Client(mcp) as client:
@@ -424,13 +381,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         # A launched Viewer prints to a pipe or a log file, which Python opens in
         # the ANSI code page on Windows, so a command echoing "α-amylase" ended
         # with "'charmap' codec can't encode character".
-        fixture = SettingsTests(); fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         sessions = fixture.root / "sessions"
-        self.addCleanup(_stop_recorded_launches, sessions)
+        self.addCleanup(stop_recorded_launches, sessions)
         # Deliberately not UTF-8, unlike the other launches: cp1252 is that pipe
         # encoding on Western Windows, and the variable sets it on any platform.
-        environment = _launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions), PYTHONIOENCODING="cp1252")
+        environment = launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions), PYTHONIOENCODING="cp1252")
         with mock.patch.dict(os.environ, environment, clear=True):
             client = MCPViewerClient(fixtures.ROOT)
             info = await client.launch_session(settings_document=fixture.document, mode="headless", timeout=120)
@@ -564,7 +520,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (root / "src" / "desktop").mkdir(parents=True)
         (root / "src" / "desktop" / "Desktop_Launcher.py").write_text(self.START_VIEWER + script, encoding="utf-8")
-        self.addCleanup(_stop_recorded_launches, root / "sessions")  # before the directory is removed
+        self.addCleanup(stop_recorded_launches, root / "sessions")  # before the directory is removed
         self.enterContext(mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}))
         self.enterContext(mock.patch.object(Viewer_Client, "validate_viewer_document",
                                             return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}))
@@ -668,8 +624,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((Path(Viewer_Client.__file__).parent / "Viewer_Terminal.py").exists())
 
     async def test_stdio_survival_connection_isolation_and_verified_close(self):
-        fixture = SettingsTests(); fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = create_viewer_fixture(self)
         msa_path = fixture.root / "alignment.fasta"
         msa_path.write_text(">Alpha_Beta\nAA\n>Gamma_Delta\nCC\n", encoding="utf-8")
         fixture.document["alignment"].update(
@@ -677,7 +632,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             FILTER_MIN_OCCUPANCY=75, ALIGNMENT_OFFSET=10,
         )
         directory = fixture.root / "sessions"
-        environment = _launch_environment(SSN_VIEWER_SESSION_DIR=str(directory),
+        environment = launch_environment(SSN_VIEWER_SESSION_DIR=str(directory),
                                           TEMP=str(fixture.root), TMP=str(fixture.root), TMPDIR=str(fixture.root))
         parameters = StdioServerParameters(command=sys.executable,
             args=["-u", str(fixtures.SRC / "EMAPSSN_MCP_Server.py")], cwd=str(fixtures.ROOT), env=environment)
