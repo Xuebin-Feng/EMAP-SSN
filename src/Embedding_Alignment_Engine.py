@@ -1151,12 +1151,6 @@ class CudaWorkloadEstimate:
     real_elements: int = 0
     schedule_signature: tuple = ()
 
-    @property
-    def padding_ratio(self):
-        if self.real_elements <= 0:
-            return 0.0
-        return max(0.0, self.padded_elements / self.real_elements - 1.0)
-
 
 @dataclass(frozen=True)
 class AdaptiveTilePlan:

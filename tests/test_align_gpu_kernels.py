@@ -5,6 +5,7 @@
 """Unit tests for runtime-compiled fused GPU alignment and SSEARCH kernels."""
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -20,7 +21,7 @@ import Embedding_Alignment_Engine as engine
 from tools import Align_Similarity_Matrix as align_tool
 from tools import Embedding_SSEARCH as ssearch_tool
 from utilities import Align_GPU_Kernels
-from utilities.Network_Kernels import global_local_scores
+from utilities.Network_Kernels import PACKED_MAX_PAIRS, PACKED_MAX_PATH, global_local_scores
 from utilities.Similarity_Matrices import similar_pair_table
 
 
@@ -36,15 +37,138 @@ class AlignGPUKernelsCompileOptionsTests(unittest.TestCase):
 
         # Kernel source must route all ROCm/hiprtc builds to the portable shared-memory path
         # and synchronize after reading smem_warp[0] before returning from warp_sum_32.
-        self.assertIn(
-            "#if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC_RTC__) || defined(__HIP__)",
+        hip_guard = re.search(
+            r"#if\s+([^\n]+)\s*\n\s*#define\s+SSN_ALIGN_HIP_PATH\b",
             Align_GPU_Kernels.KERNEL_SOURCE,
         )
-        self.assertNotIn("#ifdef __HIP_PLATFORM_AMD__", Align_GPU_Kernels.KERNEL_SOURCE)
-        self.assertIn(
-            "float res = smem_warp[0];\n    __syncthreads();\n    return res;",
+        self.assertIsNotNone(hip_guard, "Missing SSN_ALIGN_HIP_PATH preprocessor guard")
+        for macro in ("__HIP_PLATFORM_AMD__", "__HIPCC_RTC__", "__HIP__"):
+            self.assertRegex(hip_guard.group(1), rf"defined\(\s*{macro}\s*\)")
+        self.assertNotRegex(Align_GPU_Kernels.KERNEL_SOURCE, r"#ifdef\s+__HIP_PLATFORM_AMD__\b")
+        warp_fn = re.search(
+            r"warp_sum_32\s*\([^)]*\)\s*\{(?P<body>.*?)\n\}",
             Align_GPU_Kernels.KERNEL_SOURCE,
+            flags=re.DOTALL,
         )
+        self.assertIsNotNone(warp_fn, "Missing warp_sum_32 definition")
+        self.assertRegex(
+            warp_fn.group("body"),
+            r"float\s+(\w+)\s*=\s*smem_warp\[\s*0\s*\]\s*;\s*__syncthreads\(\s*\)\s*;\s*return\s+\1\s*;",
+        )
+
+
+class AlignGPUKernelsCPUHelperTests(unittest.TestCase):
+    """CPU-always unit tests for Align_GPU_Kernels policy, sizing, and fallback helpers."""
+
+    def test_kernels_disabled_and_align_kernels_short_circuit(self):
+        var = Align_GPU_Kernels.DISABLE_ENVIRONMENT_VARIABLE
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(var, None)
+            self.assertFalse(Align_GPU_Kernels.kernels_disabled())
+        for enabled_val in ("", "1", "true", "yes", "on"):
+            with self.subTest(value=enabled_val), mock.patch.dict(os.environ, {var: enabled_val}):
+                self.assertFalse(Align_GPU_Kernels.kernels_disabled())
+        for disabled_val in ("0", "off", "false", "no", " OFF ", "False"):
+            with self.subTest(value=disabled_val), mock.patch.dict(os.environ, {var: disabled_val}):
+                self.assertTrue(Align_GPU_Kernels.kernels_disabled())
+        with mock.patch.dict(os.environ, {var: "0"}), \
+                mock.patch.object(torch.cuda, "is_available", return_value=True):
+            self.assertIsNone(Align_GPU_Kernels.align_kernels(torch.device("cuda:0")))
+
+    def test_fallback_reason_reports_device_disable_and_recorded_failure(self):
+        self.assertIn("cpu", Align_GPU_Kernels.fallback_reason(torch.device("cpu")))
+        self.assertIn("mps", Align_GPU_Kernels.fallback_reason("mps"))
+        var = Align_GPU_Kernels.DISABLE_ENVIRONMENT_VARIABLE
+        with mock.patch.dict(os.environ, {var: "0"}):
+            reason = Align_GPU_Kernels.fallback_reason(torch.device("cuda:0"))
+            self.assertIn(var, reason)
+        with mock.patch.dict(os.environ, {var: "1"}), \
+                mock.patch.dict(Align_GPU_Kernels._REASONS, {0: "RuntimeError: mock compile failed"}, clear=True):
+            self.assertEqual(
+                Align_GPU_Kernels.fallback_reason(torch.device("cuda:0")),
+                "RuntimeError: mock compile failed",
+            )
+            self.assertIsNone(Align_GPU_Kernels.fallback_reason(torch.device("cuda:1")))
+
+    def test_can_use_fused_search_validates_gaps_and_packed_length_bounds(self):
+        tasks = [(0, "t0"), (1, "t1")]
+        lengths = [64, 128]
+        task_index = lambda t: t[0]
+
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search([], 100, lengths, {"mode": "local", "gap": -2.0}, task_index))
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, None, task_index))
+        self.assertTrue(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, {"mode": "local", "gap": -2.0}, task_index))
+        self.assertTrue(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, {"mode": "global", "gap": 0.0}, task_index))
+        self.assertTrue(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, {"mode": "global", "gap": -0.5}, task_index))
+
+        # Non-exact float32 gaps are rejected cleanly.
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, {"mode": "local", "gap": -0.7}, task_index))
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, 100, lengths, {"mode": "global", "gap": -0.1}, task_index))
+
+        # Invalid or overflowed sequence / path lengths are rejected cleanly.
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, 0, lengths, {"mode": "local", "gap": -2.0}, task_index))
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, PACKED_MAX_PAIRS + 1, lengths, {"mode": "local", "gap": -2.0}, task_index))
+        self.assertFalse(Align_GPU_Kernels.can_use_fused_search(tasks, 100, [0, 0], {"mode": "local", "gap": -2.0}, task_index))
+        self.assertFalse(
+            Align_GPU_Kernels.can_use_fused_search(
+                tasks, PACKED_MAX_PAIRS, [PACKED_MAX_PATH - PACKED_MAX_PAIRS + 1, 10],
+                {"mode": "global", "gap": 0.0}, task_index,
+            )
+        )
+
+    def test_choose_block_residues_respects_vram_streams_override_and_max_seq(self):
+        # Huge VRAM clamps at DEFAULT_BLOCK_RESIDUES.
+        large = Align_GPU_Kernels._choose_block_residues(32 * (1 << 30), 2, 200)
+        self.assertEqual(large, Align_GPU_Kernels.DEFAULT_BLOCK_RESIDUES)
+
+        # Tiny VRAM without override hits the 16 MiB per-stream floor -> side 2048.
+        tiny = Align_GPU_Kernels._choose_block_residues(16 * (1 << 20), 2, 200)
+        self.assertEqual(tiny, 2048)
+
+        # Tiny matrix_budget_override hits the 4 MiB floor -> MIN_BLOCK_RESIDUES (1024).
+        tiny_override = Align_GPU_Kernels._choose_block_residues(
+            16 * (1 << 20), 2, 200, matrix_budget_override=1
+        )
+        self.assertEqual(tiny_override, Align_GPU_Kernels.MIN_BLOCK_RESIDUES)
+
+        # Multiple streams divide the per-stream matrix budget.
+        one_stream = Align_GPU_Kernels._choose_block_residues(512 * (1 << 20), 1, 100)
+        two_streams = Align_GPU_Kernels._choose_block_residues(512 * (1 << 20), 2, 100)
+        self.assertEqual(one_stream % 512, 0)
+        self.assertEqual(two_streams % 512, 0)
+        self.assertGreater(one_stream, two_streams)
+
+        # matrix_budget_override caps per-stream budget (4 MiB -> side 1024).
+        overridden = Align_GPU_Kernels._choose_block_residues(
+            32 * (1 << 30), 1, 100, matrix_budget_override=4 * 1024 * 1024
+        )
+        self.assertEqual(overridden, 1024)
+
+        # Never returns smaller than max_seq_len.
+        self.assertEqual(
+            Align_GPU_Kernels._choose_block_residues(16 * (1 << 20), 2, 12345),
+            12345,
+        )
+
+    def test_active_task_block_ids_packs_hubs_first_and_respects_block_budget(self):
+        # Empty tasks -> all-zero int32 array.
+        empty = Align_GPU_Kernels._active_task_block_ids([], 5, [10] * 5, 16, 4, 1024)
+        self.assertEqual(empty.dtype, np.int32)
+        np.testing.assert_array_equal(empty, np.zeros(5, dtype=np.int32))
+
+        # Sequences 8 and 9 are high-degree hubs connected to 0..5; sequences 6, 7 are inactive.
+        # Each seq is 10 rows * 4 dim * 4 B = 160 B; per_block = 320 B fits exactly 2 seqs per block.
+        n_seqs = 10
+        lengths = [10] * n_seqs
+        tasks = [(i, 8, f"s{i}", "s8") for i in range(6)] + [(i, 9, f"s{i}", "s9") for i in range(6)]
+        block_ids = Align_GPU_Kernels._active_task_block_ids(tasks, n_seqs, lengths, 4, 4, 320)
+
+        # Hubs (8, 9) are packed together into block 0 in ascending order.
+        self.assertEqual((int(block_ids[8]), int(block_ids[9])), (0, 0))
+        # Remaining active sequences (0..5) fill blocks 1, 2, 3 in ascending pairs.
+        np.testing.assert_array_equal(block_ids[:6], [1, 1, 2, 2, 3, 3])
+        # Inactive sequences remain at default 0 and never consume space in active blocks.
+        np.testing.assert_array_equal(block_ids[6:8], [0, 0])
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA is unavailable")
@@ -78,11 +202,6 @@ class AlignGPUKernelsTests(unittest.TestCase):
         self.assertIsNotNone(kernels)
         self.assertIsNone(Align_GPU_Kernels.fallback_reason(torch.device("cuda:0")))
         kernels.self_check()
-
-    def test_disable_env_switch(self):
-        with mock.patch.dict(os.environ, {Align_GPU_Kernels.DISABLE_ENVIRONMENT_VARIABLE: "0"}):
-            self.assertTrue(Align_GPU_Kernels.kernels_disabled())
-            self.assertIsNone(Align_GPU_Kernels.align_kernels(torch.device("cuda:0")))
 
     def test_fused_dense_and_sparse_match_reference_default_and_custom_gaps(self):
         lengths = [1, 15, 64, 128, 145, 270]

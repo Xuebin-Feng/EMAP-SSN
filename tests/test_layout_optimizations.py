@@ -105,7 +105,7 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
 
     def test_cpu_spatial_grid_matches_serial_bit_for_bit_2d_and_3d(self):
         from numba import jit
-        from tests.test_parallel_kernels import _serial_kernel_2d, _serial_kernel_3d
+        from tests.layout_fixtures import _serial_kernel_2d, _serial_kernel_3d
 
         for dims, ser_fn in ((2, _serial_kernel_2d), (3, _serial_kernel_3d)):
             ser = jit(nopython=True, fastmath=True)(ser_fn)
@@ -121,15 +121,19 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
             active = np.ones(n, dtype=np.bool_)
             active_nodes = np.arange(n, dtype=np.int32)
             limits = np.full(n, box, dtype=np.float32)
+            params = {
+                "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 4.0,
+                "COULOMB_K": 12.0, "MAX_FORCE_LIMIT": 20.0,
+                "MAX_TOTAL_REPULSION_FORCE": 18.0, "COULOMB_CUTOFF": 25.0,
+            }
 
             p_ref, v_ref = pos.copy(), vel.copy()
             r_ref = ser(p_ref, v_ref, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, 25.0)
-            p_opt, v_opt = pos.copy(), vel.copy()
-            r_opt = ssn._get_physics_kernel(dims)(
-                p_opt, v_opt, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, 25.0
-            )
-            np.testing.assert_array_equal(p_ref, p_opt)
-            np.testing.assert_array_equal(v_ref, v_opt)
+            sim = ssn.SSNSimulationCPU(pos.copy(), edges, comp, limits, params, active_mask=active)
+            sim.vel[:] = vel
+            r_opt = sim.step(0)
+            np.testing.assert_array_equal(p_ref, sim.pos)
+            np.testing.assert_array_equal(v_ref, sim.vel)
             self.assertEqual(r_ref, r_opt)
 
     def test_fused_gustavson_mcl_matches_reference_markov_clustering(self):
@@ -237,7 +241,7 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
 
     def test_cpu_spatial_grid_nonfinite_and_boundary_positions_2d_and_3d(self):
         from numba import jit
-        from tests.test_parallel_kernels import _serial_kernel_2d, _serial_kernel_3d
+        from tests.layout_fixtures import _serial_kernel_2d, _serial_kernel_3d
         from utilities import Layout_CPU_Kernels as cpu_k
 
         for dims, ser_fn, acc_fn in (
@@ -261,15 +265,18 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
                 active = np.ones(n, dtype=np.bool_)
                 active_nodes = np.arange(n, dtype=np.int32)
                 limits = np.full(n, 500.0, dtype=np.float32)
+                params = {
+                    "DT": 0.01, "DAMPING": 0.85, "SPRING_K": 4.0,
+                    "COULOMB_K": 12.0, "MAX_FORCE_LIMIT": 20.0,
+                    "MAX_TOTAL_REPULSION_FORCE": 18.0, "COULOMB_CUTOFF": cutoff,
+                }
 
                 p_ref, v_ref = pos.copy(), vel.copy()
                 r_ref = ser(p_ref, v_ref, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, cutoff)
-                p_opt, v_opt = pos.copy(), vel.copy()
-                r_opt = ssn._get_physics_kernel(dims)(
-                    p_opt, v_opt, edges, comp, active, active_nodes, limits, 0.01, 0.85, 4.0, 12.0, 20.0, 18.0, cutoff
-                )
-                np.testing.assert_array_equal(p_ref, p_opt)
-                np.testing.assert_array_equal(v_ref, v_opt)
+                sim = ssn.SSNSimulationCPU(pos.copy(), edges, comp, limits, params, active_mask=active)
+                r_opt = sim.step(0)
+                np.testing.assert_array_equal(p_ref, sim.pos)
+                np.testing.assert_array_equal(v_ref, sim.vel)
                 self.assertEqual(r_ref, r_opt)
 
                 # Non-finite coordinates at start, middle, and end of an m >= 512 run must
@@ -287,12 +294,10 @@ class Track4LayoutOptimizationTests(unittest.TestCase):
                         12.0, 20.0, 18.0, cutoff,
                     )
                     # Also exercise through the fastmath=True outer physics kernel.
-                    p_step = pos_bad.copy()
-                    v_step = vel.copy()
-                    ssn._get_physics_kernel(dims)(
-                        p_step, v_step, edges, comp, active, active_nodes, limits,
-                        0.01, 0.85, 4.0, 12.0, 20.0, 18.0, cutoff,
+                    sim_bad = ssn.SSNSimulationCPU(
+                        pos_bad.copy(), edges, comp, limits, params, active_mask=active
                     )
+                    sim_bad.step(0)
 
     def test_cpu_layout_module_alias_and_readonly_cache_fallback(self):
         from utilities import Layout_CPU_Kernels as cpu_k

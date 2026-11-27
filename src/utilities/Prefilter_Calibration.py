@@ -10,11 +10,10 @@ an isotonic fit of the normalized score on it.
 
 Embedding_MSA draws its calibration sample from the run's own missing pairs (missing_pairs,
 select_among): an equal number from each of BINS similarity bands, the lowest band included, chosen
-with SEED, then aligned with the network's own scoring. Builds from 89c914b until this change had Align
-store a sample of the skipped pairs in the network file instead (select_calibration drew it,
-write_record stored it with the prefilter's settings); Align no longer does, but read_record,
-locate_sample and pair_keys still read such a file (Network_Injection keeps the stored sample out
-of its cut), and write_record and select_calibration stay so that tests can build one.
+with SEED, then aligned with the network's own scoring. Older builds had Align store a sample of
+the skipped pairs in the network file instead (write_record stored it with the prefilter's settings);
+Align no longer does, but read_record and pair_keys still read such a file (Network_Injection keeps
+the stored sample out of its cut), and write_record remains available for reading/building records.
 
 This module imports no torch, numba or Qt.
 """
@@ -623,57 +622,6 @@ def sample_size(skipped, minimum=None, maximum=None):
     return min(max(size, int(minimum)), int(maximum), skipped)
 
 
-def condensed_pairs(positions, n):
-    """(row, col) of positions in the row-major upper triangle (col > row) of an n x n matrix."""
-    positions = np.asarray(positions, dtype=np.int64)
-    if positions.size == 0:
-        empty = np.zeros(0, dtype=np.int64)
-        return empty, empty.copy()
-    n = int(n)
-
-    def row_start(row):
-        return row * n - row * (row + 1) // 2
-
-    total = n * (n - 1)
-    root = np.sqrt(-8.0 * positions + 4.0 * total - 7.0)
-    rows = (n - 2 - np.floor(root / 2.0 - 0.5)).astype(np.int64)
-    rows = np.clip(rows, 0, n - 2)
-    # Floating point can land one row off near a row's end; step back into place.
-    rows -= positions < row_start(rows)
-    rows += positions >= row_start(rows + 1)
-    cols = positions - row_start(rows) + rows + 1
-    return rows, cols
-
-
-def select_calibration(values, threshold, n, size=None, bins=BINS, seed=SEED):
-    """The calibration sample of the pairs whose similarity is below threshold.
-
-    values holds every pair's similarity in row-major upper-triangle order
-    (similarity[np.triu(ones, 1)]). The skipped pairs are split into bins
-    equal-count bands by similarity, and the same number is drawn from each
-    with a generator seeded by seed, so a resumed run draws the same pairs.
-    Each pair's weight is its band's skipped count over the pairs drawn from
-    it. size defaults to sample_size(skipped); every skipped pair is taken,
-    with weight 1, when there are no more than that.
-    """
-    values = np.asarray(values)
-    skipped_positions = np.flatnonzero(values < threshold)
-    skipped = skipped_positions.size
-    if size is None:
-        size = sample_size(skipped)
-    size = min(int(size), skipped)
-    if size <= 0:
-        empty = np.zeros(0, dtype=np.int64)
-        return CalibrationSample(empty, empty.copy(), np.zeros(0, dtype=np.float64))
-    if size == skipped:
-        rows, cols = condensed_pairs(skipped_positions, n)
-        return CalibrationSample(rows, cols, np.ones(skipped, dtype=np.float64))
-
-    picked, weights = _draw_by_bands(values[skipped_positions], size, bins, seed)
-    rows, cols = condensed_pairs(skipped_positions[picked], n)
-    return CalibrationSample(rows, cols, weights)
-
-
 def _draw_by_bands(candidate_values, size, bins, seed):
     """Indices into candidate_values, the same number from each of bins equal-count bands, and weights.
 
@@ -766,12 +714,11 @@ def missing_pairs(similarity, present):
 def select_among(values, locate, size=None, bins=BINS, seed=SEED, minimum=None, maximum=None):
     """The calibration sample of a run's missing pairs (missing_pairs gives its arguments).
 
-    The same rule as select_calibration, applied to the missing pairs in
-    row-major order: size defaults to sample_size(count, minimum, maximum)
-    with the bounds DRAW_MIN_PAIRS and DRAW_MAX_PAIRS (read when called), and
-    every pair is taken, with weight 1, when there are no more than that.
-    With the pairs a prefilter skipped, and the stored bounds, it draws what
-    select_calibration drew.
+    Splits the missing pairs (in row-major order) into `bins` equal-count similarity
+    bands and draws equally from each with a generator seeded by `seed`. `size`
+    defaults to `sample_size(count, minimum, maximum)` with bounds `DRAW_MIN_PAIRS`
+    and `DRAW_MAX_PAIRS` (read when called), and every pair is taken with weight 1
+    when there are no more than that.
     """
     values = np.asarray(values)
     count = values.size
@@ -848,33 +795,3 @@ def pair_keys(rows, cols, n):
     rows = np.asarray(rows, dtype=np.int64)
     cols = np.asarray(cols, dtype=np.int64)
     return np.minimum(rows, cols) * int(n) + np.maximum(rows, cols)
-
-
-def locate_sample(sample, index_map, edge_i, edge_j, n):
-    """Where each sample pair sits among a run's edges, in sample order (-1 if absent).
-
-    index_map takes the network's sequence indices to the run's (-1 for a
-    sequence the run dropped); edge_i and edge_j are the run's edges, n its
-    sequence count. A pair stored twice is found at its first edge.
-    """
-    index_map = np.asarray(index_map)
-    found = np.full(len(sample), -1, dtype=np.int64)
-    if len(sample) == 0:
-        return found
-    rows = index_map[sample.rows]
-    cols = index_map[sample.cols]
-    present = (rows >= 0) & (cols >= 0) & (rows != cols)
-    keys = np.full(len(sample), -1, dtype=np.int64)
-    keys[present] = pair_keys(rows[present], cols[present], n)
-    order = np.argsort(keys, kind="stable")
-    sorted_keys = keys[order]
-    for start in range(0, len(edge_i), _MATCH_CHUNK):
-        stop = min(start + _MATCH_CHUNK, len(edge_i))
-        edge_keys = pair_keys(edge_i[start:stop], edge_j[start:stop], n)
-        slot = np.searchsorted(sorted_keys, edge_keys)
-        slot = np.minimum(slot, sorted_keys.size - 1)
-        hits = np.flatnonzero(sorted_keys[slot] == edge_keys)
-        for edge, k in zip(hits + start, order[slot[hits]]):
-            if keys[k] >= 0 and found[k] < 0:
-                found[k] = edge
-    return found

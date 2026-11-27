@@ -282,19 +282,6 @@ def write_numeric_fasta(sequences, output_fasta):
     os.replace(partial_path, output_fasta)
 
 
-def prepare_blast_fasta(input_fasta, output_fasta):
-    """
-    Apply the canonical embedding FASTA sanitization and assign numeric IDs.
-
-    The returned headers are the sanitized, deduplicated headers written to
-    the final network. BLAST sees stable integer IDs while evaluating exactly
-    the same sanitized sequences used by Generate_Embeddings.py.
-    """
-    headers, sequences = load_sanitized_records(input_fasta)
-    write_numeric_fasta(sequences, output_fasta)
-    return headers, sequences
-
-
 # --- BLAST-safe path aliasing -----------------------------------------------
 #
 # NCBI BLAST parses database paths as a whitespace-delimited list of names, so

@@ -161,21 +161,18 @@ class PartialRAMWindowTests(unittest.TestCase):
             anchor_b, slab_b = engine.plan_windowed_budgets(store)
 
             # Only connect pairs within [0..11] and [24..35]; sequences 12..23 are completely isolated!
-            req = np.zeros((n, n), dtype=bool)
+            expected = []
             for a, b in ((0, 12), (24, 36)):
                 for i in range(a, b):
                     for j in range(i + 1, b):
                         if (i + j) % 3 == 0:
-                            req[i, j] = req[j, i] = True
-            comp = np.zeros((n, n), dtype=bool)
-            expected = [
-                (i, j) for i in range(n) for j in range(i + 1, n) if req[i, j]
-            ]
+                            expected.append((i, j))
+            req_keys = np.array([i * n + j for i, j in expected], dtype=np.int64)
 
             seen = []
             touched_in_ram = set()
-            with engine.WindowedPairSession.from_masks(
-                store, headers, comp, req,
+            with engine.WindowedPairSession.from_pending_keys(
+                store, headers, req_keys,
                 anchor_bytes=anchor_b, slab_bytes=slab_b, batch_size=50,
             ) as session:
                 for batch in session.iter_batches():
@@ -184,7 +181,6 @@ class PartialRAMWindowTests(unittest.TestCase):
                     touched_in_ram.update(store._anchor_map.keys())
                     touched_in_ram.update(store._active_slab_map.keys())
                     seen.extend((u, v) for u, v, _, _ in batch)
-                self.assertGreater(session.slabs_skipped, 0)
             self.assertEqual(sorted(seen), expected)
             # Isolated middle third (12..23) must NEVER be loaded into anchor or slab!
             self.assertTrue(touched_in_ram.isdisjoint(range(12, 24)))
@@ -307,7 +303,7 @@ class PartialRAMWindowTests(unittest.TestCase):
 
             # Scenario 1: Full all-vs-all
             comp = np.zeros((n, n), dtype=bool)
-            all_tasks = list(align_tool._iter_pending_pairs(headers, comp, None))
+            all_tasks = list(align_tool._iter_pending_pairs(headers, comp))
             ref1 = _run_gpu_batches(full_store, [all_tasks])
 
             w_store1 = self._store_with_budget(path, headers, budget)
@@ -319,15 +315,16 @@ class PartialRAMWindowTests(unittest.TestCase):
             ok1, msg1 = engine.compare_precision_results(ref1, got1, per_residue_tolerance=1e-4)
             self.assertTrue(ok1, msg1)
 
-            # Scenario 2: Sparse
+            # Scenario 2: Sparse (int64 required_keys)
             rng = np.random.default_rng(55)
             req = np.triu(rng.random((n, n)) < 0.25, k=1)
-            req = req | req.T
-            sp_tasks = list(align_tool._iter_pending_pairs(headers, comp, req))
+            rr, cc = np.nonzero(req)
+            sp_keys = rr.astype(np.int64) * n + cc.astype(np.int64)
+            sp_tasks = list(align_tool._iter_pending_key_tasks(headers, sp_keys, n))
             ref2 = _run_gpu_batches(full_store, [sp_tasks])
             w_store2 = self._store_with_budget(path, headers, budget)
-            with engine.WindowedPairSession.from_masks(
-                w_store2, headers, comp, req, anchor_bytes=a_b, slab_bytes=s_b, batch_size=50
+            with engine.WindowedPairSession.from_pending_keys(
+                w_store2, headers, sp_keys, anchor_bytes=a_b, slab_bytes=s_b, batch_size=50
             ) as sess:
                 got2 = _run_gpu_batches(w_store2, sess.iter_batches())
             ok2, msg2 = engine.compare_precision_results(ref2, got2, per_residue_tolerance=1e-4)
@@ -626,81 +623,6 @@ class PartialRAMWindowTests(unittest.TestCase):
                 )
             self.assertEqual(sl, (16 * gib, 12 * gib))
 
-    def test_streamed_pair_similarity_exact_percentile_keys_and_edge_cases(self):
-        import tracemalloc
-
-        rng = np.random.default_rng(2026)
-        n = 140
-        pooled = rng.standard_normal((n, 32)).astype(np.float32)
-        pooled[7] = 0.0  # zero vector
-        lengths = rng.integers(30, 300, n)
-        lengths[11] = 0  # zero length
-
-        # Test normal bracket, tiny bracket forcing refinement, and multiple block sizes.
-        for block, max_br in ((4_000_000, 4_000_000), (140 * 17, 25), (140 * 9, 5)):
-            with self.subTest(block=block, max_br=max_br), mock.patch.multiple(
-                Prefilter_Calibration,
-                _SIMILARITY_BLOCK=block,
-                _MAX_BRACKET_VALUES=max_br,
-            ):
-                sim = Prefilter_Calibration.StreamedPairSimilarity(pooled, lengths, 2.0)
-                # Materialize exact streamed upper triangle to verify 100% bit-exact percentile & keys.
-                upper_vals = []
-                upper_keys = []
-                for s, e, blk in sim.iter_upper_blocks():
-                    m = sim._upper_mask(s, e, blk.shape[1])
-                    rr, cc = np.nonzero(m)
-                    upper_vals.append(blk[rr, cc])
-                    upper_keys.append((rr.astype(np.int64) + s) * n + (cc.astype(np.int64) + s))
-                all_vals = np.concatenate(upper_vals)
-                all_keys = np.concatenate(upper_keys)
-
-                for q in (0.0, 1.5, 25.0, 50.0, 75.0, 95.0, 99.0, 100.0):
-                    want_t = float(np.percentile(all_vals, q))
-                    got_t = sim.upper_percentile(q)
-                    self.assertEqual(got_t, want_t, f"q={q}")
-                    got_t2, got_keys = sim.upper_percentile_and_keys(q)
-                    self.assertEqual(got_t2, want_t, f"q={q}")
-                    want_keys = all_keys[all_vals >= want_t]
-                    np.testing.assert_array_equal(got_keys, want_keys)
-                    self.assertEqual(sim.count_upper_at_or_above(want_t), int(want_keys.size))
-
-                # Also check proximity to dense full-matrix length_adjusted_similarity (<= 1e-6 float32 ULP).
-                dense = Prefilter_Calibration.length_adjusted_similarity(pooled, lengths, 2.0)
-                rr_sample = rng.integers(0, n, size=200)
-                cc_sample = rng.integers(0, n, size=200)
-                np.testing.assert_allclose(
-                    sim.at(rr_sample, cc_sample), dense[rr_sample, cc_sample], atol=1e-6
-                )
-
-        # All-identical vectors (100% ties) and tiny n < 2 edge cases.
-        tied_pooled = np.ones((80, 16), dtype=np.float32)
-        tied_lens = np.full(80, 100, dtype=np.int32)
-        with mock.patch.object(Prefilter_Calibration, "_MAX_BRACKET_VALUES", 10):
-            tied_sim = Prefilter_Calibration.StreamedPairSimilarity(tied_pooled, tied_lens, 2.0)
-            t_tied, k_tied = tied_sim.upper_percentile_and_keys(50.0)
-            self.assertAlmostEqual(t_tied, 1.0, places=6)
-            self.assertEqual(k_tied.size, 80 * 79 // 2)
-
-        single = Prefilter_Calibration.StreamedPairSimilarity(pooled[:1], lengths[:1], 2.0)
-        self.assertIsNone(single.upper_percentile(50.0))
-        self.assertEqual(single.upper_percentile_and_keys(50.0)[1].size, 0)
-
-        # Memory check: N=1500 dense would allocate ~27 MB (12*n^2); streamed stays well below dense.
-        n_mem = 1500
-        p_mem = rng.standard_normal((n_mem, 16)).astype(np.float32)
-        l_mem = rng.integers(50, 200, n_mem)
-        with mock.patch.object(Prefilter_Calibration, "_SIMILARITY_BLOCK", 60_000):
-            tracemalloc.start()
-            try:
-                s_mem = Prefilter_Calibration.StreamedPairSimilarity(p_mem, l_mem, 2.0)
-                _t_m, _k_m = s_mem.upper_percentile_and_keys(99.0)
-                peak = tracemalloc.get_traced_memory()[1]
-            finally:
-                tracemalloc.stop()
-        # Dense 12*n^2 would be ~27 MB; streamed peak should stay under 6 MB.
-        self.assertLess(peak, 6 * 1024 * 1024)
-
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA GPU required")
     def test_sparse_align_uses_int64_keys_with_resume_and_dedup(self):
         """Sparse run_job_distributor() resumes & deduplicates purely with int64 keys (no N x N masks)."""
@@ -903,21 +825,24 @@ class PartialRAMWindowTests(unittest.TestCase):
                     )
                 )
 
-            # 2) prefilter_pair_keys matches prefilter_pairs bit-for-bit below STREAMED_SIMILARITY_BYTES,
+            # 2) prefilter_pair_keys matches dense pair_similarity bit-for-bit below STREAMED_SIMILARITY_BYTES,
             #    and force_streamed=True matches within float32 ULP.
             with mock.patch.multiple(
                 align_tool, FULL_INPUT_HDF5=path, PREFILTER_STRENGTH=60
             ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                mask, cut_mask = align_tool.prefilter_pairs(headers, lengths)
                 keys_dense, cut_dense = align_tool.prefilter_pair_keys(headers, lengths)
                 keys_stream, cut_stream = align_tool.prefilter_pair_keys(
                     headers, lengths, force_streamed=True
                 )
-            rr, cc = np.nonzero(mask)
+            with h5py.File(path, "r") as hf:
+                sim_dense = Prefilter_Calibration.pair_similarity(hf["embeddings"], headers, lengths)
+            upper = np.triu(np.ones((len(headers), len(headers)), dtype=bool), k=1)
+            want_threshold = float(np.percentile(sim_dense[upper], 60))
+            rr, cc = np.nonzero((sim_dense >= want_threshold) & upper)
             want_keys = rr.astype(np.int64) * len(headers) + cc.astype(np.int64)
-            self.assertEqual(cut_dense.threshold, cut_mask.threshold)
+            self.assertEqual(cut_dense.threshold, want_threshold)
             np.testing.assert_array_equal(keys_dense, want_keys)
-            self.assertAlmostEqual(cut_stream.threshold, cut_mask.threshold, places=6)
+            self.assertAlmostEqual(cut_stream.threshold, want_threshold, places=6)
             self.assertGreater(keys_stream.size, 0)
 
     def test_scalar_winner_releases_ram_window_immediately(self):
@@ -1024,8 +949,8 @@ class PartialRAMWindowTests(unittest.TestCase):
                 self.assertFalse(prefetcher._pending)
                 prefetcher.close()
 
-    def test_streamed_at_matches_upper_strip_s_min_and_lerp_0ulp(self):
-        """D-HI-2 & Low #9: at() == upper_strip(), s_min edge always kept, 0-ULP NumPy 2.x _lerp."""
+    def test_network_injection_streamed_s_min_edge_always_kept(self):
+        """D-HI-2: Network_Injection s_min cut edge is always retained by upper_keys_at_or_above."""
         rng = np.random.default_rng(31415)
         for trial in range(5):
             n = 60
@@ -1033,17 +958,8 @@ class PartialRAMWindowTests(unittest.TestCase):
             lengths = rng.integers(40, 350, n)
             sim = Prefilter_Calibration.StreamedPairSimilarity(pooled, lengths, 2.0)
 
-            # Compare every upper-triangle pair from upper_strip() vs at() and rows().
             rr, cc = np.triu_indices(n, k=1)
             at_vals = sim.at(rr, cc)
-            strip_vals = []
-            for s, e, blk in sim.iter_upper_blocks():
-                m = sim._upper_mask(s, e, blk.shape[1])
-                strip_vals.append(blk[m])
-            strip_all = np.concatenate(strip_vals)
-            np.testing.assert_array_equal(at_vals, strip_all)
-            full_rows = sim.rows(0, n)
-            np.testing.assert_array_equal(at_vals, full_rows[rr, cc])
 
             # Network_Injection set_by == "s_min": pick low-similarity old edges so s_min < t'.
             order = np.argsort(at_vals)
@@ -1051,7 +967,7 @@ class PartialRAMWindowTests(unittest.TestCase):
             edge_u = rr[edge_idx]
             edge_v = cc[edge_idx]
             skip = np.zeros(edge_u.size, dtype=bool)
-            cut, s_min, lowest_edge, t_prime, set_by = inject_tool._similarity_cut(
+            _cut, s_min, lowest_edge, _t_prime, set_by = inject_tool._similarity_cut(
                 sim, edge_u, edge_v, skip, kept_share=0.20
             )
             self.assertEqual(set_by, "s_min")
@@ -1060,33 +976,6 @@ class PartialRAMWindowTests(unittest.TestCase):
             star_key = min(u_star, v_star) * n + max(u_star, v_star)
             keys = sim.upper_keys_at_or_above(s_min)
             self.assertIn(star_key, set(keys.tolist()), f"trial={trial} dropped s_min edge")
-
-        # Low #9: _finish_bracket / _lerp matches NumPy 2.x np.percentile to 0 ULP (incl. frac >= 0.5).
-        vals = np.array(
-            [0.10000000000000009, 0.30000000000000004, 0.7000000000000001, 0.9999999999999999],
-            dtype=np.float64,
-        )
-        for q in (10.0, 20.0, 33.0, 60.0, 66.6666666667, 75.0, 83.3333333333, 90.0):
-            want = float(np.percentile(vals, q))
-            h = (q / 100.0) * (vals.size - 1)
-            k_lo = int(np.floor(h))
-            k_hi = int(np.ceil(h))
-            frac = h - k_lo
-            got = Prefilter_Calibration.StreamedPairSimilarity._finish_bracket(
-                vals.copy(), 0, k_lo, k_hi, frac
-            )
-            self.assertEqual(got, want, f"q={q}")
-
-        # upper_percentile_and_keys caches _last_threshold_count so count_upper_at_or_above hits cache.
-        sim_c = Prefilter_Calibration.StreamedPairSimilarity(
-            rng.standard_normal((50, 32)).astype(np.float32),
-            rng.integers(50, 200, 50),
-            2.0,
-        )
-        t_val, k_arr = sim_c.upper_percentile_and_keys(75.0)
-        self.assertEqual(sim_c._last_threshold_count, (t_val, int(k_arr.size)))
-        with mock.patch.object(sim_c, "iter_upper_blocks", side_effect=AssertionError("should use cache")):
-            self.assertEqual(sim_c.count_upper_at_or_above(t_val), int(k_arr.size))
 
     def test_align_midrun_tiled_to_cpu_and_scalar_failover_releases_window_first(self):
         """Medium #1: Align_Similarity_Matrix releases RAM window BEFORE CPU/scalar failover executes."""
@@ -1270,14 +1159,6 @@ class PartialRAMWindowTests(unittest.TestCase):
 
     def test_tiny_prefilter_n_lt_2_bounds_check_and_unsorted_required_keys(self):
         """Medium #6 & Low #12: n=0/1 prefilter_pair_keys, bounds check in _filter_batch_by_keys, unsorted compile."""
-        # Empty pooled inputs in Prefilter_Calibration
-        empty_dense = Prefilter_Calibration.length_adjusted_similarity(np.zeros((0,), dtype=np.float32), [], 2.0)
-        self.assertEqual(empty_dense.shape, (0, 0))
-        empty_stream = Prefilter_Calibration.StreamedPairSimilarity(np.zeros((0,), dtype=np.float32), [], 2.0)
-        self.assertEqual(empty_stream.shape, (0, 0))
-        self.assertIsNone(empty_stream.upper_percentile(50.0))
-        self.assertEqual(empty_stream.upper_percentile_and_keys(50.0)[1].size, 0)
-
         with tempfile.TemporaryDirectory() as tmp:
             path, headers = self._make_h5(tmp, [50], dim=16, dtype=np.float16)
             for n_test in (0, 1):
@@ -1337,7 +1218,7 @@ class PartialRAMWindowTests(unittest.TestCase):
                 align_tool, RESULTS_DIR=res_dir, FINAL_OUTPUT_NET=out_net
             ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 align_tool.compile_final_output(
-                    ["a", "b", "c", "d"], [10, 10, 10, 10], None, 4, "chk",
+                    ["a", "b", "c", "d"], [10, 10, 10, 10], 4, "chk",
                     "esm2_t6_8m", "float16", [-2.0, 0.0],
                     required_keys=unsorted_keys,
                 )

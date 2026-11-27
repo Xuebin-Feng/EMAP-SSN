@@ -54,77 +54,15 @@ except Exception as e:
 
 # --- 1. Physics Kernels ---
 
-def _compile_physics_kernel(kernel, parallel=False, fastmath=True):
-    """JIT-compile a kernel when numba is present, else return the closure."""
-    if NUMBA_AVAILABLE:
-        return jit(nopython=True, fastmath=fastmath, parallel=parallel)(kernel)
-    return kernel
-
-
 # Every fastmath flag except 'contract'. Kept exported for callers/tests.
 _UNFUSED_FASTMATH = _cpu_kernels._UNFUSED_FASTMATH
 _group_active_nodes = _cpu_kernels.group_active_nodes
 
-
-def _make_public_physics_kernel(precomputed_kernel, dims):
-    def _run_physics_kernel(
-        pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits,
-        dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist,
-    ):
-        members, run_starts, run_ends = _group_active_nodes(comp_labels, active_nodes)
-        acc = np.empty_like(pos)
-        repulsion = np.empty_like(pos)
-        run_pos = np.empty((members.shape[0], dims), dtype=pos.dtype)
-        n_threads = numba.config.NUMBA_NUM_THREADS if NUMBA_AVAILABLE else 1
-        return precomputed_kernel(
-            pos, vel, springs, active_mask, active_nodes, box_limits,
-            members, run_starts, run_ends, acc, repulsion, run_pos, n_threads,
-            dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist,
-        )
-
-    return _run_physics_kernel
-
-
-def _build_physics_kernel_2d():
-    pre = _cpu_kernels.run_physics_kernel_precomputed_2d
-    return _make_public_physics_kernel(pre, 2), pre
-
-
-def _build_physics_kernel_3d():
-    pre = _cpu_kernels.run_physics_kernel_precomputed_3d
-    return _make_public_physics_kernel(pre, 3), pre
-
-
-_PHYSICS_KERNEL_BUILDERS = {
-    2: _build_physics_kernel_2d,
-    3: _build_physics_kernel_3d,
+_PRECOMPUTED_PHYSICS_KERNELS = {
+    2: _cpu_kernels.run_physics_kernel_precomputed_2d,
+    3: _cpu_kernels.run_physics_kernel_precomputed_3d,
 }
-_PHYSICS_KERNEL_CACHE = {}
 
-
-def _get_physics_kernel_pair(dimensions=2):
-    """Return `(public_kernel, precomputed_kernel)` specialized for `dimensions`."""
-    key = int(dimensions)
-    builder = _PHYSICS_KERNEL_BUILDERS.get(key)
-    if builder is None:
-        raise ValueError(
-            f"Unsupported layout dimensionality {dimensions!r}; expected 2 or 3."
-        )
-    pair = _PHYSICS_KERNEL_CACHE.get(key)
-    if pair is None:
-        pair = builder()
-        _PHYSICS_KERNEL_CACHE[key] = pair
-    return pair
-
-
-def _get_physics_kernel(dimensions=2):
-    """Return the physics kernel specialized for `dimensions` coordinates."""
-    return _get_physics_kernel_pair(dimensions)[0]
-
-
-# Backward-compatible alias: the 2D kernel remains importable under its
-# historical name for callers that predate the dimensionality switch.
-run_physics_kernel = _get_physics_kernel(2)
 
 def _normalize_active_mask(active_mask, n_nodes):
     if active_mask is None:
@@ -162,8 +100,12 @@ class SSNSimulationCPU:
         # Dimensionality is carried by the position array itself, so the
         # simulation-object protocol is unchanged for 2D callers.
         self.dimensions = int(self.pos.shape[1])
-        self._kernel, self._precomputed_kernel = _get_physics_kernel_pair(self.dimensions)
-        self._default_kernel = self._kernel
+        precomputed_kernel = _PRECOMPUTED_PHYSICS_KERNELS.get(self.dimensions)
+        if precomputed_kernel is None:
+            raise ValueError(
+                f"Unsupported layout dimensionality {self.dimensions!r}; expected 2 or 3."
+            )
+        self._precomputed_kernel = precomputed_kernel
         self._members, self._run_starts, self._run_ends = _group_active_nodes(
             self.comp_labels, self.active_nodes
         )
@@ -174,31 +116,19 @@ class SSNSimulationCPU:
 
     def step(self, current_step):
         with Numba_Threads.limited_threads(self.threads):
-            if self._kernel is self._default_kernel:
-                n_threads = numba.config.NUMBA_NUM_THREADS if NUMBA_AVAILABLE else 1
-                return self._precomputed_kernel(
-                    self.pos, self.vel, self.springs,
-                    self.active_mask, self.active_nodes, self.box_limits,
-                    self._members, self._run_starts, self._run_ends,
-                    self._acc, self._repulsion, self._run_pos, n_threads,
-                    self.params.get('DT', 0.1),
-                    self.params.get('DAMPING', 0.5),
-                    self.params.get('SPRING_K', 0.1),
-                    self.params.get('COULOMB_K', 50.0),
-                    self.params.get('MAX_FORCE_LIMIT', 20.0),
-                    self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0),
-                    self.cutoff,
-                )
-            return self._kernel(
-                self.pos, self.vel, self.springs, self.comp_labels,
+            n_threads = numba.config.NUMBA_NUM_THREADS if NUMBA_AVAILABLE else 1
+            return self._precomputed_kernel(
+                self.pos, self.vel, self.springs,
                 self.active_mask, self.active_nodes, self.box_limits,
+                self._members, self._run_starts, self._run_ends,
+                self._acc, self._repulsion, self._run_pos, n_threads,
                 self.params.get('DT', 0.1),
                 self.params.get('DAMPING', 0.5),
                 self.params.get('SPRING_K', 0.1),
                 self.params.get('COULOMB_K', 50.0),
                 self.params.get('MAX_FORCE_LIMIT', 20.0),
                 self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0),
-                self.cutoff
+                self.cutoff,
             )
         
     def get_pos(self): return self.pos
@@ -445,13 +375,6 @@ def find_connected_components(n_nodes, edges):
     indptr, neighbours = _adjacency_lists(n_nodes, edges[:, 0], edges[:, 1])
     order, starts = _breadth_first_order(n_nodes, indptr, neighbours)
     return [order[starts[k]:starts[k + 1]] for k in range(len(starts) - 1)]
-
-def get_component_labels(n_nodes, edges):
-    """Maps each node to its connected component ID for isolated physics."""
-    labels = np.zeros(n_nodes, dtype=np.int32)
-    for c_id, comp in enumerate(find_connected_components(n_nodes, edges)):
-        labels[comp] = c_id
-    return labels
 
 def _resolve_seed(params):
     """Return the layout seed, or None for non-reproducible behaviour."""

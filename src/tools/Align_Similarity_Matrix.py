@@ -1160,20 +1160,18 @@ def process_cpu_tasks(
     return results
 
 
-def _iter_pending_pairs(safe_headers, computed_mask, required_mask):
-    """Yield exactly the production pair order without modifying either mask."""
+def _iter_pending_pairs(safe_headers, computed_mask):
+    """Yield exactly the production pair order without modifying the mask."""
     for row in range(len(safe_headers) - 1):
         pending = ~computed_mask[row, row + 1:]
-        if required_mask is not None:
-            pending &= required_mask[row, row + 1:]
         for column in np.flatnonzero(pending) + row + 1:
             column = int(column)
             yield row, column, safe_headers[row], safe_headers[column]
 
 
-def _first_pending_pairs(safe_headers, computed_mask, required_mask, num_tasks, limit):
+def _first_pending_pairs(safe_headers, computed_mask, num_tasks, limit):
     return list(islice(
-        _iter_pending_pairs(safe_headers, computed_mask, required_mask),
+        _iter_pending_pairs(safe_headers, computed_mask),
         max(0, min(int(limit), int(num_tasks))),
     ))
 
@@ -2501,11 +2499,8 @@ def scan_existing_batches(
     return established_precision
 
 
-def _count_computed_required_pairs(computed_mask, required_mask):
-    """Count unique cached pairs represented by the active workload mask."""
-    if required_mask is not None:
-        # Sparse required masks contain only canonical upper-triangle entries.
-        return int(np.count_nonzero(computed_mask & required_mask))
+def _count_computed_required_pairs(computed_mask):
+    """Count unique cached pairs represented by the symmetric computed mask."""
     return int(np.count_nonzero(computed_mask) // 2)
 
 @dataclass
@@ -2517,49 +2512,13 @@ class PrefilterCut:
     skipped: int
 
 
-def prefilter_pairs(safe_headers, seq_lens):
-    """Edge Pre-filtering: the pairs to align, and the cut (a PrefilterCut).
-
-    The required mask marks, in its upper triangle, every pair whose
-    length-adjusted pooled-embedding similarity (utilities.Prefilter_Calibration.pair_similarity)
-    reaches the PREFILTER_STRENGTH percentile. Nothing else is aligned and the network
-    records nothing of the cut.
-    """
-    print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
-    # All-vs-all on the CPU, by the rule every tool shares.
-    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
-        similarity = Prefilter_Calibration.pair_similarity(
-            hf["embeddings"],
-            safe_headers,
-            seq_lens,
-            progress=lambda names: tqdm(names, desc=f"Pooling Embeddings ({Prefilter_Calibration.POOLING})"),
-        )
-    n = len(safe_headers)
-    total_pairs = n * (n - 1) // 2
-    upper = np.triu(np.ones((n, n), dtype=bool), k=1)
-    values = similarity[upper]
-    threshold = float(np.percentile(values, PREFILTER_STRENGTH))
-    required_mask = (similarity >= threshold) & upper
-    del similarity, upper
-    num_kept = int(np.count_nonzero(required_mask))
-    skipped = total_pairs - num_kept
-
-    del values
-
-    print(f"  > Prefilter Strength: {PREFILTER_STRENGTH}%")
-    print(f"  > Adjusted Similarity Threshold: {threshold:.6f}")
-    print(f"  > Retaining {num_kept} / {total_pairs} pairs ({100.0 * num_kept / total_pairs:.2f}%)")
-    print("-----------------------------------------------------------\n")
-    return required_mask, PrefilterCut(threshold=threshold, kept=num_kept, skipped=skipped)
-
-
 def prefilter_pair_keys(safe_headers, seq_lens, *, force_streamed=False):
     """Memory-bounded Edge Pre-filtering returning sorted int64 pair keys (no N x N masks).
 
     Uses exact dense ``pair_similarity`` when its temporary working set fits within
-    ``Prefilter_Calibration.STREAMED_SIMILARITY_BYTES`` (bit-identical to legacy
-    ``prefilter_pairs`` and ``Embedding_MSA``) and switches automatically to
-    ``streamed_pair_similarity`` above that threshold.
+    ``Prefilter_Calibration.STREAMED_SIMILARITY_BYTES`` (bit-identical to
+    ``Embedding_MSA``) and switches automatically to ``streamed_pair_similarity``
+    above that threshold.
     """
     print(f"\n--- 🛠️ Edge Prefiltering: Calculating {Prefilter_Calibration.POOLING} Pooled Length-Adjusted Similarities ---")
     n = len(safe_headers)
@@ -2617,7 +2576,6 @@ def prefilter_pair_keys(safe_headers, seq_lens, *, force_streamed=False):
 def compile_final_output(
     headers,
     seq_lens,
-    required_mask,
     n,
     current_checksum,
     model_name,
@@ -2663,12 +2621,6 @@ def compile_final_output(
                     total_edges += int(kept_idx.size)
                     continue
                 
-                # Filter out elements that do not pass pre-filtering
-                if required_mask is not None:
-                    valid_mask = required_mask[arr_i, arr_j]
-                    arr_i = arr_i[valid_mask]
-                    arr_j = arr_j[valid_mask]
-                
                 # Find which ones are not yet compiled
                 uncompiled = ~compiled_mask[arr_i, arr_j]
                 unique_i = arr_i[uncompiled]
@@ -2701,7 +2653,6 @@ def compile_final_output(
             batch_files,
             headers,
             seq_lens,
-            required_mask,
             compiled_mask,
             total_edges,
             idx_dtype,
@@ -2729,7 +2680,6 @@ def _merge_batches_into(
     batch_files,
     headers,
     seq_lens,
-    required_mask,
     compiled_mask,
     total_edges,
     idx_dtype,
@@ -2786,8 +2736,6 @@ def _merge_batches_into(
                         continue
                     
                     uncompiled = ~compiled_mask[arr_i, arr_j]
-                    if required_mask is not None:
-                        uncompiled &= required_mask[arr_i, arr_j]
                         
                     n_write = np.sum(uncompiled)
                     if n_write == 0:
@@ -2876,7 +2824,6 @@ def run_job_distributor():
     total_pairs = (n * (n - 1)) // 2
     
     # Prefiltering logic: sparse runs use compact int64 pair keys (no N x N masks).
-    required_mask = None
     required_keys = None
     if EDGE_PREFILTERING and PREFILTER_STRENGTH > 0 and n >= 2:
         required_keys, _cut = prefilter_pair_keys(safe_headers, seq_lens)
@@ -2934,10 +2881,7 @@ def run_job_distributor():
         num_tasks = int(pending_keys.size)
     else:
         effective_total_pairs = total_pairs
-        num_computed_and_required = _count_computed_required_pairs(
-            computed_mask,
-            required_mask,
-        )
+        num_computed_and_required = _count_computed_required_pairs(computed_mask)
         num_tasks = effective_total_pairs - num_computed_and_required
     print(f"Total Required pairs: {effective_total_pairs}")
     print(f"Already computed pairs: {num_computed_and_required}")
@@ -2956,8 +2900,6 @@ def run_job_distributor():
         else:
             def pending_columns_for_row(row):
                 pending = ~computed_mask[row, row + 1:]
-                if required_mask is not None:
-                    pending &= required_mask[row, row + 1:]
                 return np.flatnonzero(pending) + row + 1
 
         # Preserve the independent precision comparison workload.
@@ -2971,7 +2913,7 @@ def run_job_distributor():
                 precision_timed = list(islice(_iter_pending_key_tasks(safe_headers, pending_keys, n), 1))
             else:
                 precision_timed = _first_pending_pairs(
-                    safe_headers, computed_mask, required_mask, num_tasks, 1
+                    safe_headers, computed_mask, num_tasks, 1
                 )
         else:
             if pending_keys is not None:
@@ -3080,7 +3022,7 @@ def run_job_distributor():
                     active_embedding_store,
                     safe_headers,
                     computed_mask,
-                    required_mask,
+                    None,
                     anchor_bytes=anchor_b,
                     slab_bytes=slab_b,
                     batch_size=int(BATCH_SIZE),
@@ -3096,7 +3038,7 @@ def run_job_distributor():
                     extra_iter = (
                         _iter_pending_key_tasks(safe_headers, pending_keys, n)
                         if pending_keys is not None
-                        else _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+                        else _iter_pending_pairs(safe_headers, computed_mask)
                     )
                     target_bench = min(int(BATCH_SIZE), int(num_tasks))
                     benchmark_batch = list(benchmark_batch)
@@ -3159,7 +3101,7 @@ def run_job_distributor():
             pending_iterator = (
                 _iter_pending_key_tasks(safe_headers, pending_keys, n)
                 if pending_keys is not None
-                else _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+                else _iter_pending_pairs(safe_headers, computed_mask)
             )
             first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
             ranked_plans = _benchmark_processing_plans(
@@ -3227,7 +3169,6 @@ def run_job_distributor():
     compile_final_output(
         headers,
         seq_lens,
-        required_mask,
         n,
         current_checksum,
         current_model_name,

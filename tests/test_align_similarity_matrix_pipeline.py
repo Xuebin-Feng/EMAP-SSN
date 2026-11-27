@@ -1134,40 +1134,47 @@ class AlignmentPipelineTests(unittest.TestCase):
         headers = ["a", "b", "c", "d"]
         computed = np.zeros((4, 4), dtype=bool)
         computed[0, 2] = True
-        required = np.triu(np.ones((4, 4), dtype=bool), k=1)
-        required[1, 3] = False
         sample = similarity_matrix._first_pending_pairs(
             headers,
             computed,
-            required,
-            num_tasks=4,
+            num_tasks=5,
             limit=3,
         )
         self.assertEqual(
             [(row, column) for row, column, _left, _right in sample],
             [(0, 1), (0, 3), (1, 2)],
         )
+        pending_keys = np.array([0 * 4 + 1, 0 * 4 + 3, 1 * 4 + 2], dtype=np.int64)
+        sparse_sample = list(
+            similarity_matrix._iter_pending_key_tasks(headers, pending_keys, 4)
+        )
+        self.assertEqual(
+            [(row, column) for row, column, _left, _right in sparse_sample],
+            [(0, 1), (0, 3), (1, 2)],
+        )
 
     def test_sparse_resume_counts_upper_triangle_pairs_once(self):
-        required = np.triu(np.ones((4, 4), dtype=bool), k=1)
-        computed = required | required.T
+        upper = np.triu(np.ones((4, 4), dtype=bool), k=1)
+        computed = upper | upper.T
 
         self.assertEqual(
-            similarity_matrix._count_computed_required_pairs(computed, required),
+            similarity_matrix._count_computed_required_pairs(computed),
             6,
         )
 
         computed[1, 3] = False
         computed[3, 1] = False
         self.assertEqual(
-            similarity_matrix._count_computed_required_pairs(computed, required),
+            similarity_matrix._count_computed_required_pairs(computed),
             5,
         )
 
-        self.assertEqual(
-            similarity_matrix._count_computed_required_pairs(computed, None),
-            5,
-        )
+        # Sparse key resume deduplicates against required_keys without N x N masks.
+        required_keys = np.array([1, 2, 3, 6, 7, 11], dtype=np.int64)
+        computed_keys = np.array([1, 2, 3, 6, 11], dtype=np.int64)
+        already_done = similarity_matrix._locate_sorted_keys(computed_keys, required_keys)[1]
+        self.assertEqual(int(np.count_nonzero(already_done)), 5)
+        np.testing.assert_array_equal(required_keys[~already_done], np.array([7], dtype=np.int64))
 
     def test_auto_precision_benchmarks_all_four_plan_combinations(self):
         cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
@@ -1588,7 +1595,7 @@ class AlignmentPipelineTests(unittest.TestCase):
                 for column, data in columns.items():
                     hf.create_dataset(column, data=data)
 
-    def _compile_batches(self, temp_dir, required_mask=None):
+    def _compile_batches(self, temp_dir, required_keys=None):
         output = os.path.join(temp_dir, "network", "set_[model]_network.h5")
         stdout = io.StringIO()
         with mock.patch.object(
@@ -1603,13 +1610,13 @@ class AlignmentPipelineTests(unittest.TestCase):
             similarity_matrix.compile_final_output(
                 [f"s{index}" for index in range(6)],
                 [5] * 6,
-                required_mask,
                 6,
                 "checksum",
                 "model",
                 "float32",
                 [-2.0, 0.0],
                 "ieee_fp32",
+                required_keys=required_keys,
             )
         return output, stdout.getvalue()
 
@@ -1617,12 +1624,13 @@ class AlignmentPipelineTests(unittest.TestCase):
     OLD_DATASETS = {"headers", "seq_lens", "i", "j", "l_score", "l_len", "g_score", "g_len"}
 
     def test_compile_writes_the_required_pairs_and_the_old_metadata_only(self):
-        required = np.zeros((6, 6), dtype=bool)
-        for pair in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3), (3, 4)]:
-            required[pair] = True
+        required_keys = np.array(
+            [r * 6 + c for r, c in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3), (3, 4)]],
+            dtype=np.int64,
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             self._write_compile_batches(os.path.join(temp_dir, "batches"))
-            output, _ = self._compile_batches(temp_dir, required)
+            output, _ = self._compile_batches(temp_dir, required_keys=required_keys)
             with h5py.File(output, "r") as hf:
                 edges = set(zip(hf["i"][:].tolist(), hf["j"][:].tolist()))
                 attributes, datasets = set(hf.attrs), set(hf)
@@ -1652,7 +1660,7 @@ class AlignmentPipelineTests(unittest.TestCase):
             }
             with mock.patch.multiple(similarity_matrix, **settings), \
                     redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()):
-                required, cut = similarity_matrix.prefilter_pairs(names, list(lengths))
+                required_keys, cut = similarity_matrix.prefilter_pair_keys(names, list(lengths))
             with h5py.File(path, "r") as hf:
                 pooled = np.array([np.max(hf["embeddings"][name][:], axis=0) for name in names],
                                   dtype=np.float32)
@@ -1662,11 +1670,13 @@ class AlignmentPipelineTests(unittest.TestCase):
         upper = np.triu(np.ones((n, n), dtype=bool), k=1)
         threshold = np.percentile(similarity[upper], 40)
         kept = (similarity >= threshold) & upper
+        rr, cc = np.nonzero(kept)
+        want_keys = rr.astype(np.int64) * n + cc.astype(np.int64)
         self.assertEqual(cut.threshold, threshold)
         self.assertEqual(cut.kept, int(kept.sum()))
         self.assertEqual(cut.skipped, int(upper.sum() - kept.sum()))
         # Exactly the kept pairs are required: no calibration sample is added among the skipped ones.
-        self.assertTrue(np.array_equal(required, kept))
+        np.testing.assert_array_equal(required_keys, want_keys)
         text = stdout.getvalue()
         self.assertIn(f"Adjusted Similarity Threshold: {threshold:.6f}", text)
         self.assertIn(f"Retaining {cut.kept} / {int(upper.sum())} pairs", text)
@@ -1694,15 +1704,17 @@ class AlignmentPipelineTests(unittest.TestCase):
                 mock.patch.object(similarity_matrix.h5py, "File",
                                   return_value=FakeFile(embeddings=embeddings)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            required, cut = similarity_matrix.prefilter_pairs(names, list(lengths))
+            required_keys, cut = similarity_matrix.prefilter_pair_keys(names, list(lengths))
         upper = np.triu(np.ones((n, n), dtype=bool), k=1)
         similarity = similarity_matrix.Prefilter_Calibration.length_adjusted_similarity(
             np.array([embeddings[name].mean(axis=0) for name in names], dtype=np.float32), lengths, 1.0)
         threshold = float(np.percentile(similarity[upper], 50))
+        rr, cc = np.nonzero((similarity >= threshold) & upper)
+        want_keys = rr.astype(np.int64) * n + cc.astype(np.int64)
         self.assertEqual(cut.threshold, threshold)
-        self.assertEqual(int(required.sum()), cut.kept)
-        self.assertTrue(np.array_equal(required, (similarity >= threshold) & upper))
-        self.assertFalse(np.any(required & ~upper))
+        self.assertEqual(int(required_keys.size), cut.kept)
+        np.testing.assert_array_equal(required_keys, want_keys)
+        self.assertTrue(np.all((required_keys // n) < (required_keys % n)))
 
     def test_compile_publishes_complete_network_atomically(self):
         with tempfile.TemporaryDirectory() as temp_dir:

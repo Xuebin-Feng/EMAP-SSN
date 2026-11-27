@@ -22,6 +22,7 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as alignment
     import Embedding_Alignment_Engine as engine
     import Network_Injection as injection
+    from utilities import Align_GPU_Kernels
 
 from tests.alignment_fixtures import ImmediateExecutor  # noqa: E402
 
@@ -48,17 +49,28 @@ class FirstBatchBenchmarkTests(unittest.TestCase):
         headers = list("abcde")
         computed = np.zeros((5, 5), dtype=bool)
         computed[0, 1] = computed[1, 0] = True
-        required = np.triu(np.ones((5, 5), dtype=bool), 1)
-        required[0, 2] = False
-        original = computed.copy(), required.copy()
+        original = computed.copy()
         expected = [(i, j, headers[i], headers[j]) for i in range(5)
-                    for j in range(i + 1, 5) if required[i, j] and not computed[i, j]]
+                    for j in range(i + 1, 5) if not computed[i, j]]
         for limit in (0, 1, 3, 100):
             self.assertEqual(alignment._first_pending_pairs(
-                headers, computed, required, len(expected), limit), expected[:limit])
-        self.assertEqual(list(alignment._iter_pending_pairs(headers, computed, required)), expected)
-        np.testing.assert_array_equal(computed, original[0])
-        np.testing.assert_array_equal(required, original[1])
+                headers, computed, len(expected), limit), expected[:limit])
+        self.assertEqual(list(alignment._iter_pending_pairs(headers, computed)), expected)
+        np.testing.assert_array_equal(computed, original)
+
+        # Sparse prefiltered runs iterate sorted int64 required_keys with computed keys removed.
+        required_keys = np.array(
+            [i * 5 + j for i in range(5) for j in range(i + 1, 5) if (i, j) != (0, 2)],
+            dtype=np.int64,
+        )
+        computed_keys = np.array([0 * 5 + 1], dtype=np.int64)
+        already_done = alignment._locate_sorted_keys(computed_keys, required_keys)[1]
+        pending_keys = required_keys[~already_done]
+        sparse_expected = [pair for pair in expected if pair[:2] != (0, 2)]
+        self.assertEqual(
+            list(alignment._iter_pending_key_tasks(headers, pending_keys, 5)),
+            sparse_expected,
+        )
 
     def test_cpu_trial_bounds_queue_and_drains_without_warmup_counts(self):
         now = [0.0]
@@ -201,6 +213,117 @@ class FirstBatchBenchmarkTests(unittest.TestCase):
                 self.assertEqual([r[:2] for r in results], [(0, 1)])
                 self.assertEqual((trial.completed, trial.tiles, trial.microbatches), (1, 1, 1))
                 self.assertEqual(trial.elapsed, 12.0)
+
+    def test_fused_gpu_trial_warmup_deadline_and_short_batch(self):
+        """run_fused_gpu_alignment_pipeline warms up without counting, stops on deadline, and drains cleanly."""
+        real_empty = torch.empty
+
+        def cpu_safe_empty(*args, **kwargs):
+            kwargs.pop("pin_memory", None)
+            return real_empty(*args, **kwargs)
+
+        class FakeStream:
+            cuda_stream = 0
+
+            def wait_event(self, _ev):
+                return None
+
+            def synchronize(self):
+                return None
+
+        for stop_on_deadline in (True, False):
+            with self.subTest(stop_on_deadline=stop_on_deadline), tempfile.TemporaryDirectory() as folder:
+                path = str(Path(folder) / "embeddings.h5")
+                headers = list("abcdef")
+                with h5py.File(path, "w") as hf:
+                    for idx, h in enumerate(headers):
+                        hf.create_dataset(
+                            "embeddings/" + h,
+                            data=np.full((4, 4), float(idx + 1), dtype=np.float32),
+                        )
+                store = engine.EmbeddingTileStore(path, headers, 0)
+                tasks = [
+                    (i, j, headers[i], headers[j])
+                    for i in range(len(headers))
+                    for j in range(i + 1, len(headers))
+                ]
+                now = [0.0]
+                trial = engine.BenchmarkTrial(clock=lambda: now[0])
+                warmup_launches = []
+                timed_launches = []
+
+                class FakeEvent:
+                    def record(self, _stream=None):
+                        return None
+
+                    def synchronize(self):
+                        if trial.started_at is not None:
+                            if stop_on_deadline and now[0] >= 6.0:
+                                now[0] = 8.0
+                            elif not stop_on_deadline:
+                                now[0] += 0.1
+
+                class FakeKernels:
+                    def launch(self, name, _grid, _block, args, _stream=None):
+                        bucket = timed_launches if trial.started_at is not None else warmup_launches
+                        bucket.append(name)
+                        if name.startswith("align_dp_"):
+                            num_p = int(args[21])
+                            args[17][:num_p].fill_(1.25)
+                            args[18][:num_p].fill_(4)
+                            args[19][:num_p].fill_(0.5)
+                            args[20][:num_p].fill_(3)
+                            if trial.started_at is not None and stop_on_deadline:
+                                now[0] = 6.0
+
+                # tile_cache_bytes=256 -> per_block=128 B = 2 seqs/block -> 3 blocks, 6 tiles.
+                plan = engine.AcceleratorMemoryPlan(
+                    free_bytes=1 << 20, total_bytes=1 << 20, usable_bytes=1 << 20,
+                    tile_cache_bytes=256, matrix_pool_bytes=1 << 16,
+                    matrix_bytes=1 << 16, reserve_bytes=0, lanes=1, inflight_slots=1,
+                )
+                with mock.patch.object(Align_GPU_Kernels, "align_kernels", return_value=FakeKernels()), \
+                        mock.patch.object(Align_GPU_Kernels.torch, "empty", side_effect=cpu_safe_empty), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "device", side_effect=lambda _d: nullcontext()), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "Stream", side_effect=lambda **_kw: FakeStream()), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "stream", side_effect=lambda _s: nullcontext()), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "current_stream", side_effect=lambda _d=None: FakeStream()), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "Event", FakeEvent), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "synchronize"), \
+                        mock.patch.object(Align_GPU_Kernels.torch.cuda, "empty_cache"):
+                    results = Align_GPU_Kernels.run_fused_gpu_alignment_pipeline(
+                        tasks,
+                        store=store,
+                        lengths=[4] * len(headers),
+                        device=torch.device("cpu"),
+                        lanes=1,
+                        global_gap=0.0,
+                        local_gap=-2.0,
+                        precision="float32",
+                        memory_plan_override=plan,
+                        benchmark_trial=trial,
+                        cuda_matmul_precision_ctx=lambda _p: nullcontext(),
+                        precision_compute_dtype_fn=engine.precision_compute_dtype,
+                        precision_element_bytes_fn=engine.precision_element_bytes,
+                        accelerator_memory_plan_fn=engine.accelerator_memory_plan,
+                        partition_tiles_fn=engine._partition_tiles,
+                    )
+
+                self.assertGreater(len(warmup_launches), 0)
+                self.assertGreater(len(timed_launches), 0)
+                self.assertEqual(trial.completed, trial.submitted)
+                self.assertEqual(len(results), trial.completed)
+                if stop_on_deadline:
+                    self.assertEqual(trial.stop_reason, "deadline")
+                    self.assertEqual(trial.tiles, 1)
+                    self.assertLess(trial.completed, len(tasks))
+                    self.assertEqual(trial.elapsed, 8.0)
+                    self.assertAlmostEqual(trial.rate, trial.completed / 8.0)
+                else:
+                    self.assertEqual(trial.stop_reason, "batch finished")
+                    self.assertEqual(trial.completed, len(tasks))
+                    self.assertGreater(trial.tiles, 1)
+                    self.assertEqual(sorted(r[:2] for r in results), sorted(t[:2] for t in tasks))
 
 
 if __name__ == "__main__":

@@ -715,29 +715,34 @@ class DeterministicLayoutTests(unittest.TestCase):
         positions_2d = (rng.random((count, 2)).astype(np.float32) - 0.5) * 20.0
         positions_3d = np.zeros((count, 3), dtype=np.float32)
         positions_3d[:, :2] = positions_2d
-        velocity_2d = np.zeros((count, 2), dtype=np.float32)
-        velocity_3d = np.zeros((count, 3), dtype=np.float32)
         springs = np.array(
             [(index, (index * 3 + 1) % count) for index in range(count)],
             dtype=np.int32,
         )
         labels = np.zeros(count, dtype=np.int32)
         mask = np.ones(count, dtype=np.bool_)
-        active = np.flatnonzero(mask).astype(np.int32)
         limits = np.full(count, 20.0, dtype=np.float32)
-        arguments = (0.005, 0.9, 5.0, 10.0, 20.0, 0.0, 30.0)
+        params = {
+            "DT": 0.005,
+            "DAMPING": 0.9,
+            "SPRING_K": 5.0,
+            "COULOMB_K": 10.0,
+            "MAX_FORCE_LIMIT": 20.0,
+            "MAX_TOTAL_REPULSION_FORCE": 0.0,
+            "COULOMB_CUTOFF": 30.0,
+        }
 
-        kernel_2d = ssn_engine._get_physics_kernel(2)
-        kernel_3d = ssn_engine._get_physics_kernel(3)
-        for _ in range(10):
-            rmsd_2d = kernel_2d(
-                positions_2d, velocity_2d, springs, labels, mask, active,
-                limits, *arguments,
-            )
-            rmsd_3d = kernel_3d(
-                positions_3d, velocity_3d, springs, labels, mask, active,
-                limits, *arguments,
-            )
+        sim_2d = ssn_engine.SSNSimulationCPU(
+            positions_2d, springs, labels, limits, params, active_mask=mask,
+        )
+        sim_3d = ssn_engine.SSNSimulationCPU(
+            positions_3d, springs, labels, limits, params, active_mask=mask,
+        )
+        for step in range(10):
+            rmsd_2d = sim_2d.step(step)
+            rmsd_3d = sim_3d.step(step)
+        positions_2d = sim_2d.get_pos()
+        positions_3d = sim_3d.get_pos()
 
         # Bit-identity of the two kernels is not something the product relies on
         # (2D and 3D caches are separate): it only held on x86. On arm64 the two

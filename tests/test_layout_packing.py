@@ -18,6 +18,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 import numpy as np
+import scipy.sparse as sp
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 
@@ -360,6 +362,16 @@ def _drawing_samples(pos, edges, per_edge=24):
     )
 
 
+def _component_labels(n_nodes, edges):
+    edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+    graph = sp.csr_matrix(
+        (np.ones(len(edges), dtype=np.int8), (edges[:, 0], edges[:, 1])),
+        shape=(n_nodes, n_nodes),
+    )
+    _, labels = connected_components(graph, directed=False)
+    return labels
+
+
 # ---------------------------------------------------------------- tests
 
 class ComponentSearchTests(unittest.TestCase):
@@ -383,9 +395,9 @@ class ComponentSearchTests(unittest.TestCase):
             with self.assertRaises(IndexError):
                 ssn_engine.find_connected_components(3, np.asarray(edges))
 
-    def test_component_labels_follow_component_order(self):
-        labels = ssn_engine.get_component_labels(5, np.array([[3, 4], [1, 0]]))
-        np.testing.assert_array_equal(labels, [0, 0, 1, 2, 2])
+    def test_components_follow_smallest_node_order(self):
+        found = ssn_engine.find_connected_components(5, np.array([[3, 4], [1, 0]]))
+        self.assertEqual([component.tolist() for component in found], [[0, 1], [2], [3, 4]])
 
     def test_grouping_matches_a_stable_sort(self):
         rng = np.random.default_rng(3)
@@ -545,7 +557,7 @@ class GridPackingTests(unittest.TestCase):
                 rng = np.random.default_rng(seed)
                 pos, edges = _scattered_layout(rng)
                 packed, _ = _pack(pos, edges, grid_size, padding, geometry)
-                labels = ssn_engine.get_component_labels(len(pos), edges)
+                labels = _component_labels(len(pos), edges)
                 points, owners = _drawing_samples(packed.astype(np.float64), edges)
                 pairs = cKDTree(points).query_pairs(
                     padding / 2.0 - 1e-3, p=np.inf, output_type="ndarray"
@@ -686,7 +698,7 @@ class VoxelPackingTests(unittest.TestCase):
                 rng = np.random.default_rng(seed)
                 pos, edges = _scattered_layout_3d(rng)
                 packed, _ = _pack_3d(pos, edges, grid_size, padding, geometry)
-                labels = ssn_engine.get_component_labels(len(pos), edges)
+                labels = _component_labels(len(pos), edges)
                 points, owners = _drawing_samples(packed.astype(np.float64), edges)
                 pairs = cKDTree(points).query_pairs(
                     padding / 2.0 - 1e-3, p=np.inf, output_type="ndarray"

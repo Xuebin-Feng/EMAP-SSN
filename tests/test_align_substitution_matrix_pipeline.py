@@ -106,10 +106,8 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                     "***mnp--q***\n"
                 )
 
-            headers, sequences = substitution_matrix.prepare_blast_fasta(
-                input_path,
-                output_path,
-            )
+            headers, sequences = substitution_matrix.load_sanitized_records(input_path)
+            substitution_matrix.write_numeric_fasta(sequences, output_path)
 
             self.assertEqual(
                 headers,

@@ -14,6 +14,7 @@ import copy
 import hashlib
 import io
 import json
+import math
 import pathlib
 import sys
 import tempfile
@@ -225,3 +226,145 @@ class HeadlessSettingsFixture:
                                       "inputs": {"TARGET_CACHE_PATH": result.cache_path}}))
         viewer = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
         return result.cache_path, viewer
+
+
+def _serial_kernel_2d(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
+    n_balls = pos.shape[0]
+    acc = np.zeros_like(pos)
+    repulsion = np.zeros_like(pos)
+    cutoff_sq = cutoff_dist * cutoff_dist
+    taper_start = cutoff_dist * 0.8
+    taper_width = max(cutoff_dist * 0.2, 1e-9)
+    for i in range(springs.shape[0]):
+        idx_a, idx_b = springs[i, 0], springs[i, 1]
+        if not active_mask[idx_a] or not active_mask[idx_b]:
+            continue
+        dx, dy = pos[idx_a, 0] - pos[idx_b, 0], pos[idx_a, 1] - pos[idx_b, 1]
+        dist = math.sqrt(dx*dx + dy*dy) + 1e-9
+        f = -k_spr * dist
+        acc[idx_a, 0] += f * (dx/dist); acc[idx_a, 1] += f * (dy/dist)
+        acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist)
+    for active_i in range(active_nodes.shape[0]):
+        i = active_nodes[active_i]
+        for active_j in range(active_i + 1, active_nodes.shape[0]):
+            j = active_nodes[active_j]
+            if comp_labels[i] != comp_labels[j]:
+                continue
+            dx, dy = pos[i, 0] - pos[j, 0], pos[i, 1] - pos[j, 1]
+            dist_sq = dx*dx + dy*dy
+            if dist_sq > cutoff_sq: continue
+            if dist_sq == 0.0: continue
+            dist = math.sqrt(dist_sq)
+            safe_dist = max(dist, 0.5)
+            f = k_coul / (safe_dist**2)
+            if max_f > 0.0 and f > max_f:
+                f = max_f
+            if dist > taper_start:
+                f *= max(0.0, (cutoff_dist - dist) / taper_width)
+            repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist)
+            repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist)
+    for active_idx in range(active_nodes.shape[0]):
+        i = active_nodes[active_idx]
+        rep_norm = math.sqrt(repulsion[i, 0] * repulsion[i, 0] + repulsion[i, 1] * repulsion[i, 1])
+        if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
+            rep_scale = max_total_repulsion / rep_norm
+            repulsion[i, 0] *= rep_scale
+            repulsion[i, 1] *= rep_scale
+        acc[i, 0] += repulsion[i, 0]
+        acc[i, 1] += repulsion[i, 1]
+    rmsd = 0.0
+    n_active = active_nodes.shape[0]
+    for i in range(n_balls):
+        if not active_mask[i]:
+            continue
+        box_limit = box_limits[i]
+        acc[i] -= damping * vel[i]
+        vel[i] += acc[i] * dt
+        old_p = pos[i].copy()
+        pos[i] += vel[i] * dt
+        if pos[i,0] > box_limit: pos[i,0]=box_limit; vel[i,0]*=-0.5
+        elif pos[i,0] < -box_limit: pos[i,0]=-box_limit; vel[i,0]*=-0.5
+        if pos[i,1] > box_limit: pos[i,1]=box_limit; vel[i,1]*=-0.5
+        elif pos[i,1] < -box_limit: pos[i,1]=-box_limit; vel[i,1]*=-0.5
+        diff = pos[i] - old_p
+        rmsd += diff[0]**2 + diff[1]**2
+    if n_active == 0:
+        return 0.0
+    return math.sqrt(rmsd / n_active)
+
+
+def _serial_kernel_3d(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
+    n_balls = pos.shape[0]
+    acc = np.zeros_like(pos)
+    repulsion = np.zeros_like(pos)
+    cutoff_sq = cutoff_dist * cutoff_dist
+    taper_start = cutoff_dist * 0.8
+    taper_width = max(cutoff_dist * 0.2, 1e-9)
+    for i in range(springs.shape[0]):
+        idx_a, idx_b = springs[i, 0], springs[i, 1]
+        if not active_mask[idx_a] or not active_mask[idx_b]:
+            continue
+        dx = pos[idx_a, 0] - pos[idx_b, 0]
+        dy = pos[idx_a, 1] - pos[idx_b, 1]
+        dz = pos[idx_a, 2] - pos[idx_b, 2]
+        dist = math.sqrt(dx*dx + dy*dy + dz*dz) + 1e-9
+        f = -k_spr * dist
+        acc[idx_a, 0] += f * (dx/dist); acc[idx_a, 1] += f * (dy/dist); acc[idx_a, 2] += f * (dz/dist)
+        acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist); acc[idx_b, 2] -= f * (dz/dist)
+    for active_i in range(active_nodes.shape[0]):
+        i = active_nodes[active_i]
+        for active_j in range(active_i + 1, active_nodes.shape[0]):
+            j = active_nodes[active_j]
+            if comp_labels[i] != comp_labels[j]:
+                continue
+            dx = pos[i, 0] - pos[j, 0]
+            dy = pos[i, 1] - pos[j, 1]
+            dz = pos[i, 2] - pos[j, 2]
+            dist_sq = dx*dx + dy*dy + dz*dz
+            if dist_sq > cutoff_sq: continue
+            if dist_sq == 0.0: continue
+            dist = math.sqrt(dist_sq)
+            safe_dist = max(dist, 0.5)
+            f = k_coul / (safe_dist**2)
+            if max_f > 0.0 and f > max_f:
+                f = max_f
+            if dist > taper_start:
+                f *= max(0.0, (cutoff_dist - dist) / taper_width)
+            repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist); repulsion[i, 2] += f*(dz/dist)
+            repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist); repulsion[j, 2] -= f*(dz/dist)
+    for active_idx in range(active_nodes.shape[0]):
+        i = active_nodes[active_idx]
+        rep_norm = math.sqrt(
+            repulsion[i, 0] * repulsion[i, 0]
+            + repulsion[i, 1] * repulsion[i, 1]
+            + repulsion[i, 2] * repulsion[i, 2]
+        )
+        if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
+            rep_scale = max_total_repulsion / rep_norm
+            repulsion[i, 0] *= rep_scale
+            repulsion[i, 1] *= rep_scale
+            repulsion[i, 2] *= rep_scale
+        acc[i, 0] += repulsion[i, 0]
+        acc[i, 1] += repulsion[i, 1]
+        acc[i, 2] += repulsion[i, 2]
+    rmsd = 0.0
+    n_active = active_nodes.shape[0]
+    for i in range(n_balls):
+        if not active_mask[i]:
+            continue
+        box_limit = box_limits[i]
+        acc[i] -= damping * vel[i]
+        vel[i] += acc[i] * dt
+        old_p = pos[i].copy()
+        pos[i] += vel[i] * dt
+        if pos[i,0] > box_limit: pos[i,0]=box_limit; vel[i,0]*=-0.5
+        elif pos[i,0] < -box_limit: pos[i,0]=-box_limit; vel[i,0]*=-0.5
+        if pos[i,1] > box_limit: pos[i,1]=box_limit; vel[i,1]*=-0.5
+        elif pos[i,1] < -box_limit: pos[i,1]=-box_limit; vel[i,1]*=-0.5
+        if pos[i,2] > box_limit: pos[i,2]=box_limit; vel[i,2]*=-0.5
+        elif pos[i,2] < -box_limit: pos[i,2]=-box_limit; vel[i,2]*=-0.5
+        diff = pos[i] - old_p
+        rmsd += diff[0]**2 + diff[1]**2 + diff[2]**2
+    if n_active == 0:
+        return 0.0
+    return math.sqrt(rmsd / n_active)

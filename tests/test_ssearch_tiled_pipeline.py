@@ -10,6 +10,7 @@ reference built from the old pieces. The CPU tests cover the chunk plan, the rea
 
 import io
 import os
+import queue
 import sys
 import tempfile
 import threading
@@ -78,19 +79,19 @@ class PlanUploadChunksTests(unittest.TestCase):
 class FakeStore:
     """The part of EmbeddingTileStore the reader uses: dtypes, shapes, a path and read_into."""
 
-    def __init__(self, shapes, dtype=np.float16, fail_at=None, delay=0.0):
+    def __init__(self, shapes, dtype=np.float16, fail_at=None, gate=None):
         self.path = "fake.h5"
         self.shapes = list(shapes)
         self.dtypes = [np.dtype(dtype)] * len(shapes)
         self.source_bytes = [int(np.prod(s)) * np.dtype(dtype).itemsize for s in shapes]
         self.fail_at = fail_at
-        self.delay = delay
+        self.gate = gate
         self.reads = []
         self.lock = threading.Lock()
 
     def read_into(self, index, out, group=None):
-        if self.delay:
-            time.sleep(self.delay)
+        if self.gate is not None:
+            self.gate.wait(timeout=5.0)
         if index == self.fail_at:
             raise KeyError(f"embedding {index} is missing")
         out[...] = index + 1
@@ -145,12 +146,37 @@ class ChunkReaderTests(unittest.TestCase):
         store = FakeStore([(4, 8)] * 12)  # 64 bytes each: four per chunk of 256
         reader, chunks = reader_for(store, 2)
         self.assertEqual(len(chunks), 3)
+        waiting_for_slot = threading.Event()
+        taken = threading.Event()
+        still_waiting_after_take = threading.Event()
+        orig_take_free = reader._take_free
+        orig_free_get = reader.free.get
+        take_calls = 0
+
+        def spy_take_free():
+            nonlocal take_calls
+            take_calls += 1
+            if take_calls == 3:
+                waiting_for_slot.set()
+            return orig_take_free()
+
+        def spy_free_get(*args, **kwargs):
+            try:
+                return orig_free_get(*args, **kwargs)
+            except queue.Empty:
+                if taken.is_set():
+                    still_waiting_after_take.set()
+                raise
+
+        reader._take_free = spy_take_free
+        reader.free.get = spy_free_get
         reader.start()
         try:
-            time.sleep(0.3)
+            self.assertTrue(waiting_for_slot.wait(timeout=5.0))
             self.assertEqual(len(store.reads), 8)  # two chunks read, the third waits for a slot
             first = reader.next_chunk()
-            time.sleep(0.2)
+            taken.set()
+            self.assertTrue(still_waiting_after_take.wait(timeout=5.0))
             self.assertEqual(len(store.reads), 8)  # taking a chunk is not releasing its buffer
             reader.release(first[3])
             for _ in range(2):
@@ -176,10 +202,25 @@ class ChunkReaderTests(unittest.TestCase):
     def test_close_stops_a_reader_waiting_for_a_free_buffer(self):
         store = FakeStore([(4, 8)] * 30)
         reader, _chunks = reader_for(store, 2)
+        waiting_for_slot = threading.Event()
+        orig_take_free = reader._take_free
+        take_calls = 0
+
+        def spy_take_free():
+            nonlocal take_calls
+            take_calls += 1
+            if take_calls == 3:
+                waiting_for_slot.set()
+            return orig_take_free()
+
+        reader._take_free = spy_take_free
         reader.start()
-        time.sleep(0.2)
-        started = time.perf_counter()
-        reader.close()
+        try:
+            self.assertTrue(waiting_for_slot.wait(timeout=5.0))
+            started = time.perf_counter()
+            reader.close()
+        finally:
+            reader.close()
         self.assertFalse(reader.is_alive())
         self.assertLess(time.perf_counter() - started, 2.0)
         self.assertLess(len(store.reads), 30)
@@ -189,16 +230,24 @@ class ChunkReaderTests(unittest.TestCase):
         reader.close()
 
     def test_the_consumer_can_work_while_it_waits(self):
-        store = FakeStore([(4, 8)] * 4, delay=0.05)
+        unblock_reader = threading.Event()
+        store = FakeStore([(4, 8)] * 4, gate=unblock_reader)
         reader, _chunks = reader_for(store, 2)
         ticks = []
+
+        def idle():
+            ticks.append(1)
+            if len(ticks) >= 3:
+                unblock_reader.set()
+
         reader.start()
         try:
-            item = reader.next_chunk(idle=lambda: ticks.append(1))
+            item = reader.next_chunk(idle=idle)
             reader.release(item[3])
         finally:
+            unblock_reader.set()
             reader.close()
-        self.assertGreater(len(ticks), 2)
+        self.assertGreaterEqual(len(ticks), 3)
 
     def test_a_reader_that_ends_early_is_an_error_not_a_hang(self):
         store = FakeStore([(4, 8)] * 4)

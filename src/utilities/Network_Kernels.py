@@ -1678,15 +1678,6 @@ def _mcl_column_argmax_positions(matrix):
     return max_positions[np.searchsorted(max_positions, indptr[:-1])]
 
 
-def _mcl_column_argmax(matrix):
-    """``matrix.argmax(axis=0)`` as an array for a canonical CSC matrix whose
-    columns all hold a positive maximum (MCL's do: the maximum is never
-    pruned), else None. Like SciPy, it takes each column's first maximum in
-    storage order."""
-    first = _mcl_column_argmax_positions(matrix)
-    return None if first is None else matrix.indices[first]
-
-
 def _mcl_get_clusters(matrix, with_attractors=False):
     """``markov_clustering.get_clusters`` with one CSR conversion instead of
     a row extraction per attractor.
