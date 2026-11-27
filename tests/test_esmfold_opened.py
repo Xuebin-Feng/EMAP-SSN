@@ -25,8 +25,7 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.test_esmfold_colors import A, B, GREY
-from tests.test_esmfold_residue import ResidueTestCase
+from tests.esmfold_page_helpers import A, B, GREY, ResidueTestCase
 
 OWN = "builtin:structure"
 

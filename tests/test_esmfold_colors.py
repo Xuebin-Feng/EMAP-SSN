@@ -27,77 +27,12 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.test_esmfold_structures import StructuresTestCase
+from tests.esmfold_page_helpers import (
+    A, B, C, GREY, MORE_CHIPS, MORE_IDS, PROPERTY_CHIPS, PROPERTY_IDS, SEQUENCE, ColorTestCase,
+)
 
 from PySide6.QtCore import Qt  # noqa: E402  (after the harness has set the engine's environment)
 from PySide6.QtTest import QTest  # noqa: E402
-
-GREY = 0xDCDCDC
-A, B, C = "11.pdb", "22.pdb", "33.pdb"
-# The "Properties" group of the Colors tab, as a card lists it: the chips' ids and texts, in order.
-PROPERTY_CHIPS = [["builtin:secondary-structure", "Secondary structure", ""], ["builtin:accessible-surface-area", "Solvent accessibility", ""],
-                  ["builtin:hydrophobicity", "Hydrophobicity", ""], ["builtin:residue-charge", "Charge", ""]]
-PROPERTY_IDS = [chip[0] for chip in PROPERTY_CHIPS]
-# "More colorings", which is open at the start: its chips come last in a card.
-MORE_CHIPS = [["builtin:structure", "Structure color", ""], ["builtin:residue-position", "Residue position", ""],
-              ["builtin:element-symbol", "Atoms", ""]]
-MORE_IDS = [chip[0] for chip in MORE_CHIPS]
-SEQUENCE = fixtures.FIRST_SEQUENCE
-
-
-def hydrophobicity(length):
-    return [round(((index * 3) % 11) - 5.0, 1) for index in range(length)]
-
-
-class ColorTestCase(StructuresTestCase):
-    def write_with(self, name, *properties, sequence=SEQUENCE, **options):
-        """A structure with residue data that holds only the named fixture properties."""
-        fixtures.write_structure(self.directory, name, sequence, sidecar=False, **options)
-        length = len(sequence)
-        available = {
-            "information_content": fixtures.residue_property(
-                "Information Content", "%", [0, 100], fixtures.information_content(length), None, "How conserved."),
-            "same_residue_pct": fixtures.residue_property(
-                "Residue Agreement", "%", [0, 100], fixtures.same_residue_pct(length), None, "How alike."),
-            "hydro": fixtures.residue_property("Hydrophobicity", "", [-5, 5], hydrophobicity(length), None, "Greasy."),
-        }
-        if properties:
-            data = fixtures.residue_data(name, sequence, properties={key: available[key] for key in properties})
-            fixtures.write_sidecar(self.directory, name, data)
-
-    def open_scene(self, *names):
-        self.open_page()
-        for name in names:
-            self.push(name)
-        self.settle(200)
-
-    def choose(self, coloring):
-        """Click the card's button for `coloring`, let the scene follow, and return the card.
-
-        The colorings under "More colorings" (Structure color, Residue position) are in a group that is open at the start
-        and that a test may have closed: it is opened first when their chip is not in the card.
-        """
-        return self.script("""
-            if (!document.querySelector('#color-body [data-coloring="%s"]')) {
-                document.querySelector('#color-body .more-toggle').click();
-                await cardNow();
-            }
-            document.querySelector('#color-body [data-coloring="%s"]').click();
-            await structureQueue;
-            return await cardNow();
-            """ % (coloring, coloring))
-
-    def shown(self):
-        """What each structure shows: its coloring id, its first theme's name and colour parameter, its row's chips."""
-        return self.script("""
-            await new Promise(resolve => setTimeout(resolve, 150));
-            const rows = [...document.querySelectorAll('#struct-list .srow')];
-            return loadedStructures().map((structure, index) => ({
-                name: structureName(structure), coloring: coloringOf(structure), theme: reprThemes()[index].name,
-                value: reprThemes()[index].params.value ?? null, layer: layerState(index).active,
-                chips: [...rows[index].querySelectorAll('.srow-main .chip')].map(chip => chip.textContent),
-                swatch: rows[index].querySelector('.srow-swatch').style.getPropertyValue('--sw')}));
-            """)
 
 
 class SceneColoringTests(ColorTestCase):

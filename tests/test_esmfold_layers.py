@@ -59,8 +59,8 @@ from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers, serve_fold_view
 from tests.sparse_alignment import load_manager, write_fasta
-from tests.test_esmfold_colors import MORE_CHIPS, PROPERTY_CHIPS
-from tests.test_esmfold_worker import REMOTE_SETTINGS, FakeFoldClient, FakeOutput, fake_esm_modules
+from tests.esmfold_page_helpers import MORE_CHIPS, PROPERTY_CHIPS
+from tests.esmfold_worker_fixtures import REMOTE_SETTINGS, FakeFoldClient, FakeOutput, fake_esm_modules
 # A remote fold imports this on first use; load it before a test puts a stand-in torch in sys.modules.
 from tools.tool_helpers import Remote_Requests  # noqa: F401
 from tests.translation_fixtures import pseudo_language

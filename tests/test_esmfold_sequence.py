@@ -23,12 +23,11 @@ for folder in (SRC, ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
-
 from tests import esmfold_layer_fixtures as fixtures
-from tests.test_esmfold_colors import A, B
-from tests.test_esmfold_residue import ResidueTestCase
+from tests.esmfold_page_helpers import A, B, ResidueTestCase
+
+from PySide6.QtCore import Qt  # noqa: E402  (after the harness has set the engine's environment)
+from PySide6.QtTest import QTest  # noqa: E402
 
 FIRST = fixtures.FIRST_SEQUENCE
 SECOND = fixtures.SECOND_SEQUENCE

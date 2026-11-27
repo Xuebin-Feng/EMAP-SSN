@@ -24,8 +24,7 @@ for folder in (SRC, ROOT):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-from tests.test_esmfold_colors import A, B
-from tests.test_esmfold_structures import StructuresTestCase
+from tests.esmfold_page_helpers import A, B, StructuresTestCase
 
 
 class JobTestCase(StructuresTestCase):

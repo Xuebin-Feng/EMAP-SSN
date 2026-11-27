@@ -22,7 +22,7 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.test_esmfold_colors import A, B, C, SEQUENCE, ColorTestCase
+from tests.esmfold_page_helpers import A, B, C, SEQUENCE, ColorTestCase
 
 from PySide6.QtCore import Qt  # noqa: E402  (after the harness has set the engine's environment)
 from PySide6.QtTest import QTest  # noqa: E402

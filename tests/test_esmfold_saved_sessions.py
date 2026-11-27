@@ -36,7 +36,7 @@ from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin
 from tests.esmfold_saved_session_data import MOLSTAR
 from tests.esmfold_saved_sessions import (
     FIRST, OPENED_NAME, SCENES, SECOND, SUMMARY_JS, opened_structure_pdb, saved_scene, write_saved_structures)
-from tests.test_esmfold_residue import POINTER
+from tests.esmfold_page_helpers import POINTER
 from web_ui.residue_layers import layer_annotation, read_residue_data
 
 ROUTES = ("viewer", "file")

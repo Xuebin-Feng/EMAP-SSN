@@ -24,8 +24,7 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests.esmfold_long_names import USER_NAME
-from tests.test_esmfold_colors import A, B
-from tests.test_esmfold_layout import OVERFLOW, LongNameTestCase
+from tests.esmfold_page_helpers import A, B, OVERFLOW, LongNameTestCase
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402  (after the harness has set the engine's environment)
 from PySide6.QtTest import QTest  # noqa: E402

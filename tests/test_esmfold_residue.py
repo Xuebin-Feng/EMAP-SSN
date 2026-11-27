@@ -25,57 +25,10 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.test_esmfold_colors import A, B, C, ColorTestCase
+from tests.esmfold_page_helpers import A, B, C, POINTER, ResidueTestCase  # noqa: F401 (POINTER kept for esmfold_session_maker)
 
 from PySide6.QtCore import Qt, QUrl  # noqa: E402  (after the harness has set the engine's environment)
 from PySide6.QtTest import QTest  # noqa: E402
-
-# Mol*'s pointer events: the loci of the residue `group` (from 0) of a structure, as the representation gives them.
-POINTER = """
-// The keys Mol*'s pointer events say are held: none, as an object with every key, which is what its bindings match.
-const NO_KEYS = {shift: false, alt: false, control: false, meta: false};
-window.lociOf = function (index, group) {
-    const repr = loadedStructures()[index].components[0].representations[0].cell.obj.data.repr;
-    return {loci: repr.getLoci({objectId: repr.renderObjects[0].id, instanceId: 0, groupId: group}), repr};
-};
-window.hoverOn = async function (index, group) {
-    plugin.behaviors.interaction.hover.next({current: lociOf(index, group), modifiers: {}, buttons: 0, button: 0});
-    await new Promise(resolve => setTimeout(resolve, 250));
-};
-window.hoverOff = async function () {
-    plugin.behaviors.interaction.hover.next({current: {loci: {kind: 'empty-loci'}}, modifiers: {}, buttons: 0, button: 0});
-    await new Promise(resolve => setTimeout(resolve, 250));
-};
-window.clickOn = async function (index, group) {
-    plugin.behaviors.interaction.click.next({current: index === null ? {loci: {kind: 'empty-loci'}} : lociOf(index, group), modifiers: NO_KEYS, buttons: 1, button: 1});
-    await new Promise(resolve => setTimeout(resolve, 350));
-};
-window.tipNow = function () {
-    const tip = document.getElementById('tip');
-    return {shown: tip.classList.contains('show'), head: (tip.querySelector('.h b') || {}).textContent,
-            where: (tip.querySelector('.h span') || {}).textContent,
-            rows: [...tip.querySelectorAll('tr')].map(row => [...row.children].map(c => c.textContent)),
-            pinned: (tip.querySelector('.pinned-note') || {}).textContent || null};
-};
-window.residueNow = function () {
-    const body = document.getElementById('residue-body');
-    return {head: (body.querySelector('.res-head div') || {}).firstChild?.textContent ?? null,
-            where: (body.querySelector('.res-head div span') || {}).textContent ?? null,
-            header: [...body.querySelectorAll('th')].map(c => c.textContent),
-            rows: [...body.querySelectorAll('tr')].slice(1).map(row => [...row.children].map(c => c.textContent)),
-            buttons: [...document.querySelectorAll('#residue-zoom, #residue-clear')].map(b => [b.id, b.getAttribute('aria-label'), b.getAttribute('aria-disabled')]),
-            hint: (body.querySelector('.hint') || {}).textContent ?? null};
-};
-"""
-
-
-class ResidueTestCase(ColorTestCase):
-    def open_scene(self, *names):
-        super().open_scene(*names)
-        self.js(POINTER)
-
-    def plddt(self, group, offset=0):
-        return f"{fixtures.plddt_values(33, offset)[group]:.1f}"
 
 
 class TooltipTests(ResidueTestCase):

@@ -26,77 +26,9 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin, http_get
+from tests.esmfold_page_harness import http_get
+from tests.esmfold_page_helpers import NAMES, StructuresTestCase
 from tests.esmfold_session_fixture import session_before_the_redesign, write_session_structures
-
-NAMES = ("11.pdb", "22.pdb", "33.pdb")
-
-
-class StructuresTestCase(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
-    """The page over a folder of fixture structures, with the Viewer's side of its conversation."""
-
-    def write(self, name, sequence=fixtures.FIRST_SEQUENCE, **options):
-        return fixtures.write_structure(self.directory, name, sequence, **options)
-
-    def write_all(self):
-        self.write(NAMES[0])
-        self.write(NAMES[1], fixtures.SECOND_SEQUENCE, shift=(3.0, 1.0, 0.0), wobble=0.4)
-        self.write(NAMES[2], fixtures.FIRST_SEQUENCE, shift=(-2.0, 4.0, 1.0), wobble=0.7)
-
-    def open_with(self, count=2):
-        self.write_all()
-        self.open_page()
-        for name in NAMES[:count]:
-            self.push(name)
-        self.settle(200)
-
-    def settle(self, milliseconds):
-        self.script(f"await new Promise(resolve => setTimeout(resolve, {milliseconds})); return 1")
-
-    def click(self, selector, wait=300):
-        self.script(f"document.querySelector({json.dumps(selector)}).click(); return 1")
-        self.settle(wait)
-
-    def row(self, number):
-        return f"#struct-list .srow:nth-child({number})"
-
-    def open_details(self, number):
-        if self.script(f"return !document.querySelector({json.dumps(self.row(number) + ' .srow-body')})"):
-            self.click(self.row(number) + " .exp-btn", 100)
-
-    def details(self, number):
-        return self.script("""
-            const row = document.querySelector(%s);
-            const body = row.querySelector('.srow-body');
-            if (!body) return null;
-            const facts = {};
-            for (const term of body.querySelectorAll('dt')) facts[term.textContent] = term.nextElementSibling.textContent;
-            return {facts, hint: (body.querySelector('.hint') || {}).textContent,
-                    buttons: [...body.querySelectorAll('.row-actions button')].map(button => button.textContent),
-                    representation: body.querySelector('select').value,
-                    opacity: body.querySelector('input[type="range"]').value,
-                    opacityLabel: body.querySelector('.field-label .field-value').textContent,
-                    chips: [...row.querySelectorAll('.srow-main .chip')].map(chip => chip.textContent),
-                    expanded: row.querySelector('.exp-btn').getAttribute('aria-expanded'),
-                    controls: row.querySelector('.exp-btn').getAttribute('aria-controls'), id: body.id};
-            """ % json.dumps(self.row(number)))
-
-    def toast(self):
-        return self.script("""
-            const toast = document.getElementById('toast');
-            return {shown: toast.classList.contains('show'), text: toast.querySelector('span').textContent,
-                    undo: !!toast.querySelector('.toast-action')};
-            """)
-
-    def structure_kinds(self):
-        return self.script("""
-            const kinds = {};
-            for (const cell of plugin.state.data.cells.values()) {
-                const id = cell.transform.transformer.id.replace('ms-plugin.', '');
-                kinds[id] = (kinds[id] || 0) + 1;
-            }
-            return kinds;
-            """)
 
 
 class StructureDetailsTests(StructuresTestCase):

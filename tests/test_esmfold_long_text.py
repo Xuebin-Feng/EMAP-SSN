@@ -25,7 +25,7 @@ for folder in (SRC, ROOT):
 
 from tests import esmfold_layer_fixtures as fixtures
 from tests.esmfold_long_names import (LONG_LOG, MSA_120, NAME_120, OPENED_NAME, OPENED_PLAIN, SECOND_NAME, UNDERSCORE_NAME, USER_NAME)
-from tests.test_esmfold_layout import OVERFLOW, LongNameTestCase
+from tests.esmfold_page_helpers import OVERFLOW, LongNameTestCase
 
 
 LONG_LABEL = "Information_Content_after_the_small-sample_correction_of_logo"
