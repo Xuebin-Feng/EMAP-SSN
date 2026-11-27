@@ -6,15 +6,14 @@ import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QTextBrowser, QWidget
-from EMAPSSN_Tools import ToolsGUI, ResponsiveFieldLayout, configure_qt_application_fonts
-from tests.tools_gui_fixtures import isolated_tools_project
+from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QWidget
+from EMAPSSN_Tools import ResponsiveFieldLayout, configure_qt_application_fonts
+from tests.tools_gui_fixtures import open_tools_window
 
 
 class ResponsiveToolsTests(unittest.TestCase):
@@ -24,18 +23,9 @@ class ResponsiveToolsTests(unittest.TestCase):
         configure_qt_application_fonts(cls.app)
 
     def setUp(self):
-        # Saved values and directories come from a temporary tools_settings.json.
-        isolated_tools_project(self)
-        # The independent Chromium description panel is not part of form geometry.
-        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            self.window = ToolsGUI()
-        self.window.show()
-        self.flush()
-
-    def tearDown(self):
-        self.window.close()
-        self.window.deleteLater()
-        self.flush()
+        # Saved values and directories come from a temporary tools_settings.json,
+        # and the independent Chromium description panel is replaced for geometry tests.
+        self.window = open_tools_window(self, show=True)
 
     def flush(self):
         for _ in range(4):

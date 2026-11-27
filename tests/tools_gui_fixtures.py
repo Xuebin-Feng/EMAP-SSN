@@ -41,3 +41,61 @@ def isolated_tools_project(test_case, sections=None):
     patcher.start()
     test_case.addCleanup(patcher.stop)
     return root
+
+
+def open_tools_window(
+    test_case,
+    *,
+    sections=None,
+    show=True,
+    size=None,
+    carried=None,
+    isolate=True,
+    patch_browser=True,
+    **replacements,
+):
+    """Build a ToolsGUI over an isolated project with standard test cleanup.
+
+    sections: extra top-level entries for tools_settings.json (when isolate=True).
+    show: show the window and flush Qt events before returning.
+    size: optional (width, height) passed to window.resize() before showing.
+    carried: optional language_carry_over() payload passed to ToolsGUI(carried=...).
+    isolate: call isolated_tools_project(test_case, sections=sections) first.
+        Pass False when the test already called isolated_tools_project() to
+        populate files or settings before constructing ToolsGUI.
+    patch_browser: replace EMAPSSN_Tools.ResponsiveTextBrowser with QTextBrowser
+        unless ResponsiveTextBrowser is supplied in replacements.
+    **replacements: attributes patched on EMAPSSN_Tools via mock.patch.object
+        for the lifetime of test_case.
+    """
+    from PySide6.QtWidgets import QApplication, QTextBrowser
+    import EMAPSSN_Tools
+
+    if isolate:
+        isolated_tools_project(test_case, sections=sections)
+
+    patches = dict(replacements)
+    if patch_browser and "ResponsiveTextBrowser" not in patches:
+        patches["ResponsiveTextBrowser"] = QTextBrowser
+    for attribute, value in patches.items():
+        patcher = mock.patch.object(EMAPSSN_Tools, attribute, value)
+        patcher.start()
+        test_case.addCleanup(patcher.stop)
+
+    app = QApplication.instance() or QApplication([])
+    window = EMAPSSN_Tools.ToolsGUI(carried=carried)
+
+    def close_window():
+        window.close()
+        window.deleteLater()
+        for _ in range(4):
+            app.processEvents()
+
+    test_case.addCleanup(close_window)
+    if size is not None:
+        window.resize(*size)
+    if show:
+        window.show()
+        for _ in range(4):
+            app.processEvents()
+    return window

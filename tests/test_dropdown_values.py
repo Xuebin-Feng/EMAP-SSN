@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from tests.config_gui_loader import load_config_namespace, open_config_window
-from tests.tools_gui_fixtures import isolated_tools_project
+from tests.tools_gui_fixtures import isolated_tools_project, open_tools_window
 from utilities.Similarity_Matrices import SIMILARITY_MATRICES
 
 
@@ -184,18 +184,7 @@ class ToolsDropdownValueTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        from PySide6.QtWidgets import QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
-
-        isolated_tools_project(self)
-        with mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            self.window = ToolsGUI()
-        self.addCleanup(self.close_window)
-
-    def close_window(self):
-        self.window.close()
-        self.window.deleteLater()
-        self.app.processEvents()
+        self.window = open_tools_window(self, show=False)
 
     def test_relabelled_dropdowns_collect_the_same_settings(self):
         checked = 0
@@ -289,16 +278,9 @@ class ToolsDropdownValueTests(unittest.TestCase):
         from desktop.Desktop_App import combo_value
 
         # Embedding_SSEARCH has no network to read, so its dropdown shows the saved value at once.
-        isolated_tools_project(
-            self, sections={"Embedding_SSEARCH.py": {"NORM_MODE": "average_sequence"}}
+        window = open_tools_window(
+            self, sections={"Embedding_SSEARCH.py": {"NORM_MODE": "average_sequence"}}, show=False
         )
-        from PySide6.QtWidgets import QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
-
-        with mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            window = ToolsGUI()
-        self.addCleanup(window.deleteLater)
-        self.addCleanup(window.close)
         path = next(p for p in window.script_data if Path(p).name == "Embedding_SSEARCH.py")
         combo = window.script_data[path]["inputs"]["NORM_MODE"]["widget"]
         self.assertEqual(combo_value(combo), "average_sequence")
@@ -394,16 +376,8 @@ class ToolsOptionLabelTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def open_tools(self, sections=None):
-        from PySide6.QtWidgets import QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
-
         root = isolated_tools_project(self, sections)
-        with mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            window = ToolsGUI()
-        self.addCleanup(self.app.processEvents)
-        self.addCleanup(window.deleteLater)
-        self.addCleanup(window.close)
-        return window, root
+        return open_tools_window(self, show=False, isolate=False), root
 
     @staticmethod
     def script(window, name):

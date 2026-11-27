@@ -16,17 +16,13 @@ from EMAPSSN_Tools import (
     calibrated_imputation_switch_state,
     isotonic_regression_switch_state,
 )
-from tests.tools_gui_fixtures import isolated_tools_project
+from tests.tools_gui_fixtures import isolated_tools_project, open_tools_window
 
 
 class TestEmbeddingMsaGuiLogic(unittest.TestCase):
     def test_the_calibration_switch_follows_the_network_and_keeps_its_state(self):
-        from PySide6.QtWidgets import QApplication, QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
+        from unittest.mock import Mock
 
-        app = QApplication.instance() or QApplication([])
-        # No saved network or directories from the developer's tools_settings.json.
-        isolated_tools_project(self)
         states = {
             "sampled": NetworkCompletenessInfo(
                 status="incomplete", sequence_count=10, edge_count=20,
@@ -42,90 +38,79 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
             ),
             "unknown": NetworkCompletenessInfo(status="unknown", reason="Missing required dataset(s): i."),
         }
-        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser), patch(
-            "EMAPSSN_Tools.inspect_network_completeness", return_value=states["sampled"]
-        ) as inspect:
-            window = ToolsGUI()
-            try:
-                data = next(value for key, value in window.script_data.items()
-                            if pathlib.Path(key).name == "Embedding_MSA.py")
-                inputs = data["inputs"]
-                network = inputs["INPUT_NETWORK"]["widget"].combo
-                switch = inputs["CALIBRATED_IMPUTATION"]["widget"]
-                path = next(key for key in window.script_data if pathlib.Path(key).name == "Embedding_MSA.py")
-                # The switch is ON by default and has no say in the perturbed trees or the tree method.
-                self.assertTrue(switch.isChecked())
-                for method in (0, 1):
-                    inputs["TREE_METHOD"]["widget"].setCurrentIndex(method)
-                    for perturbed in (True, False):
-                        inputs["BOOTSTRAP_TREE"]["widget"].setChecked(perturbed)
-                        network.addItem("sampled.h5")
-                        network.setCurrentText("sampled.h5")
-                        self.assertTrue(switch.isEnabled(), (method, perturbed))
-                for checked in (True, False):
-                    for name, info in states.items():
-                        with self.subTest(checked=checked, network=name):
-                            inspect.return_value = states["sampled"]
-                            network.addItem("sampled.h5")
-                            network.setCurrentText("sampled.h5")
-                            switch.setChecked(checked)
-                            inspect.return_value = info
-                            network.addItem(f"{name}.h5")
-                            network.setCurrentText(f"{name}.h5")
-                            self.assertEqual(switch.isEnabled(), name == "sampled")
-                            # Greyed out or not, the state stays and is what a run collects.
-                            self.assertEqual(switch.isChecked(), checked)
-                            self.assertEqual(window._collect_tool_settings(path)["CALIBRATED_IMPUTATION"], checked)
-                            if name == "unsampled":
-                                self.assertIn("does not record how its scores were made", switch.toolTip())
-                            if name == "complete":
-                                self.assertIn("Not applicable", switch.toolTip())
+        inspect = Mock(return_value=states["sampled"])
+        # No saved network or directories from the developer's tools_settings.json.
+        window = open_tools_window(self, show=False, inspect_network_completeness=inspect)
+        data = next(value for key, value in window.script_data.items()
+                    if pathlib.Path(key).name == "Embedding_MSA.py")
+        inputs = data["inputs"]
+        network = inputs["INPUT_NETWORK"]["widget"].combo
+        switch = inputs["CALIBRATED_IMPUTATION"]["widget"]
+        path = next(key for key in window.script_data if pathlib.Path(key).name == "Embedding_MSA.py")
+        # The switch is ON by default and has no say in the perturbed trees or the tree method.
+        self.assertTrue(switch.isChecked())
+        for method in (0, 1):
+            inputs["TREE_METHOD"]["widget"].setCurrentIndex(method)
+            for perturbed in (True, False):
+                inputs["BOOTSTRAP_TREE"]["widget"].setChecked(perturbed)
+                network.addItem("sampled.h5")
+                network.setCurrentText("sampled.h5")
+                self.assertTrue(switch.isEnabled(), (method, perturbed))
+        for checked in (True, False):
+            for name, info in states.items():
+                with self.subTest(checked=checked, network=name):
                     inspect.return_value = states["sampled"]
+                    network.addItem("sampled.h5")
                     network.setCurrentText("sampled.h5")
-                    self.assertTrue(switch.isEnabled())
-                    network.setCurrentIndex(-1)
-                    self.assertFalse(switch.isEnabled())
+                    switch.setChecked(checked)
+                    inspect.return_value = info
+                    network.addItem(f"{name}.h5")
+                    network.setCurrentText(f"{name}.h5")
+                    self.assertEqual(switch.isEnabled(), name == "sampled")
+                    # Greyed out or not, the state stays and is what a run collects.
                     self.assertEqual(switch.isChecked(), checked)
-                    self.assertIn("No network is selected", switch.toolTip())
-                    plot = inputs["SHOW_REGRESSION_PLOT"]["widget"]
-                    self.assertFalse(plot.isEnabled())
-            finally:
-                window.close()
-                window.deleteLater()
-                app.processEvents()
+                    self.assertEqual(window._collect_tool_settings(path)["CALIBRATED_IMPUTATION"], checked)
+                    if name == "unsampled":
+                        self.assertIn("does not record how its scores were made", switch.toolTip())
+                    if name == "complete":
+                        self.assertIn("Not applicable", switch.toolTip())
+            inspect.return_value = states["sampled"]
+            network.setCurrentText("sampled.h5")
+            self.assertTrue(switch.isEnabled())
+            network.setCurrentIndex(-1)
+            self.assertFalse(switch.isEnabled())
+            self.assertEqual(switch.isChecked(), checked)
+            self.assertIn("No network is selected", switch.toolTip())
+            plot = inputs["SHOW_REGRESSION_PLOT"]["widget"]
+            self.assertFalse(plot.isEnabled())
 
     def test_a_blast_network_greys_the_calibration_switch(self):
-        from PySide6.QtWidgets import QApplication, QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
+        from unittest.mock import Mock
         from Cache_Manifest import NetworkMetadata
 
-        app = QApplication.instance() or QApplication([])
-        isolated_tools_project(self)
         sampled = NetworkCompletenessInfo(
             status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
             records_scoring=True, model_name="m",
         )
-        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser), patch(
-            "EMAPSSN_Tools.inspect_network_completeness", return_value=sampled
-        ), patch("EMAPSSN_Tools.validate_network_schema") as validate:
-            window = ToolsGUI()
-            try:
-                data = next(value for key, value in window.script_data.items()
-                            if pathlib.Path(key).name == "Embedding_MSA.py")
-                network = data["inputs"]["INPUT_NETWORK"]["widget"].combo
-                switch = data["inputs"]["CALIBRATED_IMPUTATION"]["widget"]
-                for kind, enabled in (("alignment", True), ("blast", False), ("alignment", True)):
-                    validate.return_value = NetworkMetadata("model", kind)
-                    network.addItem(f"{kind}-{enabled}.h5")
-                    network.setCurrentText(f"{kind}-{enabled}.h5")
-                    self.assertEqual(switch.isEnabled(), enabled, kind)
-                    self.assertTrue(switch.isChecked())
-                    if not enabled:
-                        self.assertIn("BLAST network: its scores were not made by this program's alignment", switch.toolTip())
-            finally:
-                window.close()
-                window.deleteLater()
-                app.processEvents()
+        validate = Mock()
+        window = open_tools_window(
+            self,
+            show=False,
+            inspect_network_completeness=Mock(return_value=sampled),
+            validate_network_schema=validate,
+        )
+        data = next(value for key, value in window.script_data.items()
+                    if pathlib.Path(key).name == "Embedding_MSA.py")
+        network = data["inputs"]["INPUT_NETWORK"]["widget"].combo
+        switch = data["inputs"]["CALIBRATED_IMPUTATION"]["widget"]
+        for kind, enabled in (("alignment", True), ("blast", False), ("alignment", True)):
+            validate.return_value = NetworkMetadata("model", kind)
+            network.addItem(f"{kind}-{enabled}.h5")
+            network.setCurrentText(f"{kind}-{enabled}.h5")
+            self.assertEqual(switch.isEnabled(), enabled, kind)
+            self.assertTrue(switch.isChecked())
+            if not enabled:
+                self.assertIn("BLAST network: its scores were not made by this program's alignment", switch.toolTip())
 
     def test_the_completeness_check_says_whether_the_network_records_its_scoring_and_which_model(self):
         import tempfile
@@ -291,12 +276,9 @@ class NetworkEmbeddingsFieldTests(unittest.TestCase):
 
     def setUp(self):
         import h5py
-        from PySide6.QtWidgets import QApplication, QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
         from tools.tool_helpers.Tool_Pipeline import DEFAULT_DIRECTORY_PATHS
         from types import SimpleNamespace
 
-        self.app = QApplication.instance() or QApplication([])
         root = isolated_tools_project(self)
         embeddings = root / DEFAULT_DIRECTORY_PATHS["EMBED_DIR"]
         embeddings.mkdir(parents=True, exist_ok=True)
@@ -305,15 +287,13 @@ class NetworkEmbeddingsFieldTests(unittest.TestCase):
                 if model is not None:
                     handle.attrs["model_name"] = model
         self.info = self.NETWORK
-        for patcher in (
-            patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser),
-            patch("EMAPSSN_Tools.inspect_network_completeness", side_effect=lambda path: self.info),
-            patch("EMAPSSN_Tools.validate_network_schema", return_value=SimpleNamespace(network_type="embedding")),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.window = ToolsGUI()
-        self.addCleanup(self.close_window)
+        self.window = open_tools_window(
+            self,
+            show=False,
+            isolate=False,
+            inspect_network_completeness=lambda path: self.info,
+            validate_network_schema=lambda _hf: SimpleNamespace(network_type="embedding"),
+        )
         self.path = next(key for key in self.window.script_data if pathlib.Path(key).name == "Embedding_MSA.py")
         self.inputs = self.window.script_data[self.path]["inputs"]
         self.network = self.inputs["INPUT_NETWORK"]["widget"].combo
@@ -323,11 +303,6 @@ class NetworkEmbeddingsFieldTests(unittest.TestCase):
         self.own = self.inputs["INPUT_EMBED"]["widget"].combo
         self.choose(self.own, "own.h5")
         self.use_network("sparse.h5")
-
-    def close_window(self):
-        self.window.close()
-        self.window.deleteLater()
-        self.app.processEvents()
 
     @staticmethod
     def choose(combo, name):
@@ -469,25 +444,21 @@ class PerturbedTreeSwitchTests(unittest.TestCase):
 
     def open_tools(self, tree_method=None, perturbed=None, carried=None):
         """Open the Tools window, saving the tree settings first if they are given."""
-        from PySide6.QtWidgets import QTextBrowser
-        from EMAPSSN_Tools import ToolsGUI
-
+        sections = None
         if carried is None:
             section = {}
             if tree_method is not None:
                 section["TREE_METHOD"] = tree_method
             if perturbed is not None:
                 section["BOOTSTRAP_TREE"] = perturbed
-            isolated_tools_project(self, sections={"Embedding_MSA.py": section})
-        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            window = ToolsGUI(carried=carried)
-
-        def close():
-            window.close()
-            window.deleteLater()
-            self.app.processEvents()
-
-        self.addCleanup(close)
+            sections = {"Embedding_MSA.py": section}
+        window = open_tools_window(
+            self,
+            sections=sections,
+            show=False,
+            carried=carried,
+            isolate=carried is None,
+        )
         path = next(path for path in window.script_data
                     if pathlib.Path(path).name == "Embedding_MSA.py")
         return window, path, window.script_data[path]["inputs"]

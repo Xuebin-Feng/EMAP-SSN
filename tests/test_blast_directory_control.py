@@ -29,13 +29,11 @@ from PySide6.QtWidgets import (  # noqa: E402
     QMessageBox,
     QProgressDialog,
     QPushButton,
-    QTextBrowser,
 )
 
-import EMAPSSN_Tools  # noqa: E402
 from desktop import Blast_Directory_Control as control_module  # noqa: E402
 from desktop.Blast_Directory_Control import BlastDirectoryControl, display_path  # noqa: E402
-from tests.tools_gui_fixtures import isolated_tools_project  # noqa: E402
+from tests.tools_gui_fixtures import isolated_tools_project, open_tools_window  # noqa: E402
 from utilities import BLAST_Download, BLAST_Executables  # noqa: E402
 
 WINDOWS = "windows-x86_64"
@@ -416,10 +414,7 @@ class ToolsWindowRowTests(ControlTestCase):
         self.patch(BLAST_Executables, "describe_automatic", return_value=AUTOMATIC)
         root = isolated_tools_project(self, sections)
         self.project = str(root)
-        with mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
-            window = EMAPSSN_Tools.ToolsGUI()
-        self.addCleanup(window.deleteLater)
-        self.addCleanup(window.close)
+        window = open_tools_window(self, show=False, isolate=False)
         path = next(path for path in window.script_data if path.endswith(SUBSTITUTION_TOOL))
         return window, path, window.script_data[path]["inputs"]["BLASTP_DIR"]["widget"]
 

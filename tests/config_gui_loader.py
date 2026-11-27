@@ -26,13 +26,45 @@ CONFIG_PATH = SRC / "EMAPSSN_Config.py"
 # First line of the application block; the launcher and event loop follow it.
 APPLICATION_MARKER = "    existing_qt_application = QApplication.instance()"
 
+_COMPILED_CONFIG_CODE = None
+_NAMESPACE_CACHE = {}
 
-def load_config_namespace():
-    """Return the EMAPSSN_Config ``__main__`` namespace up to the application block."""
-    text = CONFIG_PATH.read_text(encoding="utf-8")
-    if APPLICATION_MARKER not in text:
-        # Without it, exec would run on into the event loop and hang.
-        raise AssertionError("EMAPSSN_Config.py no longer contains the launcher marker")
+
+def _compiled_config_code():
+    """Compile EMAPSSN_Config.py up to the application block once per process."""
+    global _COMPILED_CONFIG_CODE
+    if _COMPILED_CONFIG_CODE is None:
+        text = CONFIG_PATH.read_text(encoding="utf-8")
+        if APPLICATION_MARKER not in text:
+            # Without it, exec would run on into the event loop and hang.
+            raise AssertionError("EMAPSSN_Config.py no longer contains the launcher marker")
+        source = text.split(APPLICATION_MARKER)[0]
+        _COMPILED_CONFIG_CODE = compile(source, str(CONFIG_PATH), "exec")
+    return _COMPILED_CONFIG_CODE
+
+
+def _namespace_cache_key():
+    """Environment inputs EMAPSSN_Config reads while executing its module body."""
+    return (
+        os.environ.get("SSN_TARGET_CACHE"),
+        os.environ.get("SSN_TARGET_CACHE_PATH"),
+        os.environ.get("SSN_TARGET_CACHE_MODE"),
+    )
+
+
+def load_config_namespace(*, fresh=False):
+    """Return the EMAPSSN_Config ``__main__`` namespace up to the application block.
+
+    Caches the compiled code object and, unless ``fresh=True``, the executed
+    namespace per target-cache environment tuple. Module-level strings use
+    ``QT_TRANSLATE_NOOP`` (not ``translate()``), so translations installed
+    before or after loading still apply when ``ConfigGUI`` is built.
+    """
+    cache_key = _namespace_cache_key()
+    if not fresh and cache_key in _NAMESPACE_CACHE:
+        return _NAMESPACE_CACHE[cache_key]
+
+    code = _compiled_config_code()
     if str(SRC) not in sys.path:
         sys.path.insert(0, str(SRC))
     namespace = {"__name__": "__main__", "__file__": str(CONFIG_PATH)}
@@ -49,8 +81,7 @@ def load_config_namespace():
             os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json"),
                          "SSN_NO_CONSOLE_CAPTURE": "1"}
         ):
-            source = text.split(APPLICATION_MARKER)[0]
-            exec(compile(source, str(CONFIG_PATH), "exec"), namespace)
+            exec(code, namespace)
     finally:
         # The application block installs _exit_on_uncaught_exception; never keep it.
         sys.excepthook = excepthook
@@ -58,6 +89,8 @@ def load_config_namespace():
         # streams are the test runner's.
         for stream, encoding, errors in streams:
             stream.reconfigure(encoding=encoding, errors=errors)
+    if not fresh:
+        _NAMESPACE_CACHE[cache_key] = namespace
     return namespace
 
 

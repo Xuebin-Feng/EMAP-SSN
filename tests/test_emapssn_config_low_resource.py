@@ -142,8 +142,36 @@ class SectionGeometry:
     def resize_window(self, width, window=None):
         window = window or self.window
         window.resize(width, 900)
-        for _ in range(4):
+        for _ in range(2):
             self.app.processEvents()
+
+    def sweep_widths(self, stop, *anchors, window=None, dense_offsets=None,
+                     between_points=7, wide_points=10):
+        """Targeted widths: endpoints, a dense band around each anchor row's
+        wrap/stack transition, and representative widths across every span."""
+        window = window or self.window
+        floor = window.minimumSizeHint().width()
+        offsets = (
+            (-30, -20, -15, -10, -5, -2, -1, 0, 1, 2, 5, 10, 15, 20, 30)
+            if dense_offsets is None
+            else dense_offsets
+        )
+        thresholds = sorted({
+            max(floor, min(stop - 1, row.layout()._wide_width() + (window.width() - row.width())))
+            for row in anchors
+        })
+        widths = {floor, stop - 1}
+        for threshold in thresholds:
+            for offset in offsets:
+                widths.add(threshold + offset)
+        boundaries = [floor, *thresholds, stop - 1]
+        for index, (low, high) in enumerate(zip(boundaries, boundaries[1:])):
+            if high - low <= 1:
+                continue
+            count = wide_points if index == len(boundaries) - 2 else between_points
+            for step in range(1, count + 1):
+                widths.add(low + (high - low) * step // (count + 1))
+        return sorted(width for width in widths if floor <= width < stop)
 
     def test_two_switches_a_row_in_the_sections_own_columns(self):
         window = self.window
@@ -217,7 +245,7 @@ class SectionGeometry:
         size = window.size()
         wide = 0
         try:
-            for width in range(window.minimumSizeHint().width(), 2400, 10):
+            for width in self.sweep_widths(2400, colour, between_points=3, wide_points=18):
                 self.resize_window(width)
                 if colour.property("stacked"):
                     continue
@@ -275,7 +303,7 @@ class SectionGeometry:
             self.assertGreaterEqual(row.layout()._wide_width(), colour.layout()._wide_width())
         stacked_seen = wide_seen = 0
         try:
-            for width in range(window.minimumSizeHint().width(), 1700, 10):
+            for width in self.sweep_widths(1700, colour, *rows.values(), between_points=6, wide_points=6):
                 self.resize_window(width)
                 for key, row in rows.items():
                     with self.subTest(width=width, key=key):
@@ -317,7 +345,7 @@ class SectionGeometry:
         page = window.tabs.widget(1).widget()
         self.assertGreater(rows[0].layout()._wide_width(), colour.layout()._wide_width())
         waited = side_by_side = 0
-        for width in range(window.minimumSizeHint().width(), 4200, 20):
+        for width in self.sweep_widths(4200, colour, rows[0], window=window, between_points=6, wide_points=5):
             self.resize_window(width, window)
             with self.subTest(width=width):
                 if not colour.property("stacked") and rows[0].property("stacked"):
@@ -347,7 +375,10 @@ class SectionGeometry:
         right_width = max(self.natural(window.labels[key]) for key in self.RIGHT)
         page = window.tabs.widget(1).widget()
         side_by_side = 0
-        for width in range(window.minimumSizeHint().width(), 4200, 100):
+        for width in self.sweep_widths(
+            4200, colour, *rows, window=window,
+            dense_offsets=(-20, -2, -1, 0, 1, 2, 20), between_points=3, wide_points=4,
+        ):
             self.resize_window(width, window)
             with self.subTest(width=width):
                 for row in rows:

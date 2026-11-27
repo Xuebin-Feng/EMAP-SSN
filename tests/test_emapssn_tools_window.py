@@ -49,7 +49,7 @@ from EMAPSSN_Tools import (  # noqa: E402
     _configure_qtwebengine_rendering,
     bind_custom_blast_column_controls,
 )
-from tests.tools_gui_fixtures import isolated_tools_project  # noqa: E402
+from tests.tools_gui_fixtures import isolated_tools_project, open_tools_window  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import DEFAULT_DIRECTORY_PATHS  # noqa: E402
 
 
@@ -1203,31 +1203,13 @@ class ToolExportGuiTests(unittest.TestCase):
 class ToolsModelDropdownTests(unittest.TestCase):
     def open_tools(self, saved_model):
         """Open the Tools window with MODEL_NAME saved in a scratch project root."""
-        from PySide6.QtWidgets import QApplication, QTextBrowser
         import EMAPSSN_Tools
 
-        app = QApplication.instance() or QApplication([])
-        root = tempfile.TemporaryDirectory()
-        self.addCleanup(root.cleanup)
-        settings = pathlib.Path(root.name, "tools_settings.json")
-        settings.write_text(
-            json.dumps({"Generate_Embeddings.py": {"MODEL_NAME": saved_model}}),
-            encoding="utf-8",
+        root = isolated_tools_project(
+            self, sections={"Generate_Embeddings.py": {"MODEL_NAME": saved_model}}
         )
-        for patcher in (
-            mock.patch.object(EMAPSSN_Tools, "_PROJECT_ROOT", root.name),
-            mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        window = EMAPSSN_Tools.ToolsGUI()
-
-        def close():
-            window.close()
-            window.deleteLater()
-            app.processEvents()
-
-        self.addCleanup(close)
+        settings = root / "tools_settings.json"
+        window = open_tools_window(self, show=False, isolate=False)
         path, data = next(
             (key, value) for key, value in window.script_data.items()
             if pathlib.Path(key).name == "Generate_Embeddings.py"
@@ -1420,22 +1402,10 @@ class SettingsLoadReportTests(unittest.TestCase):
     def open_tools(self, content):
         """Open the Tools window over a scratch project whose settings file holds content."""
         import EMAPSSN_Tools
-        from PySide6.QtWidgets import QTextBrowser
 
-        app = QApplication.instance() or QApplication([])
         settings = isolated_tools_project(self) / "tools_settings.json"
         settings.write_text(content, encoding="utf-8")
-        patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        window = EMAPSSN_Tools.ToolsGUI()
-
-        def close():
-            window.close()
-            window.deleteLater()
-            app.processEvents()
-
-        self.addCleanup(close)
+        window = open_tools_window(self, show=False, isolate=False)
         return EMAPSSN_Tools, window, settings
 
     def test_an_unreadable_file_is_reported_when_the_window_opens(self):
@@ -1508,12 +1478,7 @@ class FolderDropdownTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        from PySide6.QtWidgets import QTextBrowser
-
         self.root = isolated_tools_project(self)
-        patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     @staticmethod
     def saved_name(key, extension):
@@ -1539,19 +1504,9 @@ class FolderDropdownTests(unittest.TestCase):
 
     def open_tools(self, directories=None, carried=None, missing=()):
         """Open the Tools window, saving directories first if they are given (save_settings)."""
-        import EMAPSSN_Tools
-
         if directories is not None:
             self.save_settings(directories, missing)
-        window = EMAPSSN_Tools.ToolsGUI(carried=carried)
-
-        def close():
-            window.close()
-            window.deleteLater()
-            self.app.processEvents()
-
-        self.addCleanup(close)
-        return window
+        return open_tools_window(self, show=False, carried=carried, isolate=False)
 
     @staticmethod
     def dropdown(window, script, field):
