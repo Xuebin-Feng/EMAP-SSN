@@ -49,8 +49,8 @@ ICONS = (
     # Tools cards and help headings
     "dna", "file-input", "file-output", "file-text", "scissors", "search", "settings",
     "sparkles", "timer", "trending-down", "triangle-alert", "wrench",
-    # Viewer sidebar
-    "bot", "chart-column", "panel-right-close", "panel-right-open",
+    # Console buttons and Fold View panel toggle
+    "bot", "chart-column", "panel-right-open",
     # Viewer web pages (agent.html, meta.html, attachments.js)
     "brush-cleaning", "camera", "check", "copy", "download", "eye", "eye-off", "loader-circle", "menu",
     "moon", "mouse-pointer", "plus", "redo-2", "save", "send", "sheet", "sun", "trash-2", "undo-2",
