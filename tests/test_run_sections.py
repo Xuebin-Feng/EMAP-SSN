@@ -77,7 +77,7 @@ class SectionsFileTests(unittest.TestCase):
     """The real tests/sections.toml."""
 
     def test_every_test_module_is_in_exactly_one_section(self):
-        _, problems = check_assignment(load_config(), list_test_modules())
+        _, problems = check_assignment(load_config(), list_test_modules(), root=PROJECT_ROOT)
         self.assertEqual(problems, [], "fix tests/sections.toml")
 
     def test_every_section_runs_something(self):
@@ -266,6 +266,37 @@ class AssignmentTests(unittest.TestCase):
         sections = runnable_sections(config, ["test_one", "test_new"])
         self.assertEqual(sections["a"].modules, ["test_one"])
         self.assertEqual(sections[UNASSIGNED].modules, ["test_new"])
+
+    def test_cwd_sections_check_and_preserve_their_own_modules(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            write(root, {
+                "tests/test_main.py": "",
+                "opt_vr/tests/test_vr_one.py": "",
+                "opt_vr/tests/test_vr_two.py": "",
+                "opt_vr/tests/test_vr_extra.py": "",
+            })
+            config = run_sections.Config(
+                sections={
+                    "main": Section("main", modules=["test_main"]),
+                    "opt_vr_core": Section("opt_vr_core", modules=["test_vr_one"], cwd="opt_vr", platforms=["win32"]),
+                    "opt_vr_config": Section(
+                        "opt_vr_config", modules=["test_vr_two", "test_vr_missing"], cwd="opt_vr", platforms=["win32"]
+                    ),
+                },
+                rules=[], full_suite=[], repo_checks=[],
+            )
+            owner, problems = check_assignment(config, ["test_main"], root=root)
+            self.assertEqual(owner, {"test_main": "main"})
+            self.assertEqual(problems, [
+                "test_vr_missing (section opt_vr_config) is not a test module in opt_vr/tests/",
+                "opt_vr/tests/test_vr_extra is in no section of tests/sections.toml",
+            ])
+            sections = runnable_sections(config, ["test_main"], root=root)
+            self.assertEqual(sections["opt_vr_core"].cwd, "opt_vr")
+            self.assertEqual(sections["opt_vr_core"].modules, ["test_vr_one"])
+            self.assertEqual(sections["opt_vr_config"].cwd, "opt_vr")
+            self.assertEqual(sections["opt_vr_config"].modules, ["test_vr_two"])
 
 
 class GlobTests(unittest.TestCase):
@@ -727,10 +758,10 @@ class PlatformTests(unittest.TestCase):
                 self.assertEqual(code, 2, out)
                 self.assertIn("error: tests/sections.toml: section 'vr_only': platforms", out)
 
-    def test_only_the_vr_section_of_the_real_file_declares_platforms(self):
+    def test_only_the_vr_sections_of_the_real_file_declare_platforms(self):
         declared = {name: section.platforms for name, section in load_config().sections.items()
                     if section.platforms}
-        self.assertEqual(declared, {"opt_vr": ["win32"]})
+        self.assertEqual(declared, {"opt_vr_core": ["win32"], "opt_vr_config": ["win32"]})
 
 
 class SessionFolderTests(unittest.TestCase):

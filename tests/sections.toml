@@ -48,13 +48,14 @@ modules = [
     "test_node_colors",
     "test_node_render_order",
     "test_output_names",
-    "test_platform_keys",
     "test_position_lists",
-    "test_print_command",
+    "test_print_command_jobs",
+    "test_print_command_png",
+    "test_print_command_svg",
+    "test_print_command_zoom",
     "test_query_command",
     "test_reference_resolution",
     "test_reset_command",
-    "test_residue_snapshots",
     "test_run_command",
     "test_save_command",
     "test_select_command",
@@ -69,44 +70,56 @@ modules = [
 ]
 
 [sections.viewer]
-description = "Viewer window, command portal, inspection, sessions, web server"
-seconds = 370
+description = "Viewer canvas, mouse gestures, markers, edges, motion, sessions, network data"
+seconds = 185
 modules = [
-    "test_browser_page_opening",
-    "test_console_overlay_wrapping",
-    "test_console_view",
     "test_display_scaling",
     "test_embedding_manager",
     "test_low_resource_mode",
     "test_metadata",
     "test_network_threshold_edges",
     "test_network_top_edges",
-    "test_threshold_tree",
-    "test_viewer_threshold_events",
+    "test_platform_keys",
     "test_prepare_network",
-    "test_viewer_caret",
-    "test_viewer_command_portal",
-    "test_viewer_connection_output",
-    "test_viewer_worker_tracking",
+    "test_residue_snapshots",
+    "test_threshold_tree",
+    "test_viewer_dpi",
     "test_viewer_edges",
     "test_viewer_hidden_window",
+    "test_viewer_markers",
+    "test_viewer_motion",
+    "test_viewer_mouse_camera",
+    "test_viewer_mouse_selection",
+    "test_viewer_mouse_undo_pages",
+    "test_viewer_sessions",
+    "test_viewer_startup_snapshot",
+    "test_viewer_threshold_events",
+    "test_viewer_vsync",
+]
+
+[sections.viewer_ui]
+description = "Viewer Console view, HUD overlays, widgets, legend, history, jobs, web server and portal"
+seconds = 185
+modules = [
+    "test_background_job_scheduler",
+    "test_browser_page_opening",
+    "test_console_overlay_wrapping",
+    "test_console_view_buttons",
+    "test_console_view_formatting",
+    "test_console_view_window",
+    "test_viewer_caret",
+    "test_viewer_command_portal",
     "test_viewer_history_buttons",
     "test_viewer_inspection",
-    "test_viewer_listeners",
     "test_viewer_inspection_http",
     "test_viewer_jobs_card",
     "test_viewer_legend",
-    "test_viewer_markers",
-    "test_viewer_motion",
-    "test_viewer_mouse_gestures",
+    "test_viewer_listeners",
     "test_viewer_portal_adapters",
-    "test_viewer_sessions",
     "test_viewer_slider_overlay",
-    "test_viewer_startup_snapshot",
-    "test_viewer_dpi",
-    "test_viewer_vsync",
     "test_viewer_web_origin",
     "test_viewer_widgets",
+    "test_viewer_worker_tracking",
     "test_web_plugin_discovery",
     "test_web_server",
     "test_web_state_broadcast",
@@ -269,20 +282,21 @@ modules = [
     "test_pipeline_file_inspection",
     "test_pipeline_jobs",
     "test_pipeline_settings",
+    "test_viewer_connection_output",
     "test_viewer_hidden_launch",
 ]
 
 [sections.layout]
-description = "Layout engines, GPU kernels, spectral start, packing, time step, PaCMAP pairs"
-seconds = 90
+description = "Layout engines, GPU/CPU kernels, spectral start, packing, clustering kernels, PaCMAP pairs"
+seconds = 100
 modules = [
     "test_layout_engine_pacmap",
     "test_layout_engine_ssn",
     "test_layout_engine_umap",
     "test_layout_gpu_kernels",
-    "test_layout_optimizations",
     "test_layout_packing",
     "test_layout_time_step_guard",
+    "test_network_kernels",
     "test_pacmap_pairs",
     "test_parallel_kernels",
     "test_spectral_start",
@@ -290,7 +304,7 @@ modules = [
 
 [sections.caches]
 description = "Layout cache generator, cache manifest and metadata, headless settings"
-seconds = 20
+seconds = 25
 modules = [
     "test_cache_manifest",
     "test_cache_metadata",
@@ -302,11 +316,13 @@ modules = [
 
 [sections.alignment]
 description = "Similarity and substitution matrix tools, SSEARCH, PWA, injection, BLAST"
-seconds = 100
+seconds = 110
 modules = [
     "test_align_gpu_kernels",
     "test_align_library",
     "test_align_similarity_matrix_pipeline",
+    "test_align_similarity_matrix_resume",
+    "test_align_similarity_matrix_tiled",
     "test_align_substitution_matrix_pipeline",
     "test_alignment_engine",
     "test_bf16_precision",
@@ -318,9 +334,10 @@ modules = [
     "test_first_batch_benchmark",
     "test_manual_sequence_controls",
     "test_network_injection_pipeline",
-    "test_network_kernels",
+    "test_network_injection_selection",
     "test_network_kernels_batch",
     "test_parse_blast_output",
+    "test_partial_ram_budgets",
     "test_partial_ram_window",
     "test_population_std_singletons",
     "test_prefilter_calibration",
@@ -330,7 +347,7 @@ modules = [
 ]
 
 [sections.embeddings]
-description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
+description = "Embedding generation, pLM plugins, MSA, sanitization, extraction (headless compute)"
 seconds = 120
 modules = [
     "test_ankh3",
@@ -342,10 +359,8 @@ modules = [
     "test_embedding_injection",
     "test_embedding_msa_calibration",
     "test_embedding_msa_configuration",
-    "test_embedding_msa_gui_logic",
     "test_embedding_msa_memory",
     "test_embedding_msa_merge",
-    "test_embedding_msa_optimizations",
     "test_embedding_msa_regression_chart",
     "test_embedding_msa_tree",
     "test_fasta_sanitization",
@@ -360,16 +375,16 @@ modules = [
 ]
 
 [sections.config]
-description = "Config window: profiles, cache dropdown, launch, responsive layout"
-seconds = 260
+description = "Config window: profiles, cache dropdown, inputs, launch, tips, responsive layout"
+seconds = 240
 modules = [
     "test_color_picker",
     "test_combo_popup",
-    "test_dropdown_values",
     "test_emapssn_config_cache_dropdown",
     "test_emapssn_config_consistency_check",
     "test_emapssn_config_edge_opacity",
     "test_emapssn_config_embedding_input",
+    "test_emapssn_config_inputs",
     "test_emapssn_config_launch",
     "test_emapssn_config_layout_method",
     "test_emapssn_config_low_resource",
@@ -377,22 +392,27 @@ modules = [
     "test_emapssn_config_responsive_layout",
     "test_emapssn_config_score_mode",
     "test_emapssn_config_statistics",
+    "test_emapssn_config_tip_status_lock",
     "test_statistics_report",
-    "test_tip_panel",
+    "test_tip_panel_config_window",
+    "test_tip_panel_widget",
 ]
 
 [sections.tools]
-description = "Tools window, tool pipeline and settings CLI, help pages, benchmark"
+description = "Tools window, tool pipeline and settings CLI, help pages, benchmark, tool GUI cards"
 seconds = 240
 modules = [
-    "test_background_job_scheduler",
     "test_benchmark",
     "test_benchmark_record",
     "test_blast_directory_control",
+    "test_dropdown_values",
     "test_emapssn_tools_responsive_layout",
     "test_emapssn_tools_window",
+    "test_embedding_import_gui",
+    "test_embedding_msa_gui_logic",
     "test_gpu_memory_view",
     "test_predict_structures",
+    "test_tip_panel_tools_window",
     "test_tool_charts",
     "test_tool_help_pages",
     "test_tool_pipeline",
@@ -428,18 +448,19 @@ modules = [
 
 [sections.platform]
 description = "Launchers, installer, GPU detection, app settings, this runner"
-seconds = 190
+seconds = 160
 modules = [
     "test_app_settings",
     "test_application_window_activation",
     "test_console_capture",
     "test_dependency_installation",
+    "test_dependency_profiles",
     "test_desktop_launcher",
     "test_desktop_launcher_monitor",
     "test_desktop_open",
     "test_desktop_openers",
-    "test_desktop_probe",
     "test_detect_gpu",
+    "test_esm_stack_records",
     "test_launcher_scripts",
     "test_launcher_stub",
     "test_output_streams",
@@ -452,12 +473,56 @@ modules = [
     "test_utf8_pages",
 ]
 
-[sections.opt_vr]
-description = "The VR suite (opt_vr/tests, run by discovery inside opt_vr)"
-seconds = 230
+[sections.desktop_probe]
+description = "Test-only desktop probe QA tool (tests/desktop_probe/)"
+seconds = 40
+modules = [
+    "test_desktop_probe",
+]
+
+[sections.opt_vr_core]
+description = "The VR core suite (opt_vr/tests: viewer, commands, protocol, launchers)"
+seconds = 85
 cwd = "opt_vr"
-discover = true
 platforms = ["win32"]
+modules = [
+    "test_cache_edge_filter",
+    "test_cache_validation",
+    "test_central_names_no_command",
+    "test_command_behaviour",
+    "test_command_compatibility",
+    "test_desktop_openers",
+    "test_layout_launcher_vr",
+    "test_layout_method_vr",
+    "test_opt_vr",
+    "test_player_build",
+    "test_player_integration",
+    "test_player_release",
+    "test_prompt_console",
+    "test_protocol_v1",
+    "test_run_command",
+    "test_temp_files",
+    "test_temp_history_vr",
+    "test_viewer_lifecycle",
+    "test_viewer_session",
+    "test_vr_hardware",
+    "test_vr_installer",
+    "test_vr_launch_kind",
+    "test_vr_launcher",
+]
+
+[sections.opt_vr_config]
+description = "The VR Configuration GUI suite (opt_vr/tests, in-process offscreen Qt)"
+seconds = 25
+cwd = "opt_vr"
+platforms = ["win32"]
+modules = [
+    "test_vr_config_cache_stats",
+    "test_vr_config_controls",
+    "test_vr_config_i18n_theme",
+    "test_vr_config_persistence",
+    "test_vr_config_window",
+]
 
 # Files that change what every test sees: any change to them selects every section.
 [full_suite]
@@ -475,7 +540,7 @@ sections = ["mcp", "tools"]
 
 [[rules]]
 paths = ["src/web_ui/plugins/**", "src/resources/agent/**", "src/resources/meta/**"]
-sections = ["plugins", "viewer"]
+sections = ["plugins", "viewer", "viewer_ui"]
 
 # The Fold View page, its scripts and the test helpers that open it reach every one of its page sections through
 # the web server, not through an import: a change to any of them runs them all.
@@ -508,7 +573,7 @@ sections = ["commands", "plugins", "tree_core", "tree_detail", "tree_color", "tr
 # scan cannot follow: a change to any of its files runs the section of its tests.
 [[rules]]
 paths = ["tests/desktop_probe/**"]
-sections = ["platform"]
+sections = ["desktop_probe"]
 
 # The runner and its configuration are tested by test_run_sections, which is excluded from the reverse
 # reference index so its own --explain test strings do not pull platform into unrelated edits.
@@ -519,7 +584,7 @@ sections = ["platform"]
 # The vendored Mol* (molstar.js, its stylesheets, licence and notices) is what the page tests load.
 [[rules]]
 paths = ["src/resources/esmfold/molstar*", "src/resources/esmfold/*.molstar*", "src/resources/esmfold/NOTICES.*"]
-sections = ["plugins", "viewer", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
+sections = ["plugins", "viewer", "viewer_ui", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
 # What the Fold View page is served by and fed from. Its backend reaches every page section through the web
 # server, not through an import. (The page sections that run the command or read what the worker writes are
@@ -534,7 +599,7 @@ sections = ["plugins"]
 
 [[rules]]
 paths = ["src/resources/esmfold/esmfold_worker.py"]
-sections = ["plugins", "viewer"]
+sections = ["plugins", "viewer", "viewer_ui"]
 
 [[rules]]
 paths = ["src/resources/languages/**", "src/resources/fonts/**"]
@@ -567,7 +632,7 @@ sections = ["platform"]
 
 [[rules]]
 paths = ["opt_vr", "opt_vr/**"]
-sections = ["opt_vr"]
+sections = ["opt_vr_core", "opt_vr_config"]
 
 # Checks that scan across the repository. A partial run (--changed / --files) adds them
 # whenever a Python file under src/ or tests/, or a .js/.html file under src/web_ui/,

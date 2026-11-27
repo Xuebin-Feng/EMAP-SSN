@@ -117,7 +117,7 @@ class Section:
     platforms: list = field(default_factory=list)  # sys.platform names it runs on; empty: everywhere
 
     def is_vr(self):
-        return self.discover
+        return self.discover or bool(self.cwd)
 
     def platform_skip(self, platform):
         """Why the section does not run on `platform` (a sys.platform name), or "" if it does."""
@@ -220,18 +220,29 @@ def load_config(root=PROJECT_ROOT):
     )
 
 
-def test_modules(root=PROJECT_ROOT):
-    """Module names unittest discovery would collect from tests/ (top level)."""
-    folder = Path(root) / "tests"
+def test_modules(root=PROJECT_ROOT, cwd=""):
+    """Module names unittest discovery would collect from tests/ (or <cwd>/tests/, top level)."""
+    folder = (Path(root) / cwd / "tests") if cwd else (Path(root) / "tests")
+    if not folder.is_dir():
+        return []
     return sorted(path.stem for path in folder.iterdir()
                   if path.is_file() and TEST_MODULE.fullmatch(path.name))
 
 
-def check_assignment(config, modules):
-    """Return (module -> section, problems) for the modules on disk."""
+def check_assignment(config, modules, root=None):
+    """Return (module -> section, problems) for the modules on disk.
+
+    Sections with `cwd` (such as opt_vr_core / opt_vr_config) live under `<root>/<cwd>/tests/`;
+    when `root` is given and that folder exists, their explicit `modules` lists are checked
+    against `<cwd>/tests/` in the same way main sections are checked against `tests/`.
+    """
     owner, problems = {}, []
     present = set(modules)
+    by_cwd = defaultdict(list)
     for section in config.sections.values():
+        if section.cwd:
+            by_cwd[section.cwd].append(section)
+            continue
         for module in section.modules:
             if module in owner:
                 problems.append(f"{module} is listed in both {owner[module]} and {section.name}")
@@ -242,16 +253,53 @@ def check_assignment(config, modules):
     for module in modules:
         if module not in owner:
             problems.append(f"{module} is in no section of {CONFIG_PATH.as_posix()}")
+    if root is not None:
+        for cwd, cwd_sections in sorted(by_cwd.items()):
+            if any(section.discover for section in cwd_sections):
+                continue
+            cwd_dir = Path(root) / cwd / "tests"
+            if not cwd_dir.is_dir():
+                continue
+            cwd_modules = test_modules(root, cwd)
+            cwd_present = set(cwd_modules)
+            cwd_owner = {}
+            for section in cwd_sections:
+                for module in section.modules:
+                    if module in cwd_owner:
+                        problems.append(
+                            f"{cwd}/tests/{module} is listed in both {cwd_owner[module]} and {section.name}"
+                        )
+                    elif module not in cwd_present:
+                        problems.append(
+                            f"{module} (section {section.name}) is not a test module in {cwd}/tests/"
+                        )
+                    else:
+                        cwd_owner[module] = section.name
+            for module in cwd_modules:
+                if module not in cwd_owner:
+                    problems.append(f"{cwd}/tests/{module} is in no section of {CONFIG_PATH.as_posix()}")
     return owner, problems
 
 
 def runnable_sections(config, modules, root=PROJECT_ROOT):
     """The sections to run for a full suite: listed modules that exist, plus the leftovers."""
-    owner, _ = check_assignment(config, modules)
+    owner, _ = check_assignment(config, modules, root=root)
     sections = {}
     for section in config.sections.values():
         if section.discover:
             sections[section.name] = section
+            continue
+        if section.cwd:
+            cwd_dir = Path(root) / section.cwd / "tests"
+            if cwd_dir.is_dir():
+                cwd_present = set(test_modules(root, section.cwd))
+                kept = [module for module in section.modules if module in cwd_present]
+                sections[section.name] = Section(
+                    section.name, section.description, kept,
+                    seconds=section.seconds, cwd=section.cwd, platforms=section.platforms,
+                )
+            else:
+                sections[section.name] = section
             continue
         kept = [module for module in section.modules if owner.get(module) == section.name]
         sections[section.name] = Section(section.name, section.description, kept,
@@ -539,9 +587,23 @@ class Selector:
         hits = defaultdict(list)
         for module in sorted(by_target.get(path, ())):
             hits[self.section_of(module)].append(module)
-        if path in vr_targets and not path.startswith("opt_vr/") and "opt_vr" in self.config.sections:
-            hits["opt_vr"].append("opt_vr code")
+        if path in vr_targets and not path.startswith("opt_vr/"):
+            for section in self.config.sections.values():
+                if section.cwd == "opt_vr":
+                    hits[section.name].append("opt_vr code")
         return hits
+
+    def _cwd_module_owner(self, path):
+        """If `path` is `<cwd>/tests/test_<name>.py` and a cwd section owns it, return its name."""
+        for section in self.config.sections.values():
+            if not section.cwd or section.discover:
+                continue
+            prefix = f"{section.cwd}/tests/"
+            if path.startswith(prefix) and "/" not in path[len(prefix):]:
+                name = path[len(prefix):]
+                if TEST_MODULE.fullmatch(name) and name[:-3] in section.modules:
+                    return section.name
+        return None
 
     def explain(self, path):
         """(sections, reasons) for one file; sections None means every section."""
@@ -552,6 +614,9 @@ class Selector:
         if path.startswith("tests/") and "/" not in path[6:] and TEST_MODULE.fullmatch(name):
             section = self.section_of(name[:-3])
             return {section}, [f"{path} is a test module of section {section}"]
+        cwd_owner = self._cwd_module_owner(path)
+        if cwd_owner is not None:
+            return {cwd_owner}, [f"{path} is a test module of section {cwd_owner}"]
         sections, reasons = set(), []
         for rule in self.config.rules:
             if path_matches(path, rule.paths):
@@ -781,7 +846,7 @@ class Runner:
         with self._lock:
             print(text, file=self.out, flush=True)
 
-    def run_one(self, section):
+    def run_one(self, section, name_width=12):
         """Run the section in a session folder of its own, and remove the folder afterwards
         whatever became of the process. Its temp folder's contents are the section's leaks."""
         session = session_folder.create(section.name)
@@ -792,7 +857,7 @@ class Runner:
         environment.update(session_folder.temp_environment(temp, environment))
         stopped = []
         try:
-            result = self._run_section(section, environment)
+            result = self._run_section(section, environment, name_width=name_width)
         finally:
             leaks = session_folder.leaked(session)
             problem = session_folder.remove_tree(session, seconds=1.0)
@@ -806,11 +871,11 @@ class Runner:
             result.session_problem = f"{session}: {problem}"
         return result
 
-    def _run_section(self, section, environment):
+    def _run_section(self, section, environment, name_width=12):
         cwd = self.root / section.cwd if section.cwd else self.root
         log = self.log_dir / f"{section.name}.log"
-        if section.discover and not (cwd / "tests").is_dir():
-            self._say(f"  skip  {section.name:<12} {cwd / 'tests'} is not here")
+        if (section.discover or section.cwd) and not (cwd / "tests").is_dir():
+            self._say(f"  skip  {section.name:<{name_width}} {cwd / 'tests'} is not here")
             return Result(section.name, "missing", log=None)
         command = section_command(section, self.python, self.verbose, self.patterns)
         options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
@@ -848,11 +913,12 @@ class Runner:
             status = "crashed"
         result = Result(section.name, status, seconds=seconds, log=log, problems=problems, **counts)
         mark = {"ok": "pass", "empty": "none"}.get(status, status.upper())
-        self._say(f"  {mark:<5} {section.name:<12} {result.tests:>5} tests {seconds:7.1f} s")
+        self._say(f"  {mark:<5} {section.name:<{name_width}} {result.tests:>5} tests {seconds:7.1f} s")
         return result
 
     def run(self, sections):
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        name_width = max([12, *(len(section.name) for section in sections)])
         results = []
         here = []
         for section in sections:
@@ -860,12 +926,12 @@ class Runner:
             # folder, no log, no process.
             reason = section.platform_skip(self.platform)
             if reason:
-                self._say(f"  skip  {section.name:<12} {reason}")
+                self._say(f"  skip  {section.name:<{name_width}} {reason}")
                 results.append(Result(section.name, "platform", log=None))
             else:
                 here.append(section)
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs)
-        futures = [executor.submit(self.run_one, section) for section in here]
+        futures = [executor.submit(self.run_one, section, name_width) for section in here]
         pending = set(futures)
         try:
             while pending:
@@ -990,14 +1056,15 @@ def _relative(path, root):
     return normalise(path)
 
 
-def print_list(config, modules, out):
+def print_list(config, modules, out, root=None):
     durations = load_durations()
-    _, problems = check_assignment(config, modules)
+    _, problems = check_assignment(config, modules, root=root)
+    name_width = max([12, *(len(section.name) for section in config.sections.values())])
     for section in config.sections.values():
         size = "opt_vr suite" if section.discover else f"{len(section.modules)} modules"
         only = f" ({_join_names(platform_name(item) for item in section.platforms)} only)" \
             if section.platforms else ""
-        print(f"  {section.name:<12} {size:<13} ~{expected_seconds(section, durations):4.0f} s  "
+        print(f"  {section.name:<{name_width}} {size:<13} ~{expected_seconds(section, durations):4.0f} s  "
               f"{section.description}{only}", file=out)
     for problem in problems:
         print(f"  warning: {problem}", file=out)
@@ -1015,9 +1082,9 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
         return 2
     modules = test_modules(root)
     sections = runnable_sections(config, modules, root)
-    owner, problems = check_assignment(config, modules)
+    owner, problems = check_assignment(config, modules, root=root)
     if args.list:
-        print_list(config, modules, out)
+        print_list(config, modules, out, root=root)
         return 0
 
     selector_root = args.repo or root
@@ -1039,7 +1106,7 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
         return 2
     if not (args.all or args.sections or args.changed or args.files):
         print("Nothing selected. Name sections, or use --changed, --files or --all.\n", file=out)
-        print_list(config, modules, out)
+        print_list(config, modules, out, root=root)
         return 2
     for problem in problems:
         print(f"warning: {problem}", file=out)
@@ -1085,10 +1152,11 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
         print(f"Running {len(here)} section(s), {min(args.jobs, len(here))} at a time: {names}",
               file=out)
     if args.dry_run:
+        name_width = max([12, *(len(section.name) for section in to_run)])
         for section in to_run:
             reason = section.platform_skip(platform)
             if reason:
-                print(f"  skip  {section.name:<12} {reason}", file=out)
+                print(f"  skip  {section.name:<{name_width}} {reason}", file=out)
                 continue
             cwd = section.cwd or "."
             print(f"  [{cwd}] {' '.join(section_command(section, verbose=args.verbose, patterns=args.patterns))}",
@@ -1115,11 +1183,12 @@ def main(argv=None, root=PROJECT_ROOT, out=None, platform=None):
 
 
 def report(results, wall, log_dir, out):
+    name_width = max([12, *(len(result.name) for result in results)])
     print("", file=out)
-    print(f"  {'section':<12} {'tests':>6} {'skip':>5} {'fail':>5} {'error':>5} {'seconds':>8}  result",
+    print(f"  {'section':<{name_width}} {'tests':>6} {'skip':>5} {'fail':>5} {'error':>5} {'seconds':>8}  result",
           file=out)
     for result in results:
-        print(f"  {result.name:<12} {result.tests:>6} {result.skipped:>5} {result.failures:>5} "
+        print(f"  {result.name:<{name_width}} {result.tests:>6} {result.skipped:>5} {result.failures:>5} "
               f"{result.errors:>5} {result.seconds:>8.1f}  {result.status}", file=out)
     failed = [result for result in results if result.failed]
     total = sum(result.tests for result in results)
