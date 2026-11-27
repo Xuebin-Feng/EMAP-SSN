@@ -71,3 +71,31 @@ def native_display_scale():
                 value = 1.0
         _NATIVE_SCALE.append(value)
     return _NATIVE_SCALE[0]
+
+
+def run_gl_script(test, script, *, args=(), scale=None, unset=(), timeout=300):
+    """Run ``script`` in a child process on a real GL window and return its output.
+
+    Builds the child environment via :func:`gl_window_environment` (so Linux uses
+    ``xcb`` and skips cleanly when no X display exists), removes any environment
+    variables in ``unset``, and sets ``QT_SCALE_FACTOR`` when ``scale`` is given.
+    Skips ``test`` if the probe times out or gets no OpenGL context (no ``CONTEXT OK``
+    marker in stdout), and asserts a zero exit status otherwise.
+    """
+    environment = gl_window_environment()
+    for name in unset:
+        environment.pop(name, None)
+    if scale is not None:
+        environment["QT_SCALE_FACTOR"] = str(scale)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script, *args],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=environment, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        test.skipTest("the GL render probe timed out")
+    if "CONTEXT OK" not in result.stdout:
+        test.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
+    test.assertEqual(result.returncode, 0, result.stdout + result.stderr[-2000:])
+    return result.stdout + result.stderr[-2000:]

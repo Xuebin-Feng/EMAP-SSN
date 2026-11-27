@@ -2,7 +2,7 @@
 console line, the rounded background box and its safe geometry updates, the
 background-job status line below it, and DPI-independent overlay geometry.
 As shipped, the command line sits at the top of the canvas, its box level with
-the sidebar toggle: the mouse and keyboard controls open from a button by the
+the top-right row: the mouse and keyboard controls open from a button by the
 threshold slider (desktop.Viewer_Widgets), not from a line above it.
 Also the idle-time warm-up of the glyphs those texts draw (MainViewer._warm_text_glyphs)."""
 
@@ -306,27 +306,24 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         )
         self.assertTrue(status.visible)
 
-    def test_background_job_status_rewraps_for_sidebar_and_resize(self):
+    def test_background_job_status_rewraps_on_resize(self):
         viewer = self.make_viewer(size=(260, 160), text="Cmd: ")
         status = self.add_background_job_status(
             viewer,
             "Background job completed: " + ("result-path " * 12),
         )
-        viewer.right_panel = SimpleNamespace(isVisible=lambda: False)
-        viewer._panel_w = 80
 
         viewer.update_console_background()
         wide_text = status.text
 
-        viewer.right_panel = SimpleNamespace(isVisible=lambda: True)
+        viewer.canvas.size = (180, 160)
         viewer.update_console_background()
-        panel_text = status.text
-        self.assertGreater(panel_text.count("\n"), wide_text.count("\n"))
+        narrow_text = status.text
+        self.assertGreater(narrow_text.count("\n"), wide_text.count("\n"))
 
         viewer.canvas.size = (320, 160)
-        viewer.right_panel = SimpleNamespace(isVisible=lambda: False)
         viewer.update_console_background()
-        self.assertLess(status.text.count("\n"), panel_text.count("\n"))
+        self.assertLess(status.text.count("\n"), narrow_text.count("\n"))
 
     def test_scheduler_status_does_not_mutate_typed_command_or_box(self):
         viewer = self.make_viewer(size=(260, 160), text="Cmd: select cluster_1")
@@ -766,10 +763,10 @@ class ShippedCommandLineTests(unittest.TestCase):
 
     # Noto Sans's line advance at 16 px (VisPy's 1.1 line height).
     LINE_HEIGHT = 20.9
-    # The sidebar toggle's top (MainViewer.reposition_expand_btn).
-    TOGGLE_TOP = 10
+    # The top-right row's top (MainViewer.reposition_expand_btn).
+    TOP_ROW_TOP = 10
 
-    def test_the_command_box_lines_up_with_the_sidebar_toggle(self):
+    def test_the_command_box_lines_up_with_the_top_right_row(self):
         viewer = ConsoleOverlayWrappingTests.make_viewer(size=(1200, 800), text="Cmd: ")
         viewer.hud_layout = shipped_hud_layout()
         layout = viewer.hud_layout
@@ -781,7 +778,7 @@ class ShippedCommandLineTests(unittest.TestCase):
                                lambda visual: self.LINE_HEIGHT):
             viewer.update_console_background()
         box_top = viewer.console_bg.center[1] - viewer.console_bg.height / 2.0
-        self.assertAlmostEqual(box_top, self.TOGGLE_TOP, delta=1.0)
+        self.assertAlmostEqual(box_top, self.TOP_ROW_TOP, delta=1.0)
         self.assertEqual(viewer.console_text.pos, (layout["console_text_x"], layout["console_text_y"]))
         # No line of instructions sits above it any more.
         self.assertFalse([key for key in layout if key.startswith("instr")])
@@ -1079,7 +1076,7 @@ class HudOrderTests(unittest.TestCase):
         viewer.slider_overlay = object()
         calls = []
         viewer.position_slider_overlay = lambda: calls.append("slider")
-        # reposition_expand_btn places the sidebar and its toggle, and with them the frame rate
+        # reposition_expand_btn places the top-right row, including the frame rate
         # and the jobs badge, which the HUD text keeps clear of.
         viewer.reposition_expand_btn = lambda: calls.append("toggle")
         viewer._update_hud_elements = lambda: calls.append("hud")
@@ -1116,10 +1113,9 @@ class StatusStackRenderTests(unittest.TestCase):
     evenly spaced."""
 
     def test_the_status_lines_sit_evenly_above_the_box(self):
-        import subprocess
-
         from EMAPSSN_Viewer import _slider_row_centre
         from desktop.Viewer_Widgets import SLIDER_BOX_HEIGHT
+        from tests.gl_window_environment import run_gl_script
 
         layout = shipped_hud_layout()
         viewer = MainViewer.__new__(MainViewer)
@@ -1128,24 +1124,12 @@ class StatusStackRenderTests(unittest.TestCase):
         meta_y = viewer._status_hud_position(1, (400, 300))[1]
         row = _slider_row_centre(300)
         box_top = row - SLIDER_BOX_HEIGHT / 2.0
-        environment = dict(os.environ)
-        # tests/__init__.py defaults Qt to offscreen, which has no OpenGL on
-        # Windows; a hidden canvas on the native platform renders.
-        environment.pop("QT_QPA_PLATFORM", None)
-        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         arguments = [layout["status_anchor_y"], str(layout["font_size_px"]),
                      str(hidden_y), "Hidden Nodes: 0", str(meta_y), "Size: 512", str(meta_y), "Length: 512 (gy)"]
-        try:
-            result = subprocess.run([sys.executable, "-c", _STATUS_RENDER_SCRIPT, *arguments],
-                                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                    env=environment, timeout=120)
-        except subprocess.TimeoutExpired:
-            self.skipTest("the GL render probe timed out")
-        if "CONTEXT OK" not in result.stdout:
-            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
-        inks = [tuple(map(float, line.split()[1:])) for line in result.stdout.splitlines()
+        output = run_gl_script(self, _STATUS_RENDER_SCRIPT, args=arguments, timeout=120)
+        inks = [tuple(map(float, line.split()[1:])) for line in output.splitlines()
                 if line.startswith("INK")]
-        self.assertEqual(len(inks), 3, result.stdout + result.stderr[-2000:])
+        self.assertEqual(len(inks), 3, output)
         (hidden_top, hidden_bottom), (size_top, size_bottom), (_meta_top, meta_bottom) = inks
         # Hidden Nodes ends above the box, with room between, but not far off.
         self.assertGreaterEqual(box_top - hidden_bottom, 10, inks)

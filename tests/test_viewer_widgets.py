@@ -3,8 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The Viewer's widgets (desktop.Viewer_Widgets): its info card and the
-info button that opens it, the Console button beside that, its sidebar's
-rounded card and buttons, and the Zoom box.
+info button that opens it, the Console button beside that, and the Zoom and threshold boxes.
 
 The Viewer lists its mouse and keyboard actions in one translated text for a
 physics (SSN) layout, and in another for a manifold (UMAP or PaCMAP) layout, where
@@ -14,8 +13,7 @@ embedding have a pick button that types their command), then reads that text, as
 and in Chinese, into key caps beside what each action does, on a light tint
 of the theme colour. It is a child of the canvas: it closes only by its
 cross or the button, takes no mouse event from the canvas and none of its
-own to the canvas, and never takes the keyboard. A sidebar button
-centres its label in the room after its icon. The Zoom box shows the view's
+own to the canvas, and never takes the keyboard. The Zoom box shows the view's
 zoom as a percentage, steps it by a factor, as the wheel zooms (a bigger
 percentage is closer), and reports only what the user set. The threshold box's step comes from the range of the scores, and
 each of its numbers is a position of the threshold slider.
@@ -46,23 +44,20 @@ from PySide6.QtGui import (  # noqa: E402
 )
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QDoubleSpinBox, QLabel, QPushButton, QStyle, QStyleOptionButton, QVBoxLayout, QWidget,
+    QApplication, QDoubleSpinBox, QLabel, QPushButton, QStyle, QStyleOptionButton, QWidget,
 )
 
-from desktop.Desktop_App import clipped_button_text, fit_buttons_to_text  # noqa: E402
+from desktop.Desktop_App import clipped_button_text  # noqa: E402
 from desktop.Studio_Theme import TOKENS, key_cap_qss, studio_icon  # noqa: E402
 from desktop.Viewer_Widgets import (  # noqa: E402
     FIXED_NOTE,
     PICK_TOOLTIPS,
     SESSION_FILES,
-    SIDEBAR_INSET,
     ConsoleButton,
     ControlsButton,
     ControlsCard,
     PathField,
-    SidebarButton,
     SLIDER_BOX_HEIGHT,
-    SidebarPanel,
     THRESHOLD_STEPS,
     ThresholdSpinBox,
     ZOOM_LABEL_GAP,
@@ -78,41 +73,17 @@ from desktop.Viewer_Widgets import (  # noqa: E402
 )
 from desktop.Viewer_State import alias_form  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from tests.viewer_fixtures import (  # noqa: E402
+    MANIFOLD_NOTE,
+    RecordingCanvas,
+    chinese_actions,
+    flush,
+    shipped_actions,
+)
 from utilities import Help_Pages  # noqa: E402
 
 VIEWER = SRC / "EMAPSSN_Viewer.py"
 ZH_CATALOG = SRC / "resources" / "languages" / "zh_CN" / "emapssn_zh_CN.ts"
-
-
-# The last action of the manifold layouts' list, which has no keys.
-MANIFOLD_NOTE = "Nodes keep their layout positions"
-
-
-def shipped_actions(manifold=False):
-    """The Viewer's list of actions for a physics layout, or with manifold for a UMAP or PaCMAP one,
-    as its source passes it to translate()."""
-    tree = ast.parse(VIEWER.read_text(encoding="utf-8"))
-    found = [node.args[1].value for node in ast.walk(tree)
-             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "translate"
-                 and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
-                 and str(node.args[1].value).startswith("[ENTER]"))]
-    wanted = [text for text in found if (MANIFOLD_NOTE in text) == manifold]
-    if len(found) != 2 or len(wanted) != 1:
-        raise AssertionError("The Viewer no longer lists its actions once for each kind of layout")
-    return wanted[0]
-
-
-def chinese_actions(source):
-    """The Chinese catalog's text for source."""
-    for message in ElementTree.parse(ZH_CATALOG).getroot().iter("message"):
-        if message.findtext("source") == source:
-            return message.findtext("translation")
-    raise AssertionError("The Chinese catalog has no text for the Viewer's actions")
-
-
-def flush(app):
-    for _ in range(4):
-        app.processEvents()
 
 
 class ControlsRowsTests(unittest.TestCase):
@@ -190,51 +161,6 @@ class ControlsRowsTests(unittest.TestCase):
         self.assertEqual(controls_rows("[A] One |  | Two words | [B + C] Three"),
                          [(["A"], "One"), ([], "Two words"), (["B", "C"], "Three")])
         self.assertEqual(controls_rows(""), [])
-
-
-class RecordingCanvas(QWidget):
-    """Stands in for the VisPy canvas the card sits on: it keeps every mouse and key event it is sent.
-
-    ``keys`` are the Qt keys pressed on it, and ``on_copy``, when set, is
-    called for each Copy key press it receives, as the Viewer's command line
-    copies its own text when it is open.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.seen = []
-        self.keys = []
-        self.on_copy = None
-        self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-    def _keep(self, kind, event):
-        self.seen.append(kind)
-        event.accept()
-
-    def mousePressEvent(self, event):
-        self._keep("press", event)
-
-    def mouseReleaseEvent(self, event):
-        self._keep("release", event)
-
-    def mouseMoveEvent(self, event):
-        self._keep("move", event)
-
-    def mouseDoubleClickEvent(self, event):
-        self._keep("double", event)
-
-    def wheelEvent(self, event):
-        self._keep("wheel", event)
-
-    def contextMenuEvent(self, event):
-        self._keep("context", event)
-
-    def keyPressEvent(self, event):
-        self.keys.append(event.key())
-        if self.on_copy is not None and event.matches(QKeySequence.StandardKey.Copy):
-            self.on_copy()
-        self._keep("key", event)
 
 
 CTRL = Qt.KeyboardModifier.ControlModifier
@@ -1927,93 +1853,6 @@ class ThresholdBoxTests(unittest.TestCase):
         box = self.make_box(0.0, 9.6)
         self.assertEqual(box.sizeHint().height(), SLIDER_BOX_HEIGHT)
         self.assertGreaterEqual(box.sizeHint().width(), QFontMetrics(box.font()).horizontalAdvance("9.600"))
-
-
-class SidebarWidgetTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
-        apply_theme_for_class(cls, cls.app)
-
-    def make_sidebar(self, labels=(("Meta Data", "chart-column"), ("Agent", "bot"))):
-        """A sidebar as the Viewer builds it, its buttons fitted to the widest label."""
-        canvas = QWidget()
-        self.addCleanup(canvas.deleteLater)
-        canvas.resize(600, 400)
-        panel = SidebarPanel(canvas)
-        panel.setObjectName("rightPanel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 20, 10 + SIDEBAR_INSET, 20)
-        canvas.setStyleSheet("QWidget#rightPanel QPushButton { padding-left: 10px; min-height: 24px; }")
-        buttons = []
-        for label, icon in labels:
-            button = SidebarButton(label, panel)
-            button.setIcon(studio_icon(icon))
-            button.setIconSize(QSize(16, 16))
-            layout.addWidget(button)
-            buttons.append(button)
-        layout.addStretch()
-        width = fit_buttons_to_text(*buttons) + 20 + SIDEBAR_INSET
-        panel.setGeometry(600 - width, 0, width, 400)
-        canvas.show()
-        flush(self.app)
-        return panel, buttons
-
-    def test_the_card_has_round_corners_clear_of_the_canvas_edges(self):
-        panel, _buttons = self.make_sidebar()
-        card = panel.card_rect()
-        self.assertAlmostEqual(card.top(), SIDEBAR_INSET, delta=1)
-        self.assertAlmostEqual(panel.width() - card.right(), SIDEBAR_INSET, delta=1)
-        self.assertAlmostEqual(panel.height() - card.bottom(), SIDEBAR_INSET, delta=1)
-        image = QImage(panel.size(), QImage.Format.Format_ARGB32)
-        image.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(image)
-        try:
-            # Only what the panel paints: the canvas's background stays out of its corners.
-            panel.render(painter, QPoint(0, 0), QRegion(), QWidget.RenderFlag.DrawChildren)
-        finally:
-            painter.end()
-        # The card's corner is round: its corner pixel is clear, a pixel inside is filled.
-        self.assertEqual(image.pixelColor(1, SIDEBAR_INSET + 1).alpha(), 0)
-        self.assertEqual(image.pixelColor(panel.width() - SIDEBAR_INSET - 2, panel.height() - SIDEBAR_INSET - 2)
-                         .alpha(), 0)
-        self.assertGreater(image.pixelColor(panel.width() // 2, panel.height() // 2).alpha(), 200)
-        # Above the card, the canvas shows through.
-        self.assertEqual(image.pixelColor(panel.width() // 2, SIDEBAR_INSET // 2).alpha(), 0)
-
-    def ink_columns(self, button):
-        """The x of every column where the button draws dark text, right of its icon."""
-        image = button.grab().toImage()
-        ratio = image.devicePixelRatio()
-        start = round(button.icon_rect().right() * ratio) + 2
-        middle = round(button.height() / 2 * ratio)
-        columns = []
-        for x in range(start, image.width()):
-            for y in range(middle - round(4 * ratio), middle + round(4 * ratio)):
-                if QColor(image.pixel(x, y)).lightness() < 110:
-                    columns.append(x / ratio)
-                    break
-        return columns
-
-    def test_a_label_is_centred_in_the_room_after_its_icon(self):
-        _panel, (meta, agent) = self.make_sidebar()
-        self.assertEqual(meta.width(), agent.width())
-        for button in (meta, agent):
-            with self.subTest(label=button.text()):
-                room = button.label_rect()
-                self.assertGreater(room.left(), button.icon_rect().right())
-                # The widest label fits its room, so nothing clips.
-                self.assertLessEqual(button.fontMetrics().horizontalAdvance(button.text()), room.width())
-                ink = self.ink_columns(button)
-                self.assertTrue(ink)
-                # The text's box is centred in the room: its ink starts where the
-                # centred box does, give or take the first letter's bearing.
-                metrics = QFontMetrics(button.font())
-                box_left = room.left() + (room.width() - metrics.horizontalAdvance(button.text())) / 2
-                bounds = metrics.tightBoundingRect(button.text())
-                self.assertAlmostEqual(ink[0], box_left + bounds.left(), delta=1.5)
-        # The shorter label starts later than the longer: it is centred, not left-aligned.
-        self.assertGreater(self.ink_columns(agent)[0], self.ink_columns(meta)[0] + 5)
 
 
 if __name__ == "__main__":

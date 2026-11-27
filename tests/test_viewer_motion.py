@@ -34,6 +34,7 @@ from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from desktop import Viewer_Edges, Viewer_Motion  # noqa: E402
 from desktop.Viewer_Edges import EdgeSegmentsVisual, ViewerEdges  # noqa: E402
 from desktop.Viewer_Motion import MotionDetail, compensated_alpha  # noqa: E402
+from tests.gl_window_environment import native_display_scale, run_gl_script as _run_gl_script  # noqa: E402
 
 
 class FakeTimer:
@@ -669,24 +670,14 @@ _MOTION_SCRIPT = textwrap.dedent(
 
 
 def run_gl_script(test, script, scale):
-    environment = dict(os.environ)
-    environment.pop("QT_QPA_PLATFORM", None)
-    for name in ("SSN_EDGE_STENCIL_LIMIT", "SSN_EDGE_IMAGE_CACHE", Viewer_Motion.MOTION_ENVIRONMENT_VARIABLE):
-        environment.pop(name, None)
-    environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
-                       QT_SCALE_FACTOR=str(scale))
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", script, SRC_DIR],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            env=environment, timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        test.skipTest("the GL render probe timed out")
-    if "CONTEXT OK" not in result.stdout:
-        test.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
-    test.assertEqual(result.returncode, 0, result.stdout + result.stderr[-2000:])
-    return result.stdout + result.stderr[-2000:]
+    return _run_gl_script(
+        test,
+        script,
+        args=(SRC_DIR,),
+        scale=scale,
+        unset=("SSN_EDGE_STENCIL_LIMIT", "SSN_EDGE_IMAGE_CACHE", Viewer_Motion.MOTION_ENVIRONMENT_VARIABLE),
+        timeout=300,
+    )
 
 
 class MotionPixelTests(unittest.TestCase):
@@ -703,6 +694,7 @@ class MotionPixelTests(unittest.TestCase):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
                 output = run_gl_script(self, _MOTION_SCRIPT, scale)
+                self.assertIn(f"SCALE {float(scale * native_display_scale())}", output)
                 line = next(line for line in output.splitlines() if line.startswith("MOTION "))
                 values = dict(item.split("=", 1) for item in line.split()[1:])
                 full, drawn = map(int, values["drawn"].split("/"))

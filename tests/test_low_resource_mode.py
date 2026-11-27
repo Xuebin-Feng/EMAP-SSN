@@ -13,8 +13,8 @@ in settings files and settings documents; that each category's helper reads
 its own switch and the Viewer asks the helpers; that a node drag never leaves
 edges out and moves them with the nodes, Update Colors After Mouse Release
 putting the colouring off to the release; what each switch still does in a
-Viewer opened in UMAP mode; and the frame-rate display: off by default, left
-of the sidebar toggle in every sidebar state, resting when idle, counting
+Viewer opened in UMAP mode; and the frame-rate display: off by default, at the
+top right of the canvas, resting when idle, counting
 only the canvas's own frames and never in a capture.
 """
 import ast
@@ -38,7 +38,7 @@ if str(SRC) not in sys.path:
 
 import EMAPSSN_Config as cfg  # noqa: E402
 import EMAPSSN_Viewer  # noqa: E402
-from EMAPSSN_Viewer import MainViewer, _sidebar_room  # noqa: E402
+from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QWidget  # noqa: E402
 from desktop import Viewer_Edges, Viewer_State  # noqa: E402
 from desktop.Viewer_Fps import FPS_GAP, FPS_IDLE_S, FpsOverlay, FrameRate, fps_text  # noqa: E402
@@ -50,9 +50,10 @@ from desktop.Viewer_State import (  # noqa: E402
     migrate_low_resource_mode, normalize_viewer_settings,
 )
 from Viewer_Visual_State import edge_stages, edges_follow_selection  # noqa: E402
-from tests import test_viewer_edges as edge_tests  # noqa: E402
 from tests import test_viewer_markers as marker_tests  # noqa: E402
+from tests.gl_window_environment import run_gl_script  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from tests.viewer_fixtures import make_edge_viewer, random_network, recording_layer  # noqa: E402
 
 CATEGORIES = ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING",
               "LOW_RESOURCE_WEBSERVER")
@@ -133,9 +134,9 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(MotionDetail(setting=True).enabled)
         with mock.patch.object(Viewer_Edges, "MIN_SUBSET_SEGMENTS", 10):
             for enabled, levels in ((False, (1,)), (True, (1, 4, 16, 64))):
-                edges, scores, positions = edge_tests.random_network(3, edges=900)
-                layer = edge_tests.recording_layer(edges, scores, positions,
-                                                   motion=MotionDetail(enabled=enabled))
+                edges, scores, positions = random_network(3, edges=900)
+                layer = recording_layer(edges, scores, positions,
+                                        motion=MotionDetail(enabled=enabled))
                 layer.show_threshold(positions, None, 0.0)
                 with self.subTest(enabled=enabled):
                     self.assertEqual(tuple(layer.visual.available_levels()), levels)
@@ -219,7 +220,7 @@ class CategoryHelperTests(unittest.TestCase):
         and nothing in the Viewer reads the switches themselves."""
         expected = {
             "fewer_edges_while_moving": {"draw_network"},
-            "low_resource_animations": {"_camera_mouse_event", "_sidebar_can_slide"},
+            "low_resource_animations": {"_camera_mouse_event"},
             "low_resource_drawing": {"on_slider_value_changed", "_on_slider_released", "_redraw_moved_nodes",
                                      "_end_wheel_turn", "on_mouse_move", "on_mouse_release"},
             "low_resource_webserver": {"on_mouse_press", "on_mouse_move"},
@@ -256,7 +257,7 @@ class NodeDragTests(unittest.TestCase):
         viewer.edge_scores = np.array([0.9, 0.8, 0.7, 0.6], dtype=np.float32)
         viewer.current_slider_threshold = 0.0
         viewer.selected_node_idx = None
-        viewer.edge_layer = edge_tests.recording_layer(
+        viewer.edge_layer = recording_layer(
             viewer.edges, viewer.edge_scores, viewer.pos,
             motion=MotionDetail(enabled=motion, timer_factory=FakeTimer, report=lambda text: None))
         transforms = marker_tests.IdentityTransforms()
@@ -456,13 +457,11 @@ class UmapModeTests(unittest.TestCase):
             with self.subTest(settings=settings):
                 self.assertIs(Viewer_State.knn_topology_layout(SimpleNamespace(**settings)), expected)
 
-    def test_the_zoom_and_sidebar_animations_and_the_frame_rate_ignore_the_mode(self):
+    def test_the_zoom_animation_and_the_frame_rate_ignore_the_mode(self):
         import inspect
-        for function in (MainViewer._camera_mouse_event, MainViewer._sidebar_can_slide):
-            with self.subTest(function=function.__name__):
-                source = inspect.getsource(function)
-                self.assertNotIn("UMAP", source)
-                self.assertIn("low_resource_animations(cfg)", source)
+        source = inspect.getsource(MainViewer._camera_mouse_event)
+        self.assertNotIn("UMAP", source)
+        self.assertIn("low_resource_animations(cfg)", source)
         # The frame rate is drawn by desktop/Viewer_Fps.py, which the scan above shows never reads
         # the mode either, and the Viewer reads it only in the two functions listed there.
 
@@ -500,9 +499,7 @@ class UmapModeTests(unittest.TestCase):
 
     def make_umap_viewer(self):
         """A Viewer in UMAP mode with edges (0,1) .9, (1,2) .9, (2,3) .1, (3,4) .6 and nodes 1, 2 selected."""
-        maker = edge_tests.UpdateEdgesTests("test_the_threshold_and_hidden_nodes_choose_the_prefix")
-        viewer = maker.make_viewer()
-        self.addCleanup(maker.doCleanups)
+        viewer = make_edge_viewer(self)
         patcher = mock.patch.object(cfg, "UMAP_MODE", True)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -538,14 +535,14 @@ class UmapModeTests(unittest.TestCase):
                 self.assertEqual(viewer.edge_layer.drawn_edge_count, 3)
 
     def test_a_large_selection_gets_thinned_copies_only_while_fewer_edges_is_on(self):
-        edges, scores, positions = edge_tests.random_network(3, nodes=60, edges=900)
+        edges, scores, positions = random_network(3, nodes=60, edges=900)
         with mock.patch.object(Viewer_Edges, "MIN_SUBSET_SEGMENTS", 100), \
                 mock.patch.object(cfg, "UMAP_MODE", True):
             for enabled in (False, True):
                 for selected, thinned in ((list(range(60)), True), ([0], False)):
                     with self.subTest(fewer_edges=enabled, selected=len(selected)):
-                        layer = edge_tests.recording_layer(edges, scores, positions,
-                                                           motion=MotionDetail(enabled=enabled))
+                        layer = recording_layer(edges, scores, positions,
+                                                motion=MotionDetail(enabled=enabled))
                         viewer = MainViewer.__new__(MainViewer)
                         viewer.n_nodes, viewer.edges, viewer.edge_scores = 60, edges, scores
                         viewer.pos, viewer.visible_mask = positions, np.ones(60, dtype=bool)
@@ -776,7 +773,7 @@ class FpsOverlayTests(unittest.TestCase):
 
     # --- in the Viewer ---------------------------------------------------
 
-    def make_viewer(self, show_fps=True, buttons=True):
+    def make_viewer(self, show_fps=True):
         viewer = MainViewer.__new__(MainViewer)
         viewer.canvas = SimpleNamespace(native=QWidget(), size=self.CANVAS_SIZE)
         viewer._build_main_window()
@@ -785,19 +782,10 @@ class FpsOverlayTests(unittest.TestCase):
         viewer._update_hud_elements = lambda: None
         with mock.patch.object(cfg, "SHOW_FPS", show_fps):
             viewer._build_fps_overlay()
-        if buttons:
-            viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
-        viewer.set_sidebar_visible(False, animate=False)
         viewer.main_window.resize(*self.CANVAS_SIZE)
         viewer.main_window.show()
         self.app.processEvents()
         return viewer
-
-    def assert_by_the_toggle(self, viewer):
-        overlay, toggle = viewer.fps_overlay.geometry(), viewer.toggle_sidebar_btn.geometry()
-        self.assertEqual(overlay.x() + overlay.width(), toggle.x() - FPS_GAP)
-        self.assertEqual(2 * overlay.y() + overlay.height(), 2 * toggle.y() + toggle.height())
-        self.assertLessEqual(viewer._command_line_right(), overlay.x() - FPS_GAP)
 
     def test_off_by_default(self):
         self.assertIs(cfg.SHOW_FPS, False)
@@ -805,38 +793,17 @@ class FpsOverlayTests(unittest.TestCase):
         self.assertIsNone(viewer.fps_overlay)
         self.assertEqual(viewer._command_line_right(), self.CANVAS_SIZE[0] - 20)
 
-    def test_left_of_the_sidebar_toggle_open_closed_and_sliding(self):
-        # The sidebar is off (SIDEBAR_ENABLED); its kept code puts the frame rate by its toggle.
-        for instant in (False, True):
-            with self.subTest(instant=instant), mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", instant), \
-                    mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True):
-                viewer = self.make_viewer()
-                self.assertFalse(viewer.fps_overlay.isHidden())
-                self.assert_by_the_toggle(viewer)
-                for visible in (True, False):
-                    viewer.set_sidebar_visible(visible)
-                    self.assertEqual(viewer._sidebar_slide_width is not None, not instant)
-                    deadline = time.monotonic() + 3.0
-                    while viewer._sidebar_slide_width is not None and time.monotonic() < deadline:
-                        self.assert_by_the_toggle(viewer)   # at every frame of the slide
-                        self.app.processEvents()
-                        time.sleep(0.005)
-                    self.assertIsNone(viewer._sidebar_slide_width)
-                    self.assertEqual(_sidebar_room(viewer), viewer._panel_w if visible else 0)
-                    self.assert_by_the_toggle(viewer)
-                # Its text changes keep its right edge by the toggle.
-                viewer.fps_overlay.show_text(fps_text(123.0, 45.6, 64))
-                self.assert_by_the_toggle(viewer)
-
-    def test_where_the_toggle_would_be_when_it_is_hidden(self):
-        # Always, now that the sidebar is off: whether or not its code was given buttons.
-        for buttons in (False, True):
-            with self.subTest(sidebar_buttons=buttons):
-                viewer = self.make_viewer(buttons=buttons)
-                self.assertTrue(viewer.toggle_sidebar_btn.isHidden())
-                geometry = viewer.fps_overlay.geometry()
-                self.assertEqual(geometry.x() + geometry.width(), self.CANVAS_SIZE[0] - 10)
-                self.assertLessEqual(viewer._command_line_right(), geometry.x() - FPS_GAP)
+    def test_placed_at_the_canvas_top_right_clear_of_the_command_line(self):
+        viewer = self.make_viewer()
+        self.assertFalse(viewer.fps_overlay.isHidden())
+        geometry = viewer.fps_overlay.geometry()
+        self.assertEqual(geometry.x() + geometry.width(), self.CANVAS_SIZE[0] - 10)
+        self.assertLessEqual(viewer._command_line_right(), geometry.x() - FPS_GAP)
+        # Its text changes keep its right edge pinned 10 px inside the canvas edge.
+        viewer.fps_overlay.show_text(fps_text(123.0, 45.6, 64))
+        geometry = viewer.fps_overlay.geometry()
+        self.assertEqual(geometry.x() + geometry.width(), self.CANVAS_SIZE[0] - 10)
+        self.assertLessEqual(viewer._command_line_right(), geometry.x() - FPS_GAP)
 
 
 _FPS_SCRIPT = textwrap.dedent(
@@ -904,7 +871,14 @@ class FpsCaptureTests(unittest.TestCase):
     def test_the_display_is_never_in_a_capture(self):
         for scale in (1, 2):
             with self.subTest(display_scale=scale):
-                output = edge_tests.run_gl_script(self, _FPS_SCRIPT, scale)
+                output = run_gl_script(
+                    self,
+                    _FPS_SCRIPT,
+                    args=(str(SRC),),
+                    scale=scale,
+                    unset=(Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, Viewer_Edges.CACHE_ENVIRONMENT_VARIABLE),
+                    timeout=300,
+                )
                 line = next(line for line in output.splitlines() if line.startswith("FPS "))
                 values = dict(item.split("=", 1) for item in line.split()[1:])
                 self.assertEqual(values["capture_differs"], "0", output)

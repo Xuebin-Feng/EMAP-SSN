@@ -31,130 +31,16 @@ from PySide6 import QtCore, QtWidgets  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Command_Queue import CommandQueue, ManualExecutor, ThreadExecutor  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal, bind  # noqa: E402
-from tests.command_fixtures import end_scheduler, scratch_commands  # noqa: E402
+from tests.command_fixtures import (  # noqa: E402
+    CLIQUE_EDGES,
+    CLUSTER,
+    QUEUE_EDGES as EDGES,
+    QueueViewer,
+    end_scheduler,
+    scratch_commands,
+)
 
-# Two 4-cliques joined by the bridge 3-4, and two nodes with no edge. Jaccard
-# at 0.5 with MIN_SIZE 3 makes the cliques cluster_1 (nodes 0-3) and
-# cluster_2 (4-7); nodes 8 and 9 are noise.
-CLIQUE_EDGES = [(a, b) for group in ((0, 1, 2, 3), (4, 5, 6, 7)) for i, a in enumerate(group) for b in group[i + 1:]]
-EDGES = CLIQUE_EDGES + [(3, 4)]
-CLUSTER = "cluster jaccard 0.5 3"
 RED = (1.0, 0.0, 0.0, 1.0)
-
-
-class QueueViewer:
-    """A stand-in Viewer with a real command queue; drawing is counted, not drawn."""
-
-    def __init__(self, executor=None):
-        n = 10
-        self.n_nodes = n
-        self.full_headers = [f"n{i}" for i in range(n)]
-        self.edges = np.array(EDGES, dtype=np.int32)
-        self.edge_scores = np.full(len(EDGES), 50.0, dtype=np.float32)
-        self.visible_mask = np.ones(n, dtype=bool)
-        self.selected_indices = []
-        self.selection_epoch = 0
-        self.cluster_labels = None
-        self.group_labels = [set() for _ in range(n)]
-        self.metadata = {}
-        self.alignment = None
-        # The nodes start opaque, as the Viewer's do: color keeps the alpha it finds.
-        self.current_colors = np.tile([0.0, 0.0, 0.0, 1.0], (n, 1))
-        self.current_sizes = np.ones(n)
-        self.current_shapes = np.full(n, "disc", dtype=object)
-        self.console_text = SimpleNamespace(text="")
-        self.console_mode = False
-        self.tooltip = SimpleNamespace(text="")
-        self.hovered_node_idx = None
-        self.selected_node_idx = None
-        self.command_history = []
-        self._history_folder = tempfile.TemporaryDirectory()
-        self.history_file = str(Path(self._history_folder.name) / "history.txt")
-        self.saved = 0
-        self.undone = 0
-        self.redone = 0
-        self.status_lines = []
-        self.is_multi_dragging = False
-        self.is_box_selecting = False
-        self.command_queue = CommandQueue(self, executor=executor if executor is not None else ManualExecutor())
-
-    def _save_state(self):
-        self.saved += 1
-
-    def _do_undo(self, announce=True):
-        self.undone += 1
-        return True
-
-    def _do_redo(self, announce=True):
-        self.redone += 1
-        return True
-
-    def _refresh_after_history(self):
-        pass
-
-    def _end_wheel_turn(self):
-        pass
-
-    def update_nodes(self):
-        pass
-
-    def update_edges(self):
-        pass
-
-    def update_selection_visual(self, broadcast=True):
-        pass
-
-    def promote_nodes(self, indices):
-        pass
-
-    def broadcast_metadata_state(self):
-        pass
-
-    def broadcast_event(self, event):
-        pass
-
-    def update_console_background(self):
-        pass
-
-    def set_background_job_status(self, message):
-        self.status_lines.append(str(message))
-
-    # --- what the user does ------------------------------------------------
-
-    def type(self, line):
-        """Type line at the command line and press Enter."""
-        with bind(None):
-            ce.execute_command(self, line, record_history=False)
-
-    def press_enter(self, line):
-        """Open the command line, type line and press Enter, through the Viewer's own key handler."""
-        from EMAPSSN_Viewer import MainViewer
-        self.console_mode = True
-        self.input_buffer = line
-        self.cursor_pos = len(line)
-        self.console_text.text = f"Cmd: {line}"
-        self.console_bg = SimpleNamespace(visible=True)
-        self.canvas = SimpleNamespace(update=lambda: None)
-        self._hide_command_caret = lambda: None
-        self.process_command = lambda command, *args: MainViewer.process_command(self, command, *args)
-        MainViewer.on_key_press(self, SimpleNamespace(key='Enter', text='', modifiers=[], handled=False))
-
-    def select_by_hand(self, indices):
-        """Select nodes with the mouse, as the Viewer's handlers do."""
-        self.selected_indices = list(indices)
-        self.selection_epoch += 1
-
-    def close(self):
-        """Remove the history folder now: a scheduler that points back at the viewer keeps it alive to the end of the run."""
-        self._history_folder.cleanup()
-
-    @property
-    def queue(self):
-        return self.command_queue
-
-    @property
-    def executor(self):
-        return self.command_queue.executor
 
 
 class QueueTestCase(unittest.TestCase):

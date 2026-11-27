@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The console command (commands/console.py): it opens the Console window through the Viewer and reports what happened, refuses arguments and the cases where no window can open, prints its own help, runs at once even while commands wait, and is a catalogued command that the VR viewer can load without Qt."""
+"""The console command (commands/console.py): it opens the Console window through the Viewer and reports what happened, refuses arguments and the cases where no window can open, prints its own help, runs at once even while commands wait, and stays Qt-free for headless use and Command_Compatibility_VR probing."""
 
 from __future__ import annotations
 
@@ -89,6 +89,8 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(Command_Engine.queue_kind("console", args, source), Command_Engine.INSTANT)
 
     def test_the_vr_viewer_can_load_it_because_it_imports_no_qt(self):
+        """opt_vr/src/commands/console.py deliberately overrides console for the VR viewer,
+        while keeping main's console.py Qt-free serves headless processes and Command_Compatibility_VR probing."""
         tree = ast.parse((SRC_DIR / "commands" / "console.py").read_text(encoding="utf-8"))
         imported = set()
         for node in ast.walk(tree):

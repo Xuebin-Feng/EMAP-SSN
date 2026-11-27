@@ -33,7 +33,13 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import EMAPSSN_Config as cfg  # noqa: E402
-from tests.gl_window_environment import native_display_scale  # noqa: E402
+from tests.gl_window_environment import native_display_scale, run_gl_script as _run_gl_script  # noqa: E402
+from tests.viewer_fixtures import (  # noqa: E402
+    _recording_edge_classes,
+    make_edge_viewer,
+    random_network,
+    recording_layer,
+)
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from Viewer_Visual_State import edge_stages, edges_follow_selection  # noqa: E402
 from desktop import Viewer_Edges  # noqa: E402
@@ -57,41 +63,12 @@ from desktop.Viewer_Edges import (  # noqa: E402
 from desktop.Viewer_Motion import MotionDetail  # noqa: E402
 
 
-def random_network(seed, nodes=60, edges=400):
-    rng = np.random.default_rng(seed)
-    pairs = rng.integers(0, nodes, (edges, 2)).astype(np.int32)
-    scores = rng.random(edges).astype(np.float32)
-    scores[::5] = 0.5  # ties
-    positions = (rng.random((nodes, 2)) * 100).astype(np.float32)
-    return pairs, scores, positions
-
-
 def as_rows(edges):
     """Edges as a sorted list of (source, target) rows, to compare as multisets."""
     return sorted(map(tuple, np.asarray(edges).reshape(-1, 2).tolist()))
 
 
-class RecordingSegmentsVisual(EdgeSegmentsVisual):
-    """EdgeSegmentsVisual that also keeps what it was asked to upload."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.uploaded = {}
-        self.uploaded_grades = {}
-
-    def set_segments(self, key, edges, **kwargs):
-        self.uploaded[key] = np.array(edges, copy=True)
-        super().set_segments(key, edges, **kwargs)
-
-    def _upload_grades(self, key, vertex_grades):
-        self.uploaded_grades[key] = np.array(vertex_grades, copy=True)
-        super()._upload_grades(key, vertex_grades)
-
-    def drawn(self, key):
-        return self.uploaded[key][: self.segment_count]
-
-
-RecordingSegments = create_visual_node(RecordingSegmentsVisual)
+RecordingSegmentsVisual, RecordingSegments = _recording_edge_classes()
 
 
 class NoGpuTimer:
@@ -100,12 +77,6 @@ class NoGpuTimer:
 
     def time(self, draw, tag, on_result):
         draw()
-
-
-def recording_layer(edges, scores, positions, **kwargs):
-    with mock.patch.object(Viewer_Edges, "EdgeSegments", RecordingSegments):
-        return ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
-                           use_position_texture=True, **kwargs)
 
 
 class EdgeOrderTests(unittest.TestCase):
@@ -367,21 +338,7 @@ class ViewerEdgesTests(unittest.TestCase):
 
 class UpdateEdgesTests(unittest.TestCase):
     def make_viewer(self):
-        for name in ("UMAP_MODE", "LOW_RESOURCE_DRAWING", "FEWER_EDGES_WHILE_MOVING"):
-            patcher = mock.patch.object(cfg, name, False)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        viewer = MainViewer.__new__(MainViewer)
-        viewer.n_nodes = 5
-        viewer.edges = np.array([[0, 1], [1, 2], [2, 3], [3, 4]], dtype=np.int32)
-        viewer.edge_scores = np.array([0.9, 0.9, 0.1, 0.6], dtype=np.float32)
-        viewer.pos = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], dtype=np.float32)
-        viewer.visible_mask = np.ones(5, dtype=bool)
-        viewer.current_slider_threshold = 0.5
-        viewer.selected_indices = []
-        viewer.is_multi_dragging = False
-        viewer.edge_layer = recording_layer(viewer.edges, viewer.edge_scores, viewer.pos)
-        return viewer
+        return make_edge_viewer(self)
 
     def test_the_threshold_and_hidden_nodes_choose_the_prefix(self):
         viewer = self.make_viewer()
@@ -1619,24 +1576,14 @@ _STENCIL_SCRIPT = textwrap.dedent(
 def run_gl_script(test, script, scale):
     """Run script in a subprocess on the native GL at display scale (1 or 2)
     and return its output, or skip test when it gets no OpenGL context."""
-    environment = dict(os.environ)
-    environment.pop("QT_QPA_PLATFORM", None)
-    for name in (Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, Viewer_Edges.CACHE_ENVIRONMENT_VARIABLE):
-        environment.pop(name, None)
-    environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
-                       QT_SCALE_FACTOR=str(scale))
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", script, SRC_DIR],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            env=environment, timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        test.skipTest("the GL render probe timed out")
-    if "CONTEXT OK" not in result.stdout:
-        test.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
-    test.assertEqual(result.returncode, 0, result.stdout + result.stderr[-2000:])
-    return result.stdout + result.stderr[-2000:]
+    return _run_gl_script(
+        test,
+        script,
+        args=(SRC_DIR,),
+        scale=scale,
+        unset=(Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, Viewer_Edges.CACHE_ENVIRONMENT_VARIABLE),
+        timeout=300,
+    )
 
 
 _CACHE_SCRIPT = textwrap.dedent(

@@ -179,3 +179,223 @@ def apply_window_state(viewer, state):
     viewer.window_control = SimpleNamespace(shows_windows=lambda: shown)
     viewer.shows_windows = types.MethodType(MainViewer.shows_windows, viewer)
     return viewer
+
+
+# =====================================================================
+# Undo/redo stand-in Viewer and quiet runner (shared across viewer/undo tests)
+# =====================================================================
+
+UNDO_BLUE = [0.0, 0.0, 1.0, 1.0]
+
+
+def make_undo_viewer():
+    """A four-node MainViewer holding every field a full history state captures."""
+    from EMAPSSN_Viewer import MainViewer
+
+    viewer = MainViewer.__new__(MainViewer)
+    viewer.n_nodes = 4
+    viewer.full_headers = ["n0", "n1", "n2", "n3"]
+    viewer.pos = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]], dtype=np.float32
+    )
+    viewer.visible_mask = np.ones(4, dtype=bool)
+    viewer.current_colors = np.tile(UNDO_BLUE, (4, 1)).astype(np.float32)
+    viewer.current_sizes = np.full(4, 10.0, dtype=np.float32)
+    viewer.current_shapes = np.full(4, "disc", dtype=object)
+    viewer.node_render_order = np.arange(4, dtype=np.int32)
+    viewer.cluster_labels = None
+    viewer.last_cluster_params = None
+    viewer.group_labels = [set(), set(), set(), set()]
+    viewer.metadata = {
+        "Length": {"type": "number", "values": np.array([10, 20, 30, 40])}
+    }
+    viewer._cacheable_attrs = {"sidebar_buttons_to_persist", "custom_scores"}
+    viewer.sidebar_buttons_to_persist = []
+    viewer.custom_scores = np.array([1.0, 2.0, 3.0, 4.0])
+    viewer.selected_indices = []
+    viewer.position_history = []
+    viewer.redo_stack = []
+    viewer.console_text = SimpleNamespace(text="")
+    viewer.update_selection_visual = mock.Mock()
+    viewer.update_edges = mock.Mock()
+    viewer.broadcast_event = mock.Mock()
+    # A page is connected, so the state is built and broadcast.
+    viewer.web_server = SimpleNamespace(
+        queues_lock=threading.Lock(), event_queues=[object()]
+    )
+    return viewer
+
+
+def quietly(action):
+    """Run an action without its console print reaching the test log."""
+    import io
+    from contextlib import redirect_stdout
+
+    with redirect_stdout(io.StringIO()):
+        return action()
+
+
+# =====================================================================
+# Edge-layer helpers (shared by test_viewer_edges and test_low_resource_mode)
+# =====================================================================
+
+_RECORDING_EDGE_CLASSES = None
+
+
+def _recording_edge_classes():
+    global _RECORDING_EDGE_CLASSES
+    if _RECORDING_EDGE_CLASSES is None:
+        from vispy.scene.visuals import create_visual_node
+        from desktop.Viewer_Edges import EdgeSegmentsVisual
+
+        class RecordingSegmentsVisual(EdgeSegmentsVisual):
+            """EdgeSegmentsVisual that also keeps what it was asked to upload."""
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.uploaded = {}
+                self.uploaded_grades = {}
+
+            def set_segments(self, key, edges, **kwargs):
+                self.uploaded[key] = np.array(edges, copy=True)
+                super().set_segments(key, edges, **kwargs)
+
+            def _upload_grades(self, key, vertex_grades):
+                self.uploaded_grades[key] = np.array(vertex_grades, copy=True)
+                super()._upload_grades(key, vertex_grades)
+
+            def drawn(self, key):
+                return self.uploaded[key][: self.segment_count]
+
+        _RECORDING_EDGE_CLASSES = (RecordingSegmentsVisual, create_visual_node(RecordingSegmentsVisual))
+    return _RECORDING_EDGE_CLASSES
+
+
+def random_network(seed, nodes=60, edges=400):
+    rng = np.random.default_rng(seed)
+    pairs = rng.integers(0, nodes, (edges, 2)).astype(np.int32)
+    scores = rng.random(edges).astype(np.float32)
+    scores[::5] = 0.5  # ties
+    positions = (rng.random((nodes, 2)) * 100).astype(np.float32)
+    return pairs, scores, positions
+
+
+def recording_layer(edges, scores, positions, **kwargs):
+    from desktop import Viewer_Edges
+    from desktop.Viewer_Edges import ViewerEdges
+
+    _visual_cls, recording_segments = _recording_edge_classes()
+    with mock.patch.object(Viewer_Edges, "EdgeSegments", recording_segments):
+        return ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
+                           use_position_texture=True, **kwargs)
+
+
+def make_edge_viewer(test_case):
+    """A five-node MainViewer wired with recording_layer and default edge flags patched off."""
+    import EMAPSSN_Config as cfg
+    from EMAPSSN_Viewer import MainViewer
+
+    for name in ("UMAP_MODE", "LOW_RESOURCE_DRAWING", "FEWER_EDGES_WHILE_MOVING"):
+        patcher = mock.patch.object(cfg, name, False)
+        patcher.start()
+        test_case.addCleanup(patcher.stop)
+    viewer = MainViewer.__new__(MainViewer)
+    viewer.n_nodes = 5
+    viewer.edges = np.array([[0, 1], [1, 2], [2, 3], [3, 4]], dtype=np.int32)
+    viewer.edge_scores = np.array([0.9, 0.9, 0.1, 0.6], dtype=np.float32)
+    viewer.pos = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], dtype=np.float32)
+    viewer.visible_mask = np.ones(5, dtype=bool)
+    viewer.current_slider_threshold = 0.5
+    viewer.selected_indices = []
+    viewer.is_multi_dragging = False
+    viewer.edge_layer = recording_layer(viewer.edges, viewer.edge_scores, viewer.pos)
+    return viewer
+
+
+# =====================================================================
+# Controls card / widget test helpers (shared across viewer widget tests)
+# =====================================================================
+
+MANIFOLD_NOTE = "Nodes keep their layout positions"
+
+
+def shipped_actions(manifold=False):
+    """The Viewer's list of actions for a physics layout, or with manifold for a UMAP or PaCMAP one,
+    as its source passes it to translate()."""
+    import ast
+
+    viewer_path = Path(SRC_DIR) / "EMAPSSN_Viewer.py"
+    tree = ast.parse(viewer_path.read_text(encoding="utf-8"))
+    found = [node.args[1].value for node in ast.walk(tree)
+             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "translate"
+                 and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)
+                 and str(node.args[1].value).startswith("[ENTER]"))]
+    wanted = [text for text in found if (MANIFOLD_NOTE in text) == manifold]
+    if len(found) != 2 or len(wanted) != 1:
+        raise AssertionError("The Viewer no longer lists its actions once for each kind of layout")
+    return wanted[0]
+
+
+def chinese_actions(source):
+    """The Chinese catalog's text for source."""
+    import xml.etree.ElementTree as ElementTree
+
+    zh_catalog = Path(SRC_DIR) / "resources" / "languages" / "zh_CN" / "emapssn_zh_CN.ts"
+    for message in ElementTree.parse(zh_catalog).getroot().iter("message"):
+        if message.findtext("source") == source:
+            return message.findtext("translation")
+    raise AssertionError("The Chinese catalog has no text for the Viewer's actions")
+
+
+def flush(app):
+    for _ in range(4):
+        app.processEvents()
+
+
+class RecordingCanvas(QtWidgets.QWidget):
+    """Stands in for the VisPy canvas the card sits on: it keeps every mouse and key event it is sent.
+
+    ``keys`` are the Qt keys pressed on it, and ``on_copy``, when set, is
+    called for each Copy key press it receives, as the Viewer's command line
+    copies its own text when it is open.
+    """
+
+    def __init__(self):
+        from PySide6.QtCore import Qt
+
+        super().__init__()
+        self.seen = []
+        self.keys = []
+        self.on_copy = None
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def _keep(self, kind, event):
+        self.seen.append(kind)
+        event.accept()
+
+    def mousePressEvent(self, event):
+        self._keep("press", event)
+
+    def mouseReleaseEvent(self, event):
+        self._keep("release", event)
+
+    def mouseMoveEvent(self, event):
+        self._keep("move", event)
+
+    def mouseDoubleClickEvent(self, event):
+        self._keep("double", event)
+
+    def wheelEvent(self, event):
+        self._keep("wheel", event)
+
+    def contextMenuEvent(self, event):
+        self._keep("context", event)
+
+    def keyPressEvent(self, event):
+        from PySide6.QtGui import QKeySequence
+
+        self.keys.append(event.key())
+        if self.on_copy is not None and event.matches(QKeySequence.StandardKey.Copy):
+            self.on_copy()
+        self._keep("key", event)

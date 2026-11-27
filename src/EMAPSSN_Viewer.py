@@ -161,7 +161,6 @@ import time
 from vispy import scene, app
 from vispy.color import Color
 from PySide6 import QtWidgets, QtCore, QtGui
-import shiboken6
 
 import EMAPSSN_Config as cfg
 if _startup_settings is not None:
@@ -188,7 +187,6 @@ from desktop.Desktop_App import (
     configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
     apply_saved_theme,
-    fit_buttons_to_text,
     install_translations,
     installed_language,
     register_vispy_application_fonts,
@@ -200,10 +198,10 @@ from desktop.Desktop_App import (
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
-from desktop.Studio_Theme import TOKENS, set_role, studio_icon
+from desktop.Studio_Theme import TOKENS
 from desktop.Viewer_Zoom import SmoothWheelZoom
 from desktop.Viewer_Widgets import (
-    ConsoleButton, ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
+    ConsoleButton, ControlsButton, ThresholdSpinBox, ZoomBox,
 )
 from desktop.Viewer_State import (
     edge_opacity_follows_score,
@@ -290,12 +288,6 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
     return "\n".join(lines)
 
 
-# Whether the Viewer has a sidebar. The buttons pages register are in the Console's second header row now
-# (add_console_button); the sidebar's code is kept for a later use, and while this is False the sidebar
-# never opens, its toggle stays hidden and the window's minimum width leaves out the room it would take.
-SIDEBAR_ENABLED = False
-# How long the sidebar takes to slide fully open or closed, in ms; 0 switches it at once.
-SIDEBAR_SLIDE_MS = 220
 # The command line keeps at least this width beside the top-right row, in canvas px: in a window too narrow
 # for that beside the frame rate's longest text, the frame rate shows the rate alone (FpsOverlay.show_rate_only).
 COMMAND_LINE_MIN_WIDTH = 320
@@ -365,19 +357,6 @@ WINDOW_MINIMUM_HEIGHT = 300
 def _slider_row_centre(canvas_height):
     """The y, in canvas px, of the middle of the slider row."""
     return canvas_height - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT / 2.0
-
-
-def _sidebar_room(viewer):
-    """The canvas width the Viewer's sidebar covers: its width when open, none
-    when closed, and the width shown so far while it slides
-    (MainViewer.set_sidebar_visible)."""
-    sliding = getattr(viewer, '_sidebar_slide_width', None)
-    if sliding is not None:
-        return sliding
-    panel = getattr(viewer, 'right_panel', None)
-    if panel is not None and panel.isVisible():
-        return getattr(viewer, '_panel_w', 120)
-    return 0
 
 
 def _vispy_text_width_pixels(text_visual, text):
@@ -873,7 +852,7 @@ class HUDDisplay:
 
     def show(self, text):
         w, h = self.viewer.canvas.size
-        pos = self.pos_fn((w - _sidebar_room(self.viewer), h))
+        pos = self.pos_fn((w, h))
 
         if self.text_visual is None:
             self.text_visual = scene.visuals.Text(
@@ -902,7 +881,7 @@ class HUDDisplay:
     def update_position(self):
         if self.text_visual is not None and self.visible:
             w, h = self.viewer.canvas.size
-            self.text_visual.pos = self.pos_fn((w - _sidebar_room(self.viewer), h))
+            self.text_visual.pos = self.pos_fn((w, h))
 
     def on_node_clicked(self, node_idx):
         """Override in subclasses to handle left-click updates."""
@@ -960,7 +939,7 @@ class MainViewer:
             # 1. Command Line Text (" Cmd: <input> "). The mouse and keyboard
             #    controls open from the info button by the threshold slider.
             "console_text_x": 30.0,      # Horizontal coordinate from left edge
-            "console_text_y": 20.0,      # Top of the text; its box's top then lines up with the sidebar toggle's
+            "console_text_y": 20.0,      # Top of the text; its box's top then lines up with the top-right row
             "console_text_anchor_x": "left",
             "console_text_anchor_y": "bottom",
             "font_size_px": 16.0,        # Logical-pixel size shared by all HUD text
@@ -1113,8 +1092,8 @@ class MainViewer:
             try:
                 qt_font_status = configure_qt_application_fonts(qapp)
                 # The canvas was made before the bundled font became the
-                # application's; give it that font now, so the sidebar and
-                # slider built on it inherit it rather than the system font.
+                # application's; give it that font now, so overlays and
+                # sliders built on it inherit it rather than the system font.
                 self.canvas.native.setFont(qapp.font())
                 vispy_font_status = register_vispy_application_fonts(
                     qt_font_status
@@ -1285,9 +1264,6 @@ class MainViewer:
         self.start_web_server()
         
         self._register_persisted_console_buttons()
-        
-        # Ensure the side panel is hidden at startup
-        self.set_sidebar_visible(False)
         
         if self.window_mode == NORMAL:
             Startup_Status.report(Startup_Status.OPENING_WINDOW, 0.9)
@@ -1585,16 +1561,15 @@ class MainViewer:
         return service.session_overview()
 
     def _session_card_area(self):
-        """Where the info card may be, in canvas px: the canvas less the sidebar's
-        room, a margin all round, and clear of the command line at the top."""
+        """Where the info card may be, in canvas px: a margin all round, and clear of the command line at the top."""
         width, height = self.canvas.size
-        right = width - _sidebar_room(self) - SESSION_CARD_MARGIN
+        right = width - SESSION_CARD_MARGIN
         top = SESSION_CARD_TOP
         legend = self._open_legend()
         if legend is not None:
             # Beside the legend card when this card can keep its readable width there; else full width, and
             # below the legend's heading where the two would meet (_place_legend then ends the legend above it).
-            left = round(width - _sidebar_room(self))
+            left = round(width)
             legend_left = self._top_row_right(left) - legend.card_width(self._top_row_right(left) - SESSION_CARD_MARGIN)
             beside = legend_left - LEGEND_CARD_GAP
             if beside - SESSION_CARD_MARGIN >= SESSION_CARD_MIN_WIDTH:
@@ -1640,9 +1615,7 @@ class MainViewer:
             self.canvas.native.setFocus()
 
     def _build_main_window(self):
-        """Set up the main window around the canvas: its title, the sidebar and the sidebar's toggle."""
-        # The sidebar's width until its buttons size it (_fit_sidebar_to_buttons).
-        self._panel_w = 180
+        """Set up the main window around the canvas."""
         self.main_window = QtWidgets.QMainWindow()
         from utilities.Viewer_Sessions import ensure_viewer_identity
         ensure_viewer_identity(self)
@@ -1659,45 +1632,11 @@ class MainViewer:
             self.main_window.setWindowIcon(QtGui.QIcon(icon_path))
             
         self.main_window.resize(1200, 800)
-        self.main_window.setMinimumWidth(self._panel_w)
         self.main_window.setMinimumHeight(WINDOW_MINIMUM_HEIGHT)
 
         # Set the Vispy canvas directly as the central widget
         self.main_window.setCentralWidget(self.canvas.native)
         apply_window_swap_interval(self.main_window, vsync_enabled())
-
-        # Collapsible right panel over the canvas.native: a card with round
-        # corners, clear of the canvas's top, right and bottom edges, so its
-        # right margin holds that inset too.
-        self.right_panel = SidebarPanel(self.canvas.native)
-        self.right_panel.setObjectName("rightPanel")
-        right_panel_layout = QtWidgets.QVBoxLayout(self.right_panel)
-        right_panel_layout.setContentsMargins(10, 20, 10 + SIDEBAR_INSET, 20)
-        right_panel_layout.setSpacing(15)
-        right_panel_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignHCenter)
-        
-        # Stretch at the bottom to keep dynamic buttons at the top
-        self.right_panel_layout = right_panel_layout
-        self.right_panel_layout.addStretch()
-        
-        # Single floating toggle button on the canvas.native to collapse/expand sidebar
-        self.toggle_sidebar_btn = QtWidgets.QPushButton(self.canvas.native)
-        self.toggle_sidebar_btn.setObjectName("toggleSidebarBtn")
-        set_role(self.toggle_sidebar_btn, "icon")
-        self.toggle_sidebar_btn.setIcon(studio_icon("panel-right-close"))
-        self.toggle_sidebar_btn.setIconSize(QtCore.QSize(16, 16))
-        self.toggle_sidebar_btn.setToolTip(translate("Viewer", "Toggle sidebar panel"))
-        self.toggle_sidebar_btn.setFixedWidth(30)
-        self.toggle_sidebar_btn.setFixedHeight(30)
-        self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
-        self.toggle_sidebar_btn.hide()
-
-        # The sidebar's buttons (SidebarButton) start 10 px in, where their
-        # icons go. The card paints itself; the rest is the window theme.
-        self.main_window.setStyleSheet("""
-            QWidget#rightPanel QPushButton { padding-left: 10px; min-height: 24px; }
-            QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
-        """)
 
         # The window's mode and, for a hidden Viewer, showing and hiding it (desktop.Viewer_Window).
         mode = getattr(self, 'window_mode', HEADLESS if getattr(self, 'headless', False) else NORMAL)
@@ -1985,7 +1924,7 @@ class MainViewer:
         def measure_text_width(text):
             return _vispy_text_width_pixels(text_visual, text)
 
-        effective_canvas_width = self.canvas.size[0] - _sidebar_room(self)
+        effective_canvas_width = self.canvas.size[0]
         right_padding = cfg_hud.get("background_job_status_right_padding", 20.0)
         available_width = max(
             1.0,
@@ -2714,7 +2653,7 @@ class MainViewer:
         the row, and the threshold slider in the room left of it."""
         if hasattr(self, 'slider_overlay') and hasattr(self, 'canvas'):
             canvas_w, canvas_h = self.canvas.size
-            right = canvas_w - _sidebar_room(self) - self.hud_layout["status_x_offset"]
+            right = canvas_w - self.hud_layout["status_x_offset"]
             box = getattr(self, 'zoom_box', None)
             box_room = 0
             if box is not None:
@@ -3724,8 +3663,7 @@ class MainViewer:
 
     def _update_hud_elements(self, event=None):
         """Updates the zoom indicator, hidden nodes count, and maintains the tooltip pixel gap."""
-        effective_canvas_w = self.canvas.size[0] - _sidebar_room(self)
-        effective_size = (effective_canvas_w, self.canvas.size[1])
+        effective_size = (self.canvas.size[0], self.canvas.size[1])
         
         # 1. The Zoom box: the view's zoom, and the limits zooms keep to
         box = getattr(self, 'zoom_box', None)
@@ -3748,8 +3686,7 @@ class MainViewer:
 
             self.tooltip.pos = screen_pos[:2] + [15, -15]
 
-        # Keep the one-line console value visually wrapped as the canvas or
-        # sidebar width changes.
+        # Keep the one-line console value visually wrapped as the canvas width changes.
         self.update_console_background()
 
         # 4. Update any registered HUD displays
@@ -3923,22 +3860,15 @@ class MainViewer:
         self._update_hud_elements()
 
     def reposition_expand_btn(self):
-        """Put the sidebar and its toggle where the room it covers now leaves them.
+        """Place the top-right overlays: the Legend, Undo and Redo buttons, the frame rate, the jobs badge, and the legend card.
 
-        While it slides, the panel's left part shows and the canvas clips the
-        rest; the toggle keeps 10 px clear of its left edge, the Undo and Redo
-        buttons FPS_GAP left of the toggle, and the frame rate, if shown,
-        FPS_GAP left of them: the rate alone where its longest text would
-        leave the command line less than COMMAND_LINE_MIN_WIDTH.
+        The top-right row sits 10 px inside the canvas's right edge, with the
+        frame rate (if shown) FPS_GAP left of the buttons: the rate alone where
+        its longest text would leave the command line less than COMMAND_LINE_MIN_WIDTH.
         """
         if hasattr(self, 'canvas'):
-            w, h = self.canvas.size
-            left = round(w - _sidebar_room(self))
-            panel_w = getattr(self, '_panel_w', 120)
-            if hasattr(self, 'right_panel'):
-                self.right_panel.setGeometry(left, 0, panel_w, h)
-            if hasattr(self, 'toggle_sidebar_btn'):
-                self.toggle_sidebar_btn.setGeometry(left - 40, 10, 30, 30)
+            w, _h = self.canvas.size
+            left = round(w)
             buttons = getattr(self, 'history_buttons', None)
             if buttons is not None:
                 buttons.place(self._top_row_right(left), 25)
@@ -3950,22 +3880,18 @@ class MainViewer:
                 overlay.place(self._fps_overlay_right(left), 25)
             badge = getattr(self, 'jobs_badge', None)
             if badge is not None:
-                # Under the top-right row (the toggle's), right-aligned with it.
+                # Under the top-right row, right-aligned with it.
                 badge.place(self._top_row_right(left), 25 + FPS_HEIGHT / 2 + BADGE_GAP)
             self._place_legend()
 
     def _top_row_right(self, left):
-        """The right edge of the canvas's top-right row (the Undo and Redo buttons, with the frame
-        rate beside them), in canvas px, with the sidebar's room starting at left: FPS_GAP left of
-        the toggle, or where the toggle would be when it is hidden."""
-        button = getattr(self, 'toggle_sidebar_btn', None)
-        if button is not None and not button.isHidden():
-            return left - 40 - FPS_GAP
+        """The right edge of the canvas's top-right row (the Legend, Undo and Redo buttons,
+        with the frame rate beside them), in canvas px, 10 px inside ``left``."""
         return left - 10
 
     def _fps_overlay_right(self, left):
-        """The frame rate's right edge, in canvas px, with the sidebar's room starting at left:
-        FPS_GAP left of the Undo and Redo buttons, which take the row's right end."""
+        """The frame rate's right edge, in canvas px, inside ``left``:
+        FPS_GAP left of the Legend, Undo and Redo buttons, which take the row's right end."""
         right = self._top_row_right(left)
         buttons = getattr(self, 'history_buttons', None)
         return right if buttons is None else right - buttons.width() - FPS_GAP
@@ -4083,10 +4009,10 @@ class MainViewer:
             card.schedule_refresh()
 
     def _place_legend(self):
-        """Put the legend card, when open, under the top-right row, right edges level, clear of the sidebar and the bottom rows.
+        """Put the legend card, when open, under the top-right row, right edges level, clear of the bottom rows.
 
-        Its top is BADGE_GAP under the row, or under the jobs badge while that shows; it moves with the
-        sidebar's slide as the row does (_top_row_right); and it stops short of the status lines above the
+        Its top is BADGE_GAP under the row, or under the jobs badge while that shows; it stays aligned
+        with the row (_top_row_right); and it stops short of the status lines above the
         slider row (_status_hud_position), the card scrolling inside. With the session card (the info
         button's) open too, the session card is placed first, narrowed to end left of the legend card where
         it can stay SESSION_CARD_MIN_WIDTH wide (_session_card_area); where it cannot, the legend card's
@@ -4096,7 +4022,7 @@ class MainViewer:
         if card is None or not hasattr(self, 'canvas'):
             return
         width, height = self.canvas.size
-        left = round(width - _sidebar_room(self))
+        left = round(width)
         right = self._top_row_right(left)
         top = self._legend_top()
         spacing = getattr(self, 'hud_layout', {}).get("status_line_spacing", 34.0)
@@ -4227,12 +4153,12 @@ class MainViewer:
 
     def _command_line_right(self):
         """Where the command line's box may reach, in canvas px: as wide as the
-        canvas less the sidebar's room and 40 px, from its left offset, and
-        short of the room the top-right row takes: the Undo and Redo buttons,
+        canvas less 40 px, from its left offset, and
+        short of the room the top-right row takes: the Legend, Undo and Redo buttons,
         and the frame rate beside them when that is shown, with room for its
         longest text (the rate alone in a narrow window, reposition_expand_btn)."""
         left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
-        room_left = self.canvas.size[0] - _sidebar_room(self)
+        room_left = self.canvas.size[0]
         right = left + room_left - 40.0
         overlay = getattr(self, 'fps_overlay', None)
         buttons = getattr(self, 'history_buttons', None)
@@ -4241,105 +4167,6 @@ class MainViewer:
         elif buttons is not None:
             right = min(right, self._top_row_right(room_left) - buttons.width() - FPS_GAP)
         return right
-
-    def toggle_sidebar(self):
-        if hasattr(self, 'right_panel'):
-            # Mid-slide the panel is still shown: the toggle turns it around.
-            opening = getattr(self, '_sidebar_open', None)
-            if opening is None:
-                opening = self.right_panel.isVisible()
-            self.set_sidebar_visible(not opening)
-
-    def set_sidebar_visible(self, visible, *, animate=None):
-        """Open or close the sidebar.
-
-        In a shown window it slides over SIDEBAR_SLIDE_MS, and its toggle,
-        the slider and the HUD follow it at each frame. animate=False, a
-        hidden or headless window, or SIDEBAR_SLIDE_MS 0 switch it at once.
-        A call while it slides turns it around from where it is.
-        """
-        has_buttons = SIDEBAR_ENABLED and bool(getattr(self, 'sidebar_buttons', {}))
-        if hasattr(self, 'right_panel'):
-            start = _sidebar_room(self)
-            self._stop_sidebar_slide()
-            if not has_buttons:
-                self._sidebar_open = False
-                self.right_panel.hide()
-                if hasattr(self, 'toggle_sidebar_btn'):
-                    self.toggle_sidebar_btn.hide()
-                self.reposition_expand_btn()
-                return
-
-            self._sidebar_open = visible
-            if hasattr(self, 'toggle_sidebar_btn'):
-                self.toggle_sidebar_btn.setVisible(True)
-                self.toggle_sidebar_btn.setIcon(
-                    studio_icon("panel-right-close" if visible else "panel-right-open")
-                )
-            panel_w = getattr(self, '_panel_w', 120)
-            end = panel_w if visible else 0
-            duration = SIDEBAR_SLIDE_MS * abs(end - start) / max(panel_w, 1)
-            if animate is None:
-                animate = self._sidebar_can_slide()
-            if not animate or duration < 1:
-                self.right_panel.setVisible(visible)
-                self._follow_sidebar()
-                return
-
-            # Shown both ways while it slides; hidden at the end of a close.
-            self.right_panel.show()
-            animation = QtCore.QVariantAnimation(self.main_window)
-            animation.setStartValue(float(start))
-            animation.setEndValue(float(end))
-            animation.setDuration(round(duration))
-            animation.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
-
-            def step(value, animation=animation):
-                if getattr(self, '_sidebar_animation', None) is animation:
-                    self._sidebar_slide_width = float(value)
-                    self._follow_sidebar()
-
-            def finish(animation=animation):
-                if getattr(self, '_sidebar_animation', None) is animation:
-                    self._stop_sidebar_slide()
-                    self.right_panel.setVisible(self._sidebar_open)
-                    self._follow_sidebar()
-
-            animation.valueChanged.connect(step)
-            animation.finished.connect(finish)
-            self._sidebar_animation = animation
-            self._sidebar_slide_width = float(start)
-            animation.start()
-
-    def _sidebar_can_slide(self):
-        """Whether the sidebar slides: only in a shown window, with a slide time,
-        and not under Low Resource Mode's No Zoom Animation, which also switches the
-        sidebar (off since the Console took its buttons) at once."""
-        window = getattr(self, 'main_window', None)
-        return (
-            SIDEBAR_SLIDE_MS > 0
-            and not low_resource_animations(cfg)
-            and self.shows_windows()
-            and window is not None
-            and window.isVisible()
-        )
-
-    def _stop_sidebar_slide(self):
-        """Stop a slide where it is; the sidebar's room is its open or closed width again."""
-        animation = getattr(self, '_sidebar_animation', None)
-        self._sidebar_animation = None
-        self._sidebar_slide_width = None
-        if animation is not None and shiboken6.isValid(animation):
-            animation.stop()
-            animation.deleteLater()
-
-    def _follow_sidebar(self):
-        """Move the panel, its toggle, the slider and the HUD to the sidebar's room now."""
-        self.reposition_expand_btn()
-        if hasattr(self, 'position_slider_overlay'):
-            self.position_slider_overlay()
-        if hasattr(self, '_update_hud_elements'):
-            self._update_hud_elements()
 
     # show_existing_dialog is keyword-only so that a Qt signal connected to
     # this (a button's clicked(bool)) never passes it a value.
@@ -4447,45 +4274,8 @@ class MainViewer:
             self.console_buttons = ButtonRegistry()
         return self.console_buttons
 
-    def add_sidebar_button(self, name, label, callback, tooltip=None, icon=None):
-        """Add a button to the sidebar. Kept for a later use: nothing calls it now, since pages register Console
-        buttons (add_console_button), and while SIDEBAR_ENABLED is False the sidebar never opens."""
-        if not hasattr(self, 'sidebar_buttons'):
-            self.sidebar_buttons = {}
-        
-        # A button that already exists is shown again, and the sidebar is left
-        # open or closed as the user left it: only a new button opens it.
-        if name in self.sidebar_buttons:
-            self.sidebar_buttons[name].show()
-            return self.sidebar_buttons[name]
-        
-        btn = SidebarButton(label, self.right_panel)
-        btn.setObjectName(name)
-        if icon:  # a bundled Lucide icon's name, shown before the label
-            btn.setIcon(studio_icon(icon))
-            btn.setIconSize(QtCore.QSize(16, 16))
-        if tooltip:
-            btn.setToolTip(tooltip)
-        btn.clicked.connect(callback)
-        
-        # Insert button in layout right before the bottom stretch spacer
-        layout = self.right_panel_layout
-        layout.insertWidget(layout.count() - 1, btn)
-        
-        self.sidebar_buttons[name] = btn
-        self._fit_sidebar_to_buttons()
-        self.set_sidebar_visible(True)
-        return btn
-
-    def _fit_sidebar_to_buttons(self):
-        """Give every sidebar button the widest label's width, and the panel room for them."""
-        margins = self.right_panel_layout.contentsMargins()
-        button_width = fit_buttons_to_text(*self.sidebar_buttons.values())
-        self._panel_w = button_width + margins.left() + margins.right()
-        self._update_window_minimum_width()
-
     def _slider_row_width(self):
-        """The canvas width the slider row needs for nothing in it to overlap, the sidebar aside.
+        """The canvas width the slider row needs for nothing in it to overlap.
 
         From the left: the row's margin, the buttons, the threshold box and the slider at
         its least (SLIDER_MIN_WIDTH), the gap, and the Zoom box with its margin at the right
@@ -4503,12 +4293,11 @@ class MainViewer:
                 + box.sizeHint().width() + round(hud_layout["status_x_offset"]))
 
     def _top_row_width(self):
-        """The canvas width the top-right row needs for the command line to keep COMMAND_LINE_MIN_WIDTH beside it, the sidebar aside.
+        """The canvas width the top-right row needs for the command line to keep COMMAND_LINE_MIN_WIDTH beside it.
 
         From the left: the command line's offset and least width, then (FPS_GAP between each) the frame rate when
         the Viewer has one (the rate alone, which is what shows when the room is short), the Legend, Undo and Redo
-        buttons, and the room right of them: 10 px, or the toggle's 40 and FPS_GAP while it shows
-        (_top_row_right). 0 while the buttons are not built.
+        buttons, and 10 px right of them (_top_row_right). 0 while the buttons are not built.
         """
         buttons = getattr(self, 'history_buttons', None)
         if buttons is None:
@@ -4518,22 +4307,16 @@ class MainViewer:
         overlay = getattr(self, 'fps_overlay', None)
         if overlay is not None:
             need += FPS_GAP + overlay.widest_width(rate_only=True)
-        toggle = getattr(self, 'toggle_sidebar_btn', None)
-        need += 40 + FPS_GAP if toggle is not None and not toggle.isHidden() else 10
+        need += 10
         return math.ceil(need)
 
     def _update_window_minimum_width(self):
-        """Keep the window wide enough for the sidebar's buttons, for the slider row, and for the top-right row.
+        """Keep the window wide enough for the slider row and for the top-right row.
 
         The slider row needs _slider_row_width and the top-right row _top_row_width (the command line's
-        least width beside the frame rate, the Legend, Undo and Redo buttons); each, while the sidebar can
-        open and has buttons, with the room the sidebar takes when open, so that opening it never makes
-        either overlap: none while the sidebar is off (SIDEBAR_ENABLED). A Viewer without the rows keeps
-        the sidebar's width alone.
+        least width beside the frame rate, the Legend, Undo and Redo buttons).
         """
-        room = self._panel_w if SIDEBAR_ENABLED and getattr(self, 'sidebar_buttons', None) else 0
-        self.main_window.setMinimumWidth(max(self._panel_w, self._slider_row_width() + room,
-                                             self._top_row_width() + room))
+        self.main_window.setMinimumWidth(max(self._slider_row_width(), self._top_row_width()))
 
 
     def start_web_server(self):

@@ -29,7 +29,12 @@ from Viewer_Command_Portal import ExecutionContext, ViewerCommandPortal, bind
 from utilities import Job_Cancellation
 from utilities.Job_Cancellation import JobCancelled, cancel_requested, leave_partial, raise_if_cancelled
 from utilities.Localization import Message, display_text
-from tests.command_fixtures import end_scheduler
+from tests.command_fixtures import (
+    command_mentions_in_file,
+    command_mentions_in_source,
+    end_scheduler,
+    scheduler_command_words,
+)
 from tests.held_file_fixtures import held_file_error
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 
@@ -1257,39 +1262,17 @@ class SchedulerNamesNoCommandTests(unittest.TestCase):
     @staticmethod
     def command_words():
         """The names of the commands that queue jobs: the command modules that use the scheduler."""
-        commands = Path(__file__).resolve().parents[1] / "src" / "commands"
-        return sorted(path.stem for path in commands.glob("*.py")
-                      if path.stem != "__init__" and "scheduler.enqueue(" in path.read_text(encoding="utf-8"))
+        return scheduler_command_words()
 
     def mentions(self, relative):
         """Where the file names a command: an import of a command module, or a string a program shows or compares.
 
         Docstrings and comments are prose and may use the words (a "label" is also a label); the code may not.
         """
-        return self.mentions_in((self.SRC / relative).read_text(encoding="utf-8"))
+        return command_mentions_in_file(relative)
 
     def mentions_in(self, source):
-        import ast
-        import re
-
-        words = self.command_words()
-        pattern = re.compile(r"\b(" + "|".join(words) + r")\b", re.IGNORECASE)
-        tree = ast.parse(source)
-        docstrings = set()
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                body = node.body
-                if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
-                    docstrings.add(id(body[0].value))
-        found = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-                found += [(node.lineno, match.group(0)) for match in pattern.finditer(node.value)]
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                names = [alias.name for alias in node.names] + ([node.module] if isinstance(node, ast.ImportFrom) else [])
-                for name in names:
-                    found += [(node.lineno, part) for part in (name or "").split(".") if part in words]
-        return found
+        return command_mentions_in_source(source)
 
     def test_the_commands_that_queue_jobs_are_found(self):
         # Among them, whatever commands are added later.

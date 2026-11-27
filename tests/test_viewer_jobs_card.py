@@ -32,9 +32,14 @@ from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 from desktop.Viewer_Jobs import JobLane, JobRow, ViewerJobs, job_lanes, job_lines  # noqa: E402
 from desktop.Viewer_Jobs_Card import ElidedLabel, JobsSection, clock  # noqa: E402
 from desktop.Viewer_Widgets import ControlsButton  # noqa: E402
-from tests.command_fixtures import end_scheduler  # noqa: E402
-from tests.test_viewer_widgets import RecordingCanvas, flush, shipped_actions  # noqa: E402
+from tests.command_fixtures import (  # noqa: E402
+    CLUSTER,
+    QueueViewer,
+    command_mentions_in_file,
+    end_scheduler,
+)
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from tests.viewer_fixtures import RecordingCanvas, flush, shipped_actions  # noqa: E402
 from utilities.Localization import Message  # noqa: E402
 
 LONG_NAME = "Label_Output_with_a_very_long_name_that_cannot_possibly_fit_in_the_card_20261024_101500_attempt_7.xlsx"
@@ -511,7 +516,6 @@ class JobsBesideCommandsTests(ScheduledJobsCase):
         super().setUp()
         import io
         from contextlib import redirect_stdout
-        from tests.test_command_queue import QueueViewer
         self.queue_viewer = QueueViewer()
         self.addCleanup(self.queue_viewer.close)
         self.addCleanup(self.queue_viewer.command_queue.shutdown)
@@ -521,7 +525,6 @@ class JobsBesideCommandsTests(ScheduledJobsCase):
         self.addCleanup(output.__exit__, None, None, None)
 
     def test_the_lists_hold_no_command_and_the_first_job_is_number_one(self):
-        from tests.test_command_queue import CLUSTER
         self.queue_viewer.type(CLUSTER)
         self.queue_viewer.type("color red")
         self.assertEqual(len(self.queue_viewer.command_queue.pending()), 2)
@@ -763,12 +766,9 @@ class SchedulerCardSourcesNameNoCommandTests(unittest.TestCase):
     """The card's own files know no command either (the same check as the scheduler's)."""
 
     def test_the_card_and_its_rows_name_no_command(self):
-        from tests.test_background_job_scheduler import SchedulerNamesNoCommandTests
-
-        checker = SchedulerNamesNoCommandTests()
         for relative in ("desktop/Viewer_Jobs.py", "desktop/Viewer_Jobs_Card.py"):
             with self.subTest(file=relative):
-                self.assertEqual(checker.mentions(relative), [])
+                self.assertEqual(command_mentions_in_file(relative), [])
 
 
 if __name__ == "__main__":

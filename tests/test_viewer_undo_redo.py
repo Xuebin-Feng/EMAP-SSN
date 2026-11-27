@@ -29,46 +29,10 @@ if SRC_DIR not in sys.path:
 import Command_Engine  # noqa: E402
 from commands import redo as redo_command, undo as undo_command  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
+from tests.viewer_fixtures import UNDO_BLUE as BLUE, make_undo_viewer as make_viewer, quietly  # noqa: E402
 
 
-BLUE = [0.0, 0.0, 1.0, 1.0]
 RED = [1.0, 0.0, 0.0, 1.0]
-
-
-def make_viewer():
-    """A four-node viewer holding every field a full history state captures."""
-    viewer = MainViewer.__new__(MainViewer)
-    viewer.n_nodes = 4
-    viewer.full_headers = ["n0", "n1", "n2", "n3"]
-    viewer.pos = np.array(
-        [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]], dtype=np.float32
-    )
-    viewer.visible_mask = np.ones(4, dtype=bool)
-    viewer.current_colors = np.tile(BLUE, (4, 1)).astype(np.float32)
-    viewer.current_sizes = np.full(4, 10.0, dtype=np.float32)
-    viewer.current_shapes = np.full(4, "disc", dtype=object)
-    viewer.node_render_order = np.arange(4, dtype=np.int32)
-    viewer.cluster_labels = None
-    viewer.last_cluster_params = None
-    viewer.group_labels = [set(), set(), set(), set()]
-    viewer.metadata = {
-        "Length": {"type": "number", "values": np.array([10, 20, 30, 40])}
-    }
-    viewer._cacheable_attrs = {"sidebar_buttons_to_persist", "custom_scores"}
-    viewer.sidebar_buttons_to_persist = []
-    viewer.custom_scores = np.array([1.0, 2.0, 3.0, 4.0])
-    viewer.selected_indices = []
-    viewer.position_history = []
-    viewer.redo_stack = []
-    viewer.console_text = SimpleNamespace(text="")
-    viewer.update_selection_visual = mock.Mock()
-    viewer.update_edges = mock.Mock()
-    viewer.broadcast_event = mock.Mock()
-    # A page is connected, so the state is built and broadcast.
-    viewer.web_server = SimpleNamespace(
-        queues_lock=threading.Lock(), event_queues=[object()]
-    )
-    return viewer
 
 
 def change_every_field(viewer):
@@ -113,12 +77,6 @@ class FakeMetadataHud:
         self.redrawn_for.append(node_idx)
         prop = self.viewer.meta_display_prop
         self.show(f"{prop}: {self.viewer.metadata[prop]['values'][node_idx]}")
-
-
-def quietly(action):
-    """Run an undo/redo step without its console print reaching the test log."""
-    with redirect_stdout(io.StringIO()):
-        return action()
 
 
 def reset(viewer, *targets):

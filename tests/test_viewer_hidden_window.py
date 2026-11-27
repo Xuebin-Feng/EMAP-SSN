@@ -497,27 +497,6 @@ class ViewerQuestionTests(QtTestCase):
         self.assertNotIn("[ENTER]", "".join(getattr(node, "value", "") for node in ast.walk(init)
                                             if isinstance(node, ast.Constant) and isinstance(node.value, str)))
 
-    def test_a_hidden_viewer_does_not_slide_its_sidebar_until_shown(self):
-        import EMAPSSN_Viewer
-        from PySide6.QtWidgets import QWidget
-        from tests.theme_fixture import apply_theme_for_class
-        apply_theme_for_class(type(self), self.app)
-        viewer = self.viewer(headless=False, window_mode=HIDDEN, requested_window_mode=HIDDEN)
-        viewer.canvas = SimpleNamespace(native=QWidget(), size=(1200, 800))
-        viewer._build_main_window()
-        self.addCleanup(viewer.main_window.deleteLater)
-        self.addCleanup(viewer.main_window.close)
-        self.assertEqual(viewer.window_control.mode, HIDDEN)
-        viewer.window_control = ViewerWindow(viewer.main_window, HIDDEN, platform="linux", alert=lambda *args: None)
-        viewer.window_control.open()
-        self.pump()
-        self.assertTrue(viewer.main_window.isVisible())
-        self.assertFalse(viewer._sidebar_can_slide())
-        viewer.window_control.show()
-        self.assertTrue(viewer._sidebar_can_slide())
-        viewer.window_control.hide()
-        self.assertFalse(viewer._sidebar_can_slide())
-
     def test_a_viewer_built_by_hand_keeps_its_old_modes(self):
         import EMAPSSN_Viewer
         from PySide6.QtWidgets import QWidget

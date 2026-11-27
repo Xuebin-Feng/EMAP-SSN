@@ -9,7 +9,7 @@ shown (not hidden) nodes, then the colors the key does not cover. A click on a r
 box selection does, Ctrl adds them, the same row again clears; a press or drag on a gradient bar selects the
 nodes whose value is in its range, the selection moving as the drag goes and the pages and the status line
 hearing of it once, when it is let go. A Legend button in the top-right row, left of Undo, opens and closes it
-(a card like the session card, on white); it hangs under the row, follows the sidebar, and shares the room with the
+(a card like the session card, on white); it hangs under the row and shares the room with the
 session card without overlapping it. Offscreen Qt only: how it looks has not been checked on a screen here.
 """
 import os
@@ -42,7 +42,7 @@ from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QToolTip  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from tests.test_viewer_history_buttons import ViewerCase  # noqa: E402
-from tests.test_viewer_undo_redo import quietly  # noqa: E402
+from tests.viewer_fixtures import quietly  # noqa: E402
 
 RED = (1.0, 0.0, 0.0, 1.0)
 GREEN = (0.0, 1.0, 0.0, 1.0)
@@ -58,8 +58,8 @@ SIZES_UNDER_TEST = ((1400, 900), (563, 300))   # a roomy window, and the Viewer'
 class LegendCase(ViewerCase):
     """A Viewer with the legend, around the stand-in canvas of the history buttons' tests, and a key to show."""
 
-    def build_legend(self, size=(1400, 900), *, toggle=False, with_key=True, n=N, opened=True, fps=False):
-        viewer = self.build(size, toggle=toggle, fps=fps)
+    def build_legend(self, size=(1400, 900), *, with_key=True, n=N, opened=True, fps=False):
+        viewer = self.build(size, fps=fps)
         viewer.n_nodes = n
         viewer.pos = np.zeros((n, 2), dtype=np.float32)
         viewer.visible_mask = np.ones(n, dtype=bool)
@@ -399,29 +399,6 @@ class PlacementTests(LegendCase):
         viewer._place_legend()
         self.assertEqual(self.shown(viewer.legend_card).top(), before)
 
-    def test_it_follows_the_sidebar_and_never_sits_under_it(self):
-        patch = mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True)
-        patch.start()
-        self.addCleanup(patch.stop)
-        viewer = self.build_legend(toggle=True)
-        closed = viewer.legend_card.geometry()
-        viewer.set_sidebar_visible(True, animate=False)
-        self.settle()
-        opened = viewer.legend_card.geometry()
-        self.assertLess(opened.right(), closed.right())
-        self.assertLess(self.shown(viewer.legend_card).right(), viewer.right_panel.geometry().left())
-        self.assertLess(self.shown(viewer.legend_card).right(), viewer.toggle_sidebar_btn.geometry().left())
-        self.assertEqual(self.shown(viewer.legend_card).right(), viewer.history_buttons.redo.geometry().right() + 1)
-        # Mid-slide too, as the slide width is what the row follows.
-        for width in (30.0, 90.0, 150.0):
-            viewer._sidebar_slide_width = width
-            viewer.reposition_expand_btn()
-            self.assertLess(self.shown(viewer.legend_card).right(), viewer.right_panel.geometry().left())
-        viewer._sidebar_slide_width = None
-        viewer.set_sidebar_visible(False, animate=False)
-        self.settle()
-        self.assertEqual(viewer.legend_card.geometry(), closed)
-
     def test_its_height_is_capped_above_the_status_lines_and_the_slider_row(self):
         for size in ((1400, 900), (563, 300)):
             with self.subTest(size=size):
@@ -707,11 +684,8 @@ class SessionCardTests(LegendCase):
         self.assertLessEqual(legend.bottom() + EMAPSSN_Viewer.LEGEND_CARD_GAP, session.top() + 0.5)
         self.assert_apart(viewer, button)
 
-    def test_opening_closing_resizing_and_the_sidebar_lay_the_cards_out_again(self):
-        patch = mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True)
-        patch.start()
-        self.addCleanup(patch.stop)
-        viewer = self.build_legend(toggle=True)
+    def test_opening_closing_and_resizing_lay_the_cards_out_again(self):
+        viewer = self.build_legend()
         button = self.open_info_card(viewer)
         button.toggle_card()
         self.settle()
@@ -724,19 +698,6 @@ class SessionCardTests(LegendCase):
             self.settle()
             self.assert_apart(viewer, button)
             self.assertEqual(self.shown(viewer.legend_card).right(), viewer.history_buttons.redo.geometry().right() + 1)
-        self.assertEqual(self.shown(viewer.legend_card), before)
-        # The sidebar slides open: the legend moves left with the row and the cards still keep apart.
-        viewer.set_sidebar_visible(True, animate=False)
-        self.settle()
-        self.assertLess(self.shown(viewer.legend_card).right(), before.right())
-        self.assert_apart(viewer, button)
-        for width in (30.0, 90.0, 150.0):
-            viewer._sidebar_slide_width = width
-            viewer.reposition_expand_btn()
-            self.assert_apart(viewer, button)
-        viewer._sidebar_slide_width = None
-        viewer.set_sidebar_visible(False, animate=False)
-        self.settle()
         self.assertEqual(self.shown(viewer.legend_card), before)
 
     def test_row_clicks_still_select_while_the_session_card_is_open(self):
@@ -894,7 +855,7 @@ class KeepingCurrentTests(LegendCase):
 
 class WindowlessTests(LegendCase):
     def hidden_viewer(self, flags):
-        viewer = self.build(toggle=False)
+        viewer = self.build()
         for name, value in flags.items():
             setattr(viewer, name, value)
         viewer.node_update_listeners = []
@@ -924,7 +885,7 @@ class WindowlessTests(LegendCase):
 
     def test_showing_the_window_makes_the_card(self):
         from desktop.Viewer_Window import HIDDEN, ViewerWindow
-        viewer = self.build(toggle=False)
+        viewer = self.build()
         control = ViewerWindow(viewer.main_window, HIDDEN, platform="linux", alert=lambda *args: None)
         viewer.window_control = control
         viewer.node_update_listeners = []

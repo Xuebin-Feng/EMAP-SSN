@@ -5,8 +5,8 @@
 """The Viewer's Undo and Redo buttons (desktop/Viewer_History.py and MainViewer's wiring of them).
 
 Two icon buttons sit in the canvas's top-right row: at its right end, with the
-frame rate (when shown) to their left and the sidebar's toggle (when shown) to
-their right, the jobs badge under the row, and the command line short of all
+frame rate (when shown) to their left, the jobs badge under the row, and the
+command line short of all
 of them. A click is Ctrl+Z or Ctrl+Y; a button is enabled while its key could
 do something, and the Viewer refreshes that wherever the history or the
 command queue changes. The buttons take no keyboard focus, never move on a
@@ -47,7 +47,7 @@ from desktop.Viewer_Fps import FPS_GAP  # noqa: E402
 from desktop.Viewer_History import HISTORY_BUTTON_SIZE, HistoryButtons, history_availability  # noqa: E402
 from desktop.Viewer_Jobs import BADGE_GAP  # noqa: E402
 from tests.gl_window_environment import gl_window_environment  # noqa: E402
-from tests.test_viewer_undo_redo import make_viewer, quietly  # noqa: E402
+from tests.viewer_fixtures import make_undo_viewer as make_viewer, quietly  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from vispy.util.keys import Key  # noqa: E402
 
@@ -82,7 +82,7 @@ class ViewerCase(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def build(self, size=(1400, 900), *, fps=False, toggle=False):
+    def build(self, size=(1400, 900), *, fps=False):
         viewer = make_viewer()
         update = mock.Mock()
         viewer.canvas = SimpleNamespace(native=QWidget(), size=size, update=update, update_mock=update)
@@ -97,10 +97,6 @@ class ViewerCase(unittest.TestCase):
         with mock.patch.object(cfg, "SHOW_FPS", fps):
             viewer._build_fps_overlay()
         viewer._build_jobs_badge()
-        with mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", toggle):
-            if toggle:
-                viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
-            viewer.set_sidebar_visible(False, animate=False)
         viewer.main_window.resize(*size)
         viewer.main_window.show()
         self.app.processEvents()
@@ -141,28 +137,25 @@ class ViewerCase(unittest.TestCase):
 
 
 class PlacementTests(ViewerCase):
-    """The row: the frame rate, then Legend, Undo and Redo, then the toggle; the badge under it; the command line short of all."""
+    """The row: the frame rate, then Legend, Undo and Redo; the badge under it; the command line short of all."""
 
     def row(self, viewer):
         """The geometry of the row's first button (Legend: where the row starts) and of its last (Redo: where it ends)."""
         buttons = viewer.history_buttons
         return buttons.legend.geometry(), buttons.redo.geometry()
 
-    def check(self, viewer, *, fps, toggle):
+    def check(self, viewer, *, fps):
         width, height = viewer.canvas.size
         first, redo = self.row(viewer)
         legend, undo = first, viewer.history_buttons.undo.geometry()
-        toggle_button = viewer.toggle_sidebar_btn
-        self.assertEqual(not toggle_button.isHidden(), toggle)
-        # The pair keeps the row's right end: the corner, or FPS_GAP left of the toggle.
-        row_right = toggle_button.x() - FPS_GAP if toggle else width - 10
+        # The pair keeps the row's right end, 10 px inside the canvas corner.
+        row_right = width - 10
         self.assertEqual(redo.x() + redo.width(), row_right)
         self.assertEqual(redo.x() - (undo.x() + undo.width()), 4)       # a small gap between the buttons
         self.assertEqual(undo.x() - (legend.x() + legend.width()), 4)
         for rectangle in (legend, undo, redo):
-            # As big as the sidebar's toggle, in the row it makes.
             self.assertEqual((rectangle.width(), rectangle.height()), (30, 30))
-        # In the row of the toggle and the frame rate: the same top, the same height, the same middle.
+        # In the top-right row with the frame rate: the same top, the same height, the same middle.
         self.assertEqual((legend.y(), undo.y(), redo.y()), (10, 10, 10))
         self.assertEqual(undo.y() * 2 + undo.height(), 50)
         occupied = {"legend": legend, "undo": undo, "redo": redo}
@@ -179,8 +172,6 @@ class PlacementTests(ViewerCase):
             self.assertIsNone(viewer.fps_overlay)
             # The command line stops FPS_GAP short of the row's buttons, the Legend button first.
             self.assertEqual(viewer._command_line_right(), legend.x() - FPS_GAP)
-        if toggle:
-            occupied["toggle"] = toggle_button.geometry()
         badge = viewer.jobs_badge
         badge.show_jobs(["#1 running: a file", "#2 waiting: a fold"])
         # Under the row, right-aligned with it.
@@ -199,12 +190,11 @@ class PlacementTests(ViewerCase):
     def test_the_pair_takes_the_rows_right_end_whatever_else_shows(self):
         for width, height in SIZES:
             for fps in (False, True):
-                for toggle in (False, True):
-                    with self.subTest(size=(width, height), fps=fps, toggle=toggle):
-                        viewer = self.build((width, height), fps=fps, toggle=toggle)
-                        # A window is never narrower than its minimum, which the row's room raises (_top_row_width).
-                        self.assertEqual(viewer.canvas.size, (max(width, viewer.main_window.minimumWidth()), height))
-                        self.check(viewer, fps=fps, toggle=toggle)
+                with self.subTest(size=(width, height), fps=fps):
+                    viewer = self.build((width, height), fps=fps)
+                    # A window is never narrower than its minimum, which the row's room raises (_top_row_width).
+                    self.assertEqual(viewer.canvas.size, (max(width, viewer.main_window.minimumWidth()), height))
+                    self.check(viewer, fps=fps)
 
     def test_a_longer_frame_rate_text_keeps_clear_of_the_pair(self):
         for width, height in SIZES:
@@ -212,7 +202,7 @@ class PlacementTests(ViewerCase):
                 viewer = self.build((width, height), fps=True)
                 # The longest text it shows at this size: the rate alone in the smallest window.
                 viewer.fps_overlay.show_text(viewer.fps_overlay.text_for(123.0, 45.6, 64))
-                self.check(viewer, fps=True, toggle=False)
+                self.check(viewer, fps=True)
                 undo, _redo = self.row(viewer)
                 card = viewer.fps_overlay.geometry()
                 self.assertEqual(card.x() + card.width() + FPS_GAP, undo.x())
@@ -247,7 +237,7 @@ class PlacementTests(ViewerCase):
                     self.assertEqual(overlay.rate_only, rate_only)
                     self.assertEqual(overlay.text(), "40/s" if rate_only else "40 new/s · GPU 2.5 ms · edges 1/16")
                     self.assertGreaterEqual(viewer._command_line_right() - left, COMMAND_LINE_MIN_WIDTH)
-                    self.check(viewer, fps=True, toggle=False)
+                    self.check(viewer, fps=True)
 
     def test_it_keeps_its_place_as_the_window_is_resized(self):
         viewer = self.build((1400, 900), fps=True)
@@ -257,22 +247,7 @@ class PlacementTests(ViewerCase):
             native = viewer.canvas.native
             viewer.canvas.size = (native.width(), native.height())
             viewer.reposition_expand_btn()
-            self.check(viewer, fps=True, toggle=False)
-
-    def test_the_pair_and_the_card_follow_the_sidebar_open_and_closed(self):
-        with mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", True):    # no slide: it opens at once
-            viewer = self.build(fps=True, toggle=True)
-            with mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True):
-                for visible in (True, False):
-                    viewer.set_sidebar_visible(visible)
-                    self.app.processEvents()
-                    viewer.canvas.size = (viewer.canvas.native.width(), viewer.canvas.native.height())
-                    undo, redo = self.row(viewer)
-                    toggle = viewer.toggle_sidebar_btn.geometry()
-                    room = viewer._panel_w if visible else 0
-                    self.assertEqual(toggle.x() + toggle.width() + 10, viewer.canvas.size[0] - room)
-                    self.assertEqual(redo.x() + redo.width() + FPS_GAP, toggle.x())
-                    self.assertEqual(viewer.fps_overlay.geometry().right() + FPS_GAP + 1, undo.x())
+            self.check(viewer, fps=True)
 
     def test_the_pair_is_placed_as_soon_as_it_is_built(self):
         viewer = make_viewer()
@@ -618,7 +593,7 @@ class NeverMovesTests(ViewerCase):
         return guards
 
     def geometries(self, viewer):
-        widgets = [*viewer.history_buttons.buttons(), viewer.jobs_badge, viewer.toggle_sidebar_btn]
+        widgets = [*viewer.history_buttons.buttons(), viewer.jobs_badge]
         if viewer.fps_overlay is not None:
             widgets.append(viewer.fps_overlay)
         return [(widget.geometry(), widget.isHidden()) for widget in widgets]

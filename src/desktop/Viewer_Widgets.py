@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Widgets of the Viewer's window: its info card, and its sidebar's card and buttons.
+"""Widgets of the Viewer's window: its info card, its Console button, and its Zoom and threshold boxes.
 
 * The info card. The Viewer lists its mouse and keyboard actions in one
   translated text, "[ENTER] Command | [LeftClick] Highlight | ...": the
@@ -21,8 +21,8 @@
   colour; the link to the list of commands is in the first one's row, beside
   the ×. ControlsButton, at the start of the threshold slider, opens the card
   above itself, and ConsoleButton, after it, opens the Console.
-  The card is a child of the canvas, so the network, the sliders, the Zoom
-  box and the sidebar work as usual while it is open: it closes only
+  The card is a child of the canvas, so the network, the sliders and the Zoom
+  box work as usual while it is open: it closes only
   by its × or by the button again, never by a click elsewhere, and it never
   takes the keyboard, so [ENTER] still opens the command line. Mouse events
   on the card stop at the card. The fields have no keyboard focus to receive
@@ -30,12 +30,6 @@
   has the keyboard, and answers them for the field that has the selection
   (ControlsCard.eventFilter); every other key, and those two while the
   command line is open, go on to the canvas as before.
-* The sidebar. SidebarPanel is the panel over the canvas's right edge, drawn
-  as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
-  right and bottom edges. SidebarButton is one of its buttons: the icon at
-  the start, the label centred in the room after it. The Viewer keeps the
-  sidebar off (SIDEBAR_ENABLED in EMAPSSN_Viewer.py) for a later use: the
-  buttons pages register are in the Console window's second header row.
 * The view's zoom. ZoomBox, at the canvas's bottom right level with the
   threshold slider, is the translated "Zoom: {zoom}%" with a ZoomSpinBox in
   place of {zoom}: it shows the view's zoom, a percentage, and sets it. The
@@ -58,7 +52,6 @@ from PySide6 import QtCore
 from PySide6.QtCore import QT_TRANSLATE_NOOP, QEvent, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
-    QIcon,
     QKeySequence,
     QPainter,
     QPalette,
@@ -73,15 +66,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QStyle,
-    QStyleOptionButton,
-    QStylePainter,
     QVBoxLayout,
     QWidget,
 )
 
 from Command_Declarations import session_file_pickers
-from desktop.Desktop_App import UI_QSS_FONT_STACK, button_icon_room, fit_buttons_to_text, installed_language
+from desktop.Desktop_App import UI_QSS_FONT_STACK, fit_buttons_to_text, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_Jobs_Card import JobsSection, section_qss
 from desktop.Viewer_State import alias_form
@@ -241,7 +231,7 @@ class ControlsCard(QWidget):
     in the slider row.
 
     The card is a child of the canvas, not a window of its own, so it leaves
-    the network, the sliders and the sidebar working under the mouse and the
+    the network and the sliders working under the mouse and the
     keyboard with the canvas. It closes only by its × or by the button that
     opened it (anchor). Every mouse event on the card itself stops at it, so
     none reaches the canvas, and nothing in it takes the keyboard. place() puts it above
@@ -1037,84 +1027,6 @@ class ConsoleButton(QPushButton):
             self.clicked.connect(opened)
 
 
-# =====================================================================
-# The Sidebar
-# =====================================================================
-
-# How far the sidebar's card stays from the canvas's top, right and bottom edges.
-SIDEBAR_INSET = 8
-# The sidebar card's fill: the surface, a touch see-through over the network.
-SIDEBAR_OPACITY = 0.95
-
-
-class SidebarPanel(QWidget):
-    """The sidebar over the canvas's right edge: a card with round corners.
-
-    The widget fills the sidebar's room down the canvas; the card leaves
-    SIDEBAR_INSET of it clear at the top, right and bottom, and its layout's
-    margins keep the buttons on the card.
-    """
-
-    def card_rect(self):
-        """Where the card is in the panel."""
-        return QRectF(self.rect()).adjusted(0.5, SIDEBAR_INSET + 0.5, -SIDEBAR_INSET - 0.5,
-                                            -SIDEBAR_INSET - 0.5)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        fill = QColor(TOKENS["surface"])
-        fill.setAlphaF(SIDEBAR_OPACITY)
-        painter.setPen(QPen(QColor(TOKENS["border"]), 1.0))
-        painter.setBrush(fill)
-        radius = TOKENS["radius_card"]
-        painter.drawRoundedRect(self.card_rect(), radius, radius)
-        painter.end()
-
-
-class SidebarButton(QPushButton):
-    """A sidebar button: its icon at the start, its label centred in the room after the icon.
-
-    The room is the style's contents rectangle less the icon's
-    (Desktop_App.button_icon_room), the room fit_buttons_to_text gives every
-    label, so a label never clips; a shorter label sits in its middle. The
-    button's frame, hover and focus ring are the stylesheet's.
-    """
-
-    def label_rect(self):
-        """Where the label is centred: the contents after the icon."""
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        contents = self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self)
-        return contents.adjusted(button_icon_room(self), 0, 0, 0)
-
-    def icon_rect(self):
-        """Where the icon is: at the start of the contents, centred down the button."""
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        contents = self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self)
-        size = self.iconSize()
-        return QRect(contents.left(), contents.top() + (contents.height() - size.height()) // 2,
-                     size.width(), size.height())
-
-    def paintEvent(self, event):
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        label = option.text
-        option.text = ""
-        option.icon = QIcon()
-        painter = QStylePainter(self)
-        painter.drawControl(QStyle.ControlElement.CE_PushButton, option)
-        if not self.icon().isNull():
-            mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
-            self.icon().paint(painter, self.icon_rect(), Qt.AlignmentFlag.AlignCenter, mode)
-        painter.drawItemText(
-            self.label_rect(), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextShowMnemonic,
-            option.palette, self.isEnabled(), label, QPalette.ColorRole.ButtonText,
-        )
-        painter.end()
-
-
 # A step of the Zoom box's arrows, of the wheel over it or of Up/Down zooms in
 # (a percentage this many times bigger) or out by this factor, about a notch of
 # the mouse wheel over the network.
@@ -1352,9 +1264,6 @@ __all__ = [
     "ControlsCard",
     "PathField",
     "SESSION_FILES",
-    "SIDEBAR_INSET",
-    "SidebarButton",
-    "SidebarPanel",
     "SLIDER_BOX_HEIGHT",
     "THRESHOLD_STEPS",
     "ThresholdSpinBox",

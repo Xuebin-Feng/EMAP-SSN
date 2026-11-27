@@ -1874,28 +1874,15 @@ class PrintSvgMatchesPngTests(unittest.TestCase):
     def compare(self, scale):
         if scale in self.results:
             return self.results[scale]
-        environment = dict(os.environ)
-        # tests/__init__.py defaults Qt to offscreen, which has no OpenGL on
-        # Windows; a hidden canvas on the native platform renders.
-        environment.pop("QT_QPA_PLATFORM", None)
-        environment.update(
-            PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0", QT_SCALE_FACTOR=str(scale),
-        )
-        try:
-            result = subprocess.run(
-                [sys.executable, "-c", _PNG_SVG_SCRIPT, SRC_DIR],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                env=environment, timeout=300,
-            )
-        except subprocess.TimeoutExpired:
-            self.skipTest("the GL render probe timed out")
-        if "CONTEXT OK" not in result.stdout:
-            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
-        lines = [line for line in result.stdout.splitlines() if line.startswith("RESULTS ")]
-        self.assertTrue(lines, result.stdout[-2000:] + result.stderr[-3000:])
+        from tests.gl_window_environment import native_display_scale, run_gl_script
+
+        output = run_gl_script(self, _PNG_SVG_SCRIPT, args=(SRC_DIR,), scale=scale, timeout=300)
+        lines = [line for line in output.splitlines() if line.startswith("RESULTS ")]
+        self.assertTrue(lines, output[-3000:])
         results = json.loads(lines[-1][len("RESULTS "):])
-        if results["dpr"] != scale:
-            self.skipTest(f"Qt drew at a display scale of {results['dpr']}, not {scale}")
+        expected_dpr = scale * native_display_scale()
+        if results["dpr"] != expected_dpr:
+            self.skipTest(f"Qt drew at a display scale of {results['dpr']}, not {expected_dpr}")
         self.results[scale] = results
         return results
 
@@ -1929,10 +1916,13 @@ class PrintSvgMatchesPngTests(unittest.TestCase):
                     self.assertAlmostEqual(svg / png, 1.0, delta=0.08, msg=(node, scene))
 
     def test_edges_are_as_wide_as_on_the_png(self):
-        # 1.3-pixel edges: 1 device pixel at 100 %, 3 at 200 %.
-        for scale, drawn in ((1, 1.0), (2, 1.5)):
+        # 1.3-pixel edges: round(1.3 * dpr) device pixels (1 at 100 %, 3 at 200 %, 5 at 400 %).
+        for scale in (1, 2):
             with self.subTest(display_scale=scale):
-                scene = self.compare(scale)["edges"]
+                results = self.compare(scale)
+                dpr = results["dpr"]
+                drawn = round(1.3 * dpr) / dpr
+                scene = results["edges"]
                 self.assertAlmostEqual(scene["png_ink"], drawn, delta=0.05, msg=scene)
                 self.assertAlmostEqual(scene["svg_ink"] / scene["png_ink"], 1.0, delta=0.05, msg=scene)
 
