@@ -185,9 +185,7 @@ a session loads adds the name of its command to `viewer.sidebar_buttons_to_persi
 (the list keeps its name from the days the buttons were in a sidebar), and its
 command module declares `CONSOLE_BUTTON = True` (see `src/commands/__init__.py`).
 The Viewer runs `<command> --register-only` once for each such name, and drops any
-other entry of the list with one warning line in the Console. The Viewer's old sidebar,
-with `add_sidebar_button`, is kept in the code for a later use but never opens,
-so a plugin does not use it.
+other entry of the list with one warning line in the Console.
 
 ## Registration rules
 

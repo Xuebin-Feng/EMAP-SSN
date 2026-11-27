@@ -840,7 +840,7 @@ def _share_cut(similarity, share):
     """t': the similarity cut that keeps `share` of the pairs, or None when there is no pair.
 
     np.percentile of the upper-triangle values at 100 * (1 - share), the call
-    Align_Similarity_Matrix's prefilter_pairs makes for its own threshold
+    Align_Similarity_Matrix's prefilter_pair_keys makes for its own threshold
     (a pair is kept when its similarity is >= the cut). The values are copied
     row by row into one float64 vector of n (n - 1) / 2 entries, 4 n^2 bytes.
     """

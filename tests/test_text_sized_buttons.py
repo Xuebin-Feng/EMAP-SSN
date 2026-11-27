@@ -4,7 +4,7 @@
 
 """Buttons sized by their text (desktop.Desktop_App, "Buttons Sized by Their Text").
 
-Toggle switches, the Config's Pick buttons and the Viewer's sidebar buttons take
+Toggle switches and the Config's Pick buttons take
 their width from their text (and icon) plus BUTTON_TEXT_PADDING at each end, so a
 longer text, such as a translation, widens a button instead of being cut off. A
 toggle covers both of its texts, so toggling never resizes it; it is drawn as a
@@ -25,7 +25,7 @@ if str(SRC) not in sys.path:
 from utilities import Hardware_Acceleration as _preload  # noqa: F401 - load torch before PySide6
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QPushButton, QTextBrowser, QVBoxLayout, QWidget,
+    QApplication, QMainWindow, QPushButton, QTextBrowser, QWidget,
 )
 
 from desktop.Desktop_App import (
@@ -33,7 +33,6 @@ from desktop.Desktop_App import (
     TOGGLE_SWITCH_HEIGHT,
     HighContrastButton,
     ToggleSwitch,
-    button_icon_room,
     clipped_button_text,
     configure_qt_application_fonts,
     fit_buttons_to_text,
@@ -227,76 +226,6 @@ class FitButtonsToTextTests(TextSizedTestCase):
             styled.width(),
             styled.fontMetrics().horizontalAdvance("Meta Data") + 2 * BUTTON_TEXT_PADDING,
         )
-
-
-class ViewerSidebarTests(TextSizedTestCase):
-    """Sidebar buttons share the widest label's width, and the panel fits them."""
-
-    def make_viewer(self):
-        from EMAPSSN_Viewer import MainViewer
-
-        viewer = MainViewer.__new__(MainViewer)
-        viewer.main_window = QMainWindow()
-        self.addCleanup(viewer.main_window.deleteLater)
-        # The Viewer's own rule left-aligns the sidebar buttons this way.
-        viewer.main_window.setStyleSheet(
-            "QWidget#rightPanel QPushButton { text-align: left; padding-left: 10px; }"
-        )
-        viewer.right_panel = QWidget()
-        viewer.right_panel.setObjectName("rightPanel")
-        viewer.main_window.setCentralWidget(viewer.right_panel)
-        viewer.right_panel_layout = QVBoxLayout(viewer.right_panel)
-        viewer.right_panel_layout.setContentsMargins(10, 20, 10, 20)
-        viewer.right_panel_layout.addStretch()
-        viewer.set_sidebar_visible = lambda visible: None
-        return viewer
-
-    def assert_panel_fits(self, viewer):
-        buttons = list(viewer.sidebar_buttons.values())
-        widest = max(button.fontMetrics().horizontalAdvance(button.text())
-                     + button_icon_room(button) for button in buttons)
-        width = widest + 2 * BUTTON_TEXT_PADDING
-        self.assertEqual({button.width() for button in buttons}, {width})
-        margins = viewer.right_panel_layout.contentsMargins()
-        self.assertEqual(viewer._panel_w, width + margins.left() + margins.right())
-        self.assertEqual(viewer.main_window.minimumWidth(), viewer._panel_w)
-        for button in buttons:
-            self.assert_text_shows_whole(button)
-
-    def test_buttons_share_the_widest_label_and_the_panel_fits_them(self):
-        viewer = self.make_viewer()
-        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
-        viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
-        self.assert_panel_fits(viewer)
-        # The icon takes its own room: the text still shows whole beside it.
-        for button in viewer.sidebar_buttons.values():
-            self.assertFalse(button.icon().isNull())
-            self.assertEqual(button_icon_room(button), button.iconSize().width() + 4)
-
-    def test_only_a_new_button_opens_the_sidebar(self):
-        viewer = self.make_viewer()
-        opened = []
-        viewer.set_sidebar_visible = opened.append
-        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
-        self.assertEqual(opened, [True])
-
-        # Asked for a button it already has, it leaves the sidebar as the user left it.
-        again = viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
-        self.assertIs(again, viewer.sidebar_buttons["agentBtn"])
-        self.assertEqual(opened, [True])
-
-        viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
-        self.assertEqual(opened, [True, True])
-
-    def test_a_longer_label_widens_every_button_and_the_panel(self):
-        viewer = self.make_viewer()
-        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
-        before = viewer._panel_w
-        viewer.add_sidebar_button(
-            "longBtn", "A label as long as a translation might make it", lambda: None
-        )
-        self.assertGreater(viewer._panel_w, before)
-        self.assert_panel_fits(viewer)
 
 
 class ConfigWindowTests(TextSizedTestCase):

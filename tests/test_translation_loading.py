@@ -550,10 +550,9 @@ class StartupWiringTests(unittest.TestCase):
         tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
         viewer = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MainViewer")
         methods = {node.name: node for node in viewer.body if isinstance(node, ast.FunctionDef)}
-        # The main window, with the sidebar and its toggle, is built in _build_main_window,
-        # and the threshold slider, with the controls' info button and the Console button, in _build_slider_overlay.
-        for widget in ("QMainWindow", "QPushButton"):
-            self.assertTrue(calls_in(methods["_build_main_window"], widget), widget)
+        # The main window is built in _build_main_window, and the threshold slider,
+        # with the controls' info button and the Console button, in _build_slider_overlay.
+        self.assertTrue(calls_in(methods["_build_main_window"], "QMainWindow"), "QMainWindow")
         for widget in ("ThresholdSpinBox", "ControlsButton", "ConsoleButton"):
             self.assertTrue(calls_in(methods["_build_slider_overlay"], widget), widget)
         self.assert_installed_between(

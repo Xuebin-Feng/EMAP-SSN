@@ -7677,7 +7677,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1716"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1655"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7759,12 +7759,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+720"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+608"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+169"/>
+        <location line="+125"/>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
@@ -7774,19 +7774,19 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="-574"/>
+        <location line="-431"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="-476"/>
+        <location line="-463"/>
         <source>Clicked: {node}</source>
         <translation type="unfinished">已点击：{node}</translation>
     </message>
     <message>
-        <location line="+478"/>
+        <location line="+465"/>
         <source>Selection cleared.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
@@ -9599,7 +9599,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列数</translation>
     </message>
     <message>
-        <location filename="../../../tools/Embedding_MSA.py" line="+2400"/>
+        <location filename="../../../tools/Embedding_MSA.py" line="+2273"/>
         <source>Isotonic Regression Fit</source>
         <translation type="unfinished">保序回归拟合</translation>
     </message>
@@ -16725,16 +16725,15 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2505"/>
         <source>Toggle sidebar panel</source>
-        <translation type="unfinished">显示或隐藏侧边栏</translation>
+        <translation type="obsolete">显示或隐藏侧边栏</translation>
     </message>
     <message>
         <source>Hide these instructions</source>
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-197"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2652"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -16790,7 +16789,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2185"/>
+        <location line="+2147"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -16920,7 +16919,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+122"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+112"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>

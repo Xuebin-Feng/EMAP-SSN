@@ -101,7 +101,7 @@ modules = [
     "test_viewer_mouse_gestures",
     "test_viewer_portal_adapters",
     "test_viewer_sessions",
-    "test_viewer_sidebar",
+    "test_viewer_slider_overlay",
     "test_viewer_startup_snapshot",
     "test_viewer_dpi",
     "test_viewer_vsync",

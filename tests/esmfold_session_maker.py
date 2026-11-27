@@ -45,7 +45,7 @@ for folder in (ROOT / "src", ROOT):
 
 from tests import esmfold_saved_sessions as saved  # noqa: E402
 from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin  # noqa: E402
-from tests.test_esmfold_residue import POINTER  # noqa: E402
+from tests.esmfold_page_helpers import POINTER  # noqa: E402
 
 RESULT_PREFIX = "MAKER "
 SCENES = {}
