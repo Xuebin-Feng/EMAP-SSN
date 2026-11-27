@@ -6,7 +6,6 @@ sends a request: ``work`` is a function of the test.
 
 import sys
 import threading
-import time
 import unittest
 from pathlib import Path
 
@@ -64,20 +63,29 @@ class RunAsCompletedTests(unittest.TestCase):
         self.assertEqual([entry[3] for entry in collector.results], [None, None, None])
 
         lock = threading.Lock()
-        state = {"now": 0, "most": 0}
+        state = {"now": 0, "most": 0, "finished_others": 0}
+        all_others_done = threading.Event()
 
         def work(item):
             with lock:
                 state["now"] += 1
                 state["most"] = max(state["most"], state["now"])
-            time.sleep(0.01)
-            with lock:
-                state["now"] -= 1
+            try:
+                if item == 0:
+                    # Stay in flight while items 1..7 run one by one on the second slot.
+                    self.assertTrue(all_others_done.wait(timeout=5.0))
+            finally:
+                with lock:
+                    state["now"] -= 1
+                    if item != 0:
+                        state["finished_others"] += 1
+                        if state["finished_others"] == 7:
+                            all_others_done.set()
             return item
 
         collector = self.run_it(list(range(8)), work, max_in_flight=2)
         self.assertEqual(sorted(collector.items()), list(range(8)))
-        self.assertLessEqual(state["most"], 2)
+        self.assertEqual(state["most"], 2)
 
     def test_a_failed_item_is_consumed_as_an_error_and_does_not_end_the_run(self):
         def work(item):
@@ -144,20 +152,40 @@ class RunAsCompletedTests(unittest.TestCase):
     def test_a_fatal_error_stops_sending_keeps_what_was_in_flight_and_is_raised_last(self):
         sent = []
         b_started = threading.Event()
+        a_fatal_seen = threading.Event()
+
+        class _FatalStopMatcherMeta(type):
+            def __instancecheck__(cls, instance):
+                # Use a distinct matcher type so CPython invokes __instancecheck__
+                # instead of short-circuiting on exact type identity.
+                if isinstance(instance, Stop):
+                    a_fatal_seen.set()
+                    return True
+                return False
+
+        class FatalStopMatcher(metaclass=_FatalStopMatcherMeta):
+            pass
 
         def work(item):
             sent.append(item)
             if item == "a":
-                b_started.wait(10)
+                self.assertTrue(b_started.wait(timeout=5.0))
                 raise Stop("limit reached")
             if item == "b":
                 b_started.set()
-                time.sleep(0.3)  # long enough that a's failure is always seen first, even on a loaded machine
+                # Release b only after run_as_completed has received a's fatal error.
+                self.assertTrue(a_fatal_seen.wait(timeout=5.0))
             return item
 
         collector = Collector()
         with self.assertRaises(Stop) as caught:
-            self.run_it(["a", "b", "c", "d"], work, collector, max_in_flight=2, fatal=(Stop,))
+            self.run_it(
+                ["a", "b", "c", "d"],
+                work,
+                collector,
+                max_in_flight=2,
+                fatal=(FatalStopMatcher,),
+            )
 
         self.assertEqual(str(caught.exception), "limit reached")
         # b was in flight when a failed: its result is consumed, c and d are never sent.

@@ -415,37 +415,6 @@ def fit_leaf_to_embedding(aligned, length):
     return aligned
 
 
-class MSACluster:
-    def __init__(self, idx, aligned, ids, embedding=None):
-        self.idx = idx
-        # One alignment column per row: shape (width, len(ids)), uint8 ASCII
-        # codes. A merge then places each column with one contiguous copy.
-        # Building strings one character at a time took minutes per merge
-        # once clusters held tens of thousands of sequences.
-        self.aligned = aligned
-        self.ids = ids
-        # For merged nodes, each row is the average of unit residue vectors
-        # across every sequence in the cluster. Gaps contribute zero, so the
-        # row norm retains both column occupancy and residue agreement.
-        self.embedding = embedding
-        self.is_leaf = embedding is None
-
-    def get_embedding(self, embeddings_group, valid_headers):
-        """Return profile vectors, lazily initializing leaf residue vectors.
-
-        Leaves are read through the builder's open embeddings group instead of
-        reopening the file once per sequence.
-        """
-        if self.embedding is not None:
-            return self.embedding
-
-        header = valid_headers[self.ids[0]]
-        safe_h = header.replace("/", "_").replace("\\", "_")
-        # Leaves enter the profile as unit residue vectors. Subsequent
-        # weighted averages then have norms in [0, 1], where a smaller
-        # norm represents gaps and/or disagreement within the column.
-        return _normalize_residue_embeddings(embeddings_group[safe_h][:])
-
 # ==========================================
 # HELPER: GUIDE-TREE WORKERS AND THE MEMORY THEY NEED
 # ==========================================
@@ -1045,50 +1014,13 @@ def filter_network_edges(
     return edge_i, edge_j, raw_scores, align_lens
 
 
-def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator, threads=None):
-    """Add float32 cophenetic distances for every condensed pair in place."""
-    if num_seqs <= 1:
-        return
-    par, sib, ml, mh, ss, se, leaves = _prep_tree_euler(Z, num_seqs)
-    if threads is None:
-        threads = Numba_Threads.default_thread_count()
-    with Numba_Threads.limited_threads(threads):
-        _accumulate_cophenetic_batch_kernel(
-            par[None, :], sib[None, :], ml[None, :], mh[None, :],
-            ss[None, :], se[None, :], leaves[None, :], num_seqs, coph_accumulator,
-        )
-
-
-def accumulate_full_path_lengths(Z, num_seqs, node_length, path_accumulator, threads=None):
-    """Add float32 leaf-to-leaf path lengths for every condensed pair in place."""
-    if num_seqs <= 1:
-        return
-    par, sib, ml, rd, ss, se, leaves = _prep_tree_euler_nj(Z, num_seqs, node_length)
-    if threads is None:
-        threads = Numba_Threads.default_thread_count()
-    with Numba_Threads.limited_threads(threads):
-        _accumulate_path_lengths_batch_kernel(
-            par[None, :], sib[None, :], ml[None, :], rd[None, :],
-            ss[None, :], se[None, :], leaves[None, :], num_seqs, path_accumulator,
-        )
-
-
-def add_replicate_to_consensus(Z, nj_branch_lengths, num_seqs, accumulator, threads=None):
-    """Add one replicate tree's distance for every pair to the consensus, in place."""
-    if nj_branch_lengths is None:
-        accumulate_full_cophenetic(Z, num_seqs, accumulator, threads=threads)
-        return
-
-    _, node_length = guide_tree_branches(Z, num_seqs, nj_branch_lengths)
-    accumulate_full_path_lengths(Z, num_seqs, node_length, accumulator, threads=threads)
-
-
 def add_replicates_batch_to_consensus(replicates, num_seqs, accumulator, threads=None):
     """Add a batch of replicate trees in exact order using one sequential DRAM pass.
 
-    Bit-for-bit identical to calling ``add_replicate_to_consensus`` on each tree
-    in order, while reducing DRAM traffic by ``len(replicates)``x and exploiting
-    all CPU cores with L1-resident row accumulation.
+    Bit-for-bit identical to accumulating each tree's float32 distances in order
+    (UPGMA cophenetic heights or clamped neighbor-joining path lengths), while
+    reducing DRAM traffic by ``len(replicates)``x and exploiting all CPU cores
+    with L1-resident row accumulation.
     """
     if num_seqs <= 1 or not replicates:
         return
@@ -1134,12 +1066,6 @@ def finalize_cophenetic_consensus(distance_matrix, num_trees):
         raise ValueError("NUM_TREES must be greater than zero.")
     distance_matrix /= num_trees
     return distance_matrix
-
-
-def neighbor_joining_kernel(D, N):
-    """Compatibility entry point delegating to the compact (N, N) NJ kernel."""
-    D_sub = np.array(D[:N, :N], dtype=np.float64, copy=True, order="C")
-    return neighbor_joining_compact_kernel(D_sub)
 
 
 def neighbor_joining_condensed(
@@ -1592,59 +1518,6 @@ def write_lazy_alignment_fasta(
                 # Push B first so A is popped and written first (preserves exact ids_a + ids_b order!)
                 stack.append((child_b, col_map[(moves == 1) | (moves == 3)]))
                 stack.append((child_a, col_map[(moves == 1) | (moves == 2)]))
-
-def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
-    # The traceback lists moves from the last column to the first. Match (1)
-    # and delete (2) take the next column of A, match and insert (3) of B.
-    moves = path[::-1]
-    take_a = (moves == 1) | (moves == 2)
-    take_b = (moves == 1) | (moves == 3)
-    used_a = int(take_a.sum())
-    used_b = int(take_b.sum())
-    if not (used_a == cluster_a.aligned.shape[0] == emb_a.shape[0]
-            and used_b == cluster_b.aligned.shape[0] == emb_b.shape[0]):
-        # Masked assignment would otherwise broadcast a one-column cluster
-        # into the wrong number of columns without complaint.
-        raise ValueError(
-            "Alignment path does not place every column: cluster A has "
-            f"{cluster_a.aligned.shape[0]} columns and {emb_a.shape[0]} profile "
-            f"rows, the path takes {used_a}; cluster B has "
-            f"{cluster_b.aligned.shape[0]} columns and {emb_b.shape[0]} profile "
-            f"rows, the path takes {used_b}."
-        )
-
-    width = moves.shape[0]
-    n_a = cluster_a.aligned.shape[1]
-    aligned = np.full(
-        (width, n_a + cluster_b.aligned.shape[1]), GAP_CODE, dtype=np.uint8
-    )
-    aligned[take_a, :n_a] = cluster_a.aligned
-    aligned[take_b, n_a:] = cluster_b.aligned
-
-    w_a = float(len(cluster_a.ids))
-    w_b = float(len(cluster_b.ids))
-    total_w = w_a + w_b
-    # These are cluster-wide averages of unit residue vectors. The weighted
-    # mean preserves occupancy and directional agreement. Each column is
-    # computed as (a * w_a + b * w_b) / total_w in float32, in the same
-    # order as the former column-by-column loop. Rows start at -0.0, the one
-    # value that leaves every addend unchanged (+0.0 + -0.0 is +0.0), so
-    # B-only columns keep their exact bits and the profile is bit-identical.
-    merged = np.full((width, emb_a.shape[1]), -0.0, dtype=np.float32)
-    merged[take_a] = emb_a.astype(np.float32) * w_a
-    merged[take_b] += emb_b.astype(np.float32) * w_b
-    merged /= total_w
-
-    new_cluster = MSACluster(
-        idx=-1,
-        aligned=aligned,
-        # Values remain bounded because they are averages of unit vectors.
-        # Downcast to float16 to save RAM for the remaining iterations.
-        embedding=merged.astype(np.float16),
-        ids=cluster_a.ids + cluster_b.ids
-    )
-    new_cluster.is_leaf = False
-    return new_cluster
 
 # ==========================================
 # SPARSE NETWORK IMPUTATION

@@ -430,17 +430,29 @@ class CopheneticAccumulationTests(ArrayAssertions, unittest.TestCase):
         rng = np.random.default_rng(3)
         num_seqs = 40
         expected = np.zeros(num_seqs * (num_seqs - 1) // 2, dtype=np.float32)
-        actual = np.zeros_like(expected)
+        actual_single = np.zeros_like(expected)
+        replicates = []
         for _ in range(4):
             tree = sch.linkage(rng.random(expected.size), method="average")
+            replicates.append((tree, None))
             expected += sch.cophenet(tree).astype(np.float32)
-            Embedding_MSA.accumulate_full_cophenetic(tree, num_seqs, actual)
-        self.assertSameArray(actual, expected)
+            Embedding_MSA.add_replicates_batch_to_consensus([(tree, None)], num_seqs, actual_single)
+        self.assertSameArray(actual_single, expected)
 
-    def test_single_sequence_adds_nothing(self):
+        actual_batch = np.zeros_like(expected)
+        Embedding_MSA.add_replicates_batch_to_consensus(replicates, num_seqs, actual_batch)
+        self.assertSameArray(actual_batch, expected)
+
+    def test_single_sequence_and_empty_batch_add_nothing(self):
         accumulator = np.zeros(0, dtype=np.float32)
-        Embedding_MSA.accumulate_full_cophenetic(np.zeros((0, 4)), 1, accumulator)
+        Embedding_MSA.add_replicates_batch_to_consensus(
+            [(np.zeros((0, 4)), None)], 1, accumulator
+        )
         self.assertEqual(accumulator.size, 0)
+
+        nonempty = np.ones(3, dtype=np.float32)
+        Embedding_MSA.add_replicates_batch_to_consensus([], 3, nonempty)
+        self.assertSameArray(nonempty, np.ones(3, dtype=np.float32))
 
 
 class ConsensusFinalizeTests(ArrayAssertions, unittest.TestCase):

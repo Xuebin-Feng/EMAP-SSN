@@ -372,28 +372,55 @@ class OrderedRemoteRunTests(unittest.TestCase):
         return consumed, lines
 
     def test_results_arrive_in_input_order_whatever_finishes_first(self):
-        # Earlier items take longer, so they finish last.
+        # Force items 0..7 (the initial in-flight window) to finish in strict reverse order.
+        release = [threading.Event() for _ in range(8)]
+        finish_order = []
+        lock = threading.Lock()
+
         def work(item):
-            time.sleep(0.002 * (24 - item))
+            if item < 7:
+                self.assertTrue(release[item].wait(timeout=5.0))
+            with lock:
+                finish_order.append(item)
+            if 1 <= item <= 7:
+                release[item - 1].set()
             return item * 10
 
         consumed, _ = self.run_items(work, max_in_flight=8)
         self.assertEqual(consumed, [(i, i, i * 10) for i in range(24)])
+        self.assertLess(finish_order.index(7), finish_order.index(0))
 
     def test_in_flight_and_unwritten_backlog_stay_bounded(self):
         lock = threading.Lock()
-        state = {"running": 0, "peak": 0, "started": 0, "started_at_first_write": None}
+        state = {
+            "running": 0,
+            "peak": 0,
+            "started": 0,
+            "finished_non_zero": 0,
+            "started_at_first_write": None,
+        }
+        all_four_running = threading.Event()
+        backlog_full = threading.Event()
 
         def work(item):
             with lock:
                 state["running"] += 1
                 state["started"] += 1
                 state["peak"] = max(state["peak"], state["running"])
+                if state["running"] == 4:
+                    all_four_running.set()
             try:
-                time.sleep(0.3 if item == 0 else 0.001)
+                if item == 0:
+                    self.assertTrue(backlog_full.wait(timeout=5.0))
+                elif item < 4:
+                    self.assertTrue(all_four_running.wait(timeout=5.0))
             finally:
                 with lock:
                     state["running"] -= 1
+                    if item != 0:
+                        state["finished_non_zero"] += 1
+                        if state["finished_non_zero"] == 7:
+                            backlog_full.set()
             return item
 
         def consume(index, item, result):
@@ -403,15 +430,16 @@ class OrderedRemoteRunTests(unittest.TestCase):
         Remote_Requests.run_in_order(
             list(range(40)), work, consume, max_in_flight=4, report=lambda _: None
         )
-        self.assertLessEqual(state["peak"], 4)
-        # While item 0 was slow nothing was written, and no more than twice the
-        # limit had been sent: the slow one plus a backlog of finished ones.
+        self.assertEqual(state["peak"], 4)
+        # While item 0 was held nothing was written, and no more than twice the
+        # limit had been sent: the held one plus a backlog of finished ones.
         self.assertLessEqual(state["started_at_first_write"], 8)
 
     def test_a_429_lowers_the_limit_and_the_sequence_is_sent_again(self):
         lock = threading.Lock()
         calls = {}
-        state = {"running": 0, "peak_after_lowering": 0, "lowered": False}
+        state = {"running": 0, "peak_after_lowering": 0}
+        lowered = threading.Event()
 
         def work(item):
             with lock:
@@ -419,14 +447,15 @@ class OrderedRemoteRunTests(unittest.TestCase):
                 running = state["running"]
                 calls[item] = calls.get(item, 0) + 1
                 first_call = calls[item] == 1
-                if state["lowered"]:
+                if lowered.is_set():
                     state["peak_after_lowering"] = max(
                         state["peak_after_lowering"], running
                     )
             try:
-                time.sleep(0.01)
                 if item == 0 and first_call:
                     raise Remote_Requests.RateLimitedError("slow down")
+                if item == 1:
+                    self.assertTrue(lowered.wait(timeout=5.0))
                 return item
             finally:
                 with lock:
@@ -437,7 +466,7 @@ class OrderedRemoteRunTests(unittest.TestCase):
 
         def report(text):
             lines.append(text)
-            state["lowered"] = True
+            lowered.set()
 
         Remote_Requests.run_in_order(
             list(range(12)),
@@ -457,6 +486,7 @@ class OrderedRemoteRunTests(unittest.TestCase):
     def test_successes_raise_the_limit_again_but_never_above_the_setting(self):
         lock = threading.Lock()
         seen = {"calls": 0, "running": 0, "peak": 0}
+        all_eight_entered = threading.Event()
 
         def work(item):
             with lock:
@@ -464,10 +494,12 @@ class OrderedRemoteRunTests(unittest.TestCase):
                 number = seen["calls"]
                 seen["running"] += 1
                 seen["peak"] = max(seen["peak"], seen["running"])
+                if number == 8:
+                    all_eight_entered.set()
             try:
-                time.sleep(0.005)
                 if number <= 8:
-                    # All eight first requests are turned away together.
+                    # Wait until all eight initial requests are in flight before rejecting them together.
+                    self.assertTrue(all_eight_entered.wait(timeout=5.0))
                     raise Remote_Requests.RateLimitedError("slow down")
                 return item
             finally:
@@ -505,26 +537,47 @@ class OrderedRemoteRunTests(unittest.TestCase):
         self.assertEqual(consumed, [])
 
     def test_a_failure_keeps_what_was_in_order_and_ends_the_run(self):
+        prefix_consumed = threading.Event()
+        slow_started = threading.Event()
+        unblock_slow = threading.Event()
+
         def work(item):
+            if item < 5:
+                return item
             if item == 5:
-                time.sleep(0.05)
+                self.assertTrue(prefix_consumed.wait(timeout=5.0))
+                self.assertTrue(slow_started.wait(timeout=5.0))
                 raise RuntimeError("item five failed")
-            time.sleep(0.001 if item < 5 else 0.5)
+            slow_started.set()
+            unblock_slow.wait(timeout=5.0)
             return item
 
         consumed = []
+
+        def consume(index, item, result):
+            consumed.append(item)
+            if item == 4:
+                prefix_consumed.set()
+
         began = time.monotonic()
-        with self.assertRaisesRegex(RuntimeError, "item five failed"):
-            Remote_Requests.run_in_order(
-                list(range(20)),
-                work,
-                lambda index, item, result: consumed.append(item),
-                max_in_flight=6,
-                report=lambda _: None,
-            )
+        try:
+            with self.assertRaisesRegex(RuntimeError, "item five failed"):
+                Remote_Requests.run_in_order(
+                    list(range(20)),
+                    work,
+                    consume,
+                    max_in_flight=6,
+                    report=lambda _: None,
+                )
+            elapsed = time.monotonic() - began
+            # The run returned while later requests were still blocked on unblock_slow.
+            self.assertTrue(slow_started.is_set())
+            self.assertFalse(unblock_slow.is_set())
+        finally:
+            unblock_slow.set()
+
         self.assertEqual(consumed, [0, 1, 2, 3, 4])
-        # The run did not wait for the slow requests still in flight.
-        self.assertLess(time.monotonic() - began, 0.4)
+        self.assertLess(elapsed, 2.0)
 
 
 class RemoteEmbeddingGenerationTests(unittest.TestCase):
@@ -534,13 +587,16 @@ class RemoteEmbeddingGenerationTests(unittest.TestCase):
         SUPPORTED_MODELS = ["remote_model"]
         MODEL_EXECUTION_MODES = {"remote_model": "remote_api"}
 
-        def __init__(self, fail_on=None, rate_limit_every=0):
+        def __init__(self, fail_on=None, rate_limit_every=0, wait_for_concurrent=0):
             self.fail_on = fail_on
             self.rate_limit_every = rate_limit_every
+            self.wait_for_concurrent = wait_for_concurrent
             self.lock = threading.Lock()
             self.calls = []
             self.running = 0
             self.peak = 0
+            self._concurrent_reached = threading.Event()
+            self._later_finished = threading.Event()
 
         def load_model(self, model_name, device):
             return object()
@@ -551,9 +607,13 @@ class RemoteEmbeddingGenerationTests(unittest.TestCase):
                 number = len(self.calls)
                 self.running += 1
                 self.peak = max(self.peak, self.running)
+                if self.wait_for_concurrent and self.running >= self.wait_for_concurrent:
+                    self._concurrent_reached.set()
             try:
-                # Longer sequences take longer, so they finish out of order.
-                time.sleep(0.0005 * len(sequence))
+                if self.wait_for_concurrent and number == 1:
+                    # Ensure genuine concurrency and out-of-order completion without sleeping.
+                    self._concurrent_reached.wait(timeout=5.0)
+                    self._later_finished.wait(timeout=5.0)
                 if self.fail_on is not None and sequence == self.fail_on:
                     raise RuntimeError("stand-in server failure")
                 if self.rate_limit_every and number % self.rate_limit_every == 0:
@@ -563,6 +623,8 @@ class RemoteEmbeddingGenerationTests(unittest.TestCase):
             finally:
                 with self.lock:
                     self.running -= 1
+                if self.wait_for_concurrent and number > 1:
+                    self._later_finished.set()
 
     SEQUENCES = [
         "A" * (3 + (7 * index) % 11) + "CDEFGHIKLMNPQRSTVWY"[index % 19]
@@ -603,7 +665,7 @@ class RemoteEmbeddingGenerationTests(unittest.TestCase):
         self.generate(serial_plugin, serial, 1)
         self.assertEqual(serial_plugin.peak, 1)
 
-        plugin = self.RemotePlugin()
+        plugin = self.RemotePlugin(wait_for_concurrent=2)
         parallel = self.root / "parallel.h5"
         written = []
         real_validate = Generate_Embeddings.validate_embedding_array
@@ -775,6 +837,282 @@ class EmbeddingCroppingTests(unittest.TestCase):
             Embedding_Cropping.crop_embeddings(self.source, cropped, same_file)
 
         self.assertEqual(self.source.read_bytes(), original)
+
+    def test_resolve_crops_handles_exact_bounds_partial_ranges_and_missing_headers(self):
+        manifest = Embedding_HDF5.EmbeddingManifest(
+            headers=["Prefix", "Suffix", "Exact", "Single", "Overhang", "Mutated", "Dup"],
+            sequences=["MKACDEF", "MKACDEF", "MKACDEF", "MKACDEF", "ACDE", "ACDE", "ACAC"],
+            model_name="test_model",
+            saving_mode="float16",
+            generation_complete=True,
+            feature_dimension=3,
+        )
+        resolved, missing, not_found, ambiguous = Embedding_Cropping.resolve_crops(
+            manifest,
+            ["Prefix", "Suffix", "Exact", "Single", "Overhang", "Mutated", "Dup", "Ghost"],
+            ["MKA", "DEF", "MKACDEF", "F", "CDEFG", "ACDF", "AC", "MK"],
+        )
+        self.assertEqual(
+            resolved,
+            [
+                ("Prefix", "MKA", 0),
+                ("Suffix", "DEF", 4),
+                ("Exact", "MKACDEF", 0),
+                ("Single", "F", 6),
+                ("Dup", "AC", 0),
+            ],
+        )
+        self.assertEqual(missing, ["Ghost"])
+        self.assertEqual(not_found, ["Overhang", "Mutated"])
+        self.assertEqual(ambiguous, ["Dup"])
+
+    def test_crop_bounds_full_prefix_suffix_single_residue_and_float32_metadata(self):
+        source_f32 = self.root / "source_f32.h5"
+        records = [
+            ("Prefix", "MKACDEF"),
+            ("Suffix", "GHIKLMN"),
+            ("Whole", "PQRST"),
+            ("OneRes", "VWYAC"),
+        ]
+        rows = {}
+        with h5py.File(source_f32, "w") as hf:
+            group = Embedding_HDF5.create_metadata_first_file(
+                hf,
+                [h for h, _ in records],
+                [s for _, s in records],
+                "prot_t5",
+                "float32",
+            )
+            base = 0
+            for header, sequence in records:
+                arr = np.arange(base, base + 4 * len(sequence), dtype=np.float32).reshape(
+                    len(sequence), 4
+                )
+                rows[header] = arr
+                group.create_dataset(header, data=arr)
+                base += 4 * len(sequence)
+            Embedding_HDF5.mark_generation_complete(hf)
+
+        cropped = self.write_crops(
+            ">Prefix\nMKA\n>Suffix\nLMN\n>Whole\nPQRST\n>OneRes\nC\n"
+        )
+        output = self.root / "bounds_f32.h5"
+        result = Embedding_Cropping.crop_embeddings(source_f32, cropped, output)
+
+        self.assertEqual(result["resolved_headers"], ["Prefix", "Suffix", "Whole", "OneRes"])
+        self.assertEqual(result["missing_from_source"], [])
+        self.assertEqual(result["substring_not_found"], [])
+        self.assertEqual(result["ambiguous_resolved"], [])
+
+        with h5py.File(output, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, ["Prefix", "Suffix", "Whole", "OneRes"])
+            self.assertEqual(manifest.sequences, ["MKA", "LMN", "PQRST", "C"])
+            self.assertEqual(manifest.model_name, "prot_t5")
+            self.assertEqual(manifest.saving_mode, "float32")
+            self.assertTrue(manifest.generation_complete)
+            self.assertEqual(manifest.feature_dimension, 4)
+            np.testing.assert_array_equal(hf["embeddings"]["Prefix"][:], rows["Prefix"][0:3])
+            np.testing.assert_array_equal(hf["embeddings"]["Suffix"][:], rows["Suffix"][4:7])
+            np.testing.assert_array_equal(hf["embeddings"]["Whole"][:], rows["Whole"][0:5])
+            np.testing.assert_array_equal(hf["embeddings"]["OneRes"][:], rows["OneRes"][4:5])
+
+    def test_all_invalid_or_overlong_crops_produce_empty_complete_manifest(self):
+        # Crop longer than source, partial overhang beyond C-terminus, and missing header.
+        cropped = self.write_crops(
+            ">Full\nMKACDEFGG\n>Repeat\nGAAG\n>Missing\nACD\n"
+        )
+        output = self.root / "empty_crop.h5"
+        result = Embedding_Cropping.crop_embeddings(self.source, cropped, output)
+
+        self.assertEqual(result["resolved_headers"], [])
+        self.assertEqual(result["substring_not_found"], ["Full", "Repeat"])
+        self.assertEqual(result["missing_from_source"], ["Missing"])
+        with h5py.File(output, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, [])
+            self.assertEqual(manifest.sequences, [])
+            self.assertEqual(manifest.model_name, "test_model")
+            self.assertEqual(manifest.saving_mode, "float16")
+            self.assertTrue(manifest.generation_complete)
+            self.assertEqual(list(hf["embeddings"].keys()), [])
+
+    def test_crop_rejects_missing_or_incomplete_source_and_builds_default_output_path(self):
+        cropped = self.write_crops(">Full\nACD\n")
+        with self.assertRaises(FileNotFoundError):
+            Embedding_Cropping.crop_embeddings(self.root / "missing.h5", cropped)
+
+        incomplete = self.root / "incomplete.h5"
+        with h5py.File(incomplete, "w") as hf:
+            Embedding_HDF5.create_metadata_first_file(
+                hf, ["Full"], ["MKACDEF"], "test_model", "float16"
+            )
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            Embedding_Cropping.crop_embeddings(incomplete, cropped, self.root / "out.h5")
+
+        default_dir = self.root / "default_embed_dir"
+        with mock.patch.object(Embedding_Cropping, "EMBED_DIR", str(default_dir)):
+            result = Embedding_Cropping.crop_embeddings(self.source, cropped)
+        expected_path = os.path.join(
+            str(default_dir), "cropped_[test_model]_embeddings.h5"
+        )
+        self.assertEqual(result["output_hdf5"], expected_path)
+        self.assertTrue(os.path.exists(expected_path))
+        with h5py.File(expected_path, "r") as hf:
+            self.assertEqual(Embedding_HDF5.read_embedding_manifest(hf).headers, ["Full"])
+
+
+class EmbeddingExtractionTests(unittest.TestCase):
+    """Direct unit tests for Embedding_Extraction: subsetting, missing headers, and manifest integrity."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        self.source = self.root / "source.h5"
+        self.rows = {}
+        records = [("Alpha_One", "ACDEF"), ("Beta", "GHIK"), ("Gamma", "LMNPQR")]
+        with h5py.File(self.source, "w") as hf:
+            group = Embedding_HDF5.create_metadata_first_file(
+                hf,
+                [h for h, _ in records],
+                [s for _, s in records],
+                "esmc_300m",
+                "float32",
+            )
+            start = 0
+            for header, sequence in records:
+                arr = np.arange(start, start + 4 * len(sequence), dtype=np.float32).reshape(
+                    len(sequence), 4
+                )
+                self.rows[header] = arr
+                group.create_dataset(header, data=arr)
+                start += 4 * len(sequence)
+            Embedding_HDF5.mark_generation_complete(hf)
+
+    def test_load_target_records_handles_fasta_and_text_sanitization_and_errors(self):
+        txt = self.root / "ids.txt"
+        # UTF-8 BOM, blank lines, and unsanitized header separator.
+        txt.write_bytes("\ufeff\nAlpha/One\n   \nGamma\n".encode("utf-8"))
+        headers, seqs = Embedding_Extraction.load_target_records(str(txt))
+        self.assertEqual(headers, ["Alpha_One", "Gamma"])
+        self.assertIsNone(seqs)
+
+        fasta = self.root / "subset.fa"
+        fasta.write_text(">Gamma\nlmnpqr\n>Alpha/One\nACDEF\n", encoding="utf-8")
+        headers, seqs = Embedding_Extraction.load_target_records(str(fasta))
+        self.assertEqual(headers, ["Gamma", "Alpha_One"])
+        self.assertEqual(seqs, {"Gamma": "LMNPQR", "Alpha_One": "ACDEF"})
+
+        # Duplicates introduced by header sanitization are rejected.
+        dup_txt = self.root / "dup.txt"
+        dup_txt.write_text("Alpha/One\nAlpha_One\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicates after sanitization"):
+            Embedding_Extraction.load_target_records(str(dup_txt))
+
+        # Unsafe HDF5 key is rejected.
+        unsafe_txt = self.root / "unsafe.txt"
+        unsafe_txt.write_text("..\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "safe HDF5 key"):
+            Embedding_Extraction.load_target_records(str(unsafe_txt))
+
+        with self.assertRaises(FileNotFoundError):
+            Embedding_Extraction.load_target_records(str(self.root / "absent.txt"))
+
+    def test_extract_subset_preserves_order_arrays_metadata_and_reports_missing(self):
+        selection = self.root / "subset.txt"
+        selection.write_text("Gamma\nMissingOne\nAlpha/One\nMissingTwo\n", encoding="utf-8")
+        output = self.root / "extracted.h5"
+
+        out_path, found, missing = Embedding_Extraction.extract_subset(
+            self.source, selection, output
+        )
+        self.assertEqual(out_path, output)
+        self.assertEqual(found, ["Gamma", "Alpha_One"])
+        self.assertEqual(missing, ["MissingOne", "MissingTwo"])
+
+        with h5py.File(output, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, ["Gamma", "Alpha_One"])
+            self.assertEqual(manifest.sequences, ["LMNPQR", "ACDEF"])
+            self.assertEqual(manifest.model_name, "esmc_300m")
+            self.assertEqual(manifest.saving_mode, "float32")
+            self.assertTrue(manifest.generation_complete)
+            self.assertEqual(manifest.feature_dimension, 4)
+            self.assertEqual(set(hf["embeddings"].keys()), {"Gamma", "Alpha_One"})
+            np.testing.assert_array_equal(hf["embeddings"]["Gamma"][:], self.rows["Gamma"])
+            np.testing.assert_array_equal(
+                hf["embeddings"]["Alpha_One"][:], self.rows["Alpha_One"]
+            )
+
+    def test_extract_subset_with_fasta_and_all_missing_produces_valid_manifests(self):
+        fasta = self.root / "pick.fasta"
+        fasta.write_text(">Beta\nghIk\n>NotInSource\nAAAA\n", encoding="utf-8")
+        out_fasta = self.root / "pick.h5"
+        _, found, missing = Embedding_Extraction.extract_subset(
+            self.source, fasta, out_fasta
+        )
+        self.assertEqual(found, ["Beta"])
+        self.assertEqual(missing, ["NotInSource"])
+        with h5py.File(out_fasta, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, ["Beta"])
+            self.assertEqual(manifest.sequences, ["GHIK"])
+            np.testing.assert_array_equal(hf["embeddings"]["Beta"][:], self.rows["Beta"])
+
+        # All requested headers missing -> valid empty complete manifest.
+        none_txt = self.root / "none.txt"
+        none_txt.write_text("GhostA\nGhostB\n", encoding="utf-8")
+        out_empty = self.root / "empty_extract.h5"
+        _, found_empty, missing_empty = Embedding_Extraction.extract_subset(
+            self.source, none_txt, out_empty
+        )
+        self.assertEqual(found_empty, [])
+        self.assertEqual(missing_empty, ["GhostA", "GhostB"])
+        with h5py.File(out_empty, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, [])
+            self.assertEqual(manifest.sequences, [])
+            self.assertTrue(manifest.generation_complete)
+            self.assertEqual(list(hf["embeddings"].keys()), [])
+
+    def test_extract_subset_rejects_overwrite_missing_or_incomplete_source_and_builds_default_path(self):
+        selection = self.root / "sel.txt"
+        selection.write_text("Beta\n", encoding="utf-8")
+
+        # Overwriting source is refused without touching source bytes.
+        original = self.source.read_bytes()
+        same_file = os.path.join(str(self.root), ".", "source.h5")
+        with self.assertRaisesRegex(ValueError, "must not overwrite"):
+            Embedding_Extraction.extract_subset(self.source, selection, same_file)
+        self.assertEqual(self.source.read_bytes(), original)
+
+        # Missing source file.
+        with self.assertRaises(FileNotFoundError):
+            Embedding_Extraction.extract_subset(self.root / "missing.h5", selection)
+
+        # Incomplete source file.
+        incomplete = self.root / "incomplete.h5"
+        with h5py.File(incomplete, "w") as hf:
+            Embedding_HDF5.create_metadata_first_file(
+                hf, ["Beta"], ["GHIK"], "esmc_300m", "float32"
+            )
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            Embedding_Extraction.extract_subset(
+                incomplete, selection, self.root / "from_incomplete.h5"
+            )
+
+        # Default output_hdf5=None uses EMBED_DIR and source model name.
+        default_dir = self.root / "default_extract_dir"
+        with mock.patch.object(Embedding_Extraction, "EMBED_DIR", str(default_dir)):
+            out_path, found, missing = Embedding_Extraction.extract_subset(
+                self.source, selection
+            )
+        expected = os.path.join(str(default_dir), "sel_[esmc_300m]_embeddings.h5")
+        self.assertEqual(out_path, expected)
+        self.assertEqual((found, missing), (["Beta"], []))
+        with h5py.File(expected, "r") as hf:
+            self.assertEqual(Embedding_HDF5.read_embedding_manifest(hf).headers, ["Beta"])
 
 
 class EmbeddingWriterClassTests(unittest.TestCase):

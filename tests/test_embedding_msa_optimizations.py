@@ -39,14 +39,14 @@ class Track3MSAOptimizationTests(unittest.TestCase):
         msa.add_replicates_batch_to_consensus([(Z, None) for Z in trees], num_seqs, batched)
         np.testing.assert_array_equal(ref.view(np.uint32), batched.view(np.uint32))
 
-        # NJ path lengths
+        # NJ path lengths: single-tree batches in order vs multi-tree batch
         nj_reps = []
         ref_nj = np.zeros(m, dtype=np.float32)
         for _ in range(6):
             dc = rng.random(m).astype(np.float64)
             Z, bl = msa.neighbor_joining_condensed(dc, num_seqs, return_branch_lengths=True)
             nj_reps.append((Z, bl))
-            msa.add_replicate_to_consensus(Z, bl, num_seqs, ref_nj)
+            msa.add_replicates_batch_to_consensus([(Z, bl)], num_seqs, ref_nj)
         batched_nj = np.zeros(m, dtype=np.float32)
         msa.add_replicates_batch_to_consensus(nj_reps, num_seqs, batched_nj)
         np.testing.assert_array_equal(ref_nj.view(np.uint32), batched_nj.view(np.uint32))
@@ -80,70 +80,102 @@ class Track3MSAOptimizationTests(unittest.TestCase):
         ]
         Z = sch.linkage(rng.random(n_seq * (n_seq - 1) // 2), method="average")
 
-        # Eager reference via merge_clusters
-        leaves_eager = msa.encode_leaf_alignments(seqs, headers)
-        clusters = {
-            i: msa.MSACluster(i, leaves_eager[i], [i], embs[i])
-            for i in range(n_seq)
-        }
-        for step, link in enumerate(Z):
-            a, b = int(link[0]), int(link[1])
-            ca, cb = clusters.pop(a), clusters.pop(b)
-            score = msa.compute_score_matrix_torch(ca.embedding, cb.embedding, "cpu")
-            path = msa.run_global_traceback(score, -1.0, -0.1)
-            mc = msa.merge_clusters(ca, cb, path, ca.embedding, cb.embedding)
-            mc.idx = n_seq + step
-            clusters[n_seq + step] = mc
-        final_eager = clusters[2 * n_seq - 2]
-        eager_rows = np.ascontiguousarray(final_eager.aligned.T)
-        expected_fasta = "".join(
-            f">{headers[idx]}\n{row.tobytes().decode('ascii')}\n"
-            for idx, row in zip(final_eager.ids, eager_rows)
-        ).encode("utf-8")
+        # Self-contained eager string/profile reference (no dependency on retired merge_clusters)
+        def eager_merge_ref(seqs_a, ids_a, emb_a, seqs_b, ids_b, emb_b, path):
+            moves = path[::-1]
+            out_a = ["" for _ in seqs_a]
+            out_b = ["" for _ in seqs_b]
+            vecs = []
+            ia = ib = 0
+            wa, wb = float(len(ids_a)), float(len(ids_b))
+            tw = wa + wb
+            for mv in moves:
+                if mv == 1:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += s[ia]
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += s[ib]
+                    vecs.append((emb_a[ia].astype(np.float32) * wa + emb_b[ib].astype(np.float32) * wb) / tw)
+                    ia += 1
+                    ib += 1
+                elif mv == 2:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += s[ia]
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += "-"
+                    vecs.append((emb_a[ia].astype(np.float32) * wa) / tw)
+                    ia += 1
+                elif mv == 3:
+                    for i, s in enumerate(seqs_a):
+                        out_a[i] += "-"
+                    for i, s in enumerate(seqs_b):
+                        out_b[i] += s[ib]
+                    vecs.append((emb_b[ib].astype(np.float32) * wb) / tw)
+                    ib += 1
+            return out_a + out_b, ids_a + ids_b, np.stack(vecs, axis=0).astype(np.float16)
 
-        # Lazy tree-replay path
-        leaves_lazy = msa.encode_leaf_alignments(seqs, headers)
-        active_profiles = {i: embs[i] for i in range(n_seq)}
-        active_widths = {i: leaves_lazy[i].shape[0] for i in range(n_seq)}
-        active_counts = {i: 1 for i in range(n_seq)}
-        merge_children = []
-        merge_moves = []
+        ref_clusters = {i: ([seqs[headers[i]]], [i], embs[i]) for i in range(n_seq)}
         for step, link in enumerate(Z):
             a, b = int(link[0]), int(link[1])
-            ea, eb = active_profiles.pop(a), active_profiles.pop(b)
-            wa, wb = active_widths.pop(a), active_widths.pop(b)
-            ca, cb = active_counts.pop(a), active_counts.pop(b)
+            sa, ia, ea = ref_clusters.pop(a)
+            sb, ib, eb = ref_clusters.pop(b)
             score = msa.compute_score_matrix_torch(ea, eb, "cpu")
             path = msa.run_global_traceback(score, -1.0, -0.1)
-            prof, moves = msa.merge_profiles_lazy(wa, ca, wb, cb, path, ea, eb)
-            nid = n_seq + step
-            active_profiles[nid] = prof
-            active_widths[nid] = moves.shape[0]
-            active_counts[nid] = ca + cb
-            merge_children.append((a, b))
-            merge_moves.append(moves)
+            ref_clusters[n_seq + step] = eager_merge_ref(sa, ia, ea, sb, ib, eb, path)
+        ref_seqs, ref_ids, ref_root_emb = ref_clusters[2 * n_seq - 2]
+        expected_fasta = "".join(
+            f">{headers[idx]}\n{row}\n" for idx, row in zip(ref_ids, ref_seqs)
+        ).encode("utf-8")
 
-        with tempfile.TemporaryDirectory() as td:
-            out_path = os.path.join(td, "lazy.fasta")
-            msa.write_lazy_alignment_fasta(
-                out_path,
-                2 * n_seq - 2,
-                n_seq,
-                merge_children,
-                merge_moves,
-                leaves_lazy,
-                headers,
-                active_widths[2 * n_seq - 2],
-            )
-            with open(out_path, "rb") as handle:
-                actual_fasta = handle.read()
+        # Lazy tree-replay path (both sequential and heavy-first DFS order)
+        for order_name, merge_order in (
+            ("sequential", list(range(len(Z)))),
+            ("heavy_first", msa.heavy_first_merge_order(Z, n_seq)),
+        ):
+            with self.subTest(order=order_name):
+                leaves_lazy = msa.encode_leaf_alignments(seqs, headers)
+                active_profiles = {i: embs[i] for i in range(n_seq)}
+                active_widths = {i: leaves_lazy[i].shape[0] for i in range(n_seq)}
+                active_counts = {i: 1 for i in range(n_seq)}
+                merge_children = [None] * len(Z)
+                merge_moves = [None] * len(Z)
+                for step in merge_order:
+                    link = Z[step]
+                    a, b = int(link[0]), int(link[1])
+                    ea, eb = active_profiles.pop(a), active_profiles.pop(b)
+                    wa, wb = active_widths.pop(a), active_widths.pop(b)
+                    ca, cb = active_counts.pop(a), active_counts.pop(b)
+                    score = msa.compute_score_matrix_torch(ea, eb, "cpu")
+                    path = msa.run_global_traceback(score, -1.0, -0.1)
+                    prof, moves = msa.merge_profiles_lazy(wa, ca, wb, cb, path, ea, eb)
+                    nid = n_seq + step
+                    active_profiles[nid] = prof
+                    active_widths[nid] = moves.shape[0]
+                    active_counts[nid] = ca + cb
+                    merge_children[step] = (a, b)
+                    merge_moves[step] = moves
 
-        self.assertEqual(actual_fasta, expected_fasta)
-        # Also verify root float16 profile is bit-identical!
-        np.testing.assert_array_equal(
-            final_eager.embedding.view(np.uint16),
-            active_profiles[2 * n_seq - 2].view(np.uint16),
-        )
+                with tempfile.TemporaryDirectory() as td:
+                    out_path = os.path.join(td, "lazy.fasta")
+                    msa.write_lazy_alignment_fasta(
+                        out_path,
+                        2 * n_seq - 2,
+                        n_seq,
+                        merge_children,
+                        merge_moves,
+                        leaves_lazy,
+                        headers,
+                        active_widths[2 * n_seq - 2],
+                    )
+                    with open(out_path, "rb") as handle:
+                        actual_fasta = handle.read()
+
+                self.assertEqual(actual_fasta, expected_fasta)
+                # Also verify root float16 profile is bit-identical!
+                np.testing.assert_array_equal(
+                    ref_root_emb.view(np.uint16),
+                    active_profiles[2 * n_seq - 2].view(np.uint16),
+                )
 
     def test_compact_nj_edge_cases_empty_singleton_nan_and_extreme_values(self):
         # N = 0 and N = 1 must return empty linkage/branch arrays cleanly.
@@ -213,16 +245,19 @@ class Track3MSAOptimizationTests(unittest.TestCase):
         # Specifically ensure self-loop (0, 0) did not wrap around to cond[-1].
         self.assertEqual(cond[-1], sentinel)
 
-    def test_neighbor_joining_kernel_does_not_mutate_caller_matrix(self):
+    def test_neighbor_joining_condensed_does_not_mutate_caller_matrix(self):
         rng = np.random.default_rng(55)
         n = 12
-        d = np.ascontiguousarray(squareform(rng.uniform(0.1, 2.0, n * (n - 1) // 2)), dtype=np.float64)
-        d_orig = d.copy()
-        z, bl = msa.neighbor_joining_kernel(d, n)
-        np.testing.assert_array_equal(d, d_orig)
-        z_ref, bl_ref = msa.neighbor_joining_compact_kernel(d_orig.copy())
-        np.testing.assert_array_equal(z, z_ref)
-        np.testing.assert_array_equal(bl, bl_ref)
+        for dtype in (np.float32, np.float64):
+            with self.subTest(dtype=dtype):
+                dc = rng.uniform(0.1, 2.0, n * (n - 1) // 2).astype(dtype)
+                dc_orig = dc.copy()
+                z, bl = msa.neighbor_joining_condensed(dc, n, return_branch_lengths=True)
+                np.testing.assert_array_equal(dc, dc_orig)
+                d_sq = np.ascontiguousarray(squareform(dc_orig), dtype=np.float64)
+                z_ref, bl_ref = msa.neighbor_joining_compact_kernel(d_sq)
+                np.testing.assert_array_equal(z, z_ref)
+                np.testing.assert_array_equal(bl, bl_ref)
 
     def test_consensus_accumulation_uses_limited_threads(self):
         from utilities import Numba_Threads
@@ -230,12 +265,15 @@ class Track3MSAOptimizationTests(unittest.TestCase):
         rng = np.random.default_rng(101)
         num_seqs = 10
         m = num_seqs * (num_seqs - 1) // 2
-        z = sch.linkage(rng.random(m), method="average")
-        acc = np.zeros(m, dtype=np.float32)
+        dists = rng.random(m)
+        z_upgma = sch.linkage(dists, method="average")
+        z_nj, bl_nj = msa.neighbor_joining_condensed(dists, num_seqs, return_branch_lengths=True)
+        acc_upgma = np.zeros(m, dtype=np.float32)
+        acc_nj = np.zeros(m, dtype=np.float32)
 
         with mock.patch.object(Numba_Threads, "limited_threads", wraps=Numba_Threads.limited_threads) as spy:
-            msa.accumulate_full_cophenetic(z, num_seqs, acc, threads=2)
-            msa.add_replicates_batch_to_consensus([(z, None)], num_seqs, acc, threads=2)
+            msa.add_replicates_batch_to_consensus([(z_upgma, None)], num_seqs, acc_upgma, threads=2)
+            msa.add_replicates_batch_to_consensus([(z_nj, bl_nj)], num_seqs, acc_nj, threads=2)
         self.assertEqual(spy.call_count, 2)
         self.assertEqual([call.args[0] for call in spy.call_args_list], [2, 2])
 

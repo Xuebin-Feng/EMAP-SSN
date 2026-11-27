@@ -27,7 +27,7 @@ SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from resources.pLM_models import ankh  # noqa: E402
+from resources.pLM_models import ankh, esmc, prost_t5, prot_bert  # noqa: E402
 from tools.tool_helpers import Model_Plugins as PLM_Plugin_Utils  # noqa: E402
 
 
@@ -649,6 +649,136 @@ class AnkhPluginTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no supported amino-acid"):
             ankh.get_embeddings_batch(["MKTA", "---***"], model_obj, device, np.float32)
         self.assertEqual(tok.seen_inputs, [])
+
+
+class ProstT5PluginTests(unittest.TestCase):
+    """Mocked load_model() unit tests for src/resources/pLM_models/prost_t5.py."""
+
+    def test_no_license_gate_required_for_prost_t5(self):
+        self.assertIsNone(getattr(prost_t5, "MODEL_USAGE_TERMS", None))
+        terms = PLM_Plugin_Utils.read_model_usage_terms(
+            SRC / "resources" / "pLM_models" / "prost_t5.py"
+        )
+        self.assertEqual(terms, {})
+
+    def test_load_model_uses_fp32_safetensors_switch_to_device_and_eval(self):
+        switch = PLM_Plugin_Utils.SAFETENSORS_CONVERSION_SWITCH
+        for device in (torch.device("cpu"), torch.device("cuda:0")):
+            with self.subTest(device=str(device)):
+                fake_tok = mock.Mock(name="t5_tokenizer")
+                raw_model = mock.Mock(name="raw_t5_encoder")
+                moved_model = mock.Mock(name="moved_t5_encoder")
+                raw_model.to.return_value = moved_model
+                seen = {}
+
+                def load_encoder(hf_id, **kwargs):
+                    seen["switch_during_load"] = os.environ.get(switch)
+                    return raw_model
+
+                with mock.patch.dict(os.environ, {}, clear=False), \
+                        mock.patch(
+                            "transformers.T5Tokenizer.from_pretrained", return_value=fake_tok
+                        ) as tok_loader, \
+                        mock.patch(
+                            "transformers.T5EncoderModel.from_pretrained",
+                            side_effect=load_encoder,
+                        ) as model_loader, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    os.environ.pop(switch, None)
+                    tok, mod = prost_t5.load_model("prost_t5", device)
+                    switch_after = os.environ.get(switch)
+
+                tok_loader.assert_called_once_with("Rostlab/ProstT5", do_lower_case=False)
+                model_loader.assert_called_once_with("Rostlab/ProstT5", dtype=torch.float32)
+                self.assertEqual(seen["switch_during_load"], "1")
+                self.assertIsNone(switch_after)
+                raw_model.to.assert_called_once_with(device)
+                moved_model.eval.assert_called_once_with()
+                self.assertIs(tok, fake_tok)
+                self.assertIs(mod, moved_model)
+
+
+class ProtBertPluginTests(unittest.TestCase):
+    """Mocked load_model() unit tests for src/resources/pLM_models/prot_bert.py."""
+
+    def test_no_license_gate_required_for_prot_bert(self):
+        self.assertIsNone(getattr(prot_bert, "MODEL_USAGE_TERMS", None))
+        terms = PLM_Plugin_Utils.read_model_usage_terms(
+            SRC / "resources" / "pLM_models" / "prot_bert.py"
+        )
+        self.assertEqual(terms, {})
+
+    def test_load_model_uses_fp32_safetensors_switch_to_device_and_eval(self):
+        switch = PLM_Plugin_Utils.SAFETENSORS_CONVERSION_SWITCH
+        for device in (torch.device("cpu"), torch.device("cuda:0")):
+            with self.subTest(device=str(device)):
+                fake_tok = mock.Mock(name="bert_tokenizer")
+                raw_model = mock.Mock(name="raw_bert_model")
+                moved_model = mock.Mock(name="moved_bert_model")
+                raw_model.to.return_value = moved_model
+                seen = {}
+
+                def load_bert(hf_id, **kwargs):
+                    seen["switch_during_load"] = os.environ.get(switch)
+                    return raw_model
+
+                with mock.patch.dict(os.environ, {}, clear=False), \
+                        mock.patch(
+                            "transformers.BertTokenizer.from_pretrained", return_value=fake_tok
+                        ) as tok_loader, \
+                        mock.patch(
+                            "transformers.BertModel.from_pretrained", side_effect=load_bert
+                        ) as model_loader, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    os.environ.pop(switch, None)
+                    tok, mod = prot_bert.load_model("prot_bert", device)
+                    switch_after = os.environ.get(switch)
+
+                tok_loader.assert_called_once_with("Rostlab/prot_bert", do_lower_case=False)
+                model_loader.assert_called_once_with("Rostlab/prot_bert", dtype=torch.float32)
+                self.assertEqual(seen["switch_during_load"], "1")
+                self.assertIsNone(switch_after)
+                raw_model.to.assert_called_once_with(device)
+                moved_model.eval.assert_called_once_with()
+                self.assertIs(tok, fake_tok)
+                self.assertIs(mod, moved_model)
+
+
+class EsmcPluginTests(unittest.TestCase):
+    """Mocked load_model() unit tests for src/resources/pLM_models/esmc.py."""
+
+    def test_no_license_gate_required_for_local_esmc_models(self):
+        self.assertIsNone(getattr(esmc, "MODEL_USAGE_TERMS", None))
+        terms = PLM_Plugin_Utils.read_model_usage_terms(
+            SRC / "resources" / "pLM_models" / "esmc.py"
+        )
+        self.assertEqual(terms, {})
+
+    def test_load_model_uses_fp32_target_device_and_eval_for_all_supported_models(self):
+        expected_repos = {
+            "esmc_300m": "biohub/ESMC-300M",
+            "esmc_600m": "biohub/ESMC-600M",
+        }
+        for model_name, repo in expected_repos.items():
+            for device in (torch.device("cpu"), torch.device("cuda:0")):
+                with self.subTest(model_name=model_name, device=str(device)):
+                    fake_tok = mock.Mock(name="esmc_tokenizer")
+                    fake_model = mock.Mock(name="esmc_model")
+
+                    with mock.patch(
+                        "esm.models.esmc.EsmcTokenizer", return_value=fake_tok
+                    ) as tok_ctor, mock.patch(
+                        "esm.models.esmc.EsmcModel.from_pretrained", return_value=fake_model
+                    ) as model_loader, contextlib.redirect_stdout(io.StringIO()):
+                        tok, mod = esmc.load_model(model_name, device)
+
+                    tok_ctor.assert_called_once_with()
+                    model_loader.assert_called_once_with(
+                        repo, device=device, dtype=torch.float32
+                    )
+                    fake_model.eval.assert_called_once_with()
+                    self.assertIs(tok, fake_tok)
+                    self.assertIs(mod, fake_model)
 
 
 if __name__ == "__main__":

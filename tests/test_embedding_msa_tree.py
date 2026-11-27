@@ -197,8 +197,7 @@ class PathLengthConsensusTests(unittest.TestCase):
     @staticmethod
     def add_full(replicates, count):
         accumulator = np.zeros(count * (count - 1) // 2, dtype=np.float32)
-        for tree, lengths in replicates:
-            Embedding_MSA.add_replicate_to_consensus(tree, lengths, count, accumulator)
+        Embedding_MSA.add_replicates_batch_to_consensus(replicates, count, accumulator)
         return accumulator
 
     def test_full_sums_match_brute_force_paths(self):
@@ -225,11 +224,18 @@ class PathLengthConsensusTests(unittest.TestCase):
 
     def test_upgma_replicates_still_add_merge_heights(self):
         count = 30
-        tree = sch.linkage(np.random.default_rng(42).random(count * (count - 1) // 2), method="average")
+        rng = np.random.default_rng(42)
+        trees = [
+            sch.linkage(rng.random(count * (count - 1) // 2), method="average")
+            for _ in range(3)
+        ]
         full = np.zeros(count * (count - 1) // 2, dtype=np.float32)
-        Embedding_MSA.add_replicate_to_consensus(tree, None, count, full)
+        Embedding_MSA.add_replicates_batch_to_consensus(
+            [(tree, None) for tree in trees], count, full
+        )
         expected_full = np.zeros_like(full)
-        Embedding_MSA.accumulate_full_cophenetic(tree, count, expected_full)
+        for tree in trees:
+            expected_full += sch.cophenet(tree).astype(np.float32)
         self.assertEqual(full.tobytes(), expected_full.tobytes())
 
 

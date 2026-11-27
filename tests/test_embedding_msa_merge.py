@@ -1,9 +1,10 @@
-"""Embedding_MSA merges column matrices exactly as it once merged strings.
+"""Embedding_MSA merges lazy profiles and replays alignments exactly as it once merged strings.
 
 The reference functions restate the merge stage before the change (commit
 96dbeb6): aligned sequences grown one character at a time and the profile
-built one column at a time. The array merge must reproduce them bit for bit,
-down to the sign of zero in float16 profiles.
+built one column at a time. The lazy profile merge and top-down tree-replay
+FASTA writer must reproduce them bit for bit, down to the sign of zero in
+float16 profiles.
 """
 
 import gc
@@ -11,7 +12,6 @@ import io
 import pathlib
 import sys
 import tempfile
-import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
@@ -136,17 +136,6 @@ def random_rows(rng, count, width):
     return [row.tobytes().decode("ascii") for row in codes]
 
 
-def array_cluster(rows, ids, embedding=None):
-    """The MSACluster holding these aligned rows, one column per matrix row."""
-    by_sequence = np.frombuffer("".join(rows).encode("ascii"), dtype=np.uint8)
-    aligned = np.ascontiguousarray(by_sequence.reshape(len(rows), -1).T)
-    return Embedding_MSA.MSACluster(-1, aligned, ids, embedding)
-
-
-def rows_of(cluster):
-    return [row.tobytes().decode("ascii") for row in np.ascontiguousarray(cluster.aligned.T)]
-
-
 def random_path(rng, width_a, width_b, matches=None):
     """A complete traceback path, last column first, as the kernel returns it."""
     if matches is None:
@@ -173,98 +162,6 @@ def random_profile(rng, width, sequences, dims=16):
     zeros = rng.random(profile.shape) < 0.05
     profile[zeros] = np.where(rng.random(int(zeros.sum())) < 0.5, -0.0, 0.0)
     return profile
-
-
-class MergeEquivalenceTests(unittest.TestCase):
-    def assertSameMerge(self, actual, expected):
-        self.assertEqual(rows_of(actual), expected.sequences)
-        self.assertEqual(actual.ids, expected.ids)
-        self.assertEqual(actual.embedding.dtype, np.float16)
-        self.assertEqual(actual.embedding.shape, expected.embedding.shape)
-        self.assertEqual(
-            actual.embedding.view(np.uint16).tobytes(),
-            expected.embedding.view(np.uint16).tobytes(),
-        )
-        self.assertEqual(actual.aligned.dtype, np.uint8)
-        self.assertFalse(actual.is_leaf)
-
-    def merge_both(self, rows_a, rows_b, ids_a, ids_b, path, emb_a, emb_b):
-        actual = Embedding_MSA.merge_clusters(
-            array_cluster(rows_a, ids_a), array_cluster(rows_b, ids_b), path, emb_a, emb_b
-        )
-        expected = reference_merge(
-            StringCluster(rows_a, ids_a), StringCluster(rows_b, ids_b), path, emb_a, emb_b
-        )
-        return actual, expected
-
-    def test_random_merges_match_reference_bit_for_bit(self):
-        rng = np.random.default_rng(11)
-        negative_zeros = 0
-        for trial in range(300):
-            count_a, count_b = (int(value) for value in rng.integers(1, 9, size=2))
-            width_a, width_b = (int(value) for value in rng.integers(1, 80, size=2))
-            ids_a = list(range(count_a))
-            ids_b = list(range(100, 100 + count_b))
-            emb_a = random_profile(rng, width_a, count_a)
-            emb_b = random_profile(rng, width_b, count_b)
-            path = random_path(rng, width_a, width_b)
-            with self.subTest(trial=trial):
-                actual, expected = self.merge_both(
-                    random_rows(rng, count_a, width_a),
-                    random_rows(rng, count_b, width_b),
-                    ids_a, ids_b, path, emb_a, emb_b,
-                )
-                self.assertSameMerge(actual, expected)
-                negative_zeros += int(np.sum(np.signbit(expected.embedding) & (expected.embedding == 0)))
-        # The fixtures must exercise the sign of zero, or the bit check is weak.
-        self.assertGreater(negative_zeros, 1000)
-
-    def test_paths_from_the_traceback_kernel_match_reference(self):
-        rng = np.random.default_rng(12)
-        for gap_open, gap_extend in ((-0.5, 0.0), (-1.0, -0.1), (0.0, 0.0)):
-            for trial in range(10):
-                count_a, count_b = (int(value) for value in rng.integers(1, 6, size=2))
-                width_a, width_b = (int(value) for value in rng.integers(1, 60, size=2))
-                emb_a = random_profile(rng, width_a, count_a)
-                emb_b = random_profile(rng, width_b, count_b)
-                score = Embedding_MSA.compute_score_matrix_torch(emb_a, emb_b, "cpu")
-                path = Embedding_MSA.run_global_traceback(score, gap_open, gap_extend)
-                with self.subTest(gap_open=gap_open, gap_extend=gap_extend, trial=trial):
-                    actual, expected = self.merge_both(
-                        random_rows(rng, count_a, width_a),
-                        random_rows(rng, count_b, width_b),
-                        list(range(count_a)), list(range(50, 50 + count_b)),
-                        path, emb_a, emb_b,
-                    )
-                    self.assertSameMerge(actual, expected)
-
-    def test_negative_zero_in_a_b_only_column_keeps_its_sign(self):
-        emb_a = np.ones((1, 4), dtype=np.float32)
-        emb_b = np.asarray([[-0.0, 0.0, -0.5, 0.5]], dtype=np.float16)
-        # Last column first: A's column, preceded by B's inserted column.
-        path = np.asarray([2, 3], dtype=np.int8)
-        actual, expected = self.merge_both(["A"], ["C"], [0], [1], path, emb_a, emb_b)
-        self.assertSameMerge(actual, expected)
-        self.assertEqual(rows_of(actual), ["-A", "C-"])
-        self.assertTrue(np.signbit(actual.embedding[0, 0]))
-        self.assertFalse(np.signbit(actual.embedding[0, 1]))
-
-    def test_path_that_misplaces_columns_is_rejected(self):
-        one_column = np.ones((1, 4), dtype=np.float32)
-        two_columns = np.ones((2, 4), dtype=np.float32)
-        cases = {
-            # Masked assignment would broadcast A's single column into none.
-            "skips A's column": (np.asarray([3, 3], np.int8), one_column, two_columns, ["CD"]),
-            # ...or copy it into two.
-            "repeats A's column": (np.asarray([2, 2, 3, 3], np.int8), one_column, two_columns, ["CD"]),
-            # A profile row count that disagrees with the alignment width.
-            "profile too long": (np.asarray([1], np.int8), two_columns, one_column, ["C"]),
-        }
-        for name, (path, emb_a, emb_b, rows_b) in cases.items():
-            with self.subTest(name), self.assertRaisesRegex(ValueError, "does not place every column"):
-                Embedding_MSA.merge_clusters(
-                    array_cluster(["A"], [0]), array_cluster(rows_b, [1]), path, emb_a, emb_b
-                )
 
 
 class LazyProfileMergeTests(unittest.TestCase):
@@ -306,6 +203,39 @@ class LazyProfileMergeTests(unittest.TestCase):
                 )
         # Ensure the trials thoroughly exercised -0.0 sign bits.
         self.assertGreater(negative_zeros, 500)
+
+    def test_paths_from_the_traceback_kernel_match_reference(self):
+        rng = np.random.default_rng(12)
+        for gap_open, gap_extend in ((-0.5, 0.0), (-1.0, -0.1), (0.0, 0.0)):
+            for trial in range(10):
+                count_a, count_b = (int(value) for value in rng.integers(1, 6, size=2))
+                width_a, width_b = (int(value) for value in rng.integers(1, 60, size=2))
+                emb_a = random_profile(rng, width_a, count_a)
+                emb_b = random_profile(rng, width_b, count_b)
+                score = Embedding_MSA.compute_score_matrix_torch(emb_a, emb_b, "cpu")
+                path = Embedding_MSA.run_global_traceback(score, gap_open, gap_extend)
+                with self.subTest(gap_open=gap_open, gap_extend=gap_extend, trial=trial):
+                    merged, moves = Embedding_MSA.merge_profiles_lazy(
+                        width_a, count_a, width_b, count_b, path, emb_a, emb_b
+                    )
+                    expected = reference_merge(
+                        StringCluster(random_rows(rng, count_a, width_a), list(range(count_a))),
+                        StringCluster(
+                            random_rows(rng, count_b, width_b), list(range(50, 50 + count_b))
+                        ),
+                        path,
+                        emb_a,
+                        emb_b,
+                    )
+                    self.assertEqual(merged.dtype, np.float16)
+                    self.assertEqual(merged.shape, expected.embedding.shape)
+                    self.assertEqual(
+                        merged.view(np.uint16).tobytes(),
+                        expected.embedding.view(np.uint16).tobytes(),
+                    )
+                    self.assertEqual(moves.dtype, np.int8)
+                    self.assertTrue(moves.flags.c_contiguous)
+                    np.testing.assert_array_equal(moves, path[::-1])
 
     def test_negative_zero_in_a_b_only_column_keeps_its_sign(self):
         emb_a = np.ones((1, 4), dtype=np.float32)
@@ -517,8 +447,9 @@ class LeafEmbeddingReadTests(unittest.TestCase):
             with h5py.File(path, "r") as embeddings, mock.patch.object(
                 Embedding_MSA, "h5py"
             ) as h5py_module:
-                leaf = Embedding_MSA.MSACluster(0, np.zeros((2, 1), np.uint8), [0])
-                profile = leaf.get_embedding(embeddings["embeddings"], ["sp/P1\\X"])
+                group = embeddings["embeddings"]
+                safe_header = "sp/P1\\X".replace("/", "_").replace("\\", "_")
+                profile = Embedding_MSA._normalize_residue_embeddings(group[safe_header][:])
             h5py_module.File.assert_not_called()
             gc.collect()
         self.assertEqual(profile.dtype, np.float32)
@@ -640,59 +571,6 @@ class HeavyFirstMergeOrderTests(unittest.TestCase):
 
         # 4) Degenerate single-sequence tree (0 merges).
         self.assertEqual(Embedding_MSA.heavy_first_merge_order(np.zeros((0, 4)), 1), [])
-
-
-class MergeSpeedTests(unittest.TestCase):
-    def test_four_thousand_sequence_merge_beats_the_string_merge_per_sequence(self):
-        # Wall-clock limits fail on a busy machine, so the array merge is
-        # compared with the 96dbeb6 string merge timed in this process on 200
-        # of the 4000 sequences. Appending one character per sequence and
-        # column cost about 80 times more per sequence than the array merge
-        # (it made a 44k-sequence MSA spend hours merging). Requiring a tenth
-        # leaves room for load spikes, and the string merge itself fails.
-        rng = np.random.default_rng(13)
-        clusters = [
-            Embedding_MSA.MSACluster(
-                -1, rng.choice(ALIGNMENT_CODES, size=(4000, 2000)), list(range(2000)),
-                rng.standard_normal((4000, 768)).astype(np.float16),
-            )
-            for _ in range(2)
-        ]
-        path = random_path(rng, 4000, 4000, matches=3000)
-        timings = []
-        for _ in range(3):
-            started = time.perf_counter()
-            merged = Embedding_MSA.merge_clusters(
-                clusters[0], clusters[1], path,
-                clusters[0].embedding, clusters[1].embedding,
-            )
-            timings.append(time.perf_counter() - started)
-        self.assertEqual(merged.aligned.shape, (5000, 4000))
-
-        subset = 100
-        string_clusters = [
-            StringCluster(
-                [row.tobytes().decode("ascii")
-                 for row in np.ascontiguousarray(cluster.aligned[:, :subset].T)],
-                cluster.ids[:subset],
-            )
-            for cluster in clusters
-        ]
-        started = time.perf_counter()
-        reference_merge(
-            string_clusters[0], string_clusters[1], path,
-            clusters[0].embedding, clusters[1].embedding,
-        )
-        reference_seconds = time.perf_counter() - started
-
-        per_sequence = min(timings) / 4000
-        reference_per_sequence = reference_seconds / (2 * subset)
-        self.assertLess(
-            per_sequence * 10,
-            reference_per_sequence,
-            f"array merge of 4000 sequences: {timings} s; "
-            f"string merge of {2 * subset}: {reference_seconds:.3f} s",
-        )
 
 
 if __name__ == "__main__":
